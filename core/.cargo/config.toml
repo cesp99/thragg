@@ -1,0 +1,13 @@
+# Android link flags. cargo-ndk (driven by the gradle `cargoNdkBuild` task)
+# selects the linker through CARGO_TARGET_<TRIPLE>_LINKER environment variables
+# and leaves RUSTFLAGS untouched, so these per-target rustflags compose with it
+# instead of clashing.
+#
+# minSdk is 31 (app/build.gradle.kts), safely past the Android 11 (API 30)
+# floor for RELR, so pack the relative relocations — with a .so this size the
+# unpacked .rela.dyn section is megabytes of almost-zeroes.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,pack-relative-relocs"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,pack-relative-relocs"]

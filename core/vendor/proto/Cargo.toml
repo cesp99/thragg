@@ -1,0 +1,29 @@
+[package]
+description = "Shared protocol for communication between the Zed app and the zed.dev server"
+edition.workspace = true
+name = "proto"
+version = "0.1.0"
+publish.workspace = true
+license = "GPL-3.0-or-later"
+
+[features]
+test-support = []
+
+[lints]
+workspace = true
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+path = "src/proto.rs"
+doctest = false
+
+[dependencies]
+anyhow.workspace = true
+prost.workspace = true
+serde.workspace = true
+
+# SEEKER PATCH: kept (proto/build.rs compiles zed.proto with prost).
+[build-dependencies]
+prost-build.workspace = true

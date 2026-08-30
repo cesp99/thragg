@@ -1,0 +1,32 @@
+[package]
+name = "migrator"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "GPL-3.0-or-later"
+
+[lints]
+workspace = true
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+path = "src/migrator.rs"
+doctest = false
+
+[dependencies]
+anyhow.workspace = true
+collections.workspace = true
+convert_case.workspace = true
+log.workspace = true
+streaming-iterator.workspace = true
+tree-sitter-json.workspace = true
+# SEEKER PATCH: the "wasm" feature is dropped — it pulls the whole
+# Cranelift/Wasmtime stack into the .so for a .wasm-grammar path this app
+# never takes (all grammars are statically linked via `grammars`).
+tree-sitter.workspace = true
+serde_json_lenient.workspace = true
+serde_json.workspace = true
+settings_content.workspace = true
+settings_json.workspace = true

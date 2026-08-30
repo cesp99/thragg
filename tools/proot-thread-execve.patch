@@ -1,0 +1,115 @@
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -437,6 +437,90 @@
+ }
+ 
+ /**
++ * Adopt the in-flight execve(2) state of the thread that actually
++ * called it, when that thread was not the thread-group leader.
++ *
++ * When a non-leader thread calls execve(2), the kernel destroys every
++ * other thread and gives the calling thread the leader's tid before
++ * PTRACE_EVENT_EXEC is delivered (ptrace(2), "execve(2) under
++ * ptrace").  The event is therefore reported against the *leader's*
++ * Tracee, while the whole translation state of the execve -- the load
++ * info built at the sysenter stage, the saved registers whose
++ * ORIGINAL sysnum routes the sysexit stage to translate_execve_exit(),
++ * the PTRACE_SYSCALL restart that stage requires -- sits on the Tracee
++ * of the former thread, which the kernel dissolved without an exit
++ * event.  Without this transfer the leader is restarted with
++ * PTRACE_CONT, PRoot's loader runs with no load script, and the
++ * freshly exec'd program dies with SIGSEGV.  The go(1) toolchain
++ * switch, which calls execve(2) from a worker thread, was the
++ * reproducer.
++ *
++ * This function returns true when such a transfer happened, in which
++ * case the caller must leave restart_how alone.
++ */
++static bool adopt_thread_exec_state(Tracee *leader)
++{
++	unsigned long former_tid = 0;
++	Tracee *former;
++	long status;
++
++	status = ptrace(PTRACE_GETEVENTMSG, leader->pid, NULL, &former_tid);
++	if (status < 0 || former_tid == 0 || (pid_t) former_tid == leader->pid)
++		return false;
++
++	former = get_tracee(NULL, (pid_t) former_tid, false);
++	if (former == NULL)
++		return false;
++
++	VERBOSE(leader, 1,
++		"vpid %" PRIu64 ": execve(2) came from thread %ld, adopting its state",
++		leader->vpid, (long) former_tid);
++
++	/* The registers saved at the execve sysenter stage: the exit
++	 * stage recognizes the syscall by their ORIGINAL version.  */
++	memcpy(leader->_regs, former->_regs, sizeof(leader->_regs));
++	leader->_regs_were_changed = former->_regs_were_changed;
++	leader->restore_original_regs = former->restore_original_regs;
++	leader->restore_original_regs_after_seccomp_event =
++		former->restore_original_regs_after_seccomp_event;
++
++	/* The syscall state machine: the next stop is the sysexit
++	 * stage of the execve.  */
++	leader->status = former->status;
++	leader->sysexit_pending = former->sysexit_pending;
++	leader->seccomp_already_handled_enter = former->seccomp_already_handled_enter;
++	leader->voided_syscall_cancelled = former->voided_syscall_cancelled;
++
++	/* What the sysexit stage consumes: the info for PRoot's loader,
++	 * and the names the new program is known by.  */
++	talloc_unlink(leader, leader->load_info);
++	leader->load_info = talloc_steal(leader, former->load_info);
++	former->load_info = NULL;
++
++	talloc_unlink(leader, leader->host_exe);
++	leader->host_exe = talloc_steal(leader, former->host_exe);
++	former->host_exe = NULL;
++
++	talloc_unlink(leader, leader->new_exe);
++	leader->new_exe = talloc_steal(leader, former->new_exe);
++	former->new_exe = NULL;
++
++	leader->skip_proot_loader = former->skip_proot_loader;
++	leader->as_ptracee.ignore_loader_syscalls =
++		former->as_ptracee.ignore_loader_syscalls;
++
++	/* The stage that consumes all of the above is only reached
++	 * with PTRACE_SYSCALL.  */
++	leader->restart_how = PTRACE_SYSCALL;
++
++	/* The kernel dissolved the former thread without an exit
++	 * event; its tid must not shadow a future process.  */
++	former->terminated = true;
++
++	return true;
++}
++
++/**
+  * Handle the current event (@tracee_status) of the given @tracee.
+  * This function returns the "computed" signal that should be used to
+  * restart the given @tracee.
+@@ -747,13 +831,20 @@
+ 			break;
+ 
+ 		case SIGTRAP | PTRACE_EVENT_VFORK_DONE << 8:
+-		case SIGTRAP | PTRACE_EVENT_EXEC  << 8:
+ 		case SIGTRAP | PTRACE_EVENT_EXIT  << 8:
+ 			signal = 0;
+ 			if (tracee->last_restart_how) {
+ 				tracee->restart_how = tracee->last_restart_how;
+ 			}
+ 			break;
++
++		case SIGTRAP | PTRACE_EVENT_EXEC  << 8:
++			signal = 0;
++			if (!adopt_thread_exec_state(tracee)
++			    && tracee->last_restart_how) {
++				tracee->restart_how = tracee->last_restart_how;
++			}
++			break;
+ 
+ 		case SIGSTOP:
+ 			/* Stop this tracee until PRoot has received

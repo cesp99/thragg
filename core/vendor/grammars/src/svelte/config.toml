@@ -1,0 +1,17 @@
+name = "Svelte"
+grammar = "svelte"
+path_suffixes = ["svelte"]
+autoclose_before = ">})"
+block_comment = { start = "<!--", prefix = "", end = "-->", tab_size = 0 }
+wrap_characters = { start_prefix = "<", start_suffix = ">", end_prefix = "</", end_suffix = ">" }
+brackets = [
+    { start = "{", end = "}", close = true, surround = true, newline = true },
+    { start = "[", end = "]", close = true, surround = true, newline = true },
+    { start = "(", end = ")", close = true, surround = true, newline = true },
+    { start = "\"", end = "\"", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+    { start = "<", end = ">", close = false, surround = true, newline = true, not_in = ["string", "comment"] },
+]
+completion_query_characters = ["-", ":"]
+prettier_parser_name = "svelte"
+tab_size = 2
+code_fence_block_name = "svelte"

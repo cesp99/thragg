@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that Seeker IDE doesn't let you do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What you'd like
+      description: The feature or change you want, as specifically as you can. Zed is the design north star — if Zed does this, say how.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Editor (typing, cursors, selection, clipboard)
+        - Syntax highlighting / language support
+        - Language servers (LSP)
+        - Terminal / Debian userland
+        - Project panel / file management
+        - Git integration
+        - Agent panel (ACP)
+        - Themes / appearance
+        - Settings / configuration
+        - Navigation / search
+        - Adaptive UI (foldable / tablet / phone layout)
+        - Performance
+        - Other
+    validations:
+      required: true

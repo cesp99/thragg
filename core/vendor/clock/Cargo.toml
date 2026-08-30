@@ -1,0 +1,27 @@
+[package]
+name = "clock"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "GPL-3.0-or-later"
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/clock.rs"
+doctest = false
+
+[features]
+test-support = ["dep:parking_lot"]
+
+[dependencies]
+parking_lot = { workspace = true, optional = true }
+serde.workspace = true
+smallvec.workspace = true
+
+# SEEKER PATCH: cfg(test) code in system_clock.rs uses parking_lot, which
+# upstream only gets via crates that enable test-support; declare it as a
+# dev-dependency so `cargo test -p clock` builds standalone.
+[dev-dependencies]
+parking_lot.workspace = true

@@ -1,0 +1,14 @@
+# Issue template configuration
+# https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/cesp99/seeker-code/discussions
+    about: For questions, ideas, and general discussion that isn't a bug or feature request.
+  - name: 📖 Building Seeker IDE
+    url: https://github.com/cesp99/seeker-code/blob/main/docs/BUILDING.md
+    about: Read the build guide before opening a build-related issue.
+  - name: 🤝 Contributing guide
+    url: https://github.com/cesp99/seeker-code/blob/main/CONTRIBUTING.md
+    about: Read the contributing guidelines before opening a PR.

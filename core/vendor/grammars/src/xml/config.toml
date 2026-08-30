@@ -1,0 +1,15 @@
+name = "XML"
+grammar = "xml"
+path_suffixes = ["xml", "xsd", "xsl", "xslt", "svg", "plist", "rss", "atom", "wsdl", "pom.xml", "AndroidManifest.xml"]
+autoclose_before = ">})"
+block_comment = { start = "<!--", prefix = "", end = "-->", tab_size = 0 }
+wrap_characters = { start_prefix = "<", start_suffix = ">", end_prefix = "</", end_suffix = ">" }
+brackets = [
+    { start = "<", end = ">", close = false, surround = true, newline = true, not_in = ["string", "comment"] },
+    { start = "(", end = ")", close = true, surround = true, newline = false },
+    { start = "[", end = "]", close = true, surround = true, newline = false },
+    { start = "\"", end = "\"", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+    { start = "'", end = "'", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+]
+tab_size = 2
+code_fence_block_name = "xml"

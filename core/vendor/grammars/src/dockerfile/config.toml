@@ -1,0 +1,13 @@
+name = "Dockerfile"
+grammar = "dockerfile"
+path_suffixes = ["Dockerfile", "dockerfile", "Containerfile", "containerfile", "dockerfile.dev", "Dockerfile.dev"]
+line_comments = ["# "]
+autoclose_before = "]})"
+brackets = [
+    { start = "{", end = "}", close = true, surround = true, newline = false },
+    { start = "[", end = "]", close = true, surround = true, newline = false },
+    { start = "(", end = ")", close = true, surround = true, newline = false },
+    { start = "\"", end = "\"", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+    { start = "'", end = "'", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+]
+code_fence_block_name = "dockerfile"

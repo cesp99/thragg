@@ -1,0 +1,71 @@
+# Release notes configuration
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+#
+# This file controls the "Generate release notes" button on the GitHub
+# release page. PRs are grouped by the labels on the merged PR, and
+# excluded from the auto-generated notes when marked with the exclusion
+# label.
+#
+# Label colours and descriptions are set on GitHub's label settings page
+# (Settings → Labels), not here — this file only maps labels to sections.
+
+changelog:
+  exclude:
+    labels:
+      - "skip-changelog"
+  categories:
+    - title: "✨ New features"
+      labels:
+        - "feature"
+        - "enhancement"
+    - title: "🐛 Bug fixes"
+      labels:
+        - "bug"
+        - "fix"
+    - title: "⚡ Performance"
+      labels:
+        - "performance"
+    - title: "🎨 UI / themes"
+      labels:
+        - "ui"
+        - "theme"
+    - title: "🖥️ Terminal & userland"
+      labels:
+        - "terminal"
+        - "userland"
+    - title: "🔧 Editor & language support"
+      labels:
+        - "editor"
+        - "syntax"
+        - "lsp"
+    - title: "🔀 Git"
+      labels:
+        - "git"
+    - title: "🤖 Agent panel (ACP)"
+      labels:
+        - "agent"
+        - "acp"
+    - title: "📱 Device & form factor"
+      labels:
+        - "device-testing"
+        - "foldable"
+        - "adaptive-ui"
+    - title: "📚 Documentation"
+      labels:
+        - "documentation"
+        - "docs"
+    - title: "🛠️ Build & tooling"
+      labels:
+        - "build"
+        - "ci"
+        - "tooling"
+    - title: "🧹 Refactor & cleanup"
+      labels:
+        - "refactor"
+        - "cleanup"
+    - title: "🔒 Security"
+      labels:
+        - "security"
+    - title: "Other changes"
+      labels:
+        - "*"

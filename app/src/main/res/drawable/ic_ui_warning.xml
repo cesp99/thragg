@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zed's assets/icons/warning.svg shape, drawn by hand on the same 16dp
+     stroke grid the imported icons use (tools/import-zed-icons.py needs a Zed
+     checkout, which the repo does not carry). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M14.49 12 9.16 2.67a1.33 1.33 0 0 0 -2.32 0L1.51 12a1.33 1.33 0 0 0 1.15 2h10.67a1.33 1.33 0 0 0 1.15 -2Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M8 6.2 8 8.9"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M8 11.35 8 11.4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

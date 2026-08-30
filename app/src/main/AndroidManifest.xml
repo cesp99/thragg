@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Terminal sessions run as child processes, which Android 12+ kills once
+         the app is cached. A foreground service is the only mitigation an app
+         can apply to itself; see terminal/TerminalService.kt. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Only so the service can say why it is running; denial costs the
+         notification, not the protection. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- "Open with…" (core/ShareOut.kt) asks which apps can view a file
+         before it offers the chooser, so that it can leave this app out of
+         the list and say so when nobody else is on it. Android 11+ hides
+         other packages from that query unless they are declared here. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.SeekerCodeByEyed">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|layoutDirection"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.SeekerCodeByEyed"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Open-with target. singleTask (above) is what lets a running
+                 instance receive these through onNewIntent instead of a second
+                 workspace being stacked on the first; the request itself is
+                 mapped in core/IncomingIntent.kt. The engine cannot open a
+                 content URI in place, so every one of these is an import —
+                 see docs/ARCHITECTURE.md, "Opening files from other apps". -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/x-sh" />
+                <data android:mimeType="application/x-yaml" />
+                <data android:mimeType="application/toml" />
+            </intent-filter>
+            <!-- Share target: a file (EXTRA_STREAM) of any type, or a piece
+                 of text (EXTRA_TEXT), which becomes "Shared text.txt". -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- "Share…" and "Open with…" hand a project file to another app
+             through this; see core/ShareOut.kt and res/xml/file_paths.xml. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- stopWithTask=false: swiping the app out of Recents must not kill a
+             running build. The notification's "Stop all" action is how a
+             session is ended from outside the app. -->
+        <service
+            android:name=".terminal.TerminalService"
+            android:exported="false"
+            android:stopWithTask="false" />
+    </application>
+
+</manifest>

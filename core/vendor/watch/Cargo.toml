@@ -1,0 +1,19 @@
+[package]
+name = "watch"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+doctest = false
+path = "src/watch.rs"
+
+[dependencies]
+parking_lot.workspace = true

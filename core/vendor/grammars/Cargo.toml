@@ -1,0 +1,79 @@
+[package]
+name = "grammars"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/grammars.rs"
+
+[dependencies]
+language_core.workspace = true
+rust-embed.workspace = true
+anyhow.workspace = true
+toml.workspace = true
+
+tree-sitter = { workspace = true, optional = true }
+tree-sitter-bash = { workspace = true, optional = true }
+tree-sitter-c = { workspace = true, optional = true }
+tree-sitter-cpp = { workspace = true, optional = true }
+tree-sitter-css = { workspace = true, optional = true }
+tree-sitter-diff = { workspace = true, optional = true }
+tree-sitter-dockerfile = { workspace = true, optional = true }
+tree-sitter-gitcommit = { workspace = true, optional = true }
+tree-sitter-go = { workspace = true, optional = true }
+tree-sitter-go-mod = { workspace = true, optional = true }
+tree-sitter-gowork = { workspace = true, optional = true }
+tree-sitter-html = { workspace = true, optional = true }
+tree-sitter-jsdoc = { workspace = true, optional = true }
+tree-sitter-java = { workspace = true, optional = true }
+tree-sitter-json = { workspace = true, optional = true }
+tree-sitter-kotlin-ng = { workspace = true, optional = true }
+tree-sitter-md = { workspace = true, optional = true }
+tree-sitter-make = { workspace = true, optional = true }
+tree-sitter-python = { workspace = true, optional = true }
+tree-sitter-regex = { workspace = true, optional = true }
+tree-sitter-rust = { workspace = true, optional = true }
+tree-sitter-scss = { workspace = true, optional = true }
+tree-sitter-sequel = { workspace = true, optional = true }
+tree-sitter-svelte-ng = { workspace = true, optional = true }
+tree-sitter-toml-ng = { workspace = true, optional = true }
+tree-sitter-typescript = { workspace = true, optional = true }
+tree-sitter-xml = { workspace = true, optional = true }
+tree-sitter-yaml = { workspace = true, optional = true }
+
+[features]
+load-grammars = [
+    "tree-sitter",
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-css",
+    "tree-sitter-diff",
+    "tree-sitter-dockerfile",
+    "tree-sitter-gitcommit",
+    "tree-sitter-go",
+    "tree-sitter-go-mod",
+    "tree-sitter-gowork",
+    "tree-sitter-html",
+    "tree-sitter-jsdoc",
+    "tree-sitter-java",
+    "tree-sitter-json",
+    "tree-sitter-kotlin-ng",
+    "tree-sitter-md",
+    "tree-sitter-make",
+    "tree-sitter-python",
+    "tree-sitter-regex",
+    "tree-sitter-rust",
+    "tree-sitter-scss",
+    "tree-sitter-sequel",
+    "tree-sitter-svelte-ng",
+    "tree-sitter-toml-ng",
+    "tree-sitter-typescript",
+    "tree-sitter-xml",
+    "tree-sitter-yaml",
+]
+test-support = ["load-grammars", "tree-sitter/wasm"]

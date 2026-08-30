@@ -1,0 +1,15 @@
+name = "SQL"
+grammar = "sql"
+path_suffixes = ["sql", "pgsql", "mysql", "psql", "ddl", "dml"]
+line_comments = ["-- "]
+block_comment = { start = "/*", prefix = "* ", end = "*/", tab_size = 1 }
+autoclose_before = ";:.,=}])"
+brackets = [
+    { start = "(", end = ")", close = true, surround = true, newline = true },
+    { start = "[", end = "]", close = true, surround = true, newline = false },
+    { start = "\"", end = "\"", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+    { start = "'", end = "'", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+    { start = "`", end = "`", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+]
+tab_size = 2
+code_fence_block_name = "sql"

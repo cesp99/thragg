@@ -1,0 +1,1856 @@
+//! User settings: a JSONC file the app and the user both edit.
+//!
+//! The file is hand-editable and **keeps its comments**. Writes from the
+//! settings screen are surgical — Zed's `settings_json` locates the exact key
+//! in the syntax tree and replaces just that value — so the explanatory
+//! comments the default file ships with, and anything the user adds, survive
+//! every change the UI makes. That is the whole reason this lives in the
+//! engine rather than being a `SharedPreferences` blob.
+//!
+//! Keys follow Zed's names where the meaning is the same (`theme`,
+//! `buffer_font_size`, `tab_size`), so muscle memory and documentation carry
+//! over. Unknown keys are left alone rather than dropped: a settings file is
+//! the user's, and a future version of the app may understand more of it.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+use serde::{Deserialize, Serialize};
+
+use crate::{BufferId, EngineError, ProjectId};
+
+/// Which theme to use. `System` follows the device's light/dark setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// How the project tree treats gitignored entries. Zed dims them rather than
+/// hiding them, which is the default here too — seeing that a file is ignored
+/// is usually more useful than not seeing the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GitignoredFiles {
+    /// Listed like any other file.
+    Show,
+    /// Listed, but greyed out.
+    #[default]
+    Dimmed,
+    /// Left out of the tree.
+    Hide,
+}
+
+/// What a line longer than the pane does — Zed's `soft_wrap`, with Zed's
+/// three current values (settings_content/src/language.rs `SoftWrap`).
+/// `prefer_line` is Zed's deprecated spelling of `none` and is read as it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SoftWrap {
+    /// Zed's default: the line runs off the right edge and scrolls.
+    #[default]
+    #[serde(alias = "prefer_line")]
+    None,
+    /// Wrap at the width of the text area.
+    EditorWidth,
+    /// Wrap at `preferred_line_length` or the editor's width, whichever is
+    /// smaller — and draw the column as the active wrap guide, as Zed does
+    /// (editor/src/config.rs:248-251).
+    Bounded,
+}
+
+/// Zed's `format_on_save`. `language_server` is the spelling Zed's older
+/// settings used for "on, and only through the language server"; it is
+/// still read here because settings files outlive the editors that wrote
+/// them, and it means what it says: the external `formatter`, if any, is
+/// skipped on save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatOnSave {
+    On,
+    #[default]
+    Off,
+    LanguageServer,
+}
+
+/// Zed's `formatter` (settings_content/src/language.rs:1098-1119), reduced
+/// to the steps this editor can take. `prettier` is read as `auto`, because
+/// there is no bundled Prettier here and `auto` is what Zed falls back to
+/// without one; an array of steps keeps its first step, since the save path
+/// runs one formatter.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Formatter {
+    /// The language server, when one is running and offers formatting.
+    #[default]
+    Auto,
+    /// Never format, even with `format_on_save` on.
+    None,
+    /// The language server — by name when `{"language_server": {"name": …}}`
+    /// said one, which for this editor (one server per language) only matters
+    /// when the name is *not* the running server's.
+    LanguageServer { name: Option<String> },
+    /// A program in the userland, given the buffer on stdin and replacing it
+    /// with what it prints. `{buffer_path}` in an argument becomes the file's
+    /// absolute path, as in Zed (project/src/lsp_store.rs:2630).
+    External {
+        command: String,
+        arguments: Vec<String>,
+    },
+    /// A code action kind the server runs as the formatter.
+    CodeAction(String),
+}
+
+impl Serialize for Formatter {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Formatter::Auto => serializer.serialize_str("auto"),
+            Formatter::None => serializer.serialize_str("none"),
+            Formatter::LanguageServer { name: None } => serializer.serialize_str("language_server"),
+            Formatter::LanguageServer { name: Some(name) } => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("language_server", &serde_json::json!({ "name": name }))?;
+                map.end()
+            }
+            Formatter::External { command, arguments } => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(
+                    "external",
+                    &serde_json::json!({ "command": command, "arguments": arguments }),
+                )?;
+                map.end()
+            }
+            Formatter::CodeAction(kind) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("code_action", kind)?;
+                map.end()
+            }
+        }
+    }
+}
+
+/// The shapes Zed's `formatter` takes on disk, one variant per shape.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum FormatterContent {
+    Named(FormatterName),
+    Object(FormatterObject),
+    Steps(Vec<FormatterContent>),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FormatterName {
+    Auto,
+    None,
+    Prettier,
+    LanguageServer,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct FormatterObject {
+    external: Option<ExternalFormatter>,
+    language_server: Option<NamedLanguageServer>,
+    code_action: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalFormatter {
+    command: String,
+    #[serde(default)]
+    arguments: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct NamedLanguageServer {
+    name: Option<String>,
+}
+
+impl FormatterContent {
+    fn into_formatter(self) -> Result<Formatter, String> {
+        match self {
+            FormatterContent::Named(FormatterName::Auto | FormatterName::Prettier) => {
+                Ok(Formatter::Auto)
+            }
+            FormatterContent::Named(FormatterName::None) => Ok(Formatter::None),
+            FormatterContent::Named(FormatterName::LanguageServer) => {
+                Ok(Formatter::LanguageServer { name: None })
+            }
+            FormatterContent::Object(object) => {
+                let count = usize::from(object.external.is_some())
+                    + usize::from(object.language_server.is_some())
+                    + usize::from(object.code_action.is_some());
+                if count != 1 {
+                    return Err("a formatter object names exactly one of external, language_server or code_action".to_owned());
+                }
+                if let Some(external) = object.external {
+                    if external.command.trim().is_empty() {
+                        return Err("an external formatter needs a command".to_owned());
+                    }
+                    return Ok(Formatter::External {
+                        command: external.command,
+                        arguments: external.arguments,
+                    });
+                }
+                if let Some(server) = object.language_server {
+                    return Ok(Formatter::LanguageServer { name: server.name });
+                }
+                Ok(Formatter::CodeAction(object.code_action.unwrap_or_default()))
+            }
+            FormatterContent::Steps(steps) => match steps.into_iter().next() {
+                Some(step) => step.into_formatter(),
+                None => Ok(Formatter::None),
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Formatter {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        FormatterContent::deserialize(deserializer)?
+            .into_formatter()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Zed's `autosave` (settings_content/src/workspace.rs:609-618), in Zed's
+/// own shapes: three plain strings and `{"after_delay": {"milliseconds": N}}`
+/// — which is what serde's external tagging spells a struct variant as, so
+/// the derive reads Zed's file unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Autosave {
+    #[default]
+    Off,
+    /// Save a tab when the active tab changes.
+    OnFocusChange,
+    /// Save every dirty tab when the app leaves the foreground.
+    OnWindowChange,
+    /// Save a tab once it has sat unedited for this long.
+    AfterDelay { milliseconds: u64 },
+}
+
+/// Which side of the workspace a panel lives on — Zed's `dock`, minus
+/// `bottom`, which here belongs to the terminal alone.
+///
+/// The defaults are *this app's*, not Zed's current ones: Zed moved its
+/// project panel to the right, and a phone-shaped editor reads better with the
+/// tree where every file manager on the platform puts it. Both are one line in
+/// settings.json, which is the point of the setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DockSide {
+    Left,
+    Right,
+    /// The panel is switched off: no status-bar button, and its commands
+    /// refuse. This app's third value rather than Zed's — Zed hides a
+    /// panel's *button* with a separate per-panel `"button": false` — folded
+    /// into `dock` here by the owner's design: one row per panel, three
+    /// answers, and a hidden panel costs no second key.
+    Hidden,
+}
+
+/// Zed's `git.inline_blame`. An object with one field rather than a bare
+/// bool, because that is the shape Zed's settings file has and someone
+/// pasting a line out of their Zed config should find it works.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InlineBlameSettings {
+    pub enabled: bool,
+}
+
+impl Default for InlineBlameSettings {
+    fn default() -> Self {
+        // Zed's own default (assets/settings/default.json).
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct GitSettings {
+    pub inline_blame: InlineBlameSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectPanelSettings {
+    pub gitignored_files: GitignoredFiles,
+    /// Zed's `project_panel.dock`.
+    pub dock: DockSide,
+    /// Zed's `project_panel.default_width`, in dp rather than px — this is
+    /// Android, where a number of pixels is not a size.
+    pub default_width: f32,
+}
+
+impl Default for ProjectPanelSettings {
+    fn default() -> Self {
+        Self {
+            gitignored_files: GitignoredFiles::default(),
+            dock: DockSide::Left,
+            default_width: 240.0,
+        }
+    }
+}
+
+/// A panel that has nothing to configure but where it sits and how wide it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelSettings {
+    pub dock: DockSide,
+    pub default_width: f32,
+}
+
+impl PanelSettings {
+    const fn new(dock: DockSide, default_width: f32) -> Self {
+        Self {
+            dock,
+            default_width,
+        }
+    }
+}
+
+impl Default for PanelSettings {
+    fn default() -> Self {
+        Self::new(DockSide::Right, 360.0)
+    }
+}
+
+/// One ACP agent the user configured by hand.
+///
+/// Zed's `agent_servers` entry, with the same three keys it uses
+/// (settings_content/src/agent.rs:740-748): `command`, `args`, `env`. Zed's
+/// has four more for modes and config-option defaults; those describe
+/// surfaces this panel does not have, and a setting that does nothing is
+/// worse than no setting.
+///
+/// The command is resolved **inside the guest**, not on Android: it is a
+/// program on Debian's PATH, or an absolute path within it. That is the whole
+/// reason a custom agent is possible at all — the engine already knows how to
+/// enter the userland, so any program that speaks ACP on stdio is an agent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CustomAgent {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+}
+
+/// One layer of the per-language settings — Zed's `LanguageSettingsContent`
+/// (settings_content/src/language.rs), for the keys this editor acts on.
+///
+/// Every field is optional because this is a *layer*: the top level of
+/// settings.json is one, each `languages` entry is one, and a project's
+/// `.zed/settings.json` contributes both again. [`LanguageSettings::resolve`]
+/// stacks them; an absent field defers to the layer beneath.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct LanguageSettingsContent {
+    pub tab_size: Option<u32>,
+    pub hard_tabs: Option<bool>,
+    pub soft_wrap: Option<SoftWrap>,
+    pub preferred_line_length: Option<u32>,
+    /// Extra columns to mark with a wrap guide — Zed's `wrap_guides`.
+    pub wrap_guides: Option<Vec<u32>>,
+    pub format_on_save: Option<FormatOnSave>,
+    pub formatter: Option<Formatter>,
+    /// Code-action kinds to run before formatting, keyed by kind, `true` to
+    /// run — Zed's `code_actions_on_format`.
+    pub code_actions_on_format: Option<BTreeMap<String, bool>>,
+    pub enable_language_server: Option<bool>,
+}
+
+impl LanguageSettingsContent {
+    /// Lay `over` on top of this layer: its present fields win.
+    fn merge_from(&mut self, over: &LanguageSettingsContent) {
+        macro_rules! take {
+            ($($field:ident),*) => { $( if over.$field.is_some() { self.$field = over.$field.clone(); } )* };
+        }
+        take!(
+            tab_size,
+            hard_tabs,
+            soft_wrap,
+            preferred_line_length,
+            wrap_guides,
+            format_on_save,
+            formatter,
+            code_actions_on_format,
+            enable_language_server
+        );
+    }
+}
+
+/// The settings in force for one buffer, every layer already stacked. What
+/// the editor asks for by buffer and never has to compute itself.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LanguageSettings {
+    pub tab_size: u32,
+    pub hard_tabs: bool,
+    pub soft_wrap: SoftWrap,
+    pub preferred_line_length: u32,
+    pub wrap_guides: Vec<u32>,
+    pub format_on_save: FormatOnSave,
+    pub formatter: Formatter,
+    pub code_actions_on_format: BTreeMap<String, bool>,
+    pub enable_language_server: bool,
+    /// `git.inline_blame.enabled`, which a project's local settings may
+    /// override; carried here because this blob is the one the editor pane
+    /// reads per buffer, and the pane is what draws blame.
+    pub inline_blame: bool,
+}
+
+impl LanguageSettings {
+    /// Zed's order (settings/src/settings_store.rs `AllLanguageSettings`):
+    /// the layers are merged *by kind* first — every top level into one
+    /// default layer, every `languages` entry for the name into one language
+    /// layer — and the language layer then sits on the default layer. So a
+    /// user's `languages.Rust.tab_size` outranks a project's top-level
+    /// `tab_size` for Rust files, exactly as it does in Zed.
+    ///
+    /// `grammar` is the grammar's own `config.toml` — Go's `hard_tabs`,
+    /// YAML's `tab_size` — and sits just above the built-in defaults: Zed
+    /// ships those as `languages` entries in default.json (Go: `hard_tabs:
+    /// true`), which is the same rank.
+    pub(crate) fn resolve(
+        user: &Settings,
+        grammar: Option<&LanguageSettingsContent>,
+        local: Option<&ProjectSettingsContent>,
+        language_name: Option<&str>,
+    ) -> Self {
+        let mut defaults = user.language_defaults();
+        if let Some(grammar) = grammar {
+            defaults.merge_from(grammar);
+        }
+        if let Some(local) = local {
+            defaults.merge_from(&local.defaults);
+        }
+        let mut language = LanguageSettingsContent::default();
+        if let Some(name) = language_name {
+            if let Some(entry) = user.languages.get(name) {
+                language.merge_from(entry);
+            }
+            if let Some(entry) = local.and_then(|local| local.languages.get(name)) {
+                language.merge_from(entry);
+            }
+        }
+        defaults.merge_from(&language);
+        let inline_blame = local
+            .and_then(|local| local.git.as_ref())
+            .and_then(|git| git.inline_blame.as_ref())
+            .and_then(|blame| blame.enabled)
+            .unwrap_or(user.git.inline_blame.enabled);
+        Self {
+            tab_size: defaults.tab_size.unwrap_or(4).clamp(1, 16),
+            hard_tabs: defaults.hard_tabs.unwrap_or(false),
+            soft_wrap: defaults.soft_wrap.unwrap_or_default(),
+            preferred_line_length: defaults
+                .preferred_line_length
+                .unwrap_or(80)
+                .clamp(MIN_LINE_LENGTH, MAX_LINE_LENGTH),
+            wrap_guides: defaults.wrap_guides.unwrap_or_default(),
+            format_on_save: defaults.format_on_save.unwrap_or_default(),
+            formatter: defaults.formatter.unwrap_or_default(),
+            code_actions_on_format: defaults.code_actions_on_format.unwrap_or_default(),
+            enable_language_server: defaults.enable_language_server.unwrap_or(true),
+            inline_blame,
+        }
+    }
+}
+
+/// Zed's `lsp.<server>.binary` (settings_content/src/project.rs:231-236).
+/// `path` is resolved inside the userland, like every other program the
+/// engine starts there; `ignore_system_version` has no meaning for a server
+/// this editor never downloads and is read and ignored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct BinarySettings {
+    pub path: Option<String>,
+    pub arguments: Option<Vec<String>>,
+    pub env: Option<BTreeMap<String, String>>,
+    pub ignore_system_version: Option<bool>,
+}
+
+/// Zed's `lsp.<server>` entry (settings_content/src/project.rs:193-213):
+/// how to start the server, what to hand it in `initialize`, and what to
+/// answer when it asks `workspace/configuration`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct LspSettings {
+    pub binary: Option<BinarySettings>,
+    pub initialization_options: Option<serde_json::Value>,
+    pub settings: Option<serde_json::Value>,
+}
+
+impl LspSettings {
+    /// Lay a project's entry over the user's: each of the three keys is taken
+    /// whole from the layer that has it, which is how Zed's `MergeFrom`
+    /// treats `Option` fields.
+    fn merge_from(&mut self, over: &LspSettings) {
+        if over.binary.is_some() {
+            self.binary = over.binary.clone();
+        }
+        if over.initialization_options.is_some() {
+            self.initialization_options = over.initialization_options.clone();
+        }
+        if over.settings.is_some() {
+            self.settings = over.settings.clone();
+        }
+    }
+}
+
+/// `git` as a project may override it: every field optional, for the same
+/// reason [`LanguageSettingsContent`]'s are.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct GitSettingsContent {
+    pub inline_blame: Option<InlineBlameContent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct InlineBlameContent {
+    pub enabled: Option<bool>,
+}
+
+/// A project's `.zed/settings.json` — Zed's `ProjectSettingsContent`
+/// (settings_content/src/project.rs:44-60), which is what limits it to the
+/// editor, language, LSP and git keys. `theme`, the panels and
+/// `agent_servers` are user settings and only user settings; a project that
+/// writes them is ignored on those keys, never obeyed, which is the whole
+/// point of the distinction: cloning a repository must not restyle the
+/// editor or start programs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ProjectSettingsContent {
+    #[serde(flatten)]
+    pub defaults: LanguageSettingsContent,
+    #[serde(deserialize_with = "lenient_languages")]
+    pub languages: BTreeMap<String, LanguageSettingsContent>,
+    #[serde(deserialize_with = "lenient_lsp")]
+    pub lsp: BTreeMap<String, LspSettings>,
+    pub git: Option<GitSettingsContent>,
+}
+
+impl ProjectSettingsContent {
+    /// Parse a project's settings file. The whole file is refused when it is
+    /// not JSON — there is nothing to salvage from half a file — but a bad
+    /// *entry* inside `languages` or `lsp` costs that entry alone.
+    pub(crate) fn parse(text: &str) -> Result<Self, String> {
+        settings_json::parse_json_with_comments::<Self>(text).map_err(|err| err.to_string())
+    }
+}
+
+/// Wrap guides and bounded wrap need a column that means something: a line
+/// length of 3 is not a line and one of 5000 is off every screen.
+const MIN_LINE_LENGTH: u32 = 20;
+const MAX_LINE_LENGTH: u32 = 1000;
+
+/// Everything the app can be configured with. Every field here is wired to
+/// something visible — a setting that does nothing is worse than no setting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub theme: ThemeMode,
+    /// Editor text size, in scale-independent pixels.
+    pub buffer_font_size: f32,
+    /// Spaces inserted by the Tab key.
+    pub tab_size: u32,
+    /// Indent with tab characters rather than spaces — Zed's `hard_tabs`.
+    pub hard_tabs: bool,
+    /// What a line longer than the pane does.
+    pub soft_wrap: SoftWrap,
+    /// The column `soft_wrap: "bounded"` wraps at, and the active wrap
+    /// guide's column — Zed's `preferred_line_length`.
+    pub preferred_line_length: u32,
+    /// Further columns to draw a guide at — Zed's `wrap_guides`.
+    pub wrap_guides: Vec<u32>,
+    pub format_on_save: FormatOnSave,
+    pub formatter: Formatter,
+    pub code_actions_on_format: BTreeMap<String, bool>,
+    /// Whether any language server is started at all.
+    pub enable_language_server: bool,
+    pub autosave: Autosave,
+    /// Per-language overrides of the editor keys above, keyed by the
+    /// language's display name ("Rust", "C++") as Zed keys them. Lenient per
+    /// entry, as `agent_servers` is: one malformed language must not reset
+    /// the file.
+    #[serde(deserialize_with = "lenient_languages")]
+    pub languages: BTreeMap<String, LanguageSettingsContent>,
+    /// Per-server configuration, keyed by the server's name
+    /// ("rust-analyzer", "clangd") as Zed keys them. Lenient per entry.
+    #[serde(deserialize_with = "lenient_lsp")]
+    pub lsp: BTreeMap<String, LspSettings>,
+    pub git: GitSettings,
+    pub project_panel: ProjectPanelSettings,
+    /// The git panel — Zed's `git_panel.dock` and `default_width`.
+    pub git_panel: PanelSettings,
+    /// Search across the project. Zed has no dock for this (it is a pane item
+    /// there); here it is a panel like the others and says so.
+    pub project_search: PanelSettings,
+    /// The Markdown and SVG preview, likewise.
+    pub preview: PanelSettings,
+    /// The agent panel — Zed's `agent_panel.dock` and `default_width`.
+    pub agent_panel: PanelSettings,
+    /// ACP agents the user configured, by the name the panel lists them under.
+    ///
+    /// A `BTreeMap`, not a `HashMap`, and that is not a detail: this is what
+    /// the picker is built from, and a hash map would reorder the list on
+    /// every launch.
+    ///
+    /// Deserialized leniently, per entry: settings.json is a file people edit
+    /// by hand, and one half-written agent must cost that one entry, not the
+    /// whole parse — a strict map here silently reset *every* setting to its
+    /// default the moment someone typed `"Claude": "claude"`.
+    #[serde(deserialize_with = "lenient_agent_servers")]
+    pub agent_servers: BTreeMap<String, CustomAgent>,
+}
+
+/// Each `agent_servers` entry parsed on its own, a broken one dropped with a
+/// log rather than sinking its neighbours — and, because a bad field anywhere
+/// fails the whole `Settings` parse, rather than sinking the entire file. The
+/// Kotlin parser (`AppSettings.parseAgents`) is lenient the same way.
+fn lenient_agent_servers<'de, D>(deserializer: D) -> Result<BTreeMap<String, CustomAgent>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let raw: serde_json::Map<String, serde_json::Value> = match value {
+        serde_json::Value::Object(map) => map,
+        other => {
+            log::warn!("settings: agent_servers is {other} rather than an object; ignored");
+            return Ok(BTreeMap::new());
+        }
+    };
+    Ok(raw
+        .into_iter()
+        .filter_map(|(name, value)| match serde_json::from_value(value) {
+            Ok(agent) => Some((name, agent)),
+            Err(err) => {
+                log::warn!("settings: agent_servers entry {name:?} is malformed ({err}); dropped");
+                None
+            }
+        })
+        .collect())
+}
+
+/// A map read entry by entry, a malformed one dropped with a log rather than
+/// sinking the file — the same policy as [`lenient_agent_servers`], for the
+/// same reason. `what` names the key in the log line.
+fn lenient_map<'de, D, T>(deserializer: D, what: &str) -> Result<BTreeMap<String, T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let raw: serde_json::Map<String, serde_json::Value> = match value {
+        serde_json::Value::Object(map) => map,
+        other => {
+            log::warn!("settings: {what} is {other} rather than an object; ignored");
+            return Ok(BTreeMap::new());
+        }
+    };
+    Ok(raw
+        .into_iter()
+        .filter_map(|(name, value)| match serde_json::from_value(value) {
+            Ok(entry) => Some((name, entry)),
+            Err(err) => {
+                log::warn!("settings: {what} entry {name:?} is malformed ({err}); dropped");
+                None
+            }
+        })
+        .collect())
+}
+
+fn lenient_languages<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, LanguageSettingsContent>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    lenient_map(deserializer, "languages")
+}
+
+fn lenient_lsp<'de, D>(deserializer: D) -> Result<BTreeMap<String, LspSettings>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    lenient_map(deserializer, "lsp")
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeMode::System,
+            buffer_font_size: 14.0,
+            tab_size: 4,
+            hard_tabs: false,
+            soft_wrap: SoftWrap::default(),
+            preferred_line_length: 80,
+            wrap_guides: Vec::new(),
+            format_on_save: FormatOnSave::Off,
+            formatter: Formatter::Auto,
+            code_actions_on_format: BTreeMap::new(),
+            enable_language_server: true,
+            autosave: Autosave::Off,
+            languages: BTreeMap::new(),
+            lsp: BTreeMap::new(),
+            git: GitSettings::default(),
+            project_panel: ProjectPanelSettings::default(),
+            git_panel: PanelSettings::new(DockSide::Right, 360.0),
+            project_search: PanelSettings::new(DockSide::Right, 360.0),
+            preview: PanelSettings::new(DockSide::Right, 400.0),
+            agent_panel: PanelSettings::new(DockSide::Right, 400.0),
+            agent_servers: BTreeMap::new(),
+        }
+    }
+}
+
+impl Settings {
+    /// Clamp values a hand-edited file could put out of range. A settings
+    /// file is user input, and a font size of 0 or 10000 should not be able
+    /// to make the editor unusable — or unrecoverable, since fixing it means
+    /// reading the very screen it broke.
+    fn sanitized(mut self) -> Self {
+        self.buffer_font_size = self.buffer_font_size.clamp(6.0, 48.0);
+        self.tab_size = self.tab_size.clamp(1, 16);
+        self.preferred_line_length = self
+            .preferred_line_length
+            .clamp(MIN_LINE_LENGTH, MAX_LINE_LENGTH);
+        // A delay of 0 would save on every keystroke — a write per key on
+        // flash storage, and an LSP `didSave` per key with it.
+        if let Autosave::AfterDelay { milliseconds } = &mut self.autosave {
+            *milliseconds = (*milliseconds).clamp(100, 600_000);
+        }
+        // A panel 4dp wide is a panel nobody can grab the edge of, and one
+        // wider than a tablet leaves no editor at all. The UI clamps against
+        // the *window* as well; this is the hand-edited-file guard.
+        self.project_panel.default_width = self.project_panel.default_width.clamp(120.0, 900.0);
+        for panel in [
+            &mut self.git_panel,
+            &mut self.project_search,
+            &mut self.preview,
+            &mut self.agent_panel,
+        ] {
+            panel.default_width = panel.default_width.clamp(120.0, 900.0);
+        }
+        self
+    }
+
+    /// The top level of the file as a language layer — the bottom of the
+    /// stack [`LanguageSettings::resolve`] builds.
+    fn language_defaults(&self) -> LanguageSettingsContent {
+        LanguageSettingsContent {
+            tab_size: Some(self.tab_size),
+            hard_tabs: Some(self.hard_tabs),
+            soft_wrap: Some(self.soft_wrap),
+            preferred_line_length: Some(self.preferred_line_length),
+            wrap_guides: Some(self.wrap_guides.clone()),
+            format_on_save: Some(self.format_on_save),
+            formatter: Some(self.formatter.clone()),
+            code_actions_on_format: Some(self.code_actions_on_format.clone()),
+            enable_language_server: Some(self.enable_language_server),
+        }
+    }
+
+    /// The user's `lsp.<server>` entry with the project's, if any, on top.
+    pub(crate) fn lsp_settings_for(
+        &self,
+        server: &str,
+        local: Option<&ProjectSettingsContent>,
+    ) -> LspSettings {
+        let mut settings = self.lsp.get(server).cloned().unwrap_or_default();
+        if let Some(over) = local.and_then(|local| local.lsp.get(server)) {
+            settings.merge_from(over);
+        }
+        settings
+    }
+}
+
+/// The grammar's own `config.toml` as a settings layer: the `tab_size` and
+/// `hard_tabs` a language ships with (Go indents with tabs; YAML with two
+/// spaces). Nothing for a grammar we do not carry.
+fn grammar_layer(grammar: Option<&str>) -> Option<LanguageSettingsContent> {
+    let json = crate::language_config::config_json(grammar?)?;
+    let config: serde_json::Value = serde_json::from_str(json).ok()?;
+    Some(LanguageSettingsContent {
+        tab_size: config["tab_size"].as_u64().map(|size| size as u32),
+        // `false` is the config's default and says nothing; only a grammar
+        // that asks for tabs is a layer at all.
+        hard_tabs: config["hard_tabs"].as_bool().filter(|tabs| *tabs),
+        ..Default::default()
+    })
+}
+
+/// The name Zed's `languages` map keys a grammar under: the `name` in the
+/// grammar's `config.toml` ("Rust", "C++", "TSX"), not the grammar's own
+/// directory name. Nothing for a grammar we do not carry.
+pub(crate) fn language_display_name(grammar: &str) -> Option<String> {
+    let json = crate::language_config::config_json(grammar)?;
+    let config: serde_json::Value = serde_json::from_str(json).ok()?;
+    config["name"].as_str().map(str::to_owned)
+}
+
+/// The commented file written on first run. The comments are the
+/// documentation, and `settings_json` preserves them through UI edits.
+const DEFAULT_FILE: &str = r#"// Seeker IDE settings.
+//
+// This file is yours: comments and formatting survive changes made from the
+// settings screen. Keys follow Zed's names where they mean the same thing.
+//
+// A project can carry its own .zed/settings.json, as in Zed: the editor,
+// language, lsp and git keys in it override these for that project alone.
+// The theme, the panels and agent_servers are yours and only yours.
+{
+  // "system" follows the device's light/dark setting; "light" and "dark"
+  // pin it.
+  "theme": "system",
+
+  // Editor text size, in scale-independent pixels.
+  "buffer_font_size": 14,
+
+  // Spaces inserted by the Tab key.
+  "tab_size": 4,
+
+  // Indent with tab characters instead of spaces. A file that is already
+  // indented one way keeps going that way; this decides for the rest.
+  "hard_tabs": false,
+
+  // What a line longer than the editor does: "none" scrolls it off the
+  // right edge, "editor_width" wraps it, "bounded" wraps it at
+  // preferred_line_length or the editor's width, whichever comes first.
+  "soft_wrap": "none",
+
+  // The column "bounded" wraps at, drawn as a guide while it is in use.
+  "preferred_line_length": 80,
+
+  // Further columns to draw a guide at, e.g. [80, 120].
+  "wrap_guides": [],
+
+  // Format the file when it is saved: "on", "off", or "language_server"
+  // (on, but never through an external formatter).
+  "format_on_save": "off",
+
+  // What "format" means: "auto" or "language_server" ask the language
+  // server; "none" never formats; an external program reads the file on
+  // stdin and prints the result, and runs inside the Linux userland:
+  //
+  //   "formatter": {
+  //     "external": { "command": "rustfmt", "arguments": ["--edition", "2021"] }
+  //   }
+  "formatter": "auto",
+
+  // Code actions the server runs before formatting, e.g.
+  //   { "source.organizeImports": true }
+  "code_actions_on_format": {},
+
+  // Save without being asked: "off", "on_focus_change" (when you switch
+  // tabs), "on_window_change" (when the app goes to the background), or
+  // { "after_delay": { "milliseconds": 1000 } } once a file sits unedited
+  // that long. Delayed saves do not run the formatter, as in Zed.
+  "autosave": "off",
+
+  // Any of the editor keys above, per language, keyed by the language's
+  // name as Zed spells it — "Rust", "C++", "TypeScript", "TSX", "Go",
+  // "Python", "Markdown". Set "enable_language_server": false to keep a
+  // language's server from starting.
+  //
+  //   "languages": {
+  //     "Go": { "hard_tabs": true, "format_on_save": "on" },
+  //     "Markdown": { "soft_wrap": "editor_width", "enable_language_server": false }
+  //   }
+  "languages": {},
+
+  // Language servers by name — "rust-analyzer", "clangd", "gopls", "pylsp",
+  // "typescript-language-server". "binary" starts a different program (a
+  // path inside the userland) or adds arguments; "initialization_options"
+  // go out with initialize; "settings" answer workspace/configuration.
+  //
+  //   "lsp": {
+  //     "rust-analyzer": {
+  //       "initialization_options": { "check": { "command": "clippy" } }
+  //     }
+  //   }
+  "lsp": {},
+
+  "git": {
+    // Who last touched the line the caret is on, shown after the end of it.
+    // Only while the file has no unsaved edits — blame describes the file on
+    // disk, and once it is edited the line numbers describe a file that is
+    // not there any more.
+    "inline_blame": { "enabled": true }
+  },
+
+  // Which side each panel docks on, and how wide it opens. "left" or
+  // "right"; the terminal has the bottom to itself. Two panels on the same
+  // side take turns — opening one closes the other — and the two sides are
+  // independent, so a tree on the left and git on the right stay up together.
+  "project_panel": {
+    // Gitignored files in the tree: "show", "dimmed" or "hide".
+    "gitignored_files": "dimmed",
+    "dock": "left",
+    "default_width": 240
+  },
+
+  "git_panel": {
+    "dock": "right",
+    "default_width": 360
+  },
+
+  "project_search": {
+    "dock": "right",
+    "default_width": 360
+  },
+
+  "preview": {
+    "dock": "right",
+    "default_width": 400
+  },
+
+  "agent_panel": {
+    "dock": "right",
+    "default_width": 400
+  },
+
+  // ACP agents, by the name the panel lists them under. The command runs
+  // inside the Linux userland, so it is a program on Debian's PATH — which
+  // is what "npm install -g" puts one on. Anything that speaks the Agent
+  // Client Protocol on stdin and stdout works here; the editor installs
+  // nothing for you.
+  //
+  //   "agent_servers": {
+  //     "Claude Code": { "command": "claude-code-acp" },
+  //     "Gemini CLI": { "command": "gemini", "args": ["--experimental-acp"] }
+  //   }
+  "agent_servers": {}
+}
+"#;
+
+fn settings_path_slot() -> &'static Mutex<Option<PathBuf>> {
+    static PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+    PATH.get_or_init(|| Mutex::new(None))
+}
+
+/// Point the settings at a directory. Called from [`crate::initialize`].
+pub(crate) fn set_directory(directory: PathBuf) {
+    *settings_path_slot().lock().unwrap() = Some(directory.join("settings.json"));
+}
+
+pub(crate) fn settings_path() -> Option<PathBuf> {
+    settings_path_slot().lock().unwrap().clone()
+}
+
+impl crate::Engine {
+    /// The settings file's contents, creating it with documented defaults on
+    /// first use. Empty if the engine was never given a directory.
+    ///
+    /// **Blocking**: call it off the Android main thread.
+    pub fn settings_text(&self) -> String {
+        let Some(path) = settings_path() else {
+            return String::new();
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(_) => {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                // Best-effort: if the write fails we still hand back the
+                // defaults, so the app runs with a read-only settings file
+                // rather than not at all.
+                let _ = std::fs::write(&path, DEFAULT_FILE);
+                DEFAULT_FILE.to_owned()
+            }
+        }
+    }
+
+    /// The resolved settings. A malformed file falls back to defaults rather
+    /// than failing: the user must always be able to reach the settings
+    /// screen and fix it.
+    ///
+    /// **Blocking**: call it off the Android main thread.
+    pub fn settings(&self) -> Settings {
+        let text = self.settings_text();
+        if text.is_empty() {
+            return Settings::default();
+        }
+        match settings_json::parse_json_with_comments::<Settings>(&text) {
+            Ok(settings) => settings.sanitized(),
+            Err(err) => {
+                log::warn!("settings.json is not valid, using defaults: {err}");
+                Settings::default()
+            }
+        }
+    }
+
+    /// Whether the settings file currently parses. The UI uses this to say so
+    /// rather than silently showing defaults that aren't in effect.
+    pub fn settings_are_valid(&self) -> bool {
+        let text = self.settings_text();
+        text.is_empty() || settings_json::parse_json_with_comments::<Settings>(&text).is_ok()
+    }
+
+    /// The built-in default settings, as documented text — what Zed's
+    /// `zed::OpenDefaultSettings` shows read-only (zed/src/zed.rs:306-316).
+    /// Never touches the disk.
+    pub fn default_settings_text(&self) -> &'static str {
+        DEFAULT_FILE
+    }
+
+    /// The settings in force for a buffer of `grammar` inside `project`:
+    /// the user file, then the project's `.zed/settings.json`, then the
+    /// `languages` entries of both, per [`LanguageSettings::resolve`].
+    /// Either may be absent — a scratch buffer, a file outside every
+    /// project — and the answer is then the user's settings alone.
+    ///
+    /// **Blocking**: reads settings.json. Call it off the Android main thread.
+    pub fn language_settings(
+        &self,
+        project: Option<ProjectId>,
+        grammar: Option<&str>,
+    ) -> LanguageSettings {
+        let user = self.settings();
+        let local = project.and_then(|project| self.project_local_settings(project));
+        let name = grammar.and_then(language_display_name);
+        LanguageSettings::resolve(
+            &user,
+            grammar_layer(grammar).as_ref(),
+            local.as_ref(),
+            name.as_deref(),
+        )
+    }
+
+    /// [`Engine::language_settings`] for an open buffer: its project is the
+    /// one whose root holds its file, its grammar the one it highlights with.
+    ///
+    /// **Blocking**: reads settings.json. Call it off the Android main thread.
+    pub fn buffer_language_settings(&self, buffer: BufferId) -> LanguageSettings {
+        let project = self
+            .buffer_path(buffer)
+            .and_then(|path| self.project_for_path(&path));
+        let grammar = self.buffer_language(buffer);
+        self.language_settings(project, grammar)
+    }
+
+    /// The `lsp.<server>` entry in force for a project: the user's, with the
+    /// project's on top.
+    ///
+    /// **Blocking**: reads settings.json.
+    pub fn lsp_settings(&self, project: Option<ProjectId>, server: &str) -> LspSettings {
+        let user = self.settings();
+        let local = project.and_then(|project| self.project_local_settings(project));
+        user.lsp_settings_for(server, local.as_ref())
+    }
+
+    /// Set one key, given as a path (`["project_panel", "show_ignored"]`),
+    /// preserving the rest of the file including comments. Returns the
+    /// resolved settings afterwards.
+    ///
+    /// **Blocking**: call it off the Android main thread.
+    pub fn set_setting(
+        &self,
+        key_path: &[&str],
+        value: serde_json::Value,
+    ) -> Result<Settings, EngineError> {
+        self.edit_settings_value(key_path, Some(value))
+    }
+
+    /// Add or replace one `agent_servers` entry — what the settings screen's
+    /// Add Agent form saves, mirroring Zed's own form, which writes the same
+    /// key (settings_ui/src/pages/external_agents_page.rs:762-770).
+    ///
+    /// **Blocking**: call it off the Android main thread.
+    pub fn set_agent_server(
+        &self,
+        name: &str,
+        agent: CustomAgent,
+    ) -> Result<Settings, EngineError> {
+        let value = serde_json::to_value(&agent)
+            .map_err(|err| EngineError::InvalidSettings(err.to_string()))?;
+        // The name goes into the path verbatim — never through the bridge's
+        // dot-split `set_setting` route, where an agent called "my.agent"
+        // would silently become a nested object.
+        self.edit_settings_value(&["agent_servers", name], Some(value))
+    }
+
+    /// Remove one `agent_servers` entry, as Zed's trash button does
+    /// (external_agents_page.rs:226-249). Removing a name that is not there
+    /// is not an error: the entry is gone either way.
+    ///
+    /// **Blocking**: call it off the Android main thread.
+    pub fn remove_agent_server(&self, name: &str) -> Result<Settings, EngineError> {
+        self.edit_settings_value(&["agent_servers", name], None)
+    }
+
+    fn edit_settings_value(
+        &self,
+        key_path: &[&str],
+        value: Option<serde_json::Value>,
+    ) -> Result<Settings, EngineError> {
+        let Some(path) = settings_path() else {
+            return Err(EngineError::NoSettingsFile);
+        };
+        let original = self.settings_text();
+        let mut text = original.clone();
+        let indent = settings_json::infer_json_indent_size(&text).max(1);
+        // Surgical: this returns the byte range of just that key's value (or
+        // where to insert it — or, with `None`, what to cut), so everything
+        // around it, comments included, is untouched.
+        let (range, replacement) = settings_json::replace_value_in_json_text(
+            &text,
+            key_path,
+            indent,
+            value.as_ref(),
+            None,
+        );
+        text.replace_range(range, &replacement);
+        // A value of the wrong shape — a string where an enum has two names,
+        // a bool where a number goes — does not break one setting, it breaks
+        // the *file*, and `settings()` answers an unparseable file with the
+        // defaults. Written blind, one bad key silently reset every other one.
+        // So: if the file parsed before and does not now, this write is what
+        // broke it, and it is put back.
+        let was_valid = settings_json::parse_json_with_comments::<Settings>(&original).is_ok();
+        if was_valid && settings_json::parse_json_with_comments::<Settings>(&text).is_err() {
+            return Err(EngineError::InvalidSettings(match &value {
+                Some(value) => format!("\"{}\" cannot be set to {value}", key_path.join(".")),
+                None => format!("\"{}\" cannot be removed", key_path.join(".")),
+            }));
+        }
+        std::fs::write(&path, &text).map_err(|err| EngineError::Io {
+            path: path.display().to_string(),
+            message: err.to_string(),
+        })?;
+        self.note_settings_written();
+        Ok(self.settings())
+    }
+
+    /// Replace the whole file — what an "edit as JSON" screen would save.
+    /// Rejects text that doesn't parse, so the app can't be configured into
+    /// a state where the settings screen shows defaults it isn't using.
+    ///
+    /// **Blocking**: call it off the Android main thread.
+    pub fn set_settings_text(&self, text: &str) -> Result<Settings, EngineError> {
+        let Some(path) = settings_path() else {
+            return Err(EngineError::NoSettingsFile);
+        };
+        let parsed = settings_json::parse_json_with_comments::<Settings>(text)
+            .map_err(|err| EngineError::InvalidSettings(err.to_string()))?;
+        std::fs::write(&path, text).map_err(|err| EngineError::Io {
+            path: path.display().to_string(),
+            message: err.to_string(),
+        })?;
+        self.note_settings_written();
+        Ok(parsed.sanitized())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Engine;
+    use serde_json::json;
+
+    /// The settings path is process-global, so these take turns.
+    fn with_settings_dir<T>(body: impl FnOnce(&Engine, &std::path::Path) -> T) -> T {
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        set_directory(dir.path().to_path_buf());
+        let engine = Engine::new();
+        body(&engine, dir.path())
+    }
+
+    #[test]
+    fn first_read_writes_a_documented_default_file() {
+        with_settings_dir(|engine, dir| {
+            let settings = engine.settings();
+            assert_eq!(settings, Settings::default());
+            let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("\"buffer_font_size\""));
+        });
+    }
+
+    #[test]
+    fn editing_a_key_preserves_comments_and_other_keys() {
+        with_settings_dir(|engine, dir| {
+            engine.settings_text(); // materialize the default file
+            let updated = engine
+                .set_setting(&["buffer_font_size"], json!(18))
+                .unwrap();
+            assert_eq!(updated.buffer_font_size, 18.0);
+
+            let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            // The point of settings_json: the prose survives.
+            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("// Spaces inserted by the Tab key."));
+            assert!(text.contains("\"buffer_font_size\": 18"));
+            // Untouched keys keep their values.
+            assert!(text.contains("\"tab_size\": 4"));
+        });
+    }
+
+    /// The documented default file has to *parse* as the settings it
+    /// documents, or a first run writes a file the next read falls back from
+    /// — silently, since a bad parse is defaults.
+    #[test]
+    fn the_default_file_is_the_default_settings() {
+        let parsed: Settings = settings_json::parse_json_with_comments(DEFAULT_FILE).unwrap();
+        assert_eq!(parsed, Settings::default());
+    }
+
+    /// Where a panel sits is a setting, and the file that documents it has to
+    /// parse as what it documents — see the test above.
+    #[test]
+    fn a_panel_can_be_moved_to_the_other_side() {
+        with_settings_dir(|engine, _dir| {
+            engine.settings_text();
+            assert_eq!(engine.settings().project_panel.dock, DockSide::Left);
+            let updated = engine
+                .set_setting(&["project_panel", "dock"], json!("right"))
+                .unwrap();
+            assert_eq!(updated.project_panel.dock, DockSide::Right);
+            // The git panel is on the right by default and stays where it is.
+            assert_eq!(updated.git_panel.dock, DockSide::Right);
+            // A side that is not a side is refused rather than resetting the
+            // whole file to defaults.
+            assert!(
+                engine
+                    .set_setting(&["project_panel", "dock"], json!("bottom"))
+                    .is_err()
+            );
+            assert_eq!(engine.settings().project_panel.dock, DockSide::Right);
+        });
+    }
+
+    /// A hand-edited width that would leave no editor, or no grabbable edge.
+    #[test]
+    fn a_panel_width_out_of_range_is_clamped() {
+        with_settings_dir(|engine, _dir| {
+            engine.settings_text();
+            let updated = engine
+                .set_setting(&["git_panel", "default_width"], json!(5000))
+                .unwrap();
+            assert_eq!(updated.git_panel.default_width, 900.0);
+        });
+    }
+
+    #[test]
+    fn soft_wrap_takes_zeds_names_and_refuses_others() {
+        with_settings_dir(|engine, _dir| {
+            engine.settings_text();
+            let updated = engine
+                .set_setting(&["soft_wrap"], json!("editor_width"))
+                .unwrap();
+            assert_eq!(updated.soft_wrap, SoftWrap::EditorWidth);
+            let updated = engine.set_setting(&["soft_wrap"], json!("bounded")).unwrap();
+            assert_eq!(updated.soft_wrap, SoftWrap::Bounded);
+            // Zed's deprecated spelling of "none" still reads.
+            let updated = engine
+                .set_setting(&["soft_wrap"], json!("prefer_line"))
+                .unwrap();
+            assert_eq!(updated.soft_wrap, SoftWrap::None);
+            // A value that is none of them leaves the setting alone rather
+            // than turning wrapping off under the user.
+            assert!(
+                engine
+                    .set_setting(&["soft_wrap"], json!("sideways"))
+                    .is_err()
+            );
+            assert_eq!(engine.settings().soft_wrap, SoftWrap::None);
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Per-language, per-project, per-server
+    // -----------------------------------------------------------------------
+
+    fn parse(text: &str) -> Settings {
+        settings_json::parse_json_with_comments::<Settings>(text)
+            .unwrap()
+            .sanitized()
+    }
+
+    /// `languages.<Name>` lays over the top level for that language only,
+    /// and the grammar's own config.toml sits underneath the user's entry:
+    /// Go asks for tabs, a user's `languages.Go.hard_tabs: false` wins.
+    #[test]
+    fn a_language_entry_overrides_the_top_level_for_that_language_only() {
+        let user = parse(
+            r#"{
+                "tab_size": 4,
+                "format_on_save": "off",
+                "languages": {
+                    "Rust": { "tab_size": 2, "format_on_save": "on", "preferred_line_length": 100 }
+                }
+            }"#,
+        );
+        let rust = LanguageSettings::resolve(&user, None, None, Some("Rust"));
+        assert_eq!(rust.tab_size, 2);
+        assert_eq!(rust.format_on_save, FormatOnSave::On);
+        assert_eq!(rust.preferred_line_length, 100);
+        // Everything unsaid comes from the top level and Zed's defaults.
+        assert!(!rust.hard_tabs);
+        assert_eq!(rust.formatter, Formatter::Auto);
+
+        let python = LanguageSettings::resolve(&user, None, None, Some("Python"));
+        assert_eq!(python.tab_size, 4);
+        assert_eq!(python.format_on_save, FormatOnSave::Off);
+        assert_eq!(python.preferred_line_length, 80);
+
+        // No language at all — a scratch buffer — is the top level.
+        let none = LanguageSettings::resolve(&user, None, None, None);
+        assert_eq!(none.tab_size, 4);
+
+        // The grammar layer: Go's config.toml asks for tabs.
+        let go_grammar = grammar_layer(Some("go")).expect("go is carried");
+        assert_eq!(go_grammar.hard_tabs, Some(true));
+        let go = LanguageSettings::resolve(&user, Some(&go_grammar), None, Some("Go"));
+        assert!(go.hard_tabs);
+        let user_says_spaces = parse(r#"{ "languages": { "Go": { "hard_tabs": false } } }"#);
+        let go = LanguageSettings::resolve(&user_says_spaces, Some(&go_grammar), None, Some("Go"));
+        assert!(!go.hard_tabs);
+        // And the name Zed keys the map by is the grammar's display name.
+        assert_eq!(language_display_name("rust").as_deref(), Some("Rust"));
+        assert_eq!(language_display_name("cpp").as_deref(), Some("C++"));
+        assert_eq!(language_display_name("no-such-grammar"), None);
+    }
+
+    /// The project's `.zed/settings.json` over the user's, in Zed's order:
+    /// top levels merge first, `languages` entries merge second, and the
+    /// merged language entry sits on the merged top level — so the user's
+    /// `languages.Rust.tab_size` outranks the project's plain `tab_size`.
+    #[test]
+    fn project_local_settings_overlay_the_users_in_zeds_order() {
+        let user = parse(
+            r#"{
+                "tab_size": 4,
+                "soft_wrap": "none",
+                "format_on_save": "off",
+                "languages": { "Rust": { "tab_size": 2 } },
+                "git": { "inline_blame": { "enabled": true } }
+            }"#,
+        );
+        let local = ProjectSettingsContent::parse(
+            r#"{
+                // a project's own file, comments and all
+                "tab_size": 8,
+                "format_on_save": "on",
+                "languages": { "Python": { "soft_wrap": "editor_width" } },
+                "git": { "inline_blame": { "enabled": false } },
+                "theme": "dark",
+                "agent_servers": { "Evil": { "command": "rm" } }
+            }"#,
+        )
+        .unwrap();
+
+        let rust = LanguageSettings::resolve(&user, None, Some(&local), Some("Rust"));
+        // The user's language entry outranks the project's top level.
+        assert_eq!(rust.tab_size, 2);
+        // The project's top level outranks the user's top level.
+        assert_eq!(rust.format_on_save, FormatOnSave::On);
+        assert!(!rust.inline_blame);
+
+        let python = LanguageSettings::resolve(&user, None, Some(&local), Some("Python"));
+        assert_eq!(python.tab_size, 8);
+        assert_eq!(python.soft_wrap, SoftWrap::EditorWidth);
+
+        // Without the project, the user's file alone.
+        let python = LanguageSettings::resolve(&user, None, None, Some("Python"));
+        assert_eq!(python.tab_size, 4);
+        assert!(python.inline_blame);
+
+        // `theme` and `agent_servers` are not project keys: the struct has
+        // no field for them and the parse above did not fail on them.
+        assert!(!local.lsp.contains_key("Evil"));
+        assert!(ProjectSettingsContent::parse("{ not json").is_err());
+    }
+
+    /// `lsp.<server>`: the user's entry, the project's over it, key by key.
+    #[test]
+    fn lsp_settings_are_looked_up_by_server_name_and_overlaid() {
+        let user = parse(
+            r#"{
+                "lsp": {
+                    "rust-analyzer": {
+                        "binary": { "path": "/root/.cargo/bin/rust-analyzer" },
+                        "initialization_options": { "check": { "command": "clippy" } }
+                    },
+                    "gopls": { "settings": { "gopls": { "staticcheck": true } } }
+                }
+            }"#,
+        );
+        let ra = user.lsp_settings_for("rust-analyzer", None);
+        assert_eq!(
+            ra.binary.as_ref().and_then(|b| b.path.as_deref()),
+            Some("/root/.cargo/bin/rust-analyzer")
+        );
+        assert_eq!(
+            ra.initialization_options,
+            Some(json!({ "check": { "command": "clippy" } }))
+        );
+        assert_eq!(ra.settings, None);
+        // A server with no entry is an empty entry, not an error.
+        assert_eq!(user.lsp_settings_for("clangd", None), LspSettings::default());
+
+        let local = ProjectSettingsContent::parse(
+            r#"{ "lsp": { "rust-analyzer": { "initialization_options": { "cargo": { "features": "all" } } } } }"#,
+        )
+        .unwrap();
+        let ra = user.lsp_settings_for("rust-analyzer", Some(&local));
+        // The project's initialization_options replace the user's whole;
+        // the binary the project said nothing about is kept.
+        assert_eq!(
+            ra.initialization_options,
+            Some(json!({ "cargo": { "features": "all" } }))
+        );
+        assert!(ra.binary.is_some());
+        let gopls = user.lsp_settings_for("gopls", Some(&local));
+        assert_eq!(gopls.settings, Some(json!({ "gopls": { "staticcheck": true } })));
+    }
+
+    /// Every shape Zed's `formatter` takes on disk, and the two that are
+    /// read as something else: prettier as auto, a list as its first step.
+    #[test]
+    fn formatter_reads_zeds_shapes() {
+        let of = |text: &str| parse(&format!(r#"{{ "formatter": {text} }}"#)).formatter;
+        assert_eq!(of(r#""auto""#), Formatter::Auto);
+        assert_eq!(of(r#""prettier""#), Formatter::Auto);
+        assert_eq!(of(r#""none""#), Formatter::None);
+        assert_eq!(of(r#""language_server""#), Formatter::LanguageServer { name: None });
+        assert_eq!(
+            of(r#"{ "language_server": { "name": "ruff" } }"#),
+            Formatter::LanguageServer {
+                name: Some("ruff".to_owned())
+            }
+        );
+        assert_eq!(
+            of(r#"{ "external": { "command": "rustfmt", "arguments": ["--edition", "2021"] } }"#),
+            Formatter::External {
+                command: "rustfmt".to_owned(),
+                arguments: vec!["--edition".to_owned(), "2021".to_owned()]
+            }
+        );
+        assert_eq!(
+            of(r#"{ "external": { "command": "black" } }"#),
+            Formatter::External {
+                command: "black".to_owned(),
+                arguments: Vec::new()
+            }
+        );
+        assert_eq!(
+            of(r#"{ "code_action": "source.fixAll.eslint" }"#),
+            Formatter::CodeAction("source.fixAll.eslint".to_owned())
+        );
+        assert_eq!(
+            of(r#"[{ "code_action": "source.fixAll" }, "prettier"]"#),
+            Formatter::CodeAction("source.fixAll".to_owned())
+        );
+        // And what goes out to the app is the same shape coming back in.
+        for text in [
+            r#""auto""#,
+            r#""none""#,
+            r#""language_server""#,
+            r#"{ "language_server": { "name": "ruff" } }"#,
+            r#"{ "external": { "command": "rustfmt", "arguments": ["-q"] } }"#,
+            r#"{ "code_action": "source.fixAll" }"#,
+        ] {
+            let formatter = of(text);
+            let json = serde_json::to_string(&formatter).unwrap();
+            assert_eq!(of(&json), formatter, "{text} did not round-trip via {json}");
+        }
+    }
+
+    /// A value that is wrong is refused, and the rest of the file is left
+    /// exactly as it was — for the enum keys through the write path, and
+    /// for the maps through the lenient parse: a broken language entry or
+    /// server entry costs itself, never its neighbours or the file.
+    #[test]
+    fn invalid_values_are_refused_without_losing_other_settings() {
+        with_settings_dir(|engine, dir| {
+            engine.settings_text();
+            engine.set_setting(&["tab_size"], json!(2)).unwrap();
+            engine.set_setting(&["format_on_save"], json!("on")).unwrap();
+
+            for (key, value) in [
+                ("format_on_save", json!("sometimes")),
+                ("autosave", json!("when_i_say_so")),
+                ("autosave", json!({ "after_delay": { "seconds": 1 } })),
+                ("formatter", json!({ "external": {} })),
+                ("formatter", json!({ "external": { "command": "x" }, "code_action": "y" })),
+                ("hard_tabs", json!("yes")),
+                ("preferred_line_length", json!("wide")),
+            ] {
+                assert!(
+                    engine.set_setting(&[key], value.clone()).is_err(),
+                    "{key} = {value} should be refused"
+                );
+            }
+            let settings = engine.settings();
+            assert_eq!(settings.tab_size, 2);
+            assert_eq!(settings.format_on_save, FormatOnSave::On);
+            assert!(engine.settings_are_valid());
+            let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            assert!(text.contains("// Seeker IDE settings."));
+
+            // The maps, entry by entry.
+            let settings = engine
+                .set_settings_text(
+                    r#"{
+                        "tab_size": 3,
+                        "languages": {
+                            "Rust": { "tab_size": "two" },
+                            "Go": { "hard_tabs": true },
+                            "Nonsense": 7
+                        },
+                        "lsp": {
+                            "rust-analyzer": { "binary": "not an object" },
+                            "gopls": { "initialization_options": { "x": 1 } }
+                        }
+                    }"#,
+                )
+                .unwrap();
+            assert_eq!(settings.tab_size, 3);
+            let languages: Vec<&str> = settings.languages.keys().map(String::as_str).collect();
+            assert_eq!(languages, ["Go"]);
+            let servers: Vec<&str> = settings.lsp.keys().map(String::as_str).collect();
+            assert_eq!(servers, ["gopls"]);
+            // Out-of-range numbers are clamped, not obeyed.
+            let settings = engine
+                .set_settings_text(
+                    r#"{ "preferred_line_length": 5, "autosave": { "after_delay": { "milliseconds": 0 } },
+                         "languages": { "Rust": { "tab_size": 900 } } }"#,
+                )
+                .unwrap();
+            assert_eq!(settings.preferred_line_length, MIN_LINE_LENGTH);
+            assert_eq!(
+                settings.autosave,
+                Autosave::AfterDelay { milliseconds: 100 }
+            );
+            let rust = LanguageSettings::resolve(&settings, None, None, Some("Rust"));
+            assert_eq!(rust.tab_size, 16);
+        });
+    }
+
+    /// The autosave shapes, exactly as Zed's default.json spells them.
+    #[test]
+    fn autosave_reads_zeds_shapes() {
+        let of = |text: &str| parse(&format!(r#"{{ "autosave": {text} }}"#)).autosave;
+        assert_eq!(of(r#""off""#), Autosave::Off);
+        assert_eq!(of(r#""on_focus_change""#), Autosave::OnFocusChange);
+        assert_eq!(of(r#""on_window_change""#), Autosave::OnWindowChange);
+        assert_eq!(
+            of(r#"{ "after_delay": { "milliseconds": 500 } }"#),
+            Autosave::AfterDelay { milliseconds: 500 }
+        );
+        assert_eq!(
+            serde_json::to_value(Autosave::AfterDelay { milliseconds: 500 }).unwrap(),
+            json!({ "after_delay": { "milliseconds": 500 } })
+        );
+        assert_eq!(serde_json::to_value(Autosave::OnFocusChange).unwrap(), json!("on_focus_change"));
+    }
+
+    /// `enable_language_server`, at both levels: globally off, and off for
+    /// one language while another keeps its server.
+    #[test]
+    fn enable_language_server_resolves_per_language() {
+        let user = parse(r#"{ "languages": { "Markdown": { "enable_language_server": false } } }"#);
+        assert!(LanguageSettings::resolve(&user, None, None, Some("Rust")).enable_language_server);
+        assert!(!LanguageSettings::resolve(&user, None, None, Some("Markdown")).enable_language_server);
+        let all_off = parse(r#"{ "enable_language_server": false }"#);
+        assert!(!LanguageSettings::resolve(&all_off, None, None, Some("Rust")).enable_language_server);
+        let local = ProjectSettingsContent::parse(r#"{ "enable_language_server": true }"#).unwrap();
+        assert!(LanguageSettings::resolve(&all_off, None, Some(&local), Some("Rust")).enable_language_server);
+    }
+
+    /// The default text is the documentation, and it has to be readable
+    /// without touching the disk.
+    #[test]
+    fn the_default_text_is_available_without_a_file() {
+        let engine = Engine::new();
+        let text = engine.default_settings_text();
+        assert!(text.contains("\"format_on_save\""));
+        assert!(text.contains("\"languages\""));
+        assert!(text.contains("\"lsp\""));
+        assert!(text.contains("\"autosave\""));
+    }
+
+    /// The rollback above, on the key that has the most ways to be wrong.
+    #[test]
+    fn a_write_that_would_break_the_file_leaves_every_other_setting_alone() {
+        with_settings_dir(|engine, dir| {
+            engine.settings_text();
+            engine.set_setting(&["tab_size"], json!(8)).unwrap();
+            assert!(engine.set_setting(&["tab_size"], json!("eight")).is_err());
+            // Not defaults: the bad write never reached the file.
+            assert_eq!(engine.settings().tab_size, 8);
+            let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            assert!(text.contains("\"tab_size\": 8"));
+            assert!(engine.settings_are_valid());
+        });
+    }
+
+    #[test]
+    fn nested_keys_can_be_set() {
+        with_settings_dir(|engine, _dir| {
+            engine.settings_text();
+            let updated = engine
+                .set_setting(&["project_panel", "gitignored_files"], json!("hide"))
+                .unwrap();
+            assert_eq!(
+                updated.project_panel.gitignored_files,
+                GitignoredFiles::Hide
+            );
+            assert_eq!(
+                engine.settings().project_panel.gitignored_files,
+                GitignoredFiles::Hide
+            );
+        });
+    }
+
+    #[test]
+    fn an_unrecognised_value_falls_back_rather_than_breaking_the_file() {
+        with_settings_dir(|engine, dir| {
+            // A key we no longer understand (the old boolean form) must not
+            // make the whole file unreadable.
+            std::fs::write(
+                dir.join("settings.json"),
+                "{ \"project_panel\": { \"show_ignored\": false }, \"tab_size\": 2 }",
+            )
+            .unwrap();
+            let settings = engine.settings();
+            assert_eq!(settings.tab_size, 2);
+            assert_eq!(
+                settings.project_panel.gitignored_files,
+                GitignoredFiles::Dimmed
+            );
+        });
+    }
+
+    #[test]
+    fn a_users_own_comments_and_unknown_keys_survive() {
+        with_settings_dir(|engine, dir| {
+            std::fs::write(
+                dir.join("settings.json"),
+                "{\n  // mine\n  \"tab_size\": 2,\n  \"future_option\": true\n}\n",
+            )
+            .unwrap();
+            engine.set_setting(&["tab_size"], json!(8)).unwrap();
+
+            let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            assert!(text.contains("// mine"));
+            assert!(text.contains("\"future_option\": true"));
+            assert!(text.contains("\"tab_size\": 8"));
+        });
+    }
+
+    #[test]
+    fn a_broken_file_falls_back_to_defaults_and_says_so() {
+        with_settings_dir(|engine, dir| {
+            std::fs::write(dir.join("settings.json"), "{ this is not json").unwrap();
+            assert_eq!(engine.settings(), Settings::default());
+            assert!(!engine.settings_are_valid());
+            // …and the file is left alone, so the user can repair it.
+            assert_eq!(
+                std::fs::read_to_string(dir.join("settings.json")).unwrap(),
+                "{ this is not json"
+            );
+        });
+    }
+
+    #[test]
+    fn out_of_range_values_are_clamped_not_obeyed() {
+        with_settings_dir(|engine, dir| {
+            std::fs::write(
+                dir.join("settings.json"),
+                "{ \"buffer_font_size\": 0, \"tab_size\": 9999 }",
+            )
+            .unwrap();
+            let settings = engine.settings();
+            assert_eq!(settings.buffer_font_size, 6.0);
+            assert_eq!(settings.tab_size, 16);
+        });
+    }
+
+    #[test]
+    fn whole_file_writes_reject_invalid_json() {
+        with_settings_dir(|engine, dir| {
+            engine.settings_text();
+            let before = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            assert!(matches!(
+                engine.set_settings_text("{ nope"),
+                Err(EngineError::InvalidSettings(_))
+            ));
+            assert_eq!(
+                std::fs::read_to_string(dir.join("settings.json")).unwrap(),
+                before
+            );
+
+            let updated = engine.set_settings_text("{ \"tab_size\": 2 }").unwrap();
+            assert_eq!(updated.tab_size, 2);
+        });
+    }
+
+    /// A hand-configured agent, in Zed's own `agent_servers` shape.
+    ///
+    /// This is what makes "any ACP agent" true rather than "the two we
+    /// happen to name": the command is resolved inside the guest, so any
+    /// program on Debian's PATH that speaks the protocol is an agent.
+    #[test]
+    fn a_custom_agent_is_read_from_settings() {
+        with_settings_dir(|engine, _dir| {
+            let settings = engine
+                .set_settings_text(
+                    r#"{
+                        "agent_servers": {
+                            "My agent": {
+                                "command": "python3",
+                                "args": ["/root/agent.py", "--acp"],
+                                "env": { "TOKEN": "x" }
+                            },
+                            "Bare": { "command": "some-agent" }
+                        }
+                    }"#,
+                )
+                .unwrap();
+
+            assert_eq!(settings.agent_servers.len(), 2);
+            let mine = &settings.agent_servers["My agent"];
+            assert_eq!(mine.command, "python3");
+            assert_eq!(mine.args, ["/root/agent.py", "--acp"]);
+            assert_eq!(mine.env.get("TOKEN").map(String::as_str), Some("x"));
+            // Everything but the command is optional.
+            let bare = &settings.agent_servers["Bare"];
+            assert_eq!(bare.command, "some-agent");
+            assert!(bare.args.is_empty());
+            assert!(bare.env.is_empty());
+
+            // Sorted, because this list *is* the picker and a hash map would
+            // reorder it on every launch.
+            let names: Vec<&str> = settings.agent_servers.keys().map(String::as_str).collect();
+            assert_eq!(names, ["Bare", "My agent"]);
+        });
+    }
+
+    /// A half-written `agent_servers` entry costs that entry, nothing else.
+    ///
+    /// It used to cost everything: the strict map failed the whole `Settings`
+    /// parse, so `"Claude": "claude"` — the obvious first guess at the shape —
+    /// silently reset the theme, the font size and every panel to defaults.
+    /// The Kotlin parser was already lenient; now both sides agree.
+    #[test]
+    fn a_malformed_agent_entry_costs_only_itself() {
+        with_settings_dir(|engine, _dir| {
+            let settings = engine
+                .set_settings_text(
+                    r#"{
+                        "theme": "dark",
+                        "agent_servers": {
+                            "Not an object": "claude",
+                            "Wrong types": { "command": 7 },
+                            "Works": { "command": "fine-agent" }
+                        }
+                    }"#,
+                )
+                .unwrap();
+            let names: Vec<&str> = settings.agent_servers.keys().map(String::as_str).collect();
+            assert_eq!(names, ["Works"]);
+            // The rest of the file still counted — the parse did not fall
+            // back to defaults.
+            assert_eq!(settings.theme, ThemeMode::Dark);
+
+            // And `agent_servers` itself being rubbish ignores the key, not
+            // the file.
+            let settings = engine
+                .set_settings_text(r#"{ "theme": "dark", "agent_servers": 17 }"#)
+                .unwrap();
+            assert!(settings.agent_servers.is_empty());
+            assert_eq!(settings.theme, ThemeMode::Dark);
+        });
+    }
+
+    /// The settings screen's Add Agent form and its trash button, at the
+    /// engine seam: an entry written by name lands under `agent_servers`
+    /// exactly, comments survive, and removal takes only that entry. The name
+    /// goes into the key path verbatim — a dot in it must not open a nested
+    /// object, which is what the dot-split `setSetting` route would do.
+    #[test]
+    fn an_agent_server_can_be_added_and_removed_by_name() {
+        with_settings_dir(|engine, dir| {
+            engine.settings_text(); // materialize the commented default file
+            let agent = CustomAgent {
+                command: "python3".to_owned(),
+                args: vec!["/root/agent.py".to_owned()],
+                env: BTreeMap::from([("KEY".to_owned(), "v".to_owned())]),
+            };
+            let settings = engine.set_agent_server("my.agent", agent.clone()).unwrap();
+            assert_eq!(settings.agent_servers.get("my.agent"), Some(&agent));
+
+            // Replacing the same name is an edit, not a second entry.
+            let mut edited = agent.clone();
+            edited.command = "node".to_owned();
+            let settings = engine.set_agent_server("my.agent", edited.clone()).unwrap();
+            assert_eq!(settings.agent_servers.len(), 1);
+            assert_eq!(settings.agent_servers.get("my.agent"), Some(&edited));
+
+            // A neighbour survives the removal, and so do the file's comments.
+            engine
+                .set_agent_server(
+                    "other",
+                    CustomAgent {
+                        command: "other-agent".to_owned(),
+                        ..CustomAgent::default()
+                    },
+                )
+                .unwrap();
+            let settings = engine.remove_agent_server("my.agent").unwrap();
+            let names: Vec<&str> = settings.agent_servers.keys().map(String::as_str).collect();
+            assert_eq!(names, ["other"]);
+            let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
+            assert!(text.contains("// Seeker IDE settings."));
+            assert!(!text.contains("my.agent"));
+
+            // Removing what is not there is not an error — it is gone.
+            assert!(engine.remove_agent_server("my.agent").is_ok());
+        });
+    }
+
+    /// `"hidden"` is a real third answer for a panel's dock: it parses, it
+    /// survives a write, and it round-trips to the app as `"hidden"`.
+    #[test]
+    fn a_panel_can_be_hidden_by_its_dock_setting() {
+        with_settings_dir(|engine, _dir| {
+            let updated = engine
+                .set_setting(&["git_panel", "dock"], serde_json::json!("hidden"))
+                .unwrap();
+            assert_eq!(updated.git_panel.dock, DockSide::Hidden);
+            // And back from disk, not only from the in-memory return.
+            assert_eq!(engine.settings().git_panel.dock, DockSide::Hidden);
+            let json = serde_json::to_value(engine.settings()).unwrap();
+            assert_eq!(json["git_panel"]["dock"], "hidden");
+        });
+    }
+
+    /// The agent panel's dock is a real setting, not one the engine drops.
+    ///
+    /// It was: the settings screen wrote `agent_panel.dock` and `Settings` had
+    /// no such field, so serde ignored it and the row did nothing at all.
+    #[test]
+    fn the_agent_panels_dock_survives_a_write() {
+        with_settings_dir(|engine, _dir| {
+            assert_eq!(engine.settings().agent_panel.dock, DockSide::Right);
+            let updated = engine
+                .set_setting(&["agent_panel", "dock"], serde_json::json!("left"))
+                .unwrap();
+            assert_eq!(updated.agent_panel.dock, DockSide::Left);
+            // And it is still there when the file is read back from disk.
+            assert_eq!(engine.settings().agent_panel.dock, DockSide::Left);
+        });
+    }
+}

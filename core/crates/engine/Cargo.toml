@@ -1,0 +1,64 @@
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# The ACP SDK, the exact crate and pin Zed uses — we implement the client
+# around it, never the protocol. See acp.rs.
+agent-client-protocol.workspace = true
+aho-corasick.workspace = true
+anyhow.workspace = true
+clock.workspace = true
+# Decoding files that are not UTF-8 and writing them back as they were — the
+# crate Zed reads and writes every buffer through (language/src/file_content.rs).
+encoding_rs.workspace = true
+fs.workspace = true
+futures.workspace = true
+fuzzy.workspace = true
+gpui.workspace = true
+# Line diffing for the git gutter, and the same one Zed diffs with — see
+# `language::text_diff`, which this mirrors so a hunk lands where Zed puts it.
+imara-diff.workspace = true
+grammars = { workspace = true, features = ["load-grammars"] }
+libc.workspace = true
+log.workspace = true
+# Zed's own LSP client, vendored at core/vendor/lsp. We wire it, we do not
+# write one — see agent-docs/research/lsp-approach.md.
+lsp.workspace = true
+parking_lot.workspace = true
+path.workspace = true
+regex.workspace = true
+rope.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+settings.workspace = true
+settings_json.workspace = true
+streaming-iterator.workspace = true
+sum_tree.workspace = true
+# Zed's task templates — the `tasks.json` schema, `$ZED_*` variables and
+# their substitution — reused rather than rewritten. See tasks.rs.
+task.workspace = true
+text.workspace = true
+# The Seeker trash implementation; `[patch]` in the workspace manifest points
+# `fs`'s `trash` dependency at this same crate.
+trash = { path = "../trash-android" }
+tree-sitter.workspace = true
+# For `paths::PathMatcher`, so include/exclude globs behave exactly as they do
+# in Zed. Already in the tree as a dependency of `worktree`.
+util.workspace = true
+# `Url::from_file_path`, to percent-encode the `file://` URIs an @-mention
+# travels under — a `#` in a filename otherwise becomes a fragment and the
+# agent reads the wrong path. Already in the tree; Zed depends on it too.
+url.workspace = true
+worktree.workspace = true
+# Secrets the askpass memory holds for the session are zeroed when dropped —
+# see askpass.rs.
+zeroize.workspace = true
+
+[dev-dependencies]
+# The in-process fake server Zed tests its LSP flows against; the engine's
+# executeCommand and resolve tests drive the real client through it.
+lsp = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true

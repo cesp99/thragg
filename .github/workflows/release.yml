@@ -1,0 +1,65 @@
+name: Release
+
+# Builds release notes and creates a *draft* GitHub Release on every tag
+# of the form vX.Y.Z. Designed for a manual-signing flow: the build and the
+# APK signing happen on the maintainer's machine, so this workflow never
+# touches APKs — it writes the notes and opens a draft. The maintainer then
+# uploads the six signed APKs to the draft and clicks Publish.
+
+# The release body is guaranteed to contain the "Which APK should I
+# install?" section regardless of how many pull requests (zero, one, many)
+# were merged into this release: that section is loaded unconditionally
+# from .github/RELEASE_NOTES_PART_APK.md and always lands first in the body.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble release notes
+        id: assemble
+        run: |
+          set -euo pipefail
+
+          # 1 · The APK section is unconditional: it is the body's first and
+          #    only guaranteed part, present even with zero PRs in a release.
+          cp .github/RELEASE_NOTES_PART_APK.md RELEASE_NOTES.md
+
+          # 2 · Changelog from merged PRs / commits since the previous tag,
+          #    if any. An empty PR set must NOT append an empty section — it
+          #    must leave the APK section as the whole body.
+          PREV_TAG="$(
+            git tag --sort=-version:refname |
+            awk -v cur="$GITHUB_REF_NAME" '$0 != cur' |
+            head -n 1
+          )"
+          PRS="$(gh api \
+            repos/{owner}/{repo}/compare/"${PREV_TAG}...${GITHUB_REF_NAME}" \
+            --jq '.commits[].commit.message' 2>/dev/null || true)"
+          if [ -n "${PRS}" ]; then
+            {
+              printf '\n## ✨ What'\''s new\n\n'
+              gh api \
+                repos/{owner}/{repo}/compare/"${PREV_TAG}...${GITHUB_REF_NAME}" \
+                --jq '.commits[].commit.message'
+            } >> RELEASE_NOTES.md
+          fi
+
+          echo "notes_path=RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft GitHub release with assembled notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --notes-file "${{ steps.assemble.outputs.notes_path }}"

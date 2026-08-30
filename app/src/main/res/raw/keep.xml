@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileIcons resolves file-type icons by name (getIdentifier), so no R
+     reference to any ic_file_* drawable exists for the resource shrinker to
+     follow — without this rule they survive only by the shrinker guessing
+     from string constants. Everything looked up dynamically carries this one
+     prefix: ZED_ICON_DRAWABLE's values, the folder pair, and the fallback
+     file sheet. Nothing else in the app is resolved by name. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_file_*" />

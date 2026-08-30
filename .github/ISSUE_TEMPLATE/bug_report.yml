@@ -1,0 +1,44 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. Screenshots or a recording help a lot for visual bugs.
+      placeholder: |
+        1. Open a project with …
+        2. Press Ctrl+…
+
+        Expected: …
+        Actual: …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - full (F-Droid / direct APK — includes Debian userland)
+        - play (Google Play — no userland)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: setup
+    attributes:
+      label: Version, device, Android version
+      description: Version is in Settings → About. Form factor matters — foldables and tablets especially.
+      placeholder: "1.0-full · Galaxy Z Fold 5 (foldable) · Android 14"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logcat
+      description: If it crashed or misbehaved — `adb logcat | grep seeker`.
+      render: shell

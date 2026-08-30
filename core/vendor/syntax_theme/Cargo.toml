@@ -1,0 +1,26 @@
+[package]
+name = "syntax_theme"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "GPL-3.0-or-later"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+test-support = ["gpui/test-support"]
+bundled-themes = ["dep:serde", "dep:serde_json"]
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+path = "src/syntax_theme.rs"
+doctest = false
+
+[dependencies]
+gpui.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }

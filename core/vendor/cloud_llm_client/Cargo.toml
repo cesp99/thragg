@@ -1,0 +1,28 @@
+[package]
+name = "cloud_llm_client"
+version = "0.1.0"
+publish.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+
+[features]
+test-support = []
+predict-edits = ["dep:zeta_prompt"]
+
+[lints]
+workspace = true
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+doctest = false
+path = "src/cloud_llm_client.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive", "rc"] }
+serde_json.workspace = true
+strum = { workspace = true, features = ["derive"] }
+uuid = { workspace = true, features = ["serde"] }
+zeta_prompt = { workspace = true, optional = true }

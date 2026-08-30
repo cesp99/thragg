@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Additions specific to the `play` flavour, which targets a modern SDK.
+
+  Everything here is a consequence of that target, not of any feature the
+  `full` flavour lacks:
+
+  - Android 14 requires apps targeting API 34+ to declare a type for every
+    foreground service, and to hold the matching permission. A terminal is
+    none of the enumerated types — it is not media playback, a download or a
+    location fix — so `specialUse` is the honest one, with the subtype
+    property explaining why to whoever reviews it.
+
+  POST_NOTIFICATIONS lives in the main manifest instead: both flavours ask
+  for it, because both want the service's notification visible. Only this
+  one is actually shown the dialog, though — Android does not offer it to
+  an app targeting API 32 or lower, so in the `full` flavour the user has
+  to allow notifications from system settings (measured on the Fold; see
+  MainActivity.requestNotificationPermission). Without the permission the
+  service still runs and still protects the session; only its notification
+  is hidden.
+
+  The `full` flavour targets API 28 and is exempt from the service-type
+  requirement, which is why it does not appear in the main manifest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <application>
+        <service
+            android:name=".terminal.TerminalService"
+            android:foregroundServiceType="specialUse"
+            tools:node="merge">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps user-started terminal sessions and their child processes alive while the app is in the background" />
+        </service>
+    </application>
+
+</manifest>

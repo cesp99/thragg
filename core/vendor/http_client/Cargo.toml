@@ -1,0 +1,49 @@
+[package]
+name = "http_client"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+license = "Apache-2.0"
+description = "A HTTP client library for Zed and GPUI"
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+github-download = [
+    "dep:async-fs",
+    "dep:async-tar",
+    "dep:sha2",
+    "dep:tempfile",
+    "dep:util",
+]
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+doctest = false
+path = "src/http_client.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-compression.workspace = true
+bytes.workspace = true
+derive_more.workspace = true
+futures.workspace = true
+http-body.workspace = true
+http.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+url.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+util = { workspace = true, optional = true }
+async-fs = { workspace = true, optional = true }
+async-tar = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }

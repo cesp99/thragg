@@ -1,0 +1,76 @@
+# CodeQL, with the smallest build that satisfies it.
+#
+# The Kotlin extractor rides the compiler, so `build-mode: none` sees no
+# Kotlin at all — and the app is Kotlin throughout. Autobuild's guess,
+# `./gradlew assemble`, fails the other way: packaging needs rustup's
+# Android targets and cargo-ndk to cross-compile the engine, which a
+# hosted runner does not have. `:app:compileFullDebugKotlin` is the line
+# between the two: every Kotlin file compiles, nothing native runs —
+# though `preBuild` depends on `cargoNdkBuild`, so that task is excluded
+# by hand; the Kotlin compiler never reads the .so it would produce.
+#
+# The Gradle and Kotlin daemons would compile outside the tracer's reach,
+# so both are kept in-process.
+#
+# The vendored Termux libraries under vendor/ are analyzed upstream and
+# only carry `SEEKER PATCH` edits here, so their alerts are excluded
+# rather than reported as ours.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "41 6 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: java-kotlin
+            build-mode: manual
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install the pinned NDK
+        # The vendored terminal modules declare the pin even though no
+        # native task runs here; AGP checks it exists at configuration.
+        run: |
+          NDK_VERSION="$(sed -n 's/^seeker\.ndkVersion=//p' gradle.properties)"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" >/dev/null
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          config: |
+            paths-ignore:
+              - vendor
+              - core/vendor
+
+      - name: Compile the Kotlin under the tracer
+        run: |
+          ./gradlew --no-daemon \
+            -Dkotlin.compiler.execution.strategy=in-process \
+            :app:compileFullDebugKotlin -x :app:cargoNdkBuild
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

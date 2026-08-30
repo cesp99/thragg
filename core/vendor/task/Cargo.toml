@@ -1,0 +1,40 @@
+[package]
+name = "task"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "GPL-3.0-or-later"
+
+[features]
+test-support = [
+    "gpui/test-support",
+    "util/test-support"
+]
+
+# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
+[lib]
+test = false
+path = "src/task.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+collections.workspace = true
+futures.workspace = true
+gpui.workspace = true
+hex.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+proto.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_lenient.workspace = true
+sha2.workspace = true
+shellexpand.workspace = true
+util.workspace = true
+zed_actions.workspace = true

@@ -1,0 +1,39 @@
+name: Device / compatibility report
+description: Report how Seeker IDE behaves on a specific device, foldable, or tablet
+labels: ["device-testing"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Real hardware finds bugs an emulator never will. File this whether
+        things work or break — positive reports tell us what's covered.
+
+  - type: input
+    id: device
+    attributes:
+      label: Device, Android version, form factor
+      placeholder: "Galaxy Z Fold 5 (SM-F946B) · Android 14 · foldable, inner screen"
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Edition and version
+      placeholder: "full · 1.0-full"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-works
+    attributes:
+      label: What works
+      description: Be specific — editor, terminal, git, themes, fold/unfold, keyboard/mouse.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-breaks
+    attributes:
+      label: What breaks
+      description: Anything that crashed or misbehaved, with steps if you have them. Note the input you used (Bluetooth keyboard, DeX, stylus, external display).

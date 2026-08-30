@@ -1,0 +1,18 @@
+# R8 keep rules. AGP combines every file in src/main/keepRules and passes
+# them to R8. See https://d.android.com/r/tools/r8/keep-rules
+
+# The JNI boundary. A native symbol name encodes the class and method it
+# binds to (Java_to_eyed_seeker_code_core_CoreBridge_applyEdit), so
+# renaming CoreBridge or any of its methods would silently break the lookup
+# at runtime with UnsatisfiedLinkError rather than at build time. Keeping
+# names on the whole class also covers the `object`'s INSTANCE field and its
+# static initializer, which loads the library.
+#
+# This is the only hand-written rule the app needs: everything else reachable
+# from MainActivity is found by R8, and Compose/AndroidX ship their own rules.
+-keep class to.eyed.seeker.code.core.CoreBridge { *; }
+
+# Belt and braces for any future JNI entry point elsewhere in the app.
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}

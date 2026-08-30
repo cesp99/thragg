@@ -1,0 +1,13 @@
+name = "Make"
+grammar = "make"
+path_suffixes = ["mk", "mak", "make", "Makefile", "makefile", "GNUmakefile", "Makefile.am", "Makefile.in"]
+line_comments = ["# "]
+autoclose_before = ")}]"
+hard_tabs = true
+brackets = [
+    { start = "{", end = "}", close = true, surround = true, newline = true },
+    { start = "(", end = ")", close = true, surround = true, newline = false },
+    { start = "\"", end = "\"", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+    { start = "'", end = "'", close = true, surround = true, newline = false, not_in = ["string", "comment"] },
+]
+code_fence_block_name = "make"

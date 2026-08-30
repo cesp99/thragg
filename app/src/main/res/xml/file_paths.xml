@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider may hand to other apps: the projects directory and
+     nothing else. settings.json, the userland and the caches stay private —
+     "Share…" is about a file in a project, and a provider that could serve
+     the whole of filesDir would be one URI-guess away from serving the rest. -->
+<paths>
+    <files-path name="projects" path="projects/" />
+</paths>
