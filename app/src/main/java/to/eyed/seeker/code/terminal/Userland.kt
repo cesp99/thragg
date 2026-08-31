@@ -115,6 +115,18 @@ interface UserlandBackend {
     ): ShellCommand? = execCommand(context, hostWorkingDir, argv, extraEnvironment)
 
     /**
+     * Bring the guest's network files up to date with the device — today,
+     * the resolvers in `/etc/resolv.conf`.
+     *
+     * Exists because the terminal and build paths refresh per session inside
+     * `execCommand`, but the AGENT is spawned by the engine's own proot
+     * invocation, which never touches this backend — and on the Seeker that
+     * gap shipped a sign-in that died on the previous network's resolver.
+     * The default is a no-op so a backend with no userland has nothing to do.
+     */
+    fun refreshNetwork(context: Context) {}
+
+    /**
      * Download and unpack the rootfs. Blocking; call it off the main thread.
      *
      * [isActive] is polled during the long phases so a cancelled install stops

@@ -376,6 +376,14 @@ object AgentSessions {
         val spec = agent.forProjectRoot(rootPath).toSpecJson()
         val mine = ++generation
         job = scope.launch {
+            // The engine's proot line does not refresh the guest's resolvers
+            // (guest.rs, by design), and the agent is the one guest process
+            // that needs them current: the sign-in poll resolves
+            // api.spettro.app the moment a session opens. Refreshed here so a
+            // network change between app launches cannot hand the agent the
+            // previous network's DNS — the exact failure the first on-device
+            // sign-in hit.
+            runCatching { app?.let { Userland.backend.refreshNetwork(it) } }
             // Blocking: it spawns proot and the agent behind it. Anything that
             // throws out of the bridge — a JNI failure — must leave the panel
             // saying so rather than stuck on "starting" for ever.

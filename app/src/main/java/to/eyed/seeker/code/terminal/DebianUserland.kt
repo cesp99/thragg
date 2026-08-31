@@ -491,6 +491,18 @@ private object DebianUserland : UserlandBackend {
         heal(root, TarHardLink("usr/bin/perl", "usr/bin/${real.name}"))
     }
 
+    /**
+     * The [UserlandBackend.refreshNetwork] seam: the same per-session rewrite
+     * [inside] does, callable by whoever is about to start a process this
+     * backend does not spawn — the agent, whose proot line the engine builds
+     * itself (guest.rs keeps network concerns out on purpose, and the agent
+     * is the one guest process that genuinely needs DNS to be current).
+     */
+    override fun refreshNetwork(context: Context) {
+        if (state(context) !is UserlandState.Ready) return
+        refreshResolvConf(context, rootfs(context))
+    }
+
     /** Rewrite the guest's resolvers if the device's have changed. */
     private fun refreshResolvConf(context: Context, root: File) {
         runCatching {
