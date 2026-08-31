@@ -121,7 +121,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
             label = "Agent",
             state = state,
             landscape = landscape,
-            icon = { tint -> NavIcon(R.drawable.ic_ui_ai_zed, tint) },
+            icon = { tint -> NavIcon(R.drawable.ic_ui_agent, tint) },
             badge = { if (state.agentAttention) AttentionDot() },
         )
         NavItem(

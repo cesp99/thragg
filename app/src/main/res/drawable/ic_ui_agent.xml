@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The agent. A four-pointed sparkle with a smaller one trailing it — the glyph
+  that has come to mean "a model did this", and legible at 24dp on a phone in a
+  way a wordmark is not.
+
+  Drawn here rather than imported: the nav bar used to carry Zed's own ai_zed
+  icon, which is Zed's mark and has no business in a fork's navigation. The
+  16dp viewport matches the imported icon set so it sits correctly beside them.
+
+  Each point is two quadratic curves whose control point is the sparkle's own
+  centre, which is what gives the concave sides; a straight-sided star reads as
+  a compass rose instead.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:pathData="M6.4,1.4 Q6.4,6.4 11.4,6.4 Q6.4,6.4 6.4,11.4 Q6.4,6.4 1.4,6.4 Q6.4,6.4 6.4,1.4 Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M12.3,9.7 Q12.3,12.3 14.9,12.3 Q12.3,12.3 12.3,14.9 Q12.3,12.3 9.7,12.3 Q12.3,12.3 12.3,9.7 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>
