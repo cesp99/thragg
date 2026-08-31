@@ -61,6 +61,7 @@ import to.eyed.seeker.code.ui.shell.projects.NewProgramScreen
 import to.eyed.seeker.code.ui.shell.projects.openProjectInShell
 import to.eyed.seeker.code.ui.shell.settings.SettingsScreen
 import to.eyed.seeker.code.ui.shell.setup.SetupScreen
+import to.eyed.seeker.code.ui.agent.spettro.SpettroSettingsScreen
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.workspace.NotificationHost
@@ -517,6 +518,10 @@ private fun RouteHost(
 
                 is Route.Setup -> SetupScreen(state)
 
+                // The screen itself lives with the Spettro sheets it grew out
+                // of; the shell only frames it, exactly as it frames Settings.
+                is Route.SpettroSettings -> SpettroSettingsScreen(state)
+
                 is Route.Licences -> LicencesScreen(state)
 
                 // The detail carries its own id; it does not need the shell,
@@ -557,4 +562,5 @@ private val Route.title: String
         is Route.NewProgram -> "New program"
         is Route.Clone -> "Clone"
         is Route.Setup -> "Set up the toolchain"
+        is Route.SpettroSettings -> "Account & models"
     }

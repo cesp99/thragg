@@ -150,4 +150,39 @@ class SpettroSetupTest {
         // And a login object with nothing in it is `idle`, never blank.
         assertEquals("idle", LoginStatus.parse(JSONObject("{}")).status)
     }
+
+    // --- when does a pushed account update warrant a model refresh? --------
+
+    private fun account(json: String) = AccountStatus.parse(JSONObject(json))
+
+    /**
+     * `modelCount` moving — either way — is the refresh trigger: a plan
+     * activating grows the list, one expiring shrinks it, and both leave an
+     * open session's model dropdown wrong until something round-trips.
+     */
+    @Test
+    fun aMovedModelCountWarrantsARefresh() {
+        val before = account("""{"signedIn":true,"modelCount":4}""")
+        assertTrue(modelWorldChanged(before, account("""{"signedIn":true,"modelCount":12}""")))
+        assertTrue(modelWorldChanged(before, account("""{"signedIn":true,"modelCount":0}""")))
+    }
+
+    /**
+     * Credits and plan wording move on every metering tick; refreshing on
+     * those would round-trip the agent constantly for a list that did not
+     * change.
+     */
+    @Test
+    fun creditAndPlanChurnAloneDoesNot() {
+        val before = account("""{"signedIn":true,"modelCount":4,"creditsUsed":1.0,"plan":"pro"}""")
+        val after = account("""{"signedIn":true,"modelCount":4,"creditsUsed":2.5,"plan":"pro plus"}""")
+        assertFalse(modelWorldChanged(before, after))
+    }
+
+    /** No previous status reads as "had zero models", in both directions. */
+    @Test
+    fun theFirstEverStatusComparesAgainstZero() {
+        assertTrue(modelWorldChanged(null, account("""{"signedIn":true,"modelCount":7}""")))
+        assertFalse(modelWorldChanged(null, account("""{"signedIn":false}""")))
+    }
 }

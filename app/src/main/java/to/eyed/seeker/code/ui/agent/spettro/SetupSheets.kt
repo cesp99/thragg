@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import kotlinx.coroutines.launch
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.ConnectOutcome
@@ -590,14 +593,22 @@ private val PERMISSION_COPY: Map<String, Pair<String, String>> = mapOf(
  * Spettro running in the terminal. Mode is the only per-conversation setting.
  * Somebody who changes a model here and finds their TUI changed too deserves
  * to have been told once.
+ *
+ * A routed page, not a sheet: it draws under the shell's shared top bar
+ * (`Route.SpettroSettings` in SeekerShell's RouteHost), which is what gives
+ * it the ← and the title — so this body owns only the scroll. [state] is here
+ * for the one sheet the page can raise, the sign-in, which needs the shell
+ * the same way every [SheetScaffold] does.
  */
 @Composable
-fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
+fun SpettroSettingsScreen(state: ShellState, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val text = MaterialTheme.colorScheme.onSurface
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val providers = SpettroSetup.providers
     val account = SpettroSetup.account
+    var signInOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         SpettroSetup.refreshAccount()
@@ -644,6 +655,12 @@ fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
             )
+            Spacer(Modifier.height(8.dp))
+            // The page must carry the sign-in itself: the login gate
+            // (SetupScreen.kt) only appears while the whole Agent screen is
+            // blocked, and someone who arrives here signed out from Settings
+            // never passes through it.
+            LinkRow("Sign in to Spettro") { signInOpen = true }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -770,6 +787,27 @@ fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
             color = muted,
         )
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (signInOpen) {
+        SignInSheet(
+            state = state,
+            onDismiss = { signInOpen = false },
+            onOpenUrl = { url ->
+                // A plain ACTION_VIEW rather than a Chrome Custom Tab: this
+                // module does not depend on androidx.browser, and adding a
+                // dependency is another chunk's build file. The sign-in comes
+                // back through the agent's pushed notification rather than
+                // through a redirect into the app, so the tab being separate
+                // costs nothing but a task switch back.
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, url.toUri())
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
+        )
     }
 }
 

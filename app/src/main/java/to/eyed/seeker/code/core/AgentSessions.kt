@@ -433,6 +433,17 @@ object AgentSessions {
      */
     private var rememberedMode: String? = null
 
+    /**
+     * Bumped on every user mode change, checked by [refreshConfigOptions]:
+     * the no-op nudge reads the current mode and writes it back, and a user
+     * set landing inside that read-then-write would be overwritten by the
+     * stale value going out second. When the stamp moves mid-nudge the nudge
+     * bails instead — the user's own `set_config_option` response rebuilds
+     * the option list anyway, so nothing is lost by yielding to it.
+     */
+    @Volatile
+    private var modeWriteStamp = 0L
+
     private suspend fun reapplyRememberedMode(session: Long) {
         val mode = rememberedMode ?: return
         // Best effort and deliberately quiet: a failure here is a chip showing
@@ -925,6 +936,7 @@ object AgentSessions {
                 .getOrNull()
                 ?.takeIf { it.isNotBlank() }
                 ?: rememberedMode
+            modeWriteStamp++
         }
         val session = sessionId.takeIf { it >= 0 }
         if (session == null) {
@@ -971,6 +983,53 @@ object AgentSessions {
         scope.launch {
             for ((configId, valueJson) in pending) {
                 runCatching { CoreBridge.acpSetConfigOption(session, configId, valueJson) }
+            }
+        }
+    }
+
+    /**
+     * Ask the agent to re-advertise the active session's config options —
+     * the model list above all.
+     *
+     * The CLI has a gap this papers over: a login or a provider connect
+     * updates its provider manager and pushes `_spettro/account/update`, but
+     * it never re-advertises an *open* session's config options, so the model
+     * selector keeps the pre-login list until something else round-trips
+     * (Spettro-Desktop re-reads after login for the same reason). The one
+     * request whose response the CLI rebuilds the full option list for is
+     * `session/set_config_option` — so this sets `mode` back to its **current
+     * value**, a deliberate no-op the CLI still answers with fresh options.
+     *
+     * `mode` and not one of the other four, honestly: mode is the only
+     * per-session option, so writing its own value back touches nothing but
+     * this session's state. Model, permission, thinking and Ultra all write
+     * `~/.spettro/config.json` — same-value writes too, so harmless, but a
+     * global disk write to fake a read is the worse trade.
+     *
+     * Every failure is dropped in silence by design: not refreshing costs a
+     * stale dropdown until the next natural round trip, which is a nuisance
+     * and not an error state. No session means nothing to refresh.
+     */
+    suspend fun refreshConfigOptions() {
+        val session = sessionId.takeIf { it >= 0 } ?: return
+        withContext(Dispatchers.IO) {
+            // The engine's cached state is where the truthful current mode
+            // lives; [rememberedMode] is only the fallback for a state read
+            // that failed, because sending a *different* mode than the one
+            // showing would make this "no-op" a real change.
+            val stamp = modeWriteStamp
+            val mode = runCatching {
+                AgentSessionState.parse(CoreBridge.acpSessionState(session))
+                    .toolbar.mode?.currentValue
+            }.getOrNull() ?: rememberedMode ?: return@withContext
+            // A user mode change landed while the read above was in flight:
+            // the value just read may predate it, and sending it would undo
+            // the user. Their own set is a `session/set_config_option` too,
+            // so the CLI rebuilds the option list answering *them* — bailing
+            // here loses nothing (see [modeWriteStamp]).
+            if (modeWriteStamp != stamp) return@withContext
+            runCatching {
+                CoreBridge.acpSetConfigOption(session, MODE_CONFIG_ID, JSONObject.quote(mode))
             }
         }
     }

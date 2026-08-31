@@ -179,6 +179,9 @@ object SpettroSetup {
             is ExtResult.Ok -> {
                 val models = result.result.optInt("modelCount", 0)
                 refreshProviders()
+                // A key that verified just changed what the open session can
+                // talk to; its model dropdown does not find out on its own.
+                refreshModelWorldSoon()
                 ConnectOutcome.Connected(models, result.result.optString("activeModel").ifBlank { null })
             }
             is ExtResult.Rpc -> {
@@ -200,7 +203,13 @@ object SpettroSetup {
     suspend fun disconnectProvider(providerId: String): Boolean {
         val params = JSONObject().put("providerId", providerId).toString()
         val ok = AgentSessions.callExtension("_spettro/providers/disconnect", params) is ExtResult.Ok
-        if (ok) refreshProviders()
+        if (ok) {
+            refreshProviders()
+            // The model world shrank, and shrinking is the case that matters
+            // most: a dropdown offering a model whose key just left routes the
+            // next turn into an auth error. Same nudge as connecting.
+            refreshModelWorldSoon()
+        }
         return ok
     }
 
@@ -275,6 +284,28 @@ object SpettroSetup {
         models = List(array.length()) { ModelEntry.parse(array.optJSONObject(it)) }
     }
 
+    /**
+     * The model world changed — a login finished, a key was accepted, or the
+     * agent pushed an account update with a different model count. Two lists
+     * go stale at that moment and neither refreshes itself:
+     *
+     *  - the open session's config options (the model chip's dropdown), which
+     *    the CLI never re-advertises on its own —
+     *    [AgentSessions.refreshConfigOptions] explains the round-trip trick;
+     *  - [models], which the favourites screen reads.
+     *
+     * Fire-and-forget on [scope] rather than awaited, because every caller is
+     * on its way to telling the user something better ("Connected", "Signed
+     * in") and a dropdown refresh must not hold that up. Both calls already
+     * drop failures silently — a stale list is a nuisance, not an error.
+     */
+    private fun refreshModelWorldSoon() {
+        scope.launch {
+            AgentSessions.refreshConfigOptions()
+            refreshModels()
+        }
+    }
+
     /** Star or unstar a model. The list is re-read, since the flag is the agent's. */
     suspend fun favouriteModel(provider: String, name: String, favourite: Boolean) {
         val params = JSONObject()
@@ -302,6 +333,10 @@ object SpettroSetup {
         if (ok) {
             account = null
             refreshProviders()
+            // Plan models leave the catalogue with the key; without this an
+            // open session keeps offering them until its next natural
+            // round trip, and picking one fails a turn later.
+            refreshModelWorldSoon()
         }
         return ok
     }
@@ -390,11 +425,17 @@ object SpettroSetup {
                     ?.let { runCatching { JSONObject(it) }.getOrNull() }
                 if (json != null) {
                     val status = AccountStatus.parse(json)
+                    // Decided against the account *before* this push replaces
+                    // it — afterwards old and new are the same object.
+                    val modelsMoved = modelWorldChanged(account, status)
                     account = status
                     status.login?.let { login = it }
                     if (status.signedIn || status.login?.status == "complete") {
+                        // finishLogin refreshes the model world itself; doing
+                        // it here too would round-trip the agent twice.
                         return finishLogin(mine)
                     }
+                    if (modelsMoved) refreshModelWorldSoon()
                 }
             }
 
@@ -432,6 +473,9 @@ object SpettroSetup {
         login = LoginStatus(login?.loginId, "complete", null, null)
         refreshAccount()
         refreshProviders()
+        // The login just added the plan's models; the session that was open
+        // through it is still advertising the pre-login list.
+        refreshModelWorldSoon()
     }
 
     private fun failLogin(mine: Int, message: String) {
@@ -661,6 +705,24 @@ data class AccountStatus(
         )
     }
 }
+
+/**
+ * Whether an agent-pushed account update means the model list changed under
+ * an open session — the one decision behind refreshing it.
+ *
+ * `modelCount` is the whole test, deliberately. It is the only field of the
+ * push that talks about models at all, and every event that changes the list
+ * moves it: a plan activating, expiring, upgrading. Credits and plan *names*
+ * move without the list moving, and refreshing on those would round-trip the
+ * agent on every metering tick. A first-ever status ([previous] null) counts
+ * as "was zero", so an update that arrives already carrying models refreshes
+ * and one carrying none does not.
+ *
+ * Top-level and pure so the test does not have to stand up [SpettroSetup]'s
+ * state to ask the question.
+ */
+fun modelWorldChanged(previous: AccountStatus?, next: AccountStatus): Boolean =
+    next.modelCount != (previous?.modelCount ?: 0)
 
 /**
  * Where a browser sign-in has got to.

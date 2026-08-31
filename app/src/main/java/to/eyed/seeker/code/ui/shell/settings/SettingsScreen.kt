@@ -35,9 +35,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.Autosave
 import to.eyed.seeker.code.core.FormatOnSave
+import to.eyed.seeker.code.core.SpettroSetup
 import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
 import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.ui.components.HairlineDivider
@@ -117,6 +119,16 @@ fun SettingsScreen(
         toolchainBytes = withContext(Dispatchers.IO) {
             runCatching { SolanaToolchain.diskBytes(context) }.getOrNull()
         }?.takeIf { it > 0L }
+    }
+
+    // The account row below reads the cache the agent pushes; re-ask once
+    // when the screen opens so a sign-in that happened in the terminal is not
+    // shown stale. Only with an agent process up to answer — the same
+    // `projectId < 0` line callExtension itself refuses on — because with no
+    // agent the call can only come back Offline and the cached value, null
+    // included, is already the truth this device has.
+    LaunchedEffect(Unit) {
+        if (AgentSessions.projectId >= 0) SpettroSetup.refreshAccount()
     }
 
     /** One key, written off the main thread, with the refusal made visible. */
@@ -206,6 +218,20 @@ fun SettingsScreen(
                 description = "no installer in this build yet"
                     .takeIf { settings.agents.isEmpty() && onOpenAgentPicker == null },
                 onClick = onOpenAgentPicker,
+            )
+            HairlineDivider()
+            // Named for the STATE, not the destination: the email is proof of
+            // which account this phone is on, and "Sign in to Spettro" is the
+            // verb while there is no account to name. Both readings come from
+            // the pure choosers below so a JVM test can pin them
+            // (SpettroAccountRowTest). The plan is a sentence-slot description
+            // rather than a trailing readout for the reason on [LinkRow]:
+            // "Pro · active" beside an email would fight it for the row.
+            val account = SpettroSetup.account
+            LinkRow(
+                label = spettroAccountLabel(account?.signedIn == true, account?.email),
+                description = spettroAccountDescription(account?.signedIn == true, account?.plan),
+                onClick = { state.push(Route.SpettroSettings) },
             )
         }
 
@@ -331,6 +357,26 @@ fun SettingsScreen(
  */
 private const val MIN_FONT_SIZE = 10f
 private const val MAX_FONT_SIZE = 24f
+
+/**
+ * What the Spettro account row prints as its label. Pure and separate from
+ * the composable so a JVM test can hold all three readings still — an email
+ * only proves which account when there is one, and a signed-in answer with no
+ * email (the backend omits it while the profile is still syncing) must not
+ * print a blank row.
+ */
+internal fun spettroAccountLabel(signedIn: Boolean, email: String?): String = when {
+    !signedIn -> "Sign in to Spettro"
+    email != null -> email
+    else -> "Signed in"
+}
+
+/**
+ * The sentence under the label: the plan, and only for a signed-in account —
+ * a leftover plan string from before a sign-out is not a fact about this row.
+ */
+internal fun spettroAccountDescription(signedIn: Boolean, plan: String?): String? =
+    plan?.takeIf { signedIn }
 
 /**
  * A row that goes somewhere: a label, an optional readout or description, and

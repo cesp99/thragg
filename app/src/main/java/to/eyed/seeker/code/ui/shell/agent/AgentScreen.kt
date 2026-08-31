@@ -1022,6 +1022,16 @@ private fun AgentSheets(
                 OverflowItem("Agent", session.agent?.agentName ?: "not connected") {
                     onSheet(AgentSheet.Picker)
                 },
+                // The account surface where the user actually is: the same
+                // Route.SpettroSettings page the Settings row reaches, pushed
+                // onto this destination's stack the way "Review changes"
+                // pushes its route, so back lands on the conversation. The
+                // detail is the email when there is one — the one fact worth
+                // a glance without opening the page.
+                OverflowItem("Account & models", SpettroSetup.account?.email) {
+                    onDismiss(null)
+                    state.push(Route.SpettroSettings)
+                },
                 OverflowItem("Settings") {
                     onDismiss(null)
                     state.push(Route.Settings)

@@ -104,6 +104,15 @@ sealed interface Route {
     /** GitClone.kt with its progress and credential prompts. */
     data object Clone : Route
 
+    /**
+     * The Spettro account — email, plan, credits, connected providers and the
+     * model favourites (ui/agent/spettro/SetupSheets.kt). A route rather than
+     * a sheet because it is reached from two places — Settings' Agent section
+     * and the Agent overflow — and both expect back to pop it like any other
+     * drill page; keeps the nav bar, unlike the login gate it grew out of.
+     */
+    data object SpettroSettings : Route
+
     /** The toolchain takeover — the one route that hides the bar. */
     data object Setup : Route {
         override val hidesNavBar: Boolean get() = true
