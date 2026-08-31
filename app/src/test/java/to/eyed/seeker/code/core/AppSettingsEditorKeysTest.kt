@@ -58,6 +58,35 @@ class AppSettingsEditorKeysTest {
         assertEquals(false, parsed.hardTabs)
         assertEquals(80, parsed.preferredLineLength)
         assertEquals(FormatOnSave.Off, parsed.formatOnSave)
-        assertEquals(Autosave.Off, parsed.autosave)
+    }
+
+    /**
+     * The two defaults this app takes away from Zed (docs/UI.md, "Settings").
+     *
+     * Both are here rather than in the list above because both are a
+     * *divergence* and the test is the record of it: `soft_wrap` because a
+     * 400dp portrait column has no usable horizontal scroll, and `autosave`
+     * because `cargo build-sbf` reads the file on disk and spends 71 seconds
+     * telling you about a version of the program that is not on screen.
+     */
+    @Test
+    fun theTwoDefaultsThisAppFlips() {
+        val parsed = AppSettings.parse("{}")
+        assertEquals(SoftWrapMode.EditorWidth, parsed.softWrap)
+        assertEquals(Autosave.OnFocusChange, parsed.autosave)
+        // The data class's own defaults have to agree with the parse of an
+        // empty document, or a preview and a device disagree about wrapping.
+        assertEquals(AppSettings().softWrap, parsed.softWrap)
+        assertEquals(AppSettings().autosave, parsed.autosave)
+    }
+
+    /** A file that says so still gets Zed's answers — the flip is a default, not a policy. */
+    @Test
+    fun anExplicitValueStillWins() {
+        assertEquals(
+            SoftWrapMode.None,
+            AppSettings.parse("""{"soft_wrap": "none"}""").softWrap,
+        )
+        assertEquals(Autosave.Off, AppSettings.parse("""{"autosave": "off"}""").autosave)
     }
 }

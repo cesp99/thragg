@@ -76,9 +76,27 @@ class MainActivity : ComponentActivity() {
         // maybe deleted would come back as a second copy.
         if (savedInstanceState == null) incoming.value = IncomingFiles.requestFrom(intent)
         // A tap on the agent's notification, while the app was not running.
-        if (intent?.getBooleanExtra(AgentNotifier.EXTRA_OPEN_PANEL, false) == true) {
-            AgentSessions.requestPanel()
-        }
+        //
+        // Guarded and *consumed*, for the same reason the share above is, and
+        // it was got wrong first: an activity's launching intent is sticky.
+        // `singleTask` means `onNewIntent` calls `setIntent`, so one tap on
+        // the agent's notification replaces this activity's intent for the
+        // life of the task — and the system re-delivers that same intent every
+        // time it recreates the activity. Measured on the Seeker: tap the
+        // notification, go back to Code, let the process be killed (which on a
+        // phone holding a 1.4 GB toolchain is routine), relaunch from the
+        // launcher — and the app comes back on Agent. docs/UI.md is explicit
+        // that Code is the start destination, because Code is the only one
+        // that degrades honestly with no agent, no network and no toolchain.
+        //
+        // So: only on a fresh start, and the extra is removed once it has been
+        // answered, so no later recreation can answer it twice.
+        val openPanel = opensAgentPanel(
+            freshStart = savedInstanceState == null,
+            extra = intent?.getBooleanExtra(AgentNotifier.EXTRA_OPEN_PANEL, false) == true,
+        )
+        intent?.removeExtra(AgentNotifier.EXTRA_OPEN_PANEL)
+        if (openPanel) AgentSessions.requestPanel()
         enableEdgeToEdge()
         setContent {
             var settings by remember { mutableStateOf(initialSettings) }
@@ -126,10 +144,13 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         IncomingFiles.requestFrom(intent)?.let { incoming.value = it }
         // The agent's notification, tapped while the app was running: the
-        // workspace brings the panel forward.
-        if (intent.getBooleanExtra(AgentNotifier.EXTRA_OPEN_PANEL, false)) {
-            AgentSessions.requestPanel()
-        }
+        // shell brings the conversation forward. Consumed here too — `setIntent`
+        // above has just made this the activity's sticky intent, and leaving
+        // the extra on it is what sends a later recreation to Agent instead of
+        // Code (see onCreate).
+        val openPanel = intent.getBooleanExtra(AgentNotifier.EXTRA_OPEN_PANEL, false)
+        intent.removeExtra(AgentNotifier.EXTRA_OPEN_PANEL)
+        if (openPanel) AgentSessions.requestPanel()
     }
 
     // Whether the app has a window on screen decides the shape the agent's
@@ -178,3 +199,19 @@ class MainActivity : ComponentActivity() {
         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
+
+/**
+ * Whether a launching intent carrying [extra] should take the shell to the
+ * Agent destination, given whether this is a [freshStart].
+ *
+ * A value function because `android.content.Intent` cannot be built in a host
+ * test and this rule is the whole of a bug that was measured on the device: an
+ * activity's launching intent is sticky, `singleTask` makes `onNewIntent`
+ * replace it, and the system re-delivers it on every recreation. Without the
+ * `freshStart` half, one tap on the agent's notification sent every later
+ * relaunch to Agent — and docs/UI.md is explicit that Code is the start
+ * destination, because Code is the only one that degrades honestly with no
+ * agent, no network and no toolchain.
+ */
+internal fun opensAgentPanel(freshStart: Boolean, extra: Boolean): Boolean =
+    freshStart && extra

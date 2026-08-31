@@ -539,14 +539,35 @@ data class AppSettings(
     val tabSize: Int = 4,
     /** Indent with tab characters rather than spaces — Zed's `hard_tabs`. */
     val hardTabs: Boolean = false,
-    /** What a line longer than the editor does. */
-    val softWrap: SoftWrapMode = SoftWrapMode.None,
+    /**
+     * What a line longer than the editor does.
+     *
+     * **This default is not Zed's, deliberately** (docs/UI.md, "Settings").
+     * Zed's is `none`, which scrolls a long line off the right edge and is
+     * the right answer on a 1400px-wide window with a mouse. On a 400dp
+     * portrait column there is no horizontal scrollbar worth having and no
+     * pointer to fling it with: a `use` line or a `#[account(...)]`
+     * attribute simply leaves the screen. The mode and its Fenwick tree
+     * already exist (DisplayMap.kt:485-535), so this is a default, not a
+     * feature.
+     */
+    val softWrap: SoftWrapMode = SoftWrapMode.EditorWidth,
     /** The column `bounded` wraps at, and the active wrap guide's column. */
     val preferredLineLength: Int = 80,
     /** Format the file when it is saved — Zed's `format_on_save`. */
     val formatOnSave: FormatOnSave = FormatOnSave.Off,
-    /** Save without being asked — Zed's `autosave`. */
-    val autosave: Autosave = Autosave.Off,
+    /**
+     * Save without being asked — Zed's `autosave`.
+     *
+     * **Also not Zed's default** (docs/UI.md, "Settings"). Zed's is `off`,
+     * and on a desktop the cost of that is a ⌘S. Here the cost is a build:
+     * `cargo build-sbf` reads the file on disk, takes 71 seconds over it,
+     * and reports on a version of the program that is not the one on screen
+     * — a 71-second lie, and one that is very hard to see as a stale-file
+     * problem. `on_focus_change` is Zed's own "when you leave a file", which
+     * is the last moment before that can happen.
+     */
+    val autosave: Autosave = Autosave.OnFocusChange,
     /** How much of the last session comes back at launch — Zed's `restore_on_startup`. */
     val restoreOnStartup: RestoreOnStartup = RestoreOnStartup.LastSession,
     /**
@@ -760,10 +781,12 @@ data class AppSettings(
                 bufferFontSize = root.optDouble("buffer_font_size", 14.0).toFloat(),
                 tabSize = root.optInt("tab_size", 4),
                 hardTabs = root.optBoolean("hard_tabs", false),
-                softWrap = SoftWrapMode.fromKey(root.optString("soft_wrap", "none")),
+                softWrap = SoftWrapMode.fromKey(
+                    root.optString("soft_wrap", SoftWrapMode.EditorWidth.key)
+                ),
                 preferredLineLength = root.optInt("preferred_line_length", 80),
                 formatOnSave = FormatOnSave.fromKey(root.optString("format_on_save", "off")),
-                autosave = Autosave.parse(root.opt("autosave")),
+                autosave = root.opt("autosave")?.let(Autosave::parse) ?: Autosave.OnFocusChange,
                 restoreOnStartup = RestoreOnStartup.fromKey(
                     root.optString("restore_on_startup", "last_session")
                 ),

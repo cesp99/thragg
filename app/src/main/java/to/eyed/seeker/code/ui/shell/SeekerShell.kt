@@ -54,8 +54,18 @@ import to.eyed.seeker.code.terminal.Userland
 import to.eyed.seeker.code.terminal.UserlandInstaller
 import to.eyed.seeker.code.terminal.UserlandState
 import to.eyed.seeker.code.ui.git.AskpassDialog
+import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
+import to.eyed.seeker.code.ui.shell.build.BuildBootstrap
+import to.eyed.seeker.code.ui.shell.build.BuildScreen
+import to.eyed.seeker.code.ui.shell.projects.CloneScreen
+import to.eyed.seeker.code.ui.shell.projects.NewProgramScreen
+import to.eyed.seeker.code.ui.shell.projects.ProjectsEntryPoint
+import to.eyed.seeker.code.ui.shell.projects.openProjectInShell
+import to.eyed.seeker.code.ui.shell.settings.SettingsScreen
+import to.eyed.seeker.code.ui.shell.setup.SetupScreen
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.workspace.NotificationHost
+import to.eyed.seeker.code.ui.shell.code.CodeScreen
 import to.eyed.seeker.code.ui.workspace.Notifications
 
 /**
@@ -121,11 +131,24 @@ fun SeekerShell(
      * A tap on the agent's notification, from anywhere: go to Agent, which is
      * what the tap promised. The request is a counter, so a second tap on a
      * later notification is a second navigation (WorkspaceScreen.kt:3652-3657).
+     *
+     * The counter is never reset — [AgentSessions] is process-wide and a
+     * `requestPanel` from an hour ago still reads as `3`. So what is compared
+     * is the value this process has already *answered*, held outside the
+     * composition for exactly the same reason [ShellState] is: an activity
+     * recreation builds a new composition over the old counter, and a
+     * `LaunchedEffect` keyed on a stale `3` would drag the user off Code and
+     * onto Agent every single time. Code is the start destination and it stays
+     * the start destination (docs/UI.md, "The design chosen").
      */
     LaunchedEffect(AgentSessions.openPanelRequest) {
-        if (AgentSessions.openPanelRequest == 0) return@LaunchedEffect
+        val request = AgentSessions.openPanelRequest
+        if (!answersPanelRequest(request, agentPanelRequestAnswered)) return@LaunchedEffect
+        agentPanelRequestAnswered = request
         state.show(Destination.Agent)
     }
+
+    ShellBootstrap(state)
 
     // The engine runs Debian's git through proot for status and cannot guess
     // where either lives. Keyed on the installer's state, not on `Unit`: the
@@ -197,12 +220,12 @@ fun SeekerShell(
                     // The three destinations. P2, P3 and P4 land by replacing
                     // exactly one of these lines each.
                     when (state.destination) {
-                        Destination.Code -> CodeDestination(state)
+                        Destination.Code -> CodeScreen(state, settings, settingsPath, onSettingsChanged)
                         Destination.Agent -> AgentDestination(state)
-                        Destination.Build -> BuildDestination(state)
+                        Destination.Build -> BuildScreen(state)
                     }
                 } else {
-                    RouteHost(route, state)
+                    RouteHost(route, state, settings, settingsPath, onSettingsChanged)
                 }
                 // The toast stack, over everything in the destination and under
                 // nothing: a failure has to be readable with a sheet or a route
@@ -226,6 +249,85 @@ fun SeekerShell(
     // (WorkspaceScreen.kt:5043).
     AskpassDialog()
 }
+
+/**
+ * The three things that have to be true before the first frame is *useful*,
+ * none of which any single chunk could do from inside its own destination.
+ *
+ * Every one of them is a handoff the parallel chunks wrote down and could not
+ * apply themselves, because the file they needed edited is this one:
+ *
+ *  1. **The build seam.** `BuildBootstrap.install` is what fills P2's
+ *     `CodeBuildSeam`, and P4 could only call it from the Build destination's
+ *     own composition — so the editor's `▶` did nothing until Build had been
+ *     visited once, which is precisely the order nobody uses.
+ *  2. **`toolchainReady`.** Four screens read it (Code's `▶`, Build's three
+ *     buttons, Projects → Toolchain, Settings → Toolchain) and only
+ *     SetupScreen ever wrote it, so a cold start with a fully installed
+ *     toolchain said "not installed" and `▶` pushed Setup over a toolchain
+ *     that was already there. [SolanaToolchain.isReady] stats the rootfs, so
+ *     it goes off the main thread.
+ *  3. **The last project.** `ProjectsRoot.lastProject` returns null on a fresh
+ *     install — the honest first-run state the shell draws — but on the second
+ *     launch it names the project you were in, and nothing was reading it.
+ *     Without this, every launch is "No project is open" no matter how much
+ *     work is on disk. Opening one is blocking (it starts the engine's scan),
+ *     and it is skipped entirely once anything has set [ShellState.project],
+ *     so a share or a notification tap that arrives first still wins.
+ *
+ * This is a smaller thing than P9's SessionRestore, which owns the caret, the
+ * scroll and the open buffers across process death; what is here is only the
+ * root, which is what the difference between an empty app and a working one
+ * turns on.
+ */
+@Composable
+private fun ShellBootstrap(state: ShellState) {
+    val context = LocalContext.current
+    LaunchedEffect(state) {
+        // Synchronous and first: `▶` is reachable on the very first frame and
+        // installing a lambda costs nothing.
+        BuildBootstrap.install(state, context)
+        val ready = withContext(Dispatchers.IO) {
+            runCatching { SolanaToolchain.isReady(context) }.getOrDefault(false)
+        }
+        state.toolchainReady = ready
+        if (state.project != null) return@LaunchedEffect
+        val path = withContext(Dispatchers.IO) { ProjectsRoot.lastProject(context) }
+            ?: return@LaunchedEffect
+        // Between the two suspension points a share, a notification or the
+        // Projects sheet may have opened one; the last writer must not be this.
+        if (state.project != null) return@LaunchedEffect
+        // `switching = false`: reopening the last project is not a switch.
+        // There is nothing open to tear down, and `ShellState.reset()` would
+        // force the destination back to Code — which sounds harmless right up
+        // until you notice this is a *suspending* call that lands a second or
+        // two into the session, long after the agent's notification has asked
+        // for Agent and long after a thumb can have reached the bar.
+        openProjectInShell(context, state, path, switching = false)
+    }
+}
+
+/**
+ * The `openPanelRequest` this process has already acted on.
+ *
+ * A plain top-level var, outside the composition and outside [ShellState]: it
+ * is not drawn, nothing observes it, and its whole job is to be *older* than
+ * the composition that reads it. See the effect in [SeekerShell].
+ */
+private var agentPanelRequestAnswered = 0
+
+/**
+ * Whether an `openPanelRequest` of [request] is one this process still owes an
+ * answer to, given it has already answered [answered].
+ *
+ * A value function for the same reason [takesBeforeIme] is one: the rule is
+ * three tokens long and the bug it fixes cost a device round trip to see. Zero
+ * is "nobody has asked", and equality is "asked, and already taken there" — a
+ * new composition over an old counter, which is what an activity recreation
+ * is, must not move the user off the start destination.
+ */
+internal fun answersPanelRequest(request: Int, answered: Int): Boolean =
+    request != 0 && request != answered
 
 /**
  * Files and text another app shared into Seeker.
@@ -359,28 +461,10 @@ internal class PreImeKey {
 // one function here.
 
 @Composable
-private fun CodeDestination(state: ShellState) {
-    Placeholder(
-        title = "Code",
-        detail = "The editor lands here (P2): header, buffer, file bar, find bar.",
-        state = state,
-    )
-}
-
-@Composable
 private fun AgentDestination(state: ShellState) {
     Placeholder(
         title = "Agent",
         detail = "The ACP conversation lands here (P3).",
-        state = state,
-    )
-}
-
-@Composable
-private fun BuildDestination(state: ShellState) {
-    Placeholder(
-        title = "Build",
-        detail = "Cluster, wallet, program id, log and the three buttons land here (P4).",
         state = state,
     )
 }
@@ -418,6 +502,10 @@ private fun Placeholder(title: String, detail: String, state: ShellState) {
                 .padding(top = 16.dp)
                 .clickable { state.push(Route.Settings) },
         )
+        // P8's Projects & tools sheet. It belongs behind the project chip in
+        // Code's header (P2); this is the only door to it until that lands,
+        // and it goes when these placeholders do.
+        ProjectsEntryPoint(state)
     }
 }
 
@@ -431,7 +519,13 @@ private fun Placeholder(title: String, detail: String, state: ShellState) {
  * was pushed from rather than replacing it.
  */
 @Composable
-private fun RouteHost(route: Route, state: ShellState) {
+private fun RouteHost(
+    route: Route,
+    state: ShellState,
+    settings: AppSettings,
+    settingsPath: String?,
+    onSettingsChanged: (AppSettings) -> Unit,
+) {
     val theme = LocalZedTheme.current
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -456,11 +550,28 @@ private fun RouteHost(route: Route, state: ShellState) {
             modifier = Modifier.fillMaxWidth().weight(1f),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "${route.title} lands here.",
-                style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
+            // One branch per landed chunk; the rest keep the placeholder body
+            // above their own ← row. P8's three are here.
+            when (route) {
+                is Route.Settings -> SettingsScreen(
+                    state = state,
+                    settings = settings,
+                    settingsPath = settingsPath,
+                    onSettingsChanged = onSettingsChanged,
+                )
+
+                is Route.NewProgram -> NewProgramScreen(state)
+
+                is Route.Clone -> CloneScreen(state)
+
+                is Route.Setup -> SetupScreen(state)
+
+                else -> Text(
+                    text = "${route.title} lands here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                )
+            }
         }
     }
 }

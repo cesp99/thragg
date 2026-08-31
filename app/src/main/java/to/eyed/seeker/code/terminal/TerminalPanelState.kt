@@ -65,9 +65,52 @@ class TerminalPanelState(context: Context) {
 
     private var created = 0
 
+    /**
+     * Whether something with no session of its own — a build — needs the
+     * foreground service kept up.
+     *
+     * [to.eyed.seeker.code.solana.build.BuildRunner] drives its guest process
+     * through a pipe rather than a pty, because cargo's JSON diagnostics do
+     * not survive a terminal's line wrapping, so it has no entry in [entries]
+     * to be counted by [syncService] — and a 71-second build is exactly the
+     * shape of thing Android's phantom-process reaper takes when the screen
+     * goes off. Held here rather than in the service because this is the one
+     * place that knows how many things currently need it.
+     */
+    private var backgroundHold by mutableStateOf(false)
+
     /** Show the dock, starting a first shell in [cwd] if there is none. */
     fun open(cwd: String) {
         if (entries.isEmpty()) newSession(cwd) else isOpen = true
+    }
+
+    /**
+     * The Build destination's Shell mode: the *one* interactive shell, born in
+     * the project root and reused forever (docs/UI.md, "Build → Shell").
+     *
+     * There are no terminal tabs in this app any more — at most two sessions
+     * exist, this one and whatever a task opened — so "open the shell" is
+     * "select the shell if it is there, start it if it is not", never "add
+     * another one".
+     */
+    fun openShell(cwd: String): TerminalSessionHost {
+        val existing = entries.firstOrNull { it.task == null }
+        if (existing != null) {
+            select(entries.indexOf(existing))
+            isOpen = true
+            return existing
+        }
+        newSession(cwd)
+        return entries[activeIndex]
+    }
+
+    /**
+     * Keep the foreground service alive for work that owns no session. Idempotent.
+     */
+    fun holdForBackgroundWork(held: Boolean) {
+        if (backgroundHold == held) return
+        backgroundHold = held
+        syncService()
     }
 
     fun hide() {
@@ -78,8 +121,22 @@ class TerminalPanelState(context: Context) {
         if (isOpen) hide() else open(cwd)
     }
 
-    /** Start another shell and show it. Must be called on the main thread. */
+    /**
+     * Start another shell and show it. Must be called on the main thread.
+     *
+     * Capped at [MAX_SESSIONS]. The shell the new design has is one
+     * interactive terminal plus, at most, one session a task opened; there is
+     * no new/close/next/previous and no tab strip to reach a third from
+     * (docs/UI.md, "Build → Shell"). Past the cap this selects the last
+     * session instead of adding one, so the cap can never strand a process
+     * behind an index nothing draws.
+     */
     fun newSession(cwd: String) {
+        if (entries.size >= MAX_SESSIONS) {
+            select(entries.lastIndex)
+            isOpen = true
+            return
+        }
         created += 1
         entries.add(
             TerminalSessionHost(
@@ -235,7 +292,15 @@ class TerminalPanelState(context: Context) {
      * long as there is a session for it to protect.
      */
     private fun syncService() {
-        TerminalService.sync(context, entries.size)
+        TerminalService.sync(context, entries.size + if (backgroundHold) 1 else 0)
+    }
+
+    companion object {
+        /**
+         * One interactive shell and one task session, and that is the whole
+         * terminal model — see [newSession].
+         */
+        const val MAX_SESSIONS = 2
     }
 }
 

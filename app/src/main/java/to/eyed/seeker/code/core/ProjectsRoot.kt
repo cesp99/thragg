@@ -25,8 +25,6 @@ data class ProjectSummary(
  * than opened in place.
  */
 object ProjectsRoot {
-    private const val SAMPLE_NAME = "welcome"
-
     /**
      * Where a file shared from another app goes when it is not for the open
      * project: a project like any other, created the first time it is
@@ -133,67 +131,52 @@ object ProjectsRoot {
     }
 
     /**
-     * The project to open at startup: the one last open, else any existing
-     * one, else the sample — seeded only when there are no projects at all,
-     * so deleting it keeps it deleted.
+     * The project to reopen at launch: the one last open, else the most
+     * recently touched, else null.
+     *
+     * Null is a real answer and the shell draws it: a fresh install has no
+     * project, and what it shows is an empty Code destination with the
+     * Projects sheet over it (docs/UI.md, "First run"). Nothing is seeded to
+     * avoid that — the sample project this used to write was a `welcome`
+     * directory with a Cargo.toml, a README and five thousand generated lines
+     * of Rust, which on a Solana-first IDE is a project nobody asked for
+     * standing in front of the one they came to make.
      */
-    fun defaultProject(context: Context): String {
+    fun lastProject(context: Context): String? {
         lastOpened(context)?.let { return projectDir(context, it).absolutePath }
-        list(context).firstOrNull()?.let { return it.path }
-        val sample = projectDir(context, SAMPLE_NAME)
-        writeSampleProject(sample)
-        return sample.absolutePath
+        return list(context).firstOrNull()?.path
     }
 
-    private fun writeSampleProject(project: File) {
-        File(project, "src").mkdirs()
-        File(project, "Cargo.toml").writeText(
-            """
-            [package]
-            name = "welcome"
-            version = "0.1.0"
-            edition = "2024"
-            """.trimIndent() + "\n"
-        )
-        File(project, ".gitignore").writeText("target\n")
-        File(project, "README.md").writeText(
-            """
-            # Welcome to Seeker IDE
+    /**
+     * As [lastProject], with somewhere to go when there is nothing: Scratch,
+     * which is a real empty project rather than a fabricated tutorial.
+     *
+     * Only the inherited workspace calls this, and only because it has no way
+     * to draw "no project open" — it opens one or it opens nothing. The new
+     * shell calls [lastProject] and handles the null. **Blocking**, because
+     * it may create the directory.
+     */
+    fun defaultProject(context: Context): String =
+        lastProject(context) ?: scratch(context).absolutePath
 
-            An IDE for Android, built on Zed's Rust engine.
-
-            This project lives in the app's private storage. The tree on the
-            left is a real Zed worktree scanned inside the engine: gitignore
-            aware, incremental, and lazy — directories are read only when you
-            open them.
-
-            Use the project name in the status bar to switch projects, create
-            one, or import a folder from your device.
-            """.trimIndent() + "\n"
-        )
-        File(project, "src/main.rs").writeText(sampleSource())
-    }
-
-    /** Welcome text plus generated lines — a scroll workout for the renderer. */
-    private fun sampleSource(): String = buildString {
-        append(
-            """
-            // Welcome to Seeker IDE.
-            //
-            // This buffer lives inside the Rust engine (core/crates/engine):
-            // Zed's rope/CRDT text stack, reached over JNI. The editor draws
-            // only the visible line window, and the colors come from Zed's
-            // tree-sitter highlight queries running inside the engine.
-            //
-            // The lines that follow are generated so you can put the
-            // virtualized renderer through its paces. Fling away.
-
-            const GREETING: &str = "Hello from the Rust core!";
-
-            """.trimIndent() + "\n"
-        )
-        for (i in 1..5_000) {
-            append("fn generated_$i() -> i32 { $i * ${i % 7} }  // scroll test, line ${i + 12}\n")
-        }
+    /**
+     * Rename a project, keeping it inside the projects directory.
+     *
+     * Returns the new directory, or null when [to] is not a usable name or
+     * the rename failed. A rename is a `File.renameTo` and nothing else: the
+     * project's *contents* never mention its directory name (a scaffold names
+     * the crate, not the folder), and the engine is told about the move by
+     * being reopened on the new path.
+     */
+    fun rename(context: Context, from: String, to: String): File? {
+        val trimmed = to.trim()
+        if (trimmed == from) return projectDir(context, from).takeIf { it.isDirectory }
+        if (nameError(context, trimmed) != null) return null
+        val source = projectDir(context, from)
+        if (!source.isDirectory || source.parentFile != directory(context)) return null
+        val target = projectDir(context, trimmed)
+        if (!source.renameTo(target)) return null
+        if (lastOpened(context) == from) setLastOpened(context, trimmed)
+        return target
     }
 }

@@ -84,6 +84,31 @@ interface UserlandBackend {
     ): ShellCommand?
 
     /**
+     * [execCommand], through a sandbox that leaves `hard_link(2)` alone.
+     *
+     * proot's `--link2symlink` rewrites a hard link into a symlink, which is
+     * the only reason `dpkg` — and therefore `apt` — can unpack at all, so it
+     * is on by default for every command. For `cargo install` it is a trap
+     * that looks like a success: cargo builds into a scratch directory, hard-
+     * links the finished binary into place, then deletes the scratch, and
+     * under the rewrite what is left is a symlink to a directory that no
+     * longer exists. cargo prints "Installed package"; the binary is gone, and
+     * the *next* one fails with `Operation not permitted (os error 1)`
+     * (docs/SOLANA.md, "Living with proot" — measured, twice).
+     *
+     * So the rule is a rule and not a preference: `--link2symlink` belongs to
+     * apt and to nothing else. This is the invocation everything else uses.
+     * The default implementation is the ordinary one, because a backend with
+     * no proot has no flag to drop.
+     */
+    fun execCommandRealLinks(
+        context: Context,
+        hostWorkingDir: String?,
+        argv: List<String>,
+        extraEnvironment: List<String> = emptyList(),
+    ): ShellCommand? = execCommand(context, hostWorkingDir, argv, extraEnvironment)
+
+    /**
      * Download and unpack the rootfs. Blocking; call it off the main thread.
      *
      * [isActive] is polled during the long phases so a cancelled install stops

@@ -2,6 +2,7 @@ package to.eyed.seeker.code.solana.templates
 
 import androidx.annotation.StringRes
 import to.eyed.seeker.code.R
+import java.io.File
 
 /**
  * One file a template writes: a project-relative, '/'-separated path and its
@@ -46,6 +47,29 @@ data class SolanaProgram(
          * ecosystem already recognises as "not yet assigned".
          */
         const val PLACEHOLDER_ID = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+
+        /**
+         * The four clusters, in the order the New program screen offers
+         * them, spelled the way `anchor init` writes `[provider] cluster`.
+         *
+         * Anchor lower-cases the value before matching it, so the capitals
+         * are cosmetic and a hand-edited `"devnet"` means the same thing —
+         * but a file this app writes should read like a file Anchor wrote,
+         * because the next person to open it will be following an Anchor
+         * tutorial.
+         */
+        val CLUSTERS: List<String> = listOf("Devnet", "Localnet", "Testnet", "Mainnet")
+
+        /**
+         * What a new project gets unless the screen says otherwise.
+         *
+         * Devnet, not Anchor's own Localnet: `anchor init` assumes a
+         * validator you can start next to your editor, and on a phone there
+         * is no second terminal to leave `solana-test-validator` running in
+         * (docs/UI.md, "New program" — devnet is the default in the dialog
+         * for the same reason).
+         */
+        const val DEFAULT_CLUSTER = "Devnet"
 
         /** The names for [displayName], all derived the same way. */
         fun of(displayName: String, programId: String = PLACEHOLDER_ID): SolanaProgram {
@@ -104,11 +128,24 @@ enum class SolanaFramework(
         blurbRes = R.string.solana_framework_seahorse_blurb,
     );
 
-    /** Every file this template writes, in creation order. */
-    fun files(program: SolanaProgram): List<TemplateFile> = when (this) {
-        Anchor -> anchorFiles(program)
+    /**
+     * Every file this template writes, in creation order.
+     *
+     * [cluster] is Anchor's `[provider] cluster` — one of Anchor's own four
+     * spellings ([SolanaProgram.CLUSTERS]). It is a parameter rather than a
+     * field of [SolanaProgram] because it is not a *name*: it is the one
+     * thing in the scaffold that changes after the project exists, and P6's
+     * cluster chip rewrites the same line in `Anchor.toml` (docs/UI.md, P6).
+     * The default is Anchor's, so `files(program)` alone still writes what
+     * `anchor init` writes.
+     */
+    fun files(
+        program: SolanaProgram,
+        cluster: String = SolanaProgram.DEFAULT_CLUSTER,
+    ): List<TemplateFile> = when (this) {
+        Anchor -> anchorFiles(program, cluster)
         Native -> nativeFiles(program)
-        Seahorse -> seahorseFiles(program)
+        Seahorse -> seahorseFiles(program, cluster)
     }
 
     /**
@@ -136,30 +173,8 @@ enum class SolanaFramework(
  * that rejects the wrong signer — and the test is the only place those are
  * ever shown working.
  */
-private fun anchorFiles(program: SolanaProgram): List<TemplateFile> = listOf(
-    TemplateFile(
-        "Anchor.toml",
-        """
-        [toolchain]
-
-        [features]
-        resolution = true
-        skip-lint = false
-
-        [programs.localnet]
-        ${program.moduleName} = "${program.programId}"
-
-        [registry]
-        url = "https://api.apr.dev"
-
-        [provider]
-        cluster = "Localnet"
-        wallet = "~/.config/solana/id.json"
-
-        [scripts]
-        test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
-        """.trimIndent() + "\n",
-    ),
+private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateFile> = listOf(
+    TemplateFile("Anchor.toml", anchorToml(program, cluster)),
     TemplateFile(
         "Cargo.toml",
         """
@@ -343,6 +358,40 @@ private fun anchorFiles(program: SolanaProgram): List<TemplateFile> = listOf(
     TemplateFile(".gitignore", ANCHOR_GITIGNORE),
 )
 
+/**
+ * `Anchor.toml`, shared by the Anchor and Seahorse templates because Seahorse
+ * *is* an Anchor project — `seahorse build` generates the Rust and then hands
+ * off to `anchor build`, and it reads this file to do it.
+ *
+ * `[programs.localnet]` is keyed by the **lib name**, not the package name:
+ * that is the key `anchor keys sync` looks up and rewrites with the real
+ * program id, and getting it wrong is a sync that silently does nothing.
+ * The section stays `localnet` whatever [cluster] says — it is the map of
+ * program name to address, and Anchor writes the deployed addresses of the
+ * other clusters into their own sections as they happen.
+ */
+private fun anchorToml(program: SolanaProgram, cluster: String): String =
+    """
+    [toolchain]
+
+    [features]
+    resolution = true
+    skip-lint = false
+
+    [programs.localnet]
+    ${program.moduleName} = "${program.programId}"
+
+    [registry]
+    url = "https://api.apr.dev"
+
+    [provider]
+    cluster = "$cluster"
+    wallet = "~/.config/solana/id.json"
+
+    [scripts]
+    test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+    """.trimIndent() + "\n"
+
 private fun anchorPackageJson(program: SolanaProgram): String =
     """
     {
@@ -504,30 +553,8 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
  * `anchor build`, so the `Anchor.toml` and workspace `Cargo.toml` below are
  * the same ones the Anchor template ships.
  */
-private fun seahorseFiles(program: SolanaProgram): List<TemplateFile> = listOf(
-    TemplateFile(
-        "Anchor.toml",
-        """
-        [toolchain]
-
-        [features]
-        resolution = true
-        skip-lint = false
-
-        [programs.localnet]
-        ${program.moduleName} = "${program.programId}"
-
-        [registry]
-        url = "https://api.apr.dev"
-
-        [provider]
-        cluster = "Localnet"
-        wallet = "~/.config/solana/id.json"
-
-        [scripts]
-        test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
-        """.trimIndent() + "\n",
-    ),
+private fun seahorseFiles(program: SolanaProgram, cluster: String): List<TemplateFile> = listOf(
+    TemplateFile("Anchor.toml", anchorToml(program, cluster)),
     TemplateFile(
         "Cargo.toml",
         """
@@ -698,3 +725,87 @@ private val SEAHORSE_PRELUDE =
     def instruction(fn):
         return fn
     """.trimIndent() + "\n"
+
+// --- Writing one out ----------------------------------------------------------
+
+/**
+ * A template, written into a real directory.
+ *
+ * Separated from the templates themselves because the strings above are pure
+ * — a host test can build every file of every framework and read it without a
+ * filesystem — and this is the half that touches disk. **Blocking**: call it
+ * off the main thread, as every write in this app is.
+ *
+ * Nothing here updates any tree. The engine's worktree is watching the same
+ * directory, so a scaffold arrives back as a snapshot version bump exactly as
+ * a `git clone` into the project would (the rule
+ * [to.eyed.seeker.code.ui.workspace.ProjectFiles] states and follows).
+ */
+object SolanaScaffold {
+
+    /** What a scaffold did, or why it did nothing. */
+    sealed interface Result {
+        /**
+         * [entryPath] is the *absolute* path of the file to open — the
+         * program's source, per [SolanaFramework.entryPath].
+         */
+        data class Written(val root: File, val entryPath: String, val files: Int) : Result
+
+        data class Failed(val reason: String) : Result
+    }
+
+    /**
+     * Write [framework]'s files for [program] into [root], which must already
+     * exist (`ProjectsRoot.create` made it).
+     *
+     * A partial scaffold is not cleaned up on failure, and that is deliberate:
+     * unlike an import ([to.eyed.seeker.code.core.SafTransfer], which deletes
+     * a half-copied project because it would look complete and quietly be
+     * missing files), a half-written scaffold is a directory the user asked
+     * for with a named file missing from it. Deleting their new project
+     * because the seventh of eight writes failed would be the worse answer;
+     * the failure says which file, and the rest is on disk to look at.
+     */
+    fun write(
+        root: File,
+        framework: SolanaFramework,
+        program: SolanaProgram,
+        cluster: String = SolanaProgram.DEFAULT_CLUSTER,
+    ): Result {
+        val files = framework.files(program, cluster)
+        for (file in files) {
+            val target = resolve(root, file.path)
+                ?: return Result.Failed("${file.path} is not a path inside the project")
+            val parent = target.parentFile
+            if (parent != null && !parent.isDirectory && !parent.mkdirs()) {
+                return Result.Failed("Could not create ${file.path.substringBeforeLast('/')}")
+            }
+            val wrote = runCatching { target.writeText(file.contents) }
+            if (wrote.isFailure) {
+                return Result.Failed(
+                    wrote.exceptionOrNull()?.message ?: "Could not write ${file.path}"
+                )
+            }
+        }
+        val entry = resolve(root, framework.entryPath(program))
+            ?: return Result.Failed("The template has no entry file")
+        return Result.Written(root, entry.absolutePath, files.size)
+    }
+
+    /**
+     * The file [rel] names inside [root], or null if it does not name one.
+     *
+     * The engine's rule for a project-relative path, applied to strings this
+     * package builds itself: no empty components, no `.` and no `..`. The
+     * templates are all literals today, but they interpolate a *user-supplied
+     * name* into their paths ("programs/${'$'}{crateName}/src/lib.rs"), and the
+     * cost of checking is one split. Deliberately a local copy of
+     * `ProjectFiles.resolve` rather than a call into it: that file is in
+     * ui/workspace and is deleted in P10 (docs/UI.md).
+     */
+    private fun resolve(root: File, rel: String): File? {
+        if (rel.isEmpty()) return null
+        if (rel.split('/').any { it.isEmpty() || it == "." || it == ".." }) return null
+        return File(root, rel)
+    }
+}

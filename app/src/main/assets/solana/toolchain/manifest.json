@@ -1,0 +1,218 @@
+{
+  "schema": 1,
+  "note": [
+    "The Solana toolchain as DATA. A toolchain bump is an edit to this file and",
+    "nothing else: no Kotlin changes, no release. Every component is fetched from",
+    "its own upstream (docs/SOLANA.md, 'Where the toolchain comes from') — we host",
+    "nothing and mirror nothing.",
+    "",
+    "Order is INSTALL order, and it is also the order the Setup screen lists.",
+    "Two orderings in it are load-bearing:",
+    "  * platform-tools is linked into rustup by its own postInstall, so rustup",
+    "    must already be there when it lands;",
+    "  * apt comes after the three small binaries so the editor, the language",
+    "    server and the agent are usable before the slow package step, and before",
+    "    the two crates that need a C compiler to build.",
+    "",
+    "sha256 is over the downloaded file exactly as served. It is also the",
+    "component's revision: change the hash and that one row re-installs, while",
+    "every other row stays where it is."
+  ],
+  "platformToolsVersion": "v1.57",
+  "guestRoot": "/opt/solana",
+  "components": [
+    {
+      "id": "debian",
+      "name": "Debian userland",
+      "summary": "A real Debian under proot. apt works; we maintain none of it.",
+      "method": "userland",
+      "note": [
+        "No url and no sha256 here on purpose: this one is the existing",
+        "UserlandInstaller/DebianUserland path, which resolves Debian's own",
+        "container image through the registry and verifies the registry's digest",
+        "as it streams. Duplicating a pinned hash here would pin a tag that moves.",
+        "It is also the one archive unpacked THROUGH proot rather than beside it,",
+        "because Debian's image carries a hard link (perl) that a host tar cannot",
+        "reproduce into app storage — see docs/SOLANA.md, 'Living with proot'."
+      ],
+      "downloadBytes": 30000000,
+      "installBytes": 120000000,
+      "approximate": true,
+      "installPath": "/",
+      "marker": "/bin/sh",
+      "required": true
+    },
+    {
+      "id": "rustup",
+      "name": "rustup (manager only)",
+      "summary": "The toolchain manager with no toolchain. cargo-build-sbf execs it.",
+      "method": "binary",
+      "note": [
+        "--default-toolchain none downloads no rustc at all: platform-tools already",
+        "carries one, and a second Rust would be 1.5 GB we do not need. rustup is",
+        "here because cargo-build-sbf shells out to it and dies with 'Failed to",
+        "execute rustup' otherwise (docs/SOLANA.md).",
+        "static.rust-lang.org publishes a .sha256 beside every archived rustup-init;",
+        "the hash below is that file's, for 1.29.0/aarch64-unknown-linux-gnu."
+      ],
+      "url": "https://static.rust-lang.org/rustup/archive/1.29.0/aarch64-unknown-linux-gnu/rustup-init",
+      "sha256": "9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792",
+      "version": "1.29.0",
+      "downloadBytes": 19502880,
+      "installBytes": 40000000,
+      "installPath": "/tmp/rustup-init",
+      "marker": "/root/.cargo/bin/rustup",
+      "postInstall": [
+        ["/tmp/rustup-init", "-y", "--default-toolchain", "none", "--no-modify-path"],
+        ["/bin/rm", "-f", "/tmp/rustup-init"]
+      ],
+      "verify": ["/root/.cargo/bin/rustup", "--version"],
+      "required": true
+    },
+    {
+      "id": "platform-tools",
+      "name": "SBF platform-tools",
+      "summary": "The SBF compiler: its own cargo, rustc and an LLVM with the SBF backend.",
+      "method": "tarball",
+      "note": [
+        "The load-bearing component. 505 MB down, ~1.4 GB unpacked, and the only",
+        "reason a Solana program can be compiled on this device at all.",
+        "Unpacked with the host's tar straight into the rootfs — pushing 1.4 GB of",
+        "small files through proot's ptrace is many times slower, and this archive",
+        "has no hard link to trip over.",
+        "postInstall is where rustup is pointed at it. Without the link and the",
+        "default, rustup's cargo shim resolves to nothing and every build fails",
+        "with a message about a missing toolchain."
+      ],
+      "url": "https://github.com/anza-xyz/platform-tools/releases/download/v1.57/platform-tools-linux-aarch64.tar.bz2",
+      "sha256": "f2f31c9325cb2d00244df23b4a1a0904e51819cec49d39235a3ed3ee2320375d",
+      "version": "v1.57",
+      "downloadBytes": 528839404,
+      "installBytes": 1400000000,
+      "installPath": "/opt/solana/platform-tools",
+      "marker": "/opt/solana/platform-tools/rust/bin/rustc",
+      "postInstall": [
+        ["/root/.cargo/bin/rustup", "toolchain", "link", "solana", "/opt/solana/platform-tools/rust"],
+        ["/root/.cargo/bin/rustup", "default", "solana"]
+      ],
+      "verify": ["/opt/solana/platform-tools/rust/bin/rustc", "--version"],
+      "required": true
+    },
+    {
+      "id": "rust-analyzer",
+      "name": "rust-analyzer",
+      "summary": "The language server: completion, go-to-definition, the squiggles.",
+      "method": "gz-single-binary",
+      "note": "A gzipped ELF, not a tarball. Ungzipped on this side and chmod 755'd.",
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-08-24/rust-analyzer-aarch64-unknown-linux-gnu.gz",
+      "sha256": "3463f9115c725fc5dfb002431833ec83d1f1f9c4c35b76ad5f47b92c58a521f1",
+      "version": "2026-08-24",
+      "downloadBytes": 14317193,
+      "installBytes": 45000000,
+      "installPath": "/opt/ra/rust-analyzer",
+      "marker": "/opt/ra/rust-analyzer",
+      "verify": ["/opt/ra/rust-analyzer", "--version"],
+      "required": false
+    },
+    {
+      "id": "spettro",
+      "name": "Spettro (agent)",
+      "summary": "The bundled ACP agent. One static binary, no Node anywhere.",
+      "method": "tarball",
+      "note": [
+        "Unpacked into the same /opt/seeker/agents/<id> layout the agent picker",
+        "uses (solana/agents/AgentCatalog.kt, GUEST_INSTALL_ROOT), so an agent",
+        "installed by Setup and one installed from the picker are the same thing",
+        "in the same place. ACP is behind -acp / --acp; the picker probes it."
+      ],
+      "url": "https://github.com/aploide/spettro/releases/download/v2.7.3/spettro_v2.7.3_linux_arm64.tar.gz",
+      "sha256": "3ffa704667154d2f24487080ed2f1a37cb63d995f7c3bc278768081f60eccb73",
+      "version": "v2.7.3",
+      "downloadBytes": 14832213,
+      "installBytes": 32000000,
+      "installPath": "/opt/seeker/agents/spettro",
+      "marker": "/opt/seeker/agents/spettro/spettro",
+      "required": false
+    },
+    {
+      "id": "apt-build-tools",
+      "name": "Build tools (apt)",
+      "summary": "gcc, git, pkg-config, OpenSSL headers — what building a crate needs.",
+      "method": "apt",
+      "note": [
+        "The one step that runs under proot's --link2symlink, because dpkg unpacks",
+        "hard links and cannot work without it. Nothing else may use that flag:",
+        "under it cargo install hard-links its finished binary out of a scratch",
+        "directory it then deletes, reports success, and leaves a dangling symlink",
+        "(docs/SOLANA.md, 'Living with proot').",
+        "Sizes are apt's, not ours, so they are estimates and the row says so."
+      ],
+      "packages": [
+        "curl",
+        "ca-certificates",
+        "build-essential",
+        "pkg-config",
+        "libssl-dev",
+        "git",
+        "python3",
+        "xz-utils",
+        "bzip2"
+      ],
+      "downloadBytes": 70000000,
+      "installBytes": 350000000,
+      "approximate": true,
+      "installPath": "/usr",
+      "marker": "/usr/bin/gcc",
+      "verify": ["/usr/bin/gcc", "--version"],
+      "required": true
+    },
+    {
+      "id": "cargo-build-sbf",
+      "name": "cargo-build-sbf",
+      "summary": "The build driver. No arm64 binary exists upstream, so the phone builds it.",
+      "method": "cargo-install",
+      "note": [
+        "Measured on the device: 3 min 45 s wall, 21 min CPU. There is no arm64",
+        "Linux binary of this anywhere, and this is the one step that removes the",
+        "need for us to host one.",
+        "Runs through proot WITHOUT --link2symlink. Under that flag it finishes,",
+        "says 'Installed package', and leaves a symlink to a scratch directory that",
+        "no longer exists — which is why 'marker' is checked as a real file on this",
+        "side afterwards and 'verify' is then run in the guest."
+      ],
+      "crate": "cargo-build-sbf",
+      "version": "4.2.0",
+      "root": "/opt/solana/cli",
+      "targetDir": "/opt/solana/build",
+      "locked": false,
+      "installBytes": 30000000,
+      "installPath": "/opt/solana/cli/bin",
+      "marker": "/opt/solana/cli/bin/cargo-build-sbf",
+      "verify": ["/opt/solana/cli/bin/cargo-build-sbf", "--version"],
+      "required": true
+    },
+    {
+      "id": "anchor",
+      "name": "Anchor",
+      "summary": "The Anchor CLI. Also built here: it ships no release binaries at all.",
+      "method": "cargo-install",
+      "note": [
+        "--locked, because anchor-cli's own Cargo.lock is the only combination its",
+        "releases are tested against. Same proot rule as cargo-build-sbf.",
+        "Not required: a Native program builds without it, and Setup must not make",
+        "the whole toolchain hostage to the longest compile in it."
+      ],
+      "crate": "anchor-cli",
+      "version": "1.1.2",
+      "root": "/opt/solana/cli",
+      "targetDir": "/opt/solana/build",
+      "locked": true,
+      "installBytes": 90000000,
+      "installPath": "/opt/solana/cli/bin",
+      "marker": "/opt/solana/cli/bin/anchor",
+      "verify": ["/opt/solana/cli/bin/anchor", "--version"],
+      "required": false
+    }
+  ],
+  "cargoScratch": "/opt/solana/build"
+}

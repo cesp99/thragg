@@ -14,10 +14,12 @@ import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -84,6 +86,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.TextToolbar
+import androidx.compose.ui.platform.TextToolbarStatus
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -125,6 +130,7 @@ import to.eyed.seeker.code.ui.editor.vim.vimKeystrokeOf
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
 import to.eyed.seeker.code.ui.theme.LocalBufferFontFeatures
+import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.theme.ThemeStore
 import to.eyed.seeker.code.core.GitHunk
 import to.eyed.seeker.code.core.AppSettings
@@ -151,8 +157,15 @@ private const val RUNNABLES_SETTLE_MILLIS = 250L
  * A constant rather than a number typed twice: the completion menu and the
  * hover card are placed against the *top* of this row, because a popup drawn
  * underneath it is as invisible as one drawn underneath the keyboard.
+ *
+ * 44dp, up from the 38 this row was built at (docs/UI.md, P2). The vertical
+ * budget it comes out of is written down in the spec and it balances: 890 −
+ * 24 status − 44 header − ~300 Gboard − 44 here − 24 gesture inset leaves
+ * ~454dp of buffer, about 24 wrapped lines at `buffer_font_size` 15. The nav
+ * bar's 56dp and the file bar's 44dp are both reclaimed here precisely
+ * because both hide while the keyboard is up.
  */
-private val ACTION_ROW_HEIGHT = 38.dp
+private val ACTION_ROW_HEIGHT = 44.dp
 
 /**
  * How far a diagnostic fades once the buffer has moved under it.
@@ -392,6 +405,51 @@ fun EditorPane(
      * references list a list, which is the host tests' state.
      */
     onOpenReferences: ((List<ReferenceTarget>) -> Unit)? = null,
+    /**
+     * The action row's `save` key — the shell's save, with `format_on_save`
+     * and the whitespace rules in front of it, because the pane knows nothing
+     * about files. Distinct from [onSaveFile], which is vim's `:w` and answers
+     * with whether it worked. Null leaves the key undrawn rather than drawing
+     * one that does nothing.
+     */
+    onSaveBuffer: (() -> Unit)? = null,
+    /**
+     * ▶ Build, in the *fixed* head of the action row — the answer to "the
+     * build trigger is never where the work is" (docs/UI.md, "Why"). The pane
+     * only reports the press; saving every dirty buffer and then running is
+     * one atomic action owned by the shell, because a build of stale files is
+     * a 71-second lie. Null while there is nothing to build into.
+     */
+    onBuild: (() -> Unit)? = null,
+    /** A build is running: the key says ■ and a second press is Stop, not a second build. */
+    buildRunning: Boolean = false,
+    /**
+     * Hand this diagnostic to the agent — the `[ Fix ▸ ]` on the inline card.
+     * Null leaves the row off the card, which is the honest state in a build
+     * with no agent installed.
+     */
+    onFixWithAgent: ((Diagnostic) -> Unit)? = null,
+    /**
+     * Whether to draw the row of keys over the keyboard at all.
+     *
+     * False while the find bar is deployed: the bar docks on the keyboard in
+     * exactly the same place and two strips there would be 88dp of the
+     * buffer's 454 (docs/UI.md, "Code with the soft keyboard up" — "Nothing
+     * else may be added to this stack").
+     */
+    showActionRow: Boolean = true,
+    /**
+     * The host's handle on the pane's popups, filled in for as long as this
+     * pane is composed.
+     *
+     * Step 1 of the ordered back handler is "a completion menu, hover card,
+     * selection toolbar or code-action popup is showing → dismiss it"
+     * (ShellBackHandler.kt), and only this file knows those five exist. The
+     * shell owns the *order*; this is how the editor answers the two questions
+     * the order asks. Null for a caller with no back handler, which is every
+     * host test.
+     */
+    overlays: EditorOverlays? = null,
 ) {
     val theme = LocalZedTheme.current
     val settings = LocalAppSettings.current
@@ -446,11 +504,18 @@ fun EditorPane(
     }
     val handleRadiusPx = with(density) { 6.dp.toPx() }
     val handleTouchRadiusPx = with(density) { 24.dp.toPx() }
-    // The diagnostic marks are a 2dp strip; 8dp of slop around them makes
+    // The diagnostic marks are a 2dp strip; the slop around them is what makes
     // them tappable without reaching the fold chevron, whose right edge sits
     // half the fold column minus its arm away — two characters, never less
     // than 10dp at any font size the settings allow.
-    val diagnosticMarkTouchPx = with(density) { 8.dp.toPx() }
+    //
+    // 14dp rather than the 48 the spec asks of every other target, and the
+    // reason is arithmetic rather than taste: the whole gutter is about 40dp
+    // wide at `buffer_font_size` 15, and a 48dp strip inside it would swallow
+    // the fold chevron, the hunk strip and the run button whole. The row is
+    // ~24dp tall, so the target is ~14 x 24 — small, and said so here rather
+    // than claimed to be 48. The card it opens is the large target.
+    val diagnosticMarkTouchPx = with(density) { 14.dp.toPx() }
     // The play button lives in the gutter's left padding — the three
     // characters before the digits (editor.rs:11712-11770) — and a tap
     // anywhere in that column on a runnable row is a tap on the button.
@@ -562,6 +627,16 @@ fun EditorPane(
     val scope = rememberCoroutineScope()
     val headerHits = remember(state) { HunkHeaderHits() }
     var blamePopoverRow by remember(state) { mutableStateOf(-1) }
+    /**
+     * The diagnostic whose card is open, or null.
+     *
+     * Set by a tap on the ✕ in the gutter and cleared by anything that moves
+     * on. The card is what carries `[ Fix ▸ ]` — every error in this app is
+     * one tap from the agent (docs/UI.md, "The design chosen") — and it is
+     * anchored to the row rather than drawn at the end of the line, because a
+     * 400dp column has no end of the line to spare.
+     */
+    var diagnosticCard by remember(state) { mutableStateOf<Diagnostic?>(null) }
     // A finger on the gutter's diff strip: the strip itself is a few pixels
     // wide, so the tap target is the strip's share of the gutter's left
     // margin — Zed's own 3 em there, wide enough for a thumb.
@@ -701,6 +776,44 @@ fun EditorPane(
             state.actionHandlers = emptyMap()
             state.keyInterceptor = null
             state.isFocused = false
+        }
+    }
+
+    // What the shell's back handler dismisses at step 1. Registered for as
+    // long as this pane is composed and cleared with it, so a destination that
+    // has left the screen can never answer for one that is on it — the same
+    // rule the action handlers above follow, and for the same reason.
+    //
+    // The order inside is newest-first, matching the order the popups are
+    // drawn in: a code-action popup raised over a hover card closes before the
+    // card does. The selection toolbar is last because it is the one that is
+    // *left* showing after a long press, and closing it first would take the
+    // clipboard away from a selection the user is still working on.
+    if (overlays != null) {
+        DisposableEffect(
+            overlays, state, menu, hover, references, codeActions, signatureHelp, toolbar,
+        ) {
+            overlays.showing = {
+                menu.isOpen || hover.isShowing || references.isShowing ||
+                    codeActions.isShowing || signatureHelp.isShowing ||
+                    diagnosticCard != null ||
+                    toolbar.status == TextToolbarStatus.Shown
+            }
+            overlays.dismiss = {
+                when {
+                    codeActions.isShowing -> codeActions.dismiss()
+                    menu.isOpen -> menu.dismiss()
+                    signatureHelp.isShowing -> signatureHelp.clear()
+                    references.isShowing -> references.clear()
+                    hover.isShowing -> hover.clear()
+                    diagnosticCard != null -> diagnosticCard = null
+                    else -> toolbar.hide()
+                }
+            }
+            onDispose {
+                overlays.showing = { false }
+                overlays.dismiss = {}
+            }
         }
     }
 
@@ -941,15 +1054,30 @@ fun EditorPane(
                             // fold chevron because the strip is inside the
                             // fold column, and clear of it in practice: the
                             // chevron is centred two characters further left.
+                            //
+                            // On this device the tap does one more thing: it
+                            // raises the card for that diagnostic, which is
+                            // where `[ Fix ▸ ]` lives (docs/UI.md, "Code — the
+                            // editor"). The mark is the whole error's touch
+                            // target — there is no hover here and no F8 — so
+                            // it has to open something, not only move the
+                            // caret to a message drawn off the right edge of a
+                            // 400dp column.
                             if (!state.diagnostics.isEmpty &&
                                 position.x >= state.gutterWidthPx - diagnosticMarkTouchPx
                             ) {
                                 val display =
                                     ((position.y + state.scrollY) / state.lineHeightPx).toInt()
-                                if (display >= 0 &&
-                                    state.goToDiagnosticOnRow(state.displayMap.bufferRowOf(display))
-                                ) {
+                                val markRow =
+                                    if (display >= 0) state.displayMap.bufferRowOf(display) else -1
+                                val marked = state.diagnostics.onRow(markRow)
+                                if (marked != null && state.goToDiagnosticOnRow(markRow)) {
                                     down.consume()
+                                    // Tapping the open one closes it, the way
+                                    // the blame popover above works: with no
+                                    // pointer to move away there has to be a
+                                    // gesture that means "done".
+                                    diagnosticCard = if (diagnosticCard == marked) null else marked
                                     focusRequester.requestFocus()
                                     return@awaitEachGesture
                                 }
@@ -1069,6 +1197,7 @@ fun EditorPane(
                             // touch — there is no "move the pointer away".
                             hover.clear()
                             menu.dismiss()
+                            diagnosticCard = null
                             state.moveCursorTo(tap, layoutForLine)
                             focusRequester.requestFocus()
                             keyboard?.show()
@@ -2400,6 +2529,39 @@ fun EditorPane(
             }
         }
 
+        // The tapped diagnostic's card: the message, its code, and the two
+        // things you can do about it. Anchored under the row it belongs to,
+        // like the blame popover above, and — like it — every read of
+        // `scrollY` happens inside this branch, so a pane with no card open
+        // is not recomposed on every frame of a scroll.
+        diagnosticCard?.let { diagnostic ->
+            if (state.diagnostics.onRow(diagnostic.row) != diagnostic) {
+                // The publish that landed under it no longer says this. A
+                // stale card is worse than none: it invites a Fix for an error
+                // that has already moved or gone.
+                diagnosticCard = null
+            } else {
+                InlineDiagnosticCard(
+                    diagnostic = diagnostic,
+                    anchorY = with(density) {
+                        ((state.displayRowOf(diagnostic.row, 0) + 1) * state.lineHeightPx -
+                            state.scrollY).toDp()
+                    },
+                    onFixWithAgent = onFixWithAgent?.let { fix -> { fix(diagnostic) } },
+                    onQuickFix = {
+                        // The server's own fixes, at the caret the gutter tap
+                        // just put on the problem — LspActions already
+                        // computes them.
+                        diagnosticCard = null
+                        codeActions.invokeAtCaret()
+                        focusRequester.requestFocus()
+                    },
+                    onDismiss = { diagnosticCard = null },
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
+            }
+        }
+
         // Vim's command line and message line, under the text and over the
         // action row, where Vim puts them.
         VimStatusLine(
@@ -2408,19 +2570,24 @@ fun EditorPane(
             modifier = Modifier.align(Alignment.BottomStart),
         )
 
-        EditorActionRow(
-            state = state,
-            menu = menu,
-            codeActions = codeActions,
-            references = references,
-            definition = definition,
-            signatureHelp = signatureHelp,
-            format = format,
-            onRenameSymbol = onRenameSymbol,
-            paneCoordinates = paneCoordinates,
-            onActed = { focusRequester.requestFocus() },
-            modifier = Modifier.align(Alignment.BottomStart),
-        )
+        if (showActionRow) {
+            EditorActionRow(
+                state = state,
+                menu = menu,
+                codeActions = codeActions,
+                references = references,
+                definition = definition,
+                signatureHelp = signatureHelp,
+                format = format,
+                onRenameSymbol = onRenameSymbol,
+                onSaveBuffer = onSaveBuffer,
+                onBuild = onBuild,
+                buildRunning = buildRunning,
+                paneCoordinates = paneCoordinates,
+                onActed = { focusRequester.requestFocus() },
+                modifier = Modifier.align(Alignment.BottomStart),
+            )
+        }
 
         // Last, so they sit over the action row rather than under it.
         EditorPopups(
@@ -2769,6 +2936,22 @@ private fun VimStatusLine(
  * chord in `handleEditorKey` would otherwise be keyboard-only — and the
  * convention in this codebase is that nothing is. It costs nothing on DeX or
  * with a paired keyboard, where no IME comes up and the row never appears.
+ *
+ * **The head is fixed and it never scrolls** (docs/UI.md, P2). Eight slots —
+ * esc ⇥ ← → ↶ ↷ save ▶ — plus a ⌄ that opens the rest. That shape is not
+ * cosmetic: the old row was one long horizontal scroll, so the key you wanted
+ * was wherever you had last left the scroll, and ▶ Build did not exist here at
+ * all. "The build trigger is never where the work is" was the single defect
+ * three of the four judges named, and this row is the fix — a rebuild from the
+ * buffer you are typing in is one tap, at a fixed position, in the thumb zone.
+ *
+ * The nine cells share the width by weight rather than by
+ * [to.eyed.seeker.code.ui.theme.touchTarget], and that is a deliberate,
+ * measured exception to the 48dp rule the rest of the shell keeps: 9 × 48 is
+ * 432dp on a 400dp screen. What they get instead is 44dp of height and ~44dp
+ * of width each — every pixel there is, split evenly, with no padding between
+ * them to lose. The expansion below *does* take `.touchTarget()`, because it
+ * scrolls and its width is free.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -2781,6 +2964,9 @@ private fun EditorActionRow(
     signatureHelp: SignatureHelpState,
     format: FormatState,
     onRenameSymbol: (() -> Unit)?,
+    onSaveBuffer: (() -> Unit)?,
+    onBuild: (() -> Unit)?,
+    buildRunning: Boolean,
     paneCoordinates: LayoutCoordinates?,
     onActed: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2792,97 +2978,188 @@ private fun EditorActionRow(
     // How far to lift the row so it lands on top of the keyboard.
     val overlap = imeOverlapPx(paneCoordinates)
     val theme = LocalZedTheme.current
-    Row(
+    // The ⌄ expansion. Remembered against the pane rather than hoisted: it is
+    // a posture, not navigation, and back leaves it alone on purpose — step 3
+    // of the ordered handler dismisses the IME and is told, in as many words,
+    // to "leave the action row's state alone" (docs/UI.md, "Navigation").
+    var expanded by remember { mutableStateOf(false) }
+
+    fun act(action: () -> Unit): () -> Unit = {
+        action()
+        // Tapping a key must not take focus off the canvas, or the IME
+        // session ends and the keyboard drops away under the finger.
+        onActed()
+    }
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = with(density) { overlap.toDp() })
+            .background(theme.color("status_bar.background")),
+    ) {
+        if (expanded) {
+            // Row one: the punctuation a Rust file is made of and a soft
+            // keyboard buries two taps deep behind ?123. Inserted as text, so
+            // the engine's auto-pairing and the completion menu see it exactly
+            // as they would a typed character.
+            ActionKeyStrip {
+                for (glyph in RUST_PUNCTUATION) {
+                    ActionKey(glyph, act { state.insertAtCursor(glyph) })
+                }
+            }
+            // Row two: the language-server set the spec names, and then
+            // everything else this row has always carried. The spec's ten come
+            // first because they are the ones worth reaching for; the rest
+            // stay because a capability with no touch target is a capability
+            // that was cut, and none of these were cut.
+            ActionKeyStrip {
+                ActionKey("suggest", act { menu.showCompletions() })
+                ActionKey("fix", act { codeActions.invokeAtCaret() })
+                ActionKey("refs", act { references.findAtCaret() })
+                if (onRenameSymbol != null) {
+                    ActionKey("rename", act { onRenameSymbol() })
+                }
+                ActionKey("format", act { format.format() })
+                ActionKey("def", act { definition.goToCaret() })
+                // Listed only while the file has problems: a key that can
+                // never do anything is worse than no key.
+                if (!state.diagnostics.isEmpty) {
+                    ActionKey("prob↑", act { state.goToDiagnostic(forward = false) })
+                    ActionKey("prob↓", act { state.goToDiagnostic(forward = true) })
+                }
+                ActionKey("fold", act { state.foldAtCarets() })
+                ActionKey("//", act { state.toggleComment() })
+                // ---- and the rest of the inherited row, unchanged ----------
+                if (state.vim != null) {
+                    // `:` is on every soft keyboard, but two taps away on
+                    // most; one here opens the command line the same way.
+                    ActionKey(":", act { state.vim?.handleKey(":") })
+                }
+                ActionKey("unfold", act { state.unfoldAtCarets() })
+                ActionKey("outdent", act { state.outdent() })
+                ActionKey("del", act { state.delete() })
+                ActionKey("⌫word", act { state.deleteToPreviousWordStart() })
+                ActionKey("word⌦", act { state.deleteToNextWordEnd() })
+                ActionKey("↵above", act { state.newlineAbove() })
+                ActionKey("↵below", act { state.newlineBelow() })
+                ActionKey("sig", act { signatureHelp.toggleAtCaret() })
+                ActionKey("type def", act { definition.goToCaret(GoToKind.TypeDefinition) })
+                ActionKey("impl", act { definition.goToCaret(GoToKind.Implementation) })
+                ActionKey("decl", act { definition.goToCaret(GoToKind.Declaration) })
+                ActionKey("＋cur↑", act { state.addCaretVertically(-1) })
+                ActionKey("＋cur↓", act { state.addCaretVertically(1) })
+                ActionKey("＋next", act { state.selectNextOccurrence() })
+                ActionKey("line↑", act { state.moveLines(-1) })
+                ActionKey("line↓", act { state.moveLines(1) })
+                ActionKey("dup", act { state.duplicateLines(above = false) })
+                ActionKey("del line", act { state.deleteLines() })
+                ActionKey("join", act { state.joinLines() })
+                // The conflict motions, palette-only on a keyboard (Zed has no
+                // chord for them either) and here while the file has any: the
+                // buttons on each conflict resolve it, but a finger still needs
+                // a way to the next one without scrolling for the next tinted row.
+                if (state.conflicts.isNotEmpty()) {
+                    ActionKey("conflict↑", act { state.goToConflict(forward = false) })
+                    ActionKey("conflict↓", act { state.goToConflict(forward = true) })
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().height(ACTION_ROW_HEIGHT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Escape means the newest thing on screen, as it does on a
+            // keyboard: the completion menu first, then — with the vim layer
+            // on — the mode, which is the one key a soft keyboard has no way
+            // to say and the only way out of insert mode without it. Then the
+            // carets and the selection.
+            FixedKey("esc", act { if (!menu.dismiss()) state.vim?.handleKey("escape") ?: state.cancel() })
+            // Zed's `editor::Tab`, for a keyboard that has no Tab at all.
+            FixedKey("⇥", act { state.tab() })
+            // The arrow cluster a soft keyboard does not have. One column at a
+            // time: this is the key you hold to nudge a caret off the end of a
+            // string literal, which is the motion touch is worst at.
+            FixedKey("←", act { state.moveCursorHorizontally(-1) })
+            FixedKey("→", act { state.moveCursorHorizontally(1) })
+            FixedKey("↶", act { state.undo() })
+            FixedKey("↷", act { state.redo() })
+            // The shell's save, not vim's: `format_on_save`, the whitespace
+            // rules and the write, in that order.
+            FixedKey("save", act { onSaveBuffer?.invoke() }, enabled = onSaveBuffer != null)
+            // ▶ Build — the whole point of the fixed head. A running build
+            // shows ■, because the press that stops one must not look like the
+            // press that starts a second.
+            FixedKey(
+                label = if (buildRunning) "■" else "▶",
+                onClick = act { onBuild?.invoke() },
+                enabled = onBuild != null,
+                accent = true,
+            )
+            FixedKey(if (expanded) "⌃" else "⌄", { expanded = !expanded })
+        }
+    }
+}
+
+/** Zed punctuation is two taps behind ?123 on Gboard; here it is one. */
+private val RUST_PUNCTUATION = listOf(
+    "{", "}", "(", ")", "[", "]", ";", ":", "'", "\"", "<", ">", "/", "_", "=", "!", "#", "&", "|",
+)
+
+/**
+ * One scrolling row of the ⌄ expansion.
+ *
+ * Its own scroll state per row, so the punctuation and the commands are found
+ * where they were left independently — and both are free to be longer than the
+ * screen, which is what lets the fixed head stay at nine slots.
+ */
+@Composable
+private fun ActionKeyStrip(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
             .height(ACTION_ROW_HEIGHT)
-            .background(theme.color("status_bar.background"))
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
+        content = content,
+    )
+}
+
+/**
+ * One of the nine cells of the fixed head: an equal share of the width, the
+ * full 44dp of height, and no padding between it and its neighbours — see the
+ * arithmetic in [EditorActionRow]'s doc for why this is not `.touchTarget()`.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.FixedKey(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    /** ▶ Build, which is the one key here that is an action rather than a motion. */
+    accent: Boolean = false,
+) {
+    val theme = LocalZedTheme.current
+    val ink = when {
+        !enabled -> theme.color("text.disabled", MaterialTheme.colorScheme.onSurfaceVariant)
+        accent -> theme.color("text.accent", MaterialTheme.colorScheme.primary)
+        else -> theme.color("text", MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = label },
     ) {
-        fun act(action: () -> Unit): () -> Unit = {
-            action()
-            // Tapping a key must not take focus off the canvas, or the IME
-            // session ends and the keyboard drops away under the finger.
-            onActed()
-        }
-        // Escape means the newest thing on screen, as it does on a keyboard:
-        // the completion menu first, then — with the vim layer on — the
-        // mode, which is the one key a soft keyboard has no way to say and
-        // the only way out of insert mode without it. Then the carets and
-        // the selection.
-        ActionKey("esc", act { if (!menu.dismiss()) state.vim?.handleKey("escape") ?: state.cancel() })
-        if (state.vim != null) {
-            // `:` is on every soft keyboard, but two taps away on most; one
-            // here opens the command line the same way.
-            ActionKey(":", act { state.vim?.handleKey(":") })
-        }
-        // Zed's `editor::Tab` / `Backtab` and its `Delete` and word
-        // deletions, for a keyboard that has no Tab, Delete or Ctrl at all.
-        ActionKey("tab", act { state.tab() })
-        ActionKey("outdent", act { state.outdent() })
-        ActionKey("del", act { state.delete() })
-        ActionKey("⌫word", act { state.deleteToPreviousWordStart() })
-        ActionKey("word⌦", act { state.deleteToNextWordEnd() })
-        // Zed's `NewlineAbove` / `NewlineBelow`: `ctrl-shift-enter` and
-        // `ctrl-enter`, which a soft keyboard cannot say.
-        ActionKey("↵above", act { state.newlineAbove() })
-        ActionKey("↵below", act { state.newlineBelow() })
-        // Zed's `editor::ShowCompletions` is `ctrl-space`
-        // (assets/keymaps/default-linux.json:591), and a soft keyboard has
-        // neither Ctrl nor a way to say Space without typing one — so the one
-        // route to asking for completions on a phone is this key. The menu it
-        // opens is then worked by touch: tap a row to accept it.
-        ActionKey("suggest", act { menu.showCompletions() })
-        // The workspace-edit family: Zed's `ctrl-.`, `f2`, `shift-f12` and
-        // `ctrl-shift-i`, which a soft keyboard cannot say at all.
-        ActionKey("fix", act { codeActions.invokeAtCaret() })
-        if (onRenameSymbol != null) {
-            ActionKey("rename", act { onRenameSymbol() })
-        }
-        ActionKey("refs", act { references.findAtCaret() })
-        ActionKey("format", act { format.format() })
-        // Zed's `ShowSignatureHelp` (`ctrl-i`) and the go-to family's
-        // siblings — `ctrl-f12` and the rest — which a soft keyboard has no
-        // way to say. The definition itself is a tap on the hover card.
-        ActionKey("sig", act { signatureHelp.toggleAtCaret() })
-        ActionKey("type def", act { definition.goToCaret(GoToKind.TypeDefinition) })
-        ActionKey("impl", act { definition.goToCaret(GoToKind.Implementation) })
-        ActionKey("decl", act { definition.goToCaret(GoToKind.Declaration) })
-        ActionKey("undo", act { state.undo() })
-        ActionKey("redo", act { state.redo() })
-        ActionKey("＋cur↑", act { state.addCaretVertically(-1) })
-        ActionKey("＋cur↓", act { state.addCaretVertically(1) })
-        ActionKey("＋next", act { state.selectNextOccurrence() })
-        ActionKey("line↑", act { state.moveLines(-1) })
-        ActionKey("line↓", act { state.moveLines(1) })
-        ActionKey("dup", act { state.duplicateLines(above = false) })
-        ActionKey("del line", act { state.deleteLines() })
-        ActionKey("join", act { state.joinLines() })
-        ActionKey("//", act { state.toggleComment() })
-        // Folding, reachable while the keyboard covers the gutter — the
-        // convention that nothing here is keyboard-only, in both directions.
-        ActionKey("fold", act { state.foldAtCarets() })
-        ActionKey("unfold", act { state.unfoldAtCarets() })
-        // The diagnostic motions, which are `F8` and `Shift` `F8` on a
-        // keyboard and nothing at all on a soft one. Listed only when the
-        // file has problems: a key that can never do anything is worse than
-        // no key, and this row is already long.
-        if (!state.diagnostics.isEmpty) {
-            ActionKey("prob↑", act { state.goToDiagnostic(forward = false) })
-            ActionKey("prob↓", act { state.goToDiagnostic(forward = true) })
-        }
-        // The conflict motions, palette-only on a keyboard (Zed has no chord
-        // for them either) and here while the file has any: the buttons on
-        // each conflict resolve it, but a finger still needs a way to the
-        // next one without scrolling for the next tinted row.
-        if (state.conflicts.isNotEmpty()) {
-            ActionKey("conflict↑", act { state.goToConflict(forward = false) })
-            ActionKey("conflict↓", act { state.goToConflict(forward = true) })
-        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = ink,
+            maxLines = 1,
+        )
     }
 }
 
@@ -2893,12 +3170,121 @@ private fun ActionKey(label: String, onClick: () -> Unit) {
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
+            .touchTarget()
             .clip(RoundedCornerShape(4.dp))
             .background(Color.Transparent)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
+}
+
+/**
+ * The card a tap on the gutter's ✕ raises: what the server said, and the two
+ * things a phone can do about it.
+ *
+ * `[ Fix ▸ ]` is the design's thesis in one control — "every error carries a
+ * one-tap 'Fix with agent'" (docs/UI.md, "The design chosen"). It sits first
+ * because it is the one that works when the server has no quick fix to offer,
+ * which for a `cargo build` error is most of the time: rust-analyzer's code
+ * actions are a small subset of what rustc can complain about.
+ *
+ * Anchored under its row rather than drawn at the end of the line: the inline
+ * message that the canvas paints past the end of the text is fine at 1200dp
+ * and invisible at 400, and this is the 400dp answer. It is deliberately at
+ * most two lines tall plus one row of buttons, so that the rule in docs/UI.md
+ * — "if the remaining buffer height falls below 200dp the inline block
+ * collapses to a one-line summary" — is satisfied by never growing past it.
+ */
+@Composable
+private fun InlineDiagnosticCard(
+    diagnostic: Diagnostic,
+    anchorY: androidx.compose.ui.unit.Dp,
+    onFixWithAgent: (() -> Unit)?,
+    onQuickFix: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalZedTheme.current
+    val ink = theme.color(diagnostic.severity.token)
+    Column(
+        modifier = modifier
+            .padding(top = anchorY.coerceAtLeast(0.dp))
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = diagnostic.message.lineSequence().first().trim(),
+            style = MaterialTheme.typography.bodySmall,
+            color = ink,
+            maxLines = 2,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val label = diagnostic.label
+            if (label.isNotEmpty()) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = true),
+                )
+            } else {
+                Box(modifier = Modifier.weight(1f, fill = true))
+            }
+            if (onFixWithAgent != null) {
+                CardAction("[ Fix ▸ ]", accent = true, onClick = onFixWithAgent)
+            }
+            CardAction("quick fix", accent = false, onClick = onQuickFix)
+            CardAction("✕", accent = false, onClick = onDismiss)
+        }
+    }
+}
+
+@Composable
+private fun CardAction(label: String, accent: Boolean, onClick: () -> Unit) {
+    val theme = LocalZedTheme.current
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = if (accent) {
+            theme.color("text.accent", MaterialTheme.colorScheme.primary)
+        } else {
+            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        maxLines = 1,
+        modifier = Modifier
+            .touchTarget()
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    )
+}
+
+/**
+ * The host's handle on the pane's popups — see [EditorPane]'s `overlays`.
+ *
+ * A mutable holder rather than a pair of callbacks passed down, because the
+ * shell registers *one* [to.eyed.seeker.code.ui.shell.BackSeam] for the whole
+ * Code destination and the pane behind it is replaced every time the open file
+ * changes. The holder outlives the pane; the pane fills it while it is
+ * composed and empties it on the way out, so a seam left pointing at a
+ * departed buffer answers "nothing showing" rather than reaching into it.
+ */
+class EditorOverlays {
+    internal var showing: () -> Boolean = { false }
+    internal var dismiss: () -> Unit = {}
+
+    /** Whether back's step 1 has something to close. */
+    val isShowing: Boolean get() = showing()
+
+    /** Close the newest one. Only called when [isShowing] has just said true. */
+    fun dismissTopmost() {
+        dismiss()
+    }
 }
 
 /**

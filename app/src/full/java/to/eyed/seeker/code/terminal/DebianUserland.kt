@@ -87,6 +87,20 @@ private object DebianUserland : UserlandBackend {
         inside(context, hostWorkingDir, argv, extraEnvironment)
 
     /**
+     * The same guest with `--link2symlink` dropped — see the interface, and
+     * docs/SOLANA.md. The toolchain installer runs every step but apt through
+     * this one, because under the rewrite `cargo install` reports success and
+     * leaves a dangling symlink.
+     */
+    override fun execCommandRealLinks(
+        context: Context,
+        hostWorkingDir: String?,
+        argv: List<String>,
+        extraEnvironment: List<String>,
+    ): ShellCommand? =
+        inside(context, hostWorkingDir, argv, extraEnvironment, rewriteHardLinks = false)
+
+    /**
      * Run [program] under proot with [hostWorkingDir] as the cwd, or null when
      * nothing is installed to run it in.
      *
@@ -100,6 +114,7 @@ private object DebianUserland : UserlandBackend {
         hostWorkingDir: String?,
         program: List<String>,
         extraEnvironment: List<String> = emptyList(),
+        rewriteHardLinks: Boolean = true,
     ): ShellCommand? {
         if (state(context) !is UserlandState.Ready) return null
         val root = rootfs(context)
@@ -114,9 +129,13 @@ private object DebianUserland : UserlandBackend {
             "proot",
             // Be root inside: apt cannot chown its files otherwise.
             "-0",
+        ) + (
             // dpkg unpacks hardlinks; app storage handles them, but proot's
-            // translation of them is the well-trodden path.
-            "--link2symlink",
+            // translation of them is the well-trodden path. Dropped for
+            // anything that hard-links a file it means to keep — `cargo
+            // install` is the one that taught us, see [execCommandRealLinks].
+            if (rewriteHardLinks) listOf("--link2symlink") else emptyList()
+        ) + listOf(
             // Take the whole guest down with the session rather than leaving
             // processes behind for Android's phantom-process killer to reap.
             // This is also what makes cancelling a clone work: SIGQUIT to

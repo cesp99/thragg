@@ -4,6 +4,7 @@ import android.content.Context
 import android.system.ErrnoException
 import android.system.Os
 import android.util.Log
+import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
 import java.io.File
 
 /**
@@ -104,7 +105,15 @@ object ShellEnvironment {
      * still downloading.
      */
     fun commandFor(context: Context, cwd: String): ShellCommand {
-        Userland.backend.shellCommand(context, cwd)?.let { return it }
+        Userland.backend.shellCommand(context, cwd)?.let { command ->
+            // `shellCommand` takes no extra environment, so the toolchain's
+            // entries are appended to the one it built. Later entries win —
+            // that is the pty shim's rule and the backend's own — so this is
+            // what leads PATH rather than replacing it.
+            return command.copy(
+                environment = command.environment + guestToolchainEnvironment(context, cwd)
+            )
+        }
 
         installBinDir(context)
         val shell = shellPath(context)
@@ -131,7 +140,14 @@ object ShellEnvironment {
         extraEnvironment: List<String>,
     ): ShellCommand {
         Userland.backend
-            .execCommand(context, cwd, listOf("/bin/bash", "--login", "-c", line), extraEnvironment)
+            .execCommand(
+                context,
+                cwd,
+                listOf("/bin/bash", "--login", "-c", line),
+                // Ahead of the caller's, so a task that sets its own PATH still
+                // wins: the backend appends both and the last entry stands.
+                guestToolchainEnvironment(context, cwd) + extraEnvironment,
+            )
             ?.let { return it }
 
         installBinDir(context)
@@ -141,6 +157,77 @@ object ShellEnvironment {
             argv = listOf(File(shell).name, "-c", line),
             environment = buildEnvironment(context, cwd).toList() + extraEnvironment,
         )
+    }
+
+    /**
+     * What the active toolchain contributes to a *guest* process, as
+     * `NAME=value` strings appended to the session's own.
+     *
+     * This is the Kotlin-side replacement for the engine's `ToolchainEnv`
+     * (core/crates/engine/src/toolchain.rs), which is deleted with the rest of
+     * the toolchain picker in P10. Two behaviours had to survive that deletion
+     * and both are here, because losing either is a silent failure rather than
+     * a visible one (docs/UI.md, P5 and "removed"):
+     *
+     *  * **`PATH` is led, not replaced.** rust-analyzer, `cargo`, `anchor` and
+     *    every task resolve through it, and `cargo-build-sbf` shells out to
+     *    `rustup` — which lives in `/root/.cargo/bin` and nowhere Debian would
+     *    look. See [SolanaToolchain.GUEST_PATH_ENTRIES] for what each entry is
+     *    for.
+     *  * **`VIRTUAL_ENV` names a Python environment's root.** That variable is
+     *    what every Python tool reads to know it is in a venv; exporting the
+     *    interpreter on `PATH` without it gets half the behaviour. It is set
+     *    only when the project actually has one — a Rust toolchain contributes
+     *    a `PATH` entry and nothing else, exactly as toolchain.rs had it.
+     *
+     * The toolchain entries go out whether or not anything is installed: a
+     * `PATH` entry that does not exist costs one failed `stat` per lookup, and
+     * the alternative is a disk read on the path that starts every shell.
+     */
+    fun guestToolchainEnvironment(context: Context, cwd: String?): List<String> {
+        val base = SolanaToolchain.guestEnvironment()
+        val venv = guestVirtualEnv(context, cwd) ?: return base
+        return base.map { entry ->
+            if (entry.startsWith("PATH=")) {
+                "PATH=$venv/bin:${entry.removePrefix("PATH=")}"
+            } else {
+                entry
+            }
+        } + "VIRTUAL_ENV=$venv"
+    }
+
+    /**
+     * The guest path of the project's virtualenv, or null when it has none.
+     *
+     * `bin/activate` rather than `bin/python` is the test, because a venv made
+     * by `python -m venv` links its interpreter under whichever name it was
+     * created with (`python3`, `python3.13`) and the activate script is the one
+     * file every implementation writes.
+     */
+    private fun guestVirtualEnv(context: Context, cwd: String?): String? {
+        val root = cwd?.let(::File) ?: return null
+        val venv = listOf(".venv", "venv")
+            .map { File(root, it) }
+            .firstOrNull { File(it, "bin/activate").isFile }
+            ?: return null
+        return guestPathOf(context, venv)
+    }
+
+    /**
+     * Where an Android path shows up inside the guest.
+     *
+     * The same mapping DebianUserland does for a session's working directory,
+     * restated here because that one is private to the flavour and this file
+     * compiles into both. Only the projects directory is bound in, so anything
+     * outside it — or anything that would have to climb out with `..` — has no
+     * guest path at all and is answered with null rather than a path that does
+     * not exist there.
+     */
+    private fun guestPathOf(context: Context, file: File): String? {
+        val projects = File(context.filesDir, "projects")
+        val relative = file.relativeToOrNull(projects)?.path ?: return null
+        if (relative.isEmpty() || relative.startsWith("..")) return null
+        return "/projects/$relative"
     }
 
     /**
