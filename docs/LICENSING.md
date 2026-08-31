@@ -172,18 +172,24 @@ screen, and in whatever legal-notices surface the OEM ships:
 > For a period of three years from the date you received this software, and
 > for as long as Eyed offers spare parts or customer support for the product
 > model it came on, Eyed will give any third party who possesses this object
-> code a complete machine-readable copy of the corresponding source for
-> every GPL- and LGPL-licensed component in it, on a durable physical
-> medium, for a charge no greater than the cost of the medium and of
-> physically performing the distribution.
+> code access to copy the complete corresponding source for every GPL- and
+> LGPL-licensed component in it, from a network server, at no charge.
 >
-> Eyed, ⟨postal address⟩, carlo@aploi.de
+> Eyed — carlo@aploi.de — https://github.com/cesp99/seeker-code
 
-⚠ **The postal address is a blank that must be filled before the first
-public release.** An email address alone is weaker than the licence text
-contemplates — s6(b) describes a physical-medium transaction, and a reviewer
-will look for a postal address. Fill it in `NOTICE`, in `README.md` and in
-the in-app screen at the same time.
+**There is deliberately no postal address, and its absence is not a gap.**
+§6(b) offers a choice of two forms, and this offer takes the second:
+"access to copy the Corresponding Source from a network server at no
+charge". The first form — source on a durable physical medium — is what
+needs an address to receive requests at, and we are not using it.
+
+This is worth stating plainly because a reviewer skimming for an address
+will not find one, and the reflex is to call that a defect. The distinction
+that matters is §6(b) versus §6(d): **§6(d) alone would not be enough
+here.** It covers source offered from the same place the object code was
+downloaded from, and someone who received this app preinstalled on a phone
+downloaded it from nowhere. §6(b)(2) is what reaches them, and it is an
+offer that travels with the product rather than a URL they never visited.
 
 Keep the archive online and the offer honoured for **three years after the
 last Seeker unit ships**, not three years after the release.
@@ -373,7 +379,7 @@ under the terms of the GNU General Public License, version 3.
 ```
 
 Then, still in the header: the source URL with the release tag and commit,
-and the full written source offer from §3 including the postal address.
+and the full written source offer from §3.
 Both selectable text — a reviewer will want to copy them.
 
 Then the component groups, in this order:
@@ -466,8 +472,9 @@ release or an OEM submission.
       when the panel switcher goes, delete the file and point the Kotlin at
       `ic_ui_agent`; `grep -rn ic_ui_ai_zed app/src` must then be empty.
       `ic_ui_file_tree` loses its last caller in the same change.
-- [ ] **Fill in the postal address** in the written offer, in `NOTICE`,
-      `README.md` and the in-app screen.
+- [x] **The written offer** is settled: §6(b)(2) network-server access,
+      contact `carlo@aploi.de`, source at `github.com/cesp99/seeker-code`.
+      No postal address is required in this form — see §3.
 - [x] **Ship the notices bundle** (§4) and the licence texts, and surface
       them from the licences screen (§5). Done: `tools/gen-licenses.py`
       writes `app/src/main/assets/licenses/components.json` (615 components —

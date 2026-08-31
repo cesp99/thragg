@@ -98,6 +98,44 @@ private val PILL_PREFIXES = listOf(
     "🗜 compacting",
 )
 
+/**
+ * The icon each pill is drawn with, and the glyph it replaces.
+ *
+ * Spettro writes these lines with a leading character of its own — "✔ steering
+ * delivered", "🗜 compacting" — because a terminal has nothing else to mark a
+ * line with. This app does. The character is stripped and a real icon drawn in
+ * its place, so a status marker is not a font-dependent glyph rendering at
+ * whatever weight the UI face happens to give it, and does not fall back to
+ * tofu on a device whose font lacks the codepoint. Two of them (U+2705 and
+ * U+1F5DC) are emoji, which render in colour and read as decoration in a
+ * product that is not a chat app.
+ *
+ * [PILL_PREFIXES] still has to carry the characters verbatim: that is what
+ * arrives on the wire, and the matcher matches the wire.
+ */
+private val PILL_MARKS: List<Pair<String, Int>> = listOf(
+    "→ steering queued" to R.drawable.ic_ui_arrow_right,
+    "✔ steering delivered" to R.drawable.ic_ui_check,
+    "↻ goal iteration" to R.drawable.ic_ui_rotate_ccw,
+    "✅ goal complete" to R.drawable.ic_ui_check,
+    "⏸ loop waiting" to R.drawable.ic_ui_pause,
+    "🗜 compacted" to R.drawable.ic_ui_compact,
+    "🗜 compacting" to R.drawable.ic_ui_compact,
+)
+
+/**
+ * The pill's icon and its words with the agent's leading glyph removed.
+ *
+ * Falls back to no icon and the line untouched: a pill we recognised by
+ * prefix but have no mark for should still say what it says.
+ */
+internal fun pillMark(pill: String): Pair<Int?, String> {
+    val hit = PILL_MARKS.firstOrNull { pill.startsWith(it.first, ignoreCase = true) }
+        ?: return null to pill
+    val glyph = hit.first.substringBefore(' ')
+    return hit.second to pill.removePrefix(glyph).trim()
+}
+
 /** The pill [line] is, or null when it is the agent speaking. */
 internal fun systemPill(line: String): String? {
     val trimmed = line.trim()
@@ -563,20 +601,30 @@ private fun AssistantRow(
 @Composable
 private fun SystemPill(text: String) {
     val theme = LocalZedTheme.current
+    val (icon, words) = pillMark(text)
+    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.Center,
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            textAlign = TextAlign.Center,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .clip(RoundedCornerShape(10.dp))
                 .background(theme.color("element.background", Color.Transparent))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
-        )
+        ) {
+            // Decorative: the words beside it already say what happened, so a
+            // description here would make a screen reader say it twice.
+            if (icon != null) SeekerIcon(icon, null, muted, size = IconSize.Marker)
+            Text(
+                text = words,
+                style = MaterialTheme.typography.labelSmall,
+                color = muted,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 

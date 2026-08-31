@@ -212,7 +212,7 @@
     <string name="welcome_appearance">APPEARANCE</string>
     <string name="welcome_choose_a_theme_by_name">Choose a theme by name…</string>
     <string name="welcome_don_t_show_this_again">Don\'t show this again</string>
-    <string name="welcome_it_is_always_in_the_menu">It is always in the ☰ menu, and in the palette as “zed: open onboarding”.</string>
+    <string name="welcome_it_is_always_in_the_menu">It is always in the main menu, and in the palette as “zed: open onboarding”.</string>
     <string name="welcome_start_editing">Start editing</string>
     <!-- menu -->
     <string name="menu_new_project">New project…</string>
@@ -318,15 +318,13 @@
     <string name="licences_source_intro">The complete source for this application, at the release it was built from:</string>
     <string name="licences_source_release">Release %1$s · Zed engine at %2$s</string>
     <string name="licences_offer_heading">WRITTEN OFFER FOR THE SOURCE</string>
-    <string name="licences_offer_body">For a period of three years from the date you received this software, and for as long as Eyed offers spare parts or customer support for the product model it came on, Eyed will give any third party who possesses this object code a complete machine-readable copy of the corresponding source for every GPL- and LGPL-licensed component in it, on a durable physical medium, for a charge no greater than the cost of the medium and of physically performing the distribution.</string>
-    <!-- The postal address is a documented blank, not an oversight: GPLv3
-         s6(b) describes a physical-medium transaction and a reviewer will look
-         for a postal address. It must be filled in NOTICE, README.md and here
-         at the same time, before the first public release. A placeholder that
-         says it is a placeholder is better than a plausible wrong address. -->
-    <string name="licences_offer_address">Eyed
-&lt;POSTAL ADDRESS — TO BE FILLED IN BEFORE THE FIRST PUBLIC RELEASE&gt;
-carlo@aploi.de</string>
+    <string name="licences_offer_body">For a period of three years from the date you received this software, and for as long as Eyed offers spare parts or customer support for the product model it came on, Eyed will give any third party who possesses this object code access to copy the complete corresponding source for every GPL- and LGPL-licensed component in it, from a network server, at no charge. This is the second of the two forms GPLv3 s6(b) permits an offer to take; no postal request is required.</string>
+    <!-- GPLv3 s6(b) offers a choice, and this offer takes the second form:
+         "access to copy the Corresponding Source from a network server at no
+         charge". That is why there is no postal address here and its absence
+         is not a gap - a reviewer looking for one should find this comment. -->
+    <string name="licences_offer_address">Eyed — carlo@aploi.de
+https://github.com/cesp99/seeker-code</string>
     <string name="licences_offer_note">The same source is published, without charge and without registration, at the repository above, and a corresponding-source archive is attached to every release. This offer stands regardless: a person who received this app preinstalled on a phone never visited that repository, and GPLv3 s6(d) does not reach them.</string>
     <string name="licences_search_placeholder">Find a component or a licence</string>
     <string name="licences_count">%1$d components</string>

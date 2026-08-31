@@ -120,14 +120,12 @@ SOURCE OFFER
 For a period of three years from the date you received this software, and
 for as long as Eyed offers spare parts or customer support for the product
 model it came on, Eyed will give any third party who possesses this object
-code a complete machine-readable copy of the corresponding source for every
-GPL- and LGPL-licensed component in it, on a durable physical medium, for a
-charge no greater than the cost of the medium and of physically performing
-the distribution.
+code access to copy the complete corresponding source for every GPL- and
+LGPL-licensed component in it, from a network server, at no charge. This is
+the second of the two forms GPLv3 s6(b) permits an offer to take.
 
-  Eyed
-  <POSTAL ADDRESS — MUST BE FILLED IN BEFORE THE FIRST PUBLIC RELEASE>
-  carlo@aploi.de
+  Eyed — carlo@aploi.de
+  https://github.com/cesp99/seeker-code
 
 The same source is published, without charge and without registration, at
 the repository named in docs/LICENSING.md, and a per-release

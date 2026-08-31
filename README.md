@@ -223,11 +223,10 @@ obligations, the compatibility matrix and the shipping checklist are in
 For a period of three years from the date you received this software, and
 for as long as Eyed offers spare parts or customer support for the product
 model it came on, Eyed will give any third party who possesses the object
-code a complete machine-readable copy of the corresponding source for every
-GPL- and LGPL-licensed component in it, on a durable physical medium, for a
-charge no greater than the cost of the medium and of physically performing
-the distribution. Write to Eyed, ⟨postal address — to be filled in before
-the first public release⟩, or carlo@aploi.de.
+code access to copy the complete corresponding source for every GPL- and
+LGPL-licensed component in it, from a network server, at no charge — the
+second of the two forms GPLv3 §6(b) permits. Write to carlo@aploi.de if you
+need help obtaining it.
 
 You do not need the offer to get the source: it is in this repository, and
 a complete `corresponding-source` archive is attached to every release. The

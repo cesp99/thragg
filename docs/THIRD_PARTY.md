@@ -486,18 +486,28 @@ will ask.
 | rustup | `static.rust-lang.org` | 1.29.0 | MIT OR Apache-2.0 |
 | SBF platform-tools (an LLVM with the SBF backend, and a Rust) | [anza-xyz/platform-tools](https://github.com/anza-xyz/platform-tools) | v1.57 | Apache-2.0; the bundled LLVM is Apache-2.0-WITH-LLVM-exception |
 | rust-analyzer | [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer) | 2026-08-24 | MIT OR Apache-2.0 |
-| Spettro (ACP agent) | [aploide/spettro](https://github.com/aploide/spettro) | v2.7.3 | **Not yet stated.** See below. |
+| Spettro (ACP agent) | [aploide/spettro](https://github.com/aploide/spettro) | v2.7.3 | GPL-3.0-or-later, © Eyed |
 | Build tools | Debian's own archives, via `apt` | — | Each package under its own terms |
 | cargo-build-sbf | crates.io, built on device | 4.2.0 | Apache-2.0 |
 | anchor-cli | crates.io, built on device | 1.1.2 | Apache-2.0 |
 
-**Spettro needs a decision, not a lookup.** It is Eyed's own release
-artifact, it is fetched by default as part of the shipped setup flow of an
-app Eyed also ships, and its licence is recorded nowhere in this repository.
-Legally the arrangement is fine — a separate program, downloaded on the
-user's initiative, not linked — but a proprietary agent auto-installed by a
-GPL app reads as a bait-and-switch in an open-source preinstall. Decide
-deliberately and then say so here.
+**Spettro is GPL-3.0**, confirmed by Eyed, who holds the copyright. That
+settles what was the one open question here: it is Eyed's own release
+artifact, fetched by default as part of a setup flow in an app Eyed also
+ships, so a proprietary agent auto-installed by a GPL app would have read as
+a bait-and-switch in an open-source preinstall. It is free software on the
+same terms as the app that installs it.
+
+The arrangement itself needs no more than that: Spettro is a separate
+program, downloaded on the user's initiative and executed as a subprocess
+over a protocol, so it is not linked into the app and does not combine with
+it. No source obligation attaches to us for a binary the *device* fetches
+from the upstream project.
+
+One loose end, and it belongs upstream rather than here: `aploide/spettro`
+carries no `LICENSE` file, so the licence is stated by its author rather
+than shipped with the artifact. Adding one closes the gap for anyone who
+finds the binary without finding this page.
 
 ## Written here, but shaped like something else
 

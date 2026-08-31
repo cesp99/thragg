@@ -57,10 +57,10 @@ import to.eyed.seeker.code.ui.theme.RowChevron
  *  2. **The source URL**, from BuildConfig, which reads `core/Cargo.toml`, so
  *     the one URL §3 requires everything to agree on cannot drift into a
  *     Kotlin constant.
- *  3. **The written offer**, in full, with the postal address as the blank it
- *     currently is. §3 calls that blank a release blocker; showing it as a
- *     blank is the honest rendering, and a plausible-looking wrong address
- *     would be worse than none.
+ *  3. **The written offer**, in full. It takes the second of the two forms
+ *     GPLv3 §6(b) permits — access to copy the source from a network server
+ *     at no charge — so there is no postal address to show, and its absence
+ *     is deliberate rather than a blank (docs/LICENSING.md §3).
  *  4. **Selectable text** over both of those, because the reviewer this
  *     screen is written for will want to copy them.
  *
