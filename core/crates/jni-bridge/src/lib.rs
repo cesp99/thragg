@@ -3744,6 +3744,11 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCancel(
 /// Answer a permission request: `optionId` is one of the ids the tool call's
 /// `options` offered. False when nothing was waiting under that tool call, or
 /// the option is not one it offered.
+///
+/// `answerMetaJson` (`""` for none) becomes the response's `_meta` — how a
+/// question walked through the permission channel says *what* was answered,
+/// as against which button was pressed. Malformed JSON is dropped and the
+/// choice still travels.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondPermission(
     mut env: JNIEnv,
@@ -3751,10 +3756,12 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondPermis
     session_id: jlong,
     tool_call_id: JString,
     option_id: JString,
+    answer_meta_json: JString,
 ) -> jboolean {
     let tool_call = get_string(&mut env, &tool_call_id);
     let option = get_string(&mut env, &option_id);
-    if engine().acp_respond_permission(session_id as u64, &tool_call, &option) {
+    let answer_meta = get_string(&mut env, &answer_meta_json);
+    if engine().acp_respond_permission(session_id as u64, &tool_call, &option, &answer_meta) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -3964,6 +3971,127 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPendingElicit
     _class: JClass,
 ) -> jstring {
     to_jstring(&env, engine().acp_pending_elicitations())
+}
+
+/// Version counter for `acpPendingQuestions` — the `acpSessionVersion`
+/// contract again: poll this single load, read the list only when it moves.
+///
+/// A question that names a session already rides that session's own version
+/// (it is folded into `acpSessionState` as `questions`), so this counter is
+/// only needed for one raised before any session exists. 0 means no agent is
+/// running, and a replaced agent never repeats a value already seen.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpQuestionsVersion(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    engine().acp_questions_version() as jlong
+}
+
+/// Every open Spettro question — `_spettro/question/ask`, the whole ask-user
+/// form in one request — as `[{"id","session","payload"}]` with the payload
+/// exactly as the agent sent it. Read it when `acpQuestionsVersion` moves.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPendingQuestions(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    to_jstring(&env, engine().acp_pending_questions())
+}
+
+/// Answer one of them. `answerJson` is the JSON-RPC *result* the agent gets,
+/// built on the Kotlin side — `{"answers":[…]}` or `{"kind":"declined"}` —
+/// because the shape belongs to the extension, not to the engine. False for a
+/// question that is gone, and for malformed JSON, in which case nothing is
+/// sent at all.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondQuestion(
+    mut env: JNIEnv,
+    _class: JClass,
+    question_id: JString,
+    answer_json: JString,
+) -> jboolean {
+    let question_id = get_string(&mut env, &question_id);
+    let answer_json = get_string(&mut env, &answer_json);
+    if engine().acp_respond_question(&question_id, &answer_json) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+/// The last `_spettro/account/update` the agent pushed, verbatim, or
+/// `"null"`. The agent owns the device-flow poller and pushes what it learns:
+/// this is how a login progresses on screen, and the phone must never poll
+/// the backend itself. Read it when `acpAccountVersion` moves.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAccountStatus(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    to_jstring(&env, engine().acp_account_status())
+}
+
+/// Version counter for `acpAccountStatus`. 0 means no agent is running.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAccountVersion(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    engine().acp_account_version() as jlong
+}
+
+/// Call one of the agent's `_spettro/*` methods and wait for the answer — the
+/// single seam every one of them goes through; none is modelled in Rust.
+///
+/// **Blocking, up to 45 seconds** (`_spettro/providers/connect` verifies the
+/// key against the provider's own API before answering). Call it on
+/// `Dispatchers.IO`, never the main thread.
+///
+/// The answer is an envelope, because there is no exception channel here:
+/// `{"ok":true,"result":…}` or
+/// `{"ok":false,"code":…,"message":…,"data":…}`. Code `-32601` is an older
+/// CLI rather than a failure — say "update Spettro" — and code 0 means the
+/// call never reached the wire.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCallExtension(
+    mut env: JNIEnv,
+    _class: JClass,
+    project_id: jlong,
+    method: JString,
+    params_json: JString,
+) -> jstring {
+    let method = get_string(&mut env, &method);
+    let params_json = get_string(&mut env, &params_json);
+    let json = engine().acp_call_extension(project_id as u64, &method, &params_json);
+    to_jstring(&env, json)
+}
+
+/// Send a message *into* the turn already running — steering.
+///
+/// Not a new turn and not a cancel: the agent queues the text into the turn
+/// it is in the middle of and says so, and the running turn carries on. False
+/// unless a turn is actually running and the agent advertised Spettro's
+/// extension — a second concurrent prompt to a generic ACP agent is two turns
+/// at once, which the protocol says nothing about. Same `mentionsJson` and
+/// `imagesJson` as `acpPrompt`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSteer(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    text: JString,
+    mentions_json: JString,
+    images_json: JString,
+) -> jboolean {
+    let text = get_string(&mut env, &text);
+    let mentions_json = get_string(&mut env, &mentions_json);
+    let images_json = get_string(&mut env, &images_json);
+    if engine().acp_steer(session_id as u64, &text, &mentions_json, &images_json) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
 }
 
 /// Put away the notice saying why the last mode or config change did not

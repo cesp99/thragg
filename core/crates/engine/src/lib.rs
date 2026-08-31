@@ -47,6 +47,7 @@ use sum_tree::Bias;
 
 mod acp;
 mod acp_elicit;
+mod acp_question;
 mod acp_terminal;
 mod acp_thread;
 mod appearance;

@@ -1,4 +1,4 @@
-package to.eyed.seeker.code.ui.workspace
+package to.eyed.seeker.code.ui.common
 
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.ui.workspace.OpenFilesState
 
 /**
  * "Save changes to main.rs?" — the question a close has to ask.
@@ -31,6 +32,16 @@ import to.eyed.seeker.code.R
  * Nothing is closed until an answer comes back: [OpenFilesState] holds the
  * rest of the request — closing five tabs asks about each dirty one in turn —
  * and Cancel abandons all of it.
+ *
+ * It lives in `ui/common/` rather than beside the tab strip that used to host
+ * it because the strip is not where files get closed any more: the portrait
+ * shell closes one from a long-press on the file bar, from the Files sheet and
+ * from the project panel, and *every* one of those routes has to raise this
+ * dialog or the edits since the last save go silently. Hosting it once, next
+ * to the composable that owns the screen, is what makes that hard to get
+ * wrong. A host that forgets to compose it fails *silently* — the close
+ * request simply parks in [OpenFilesState.closeConfirmation] and nothing is
+ * drawn — so every destination that can close a file composes this.
  */
 @Composable
 fun UnsavedChangesDialog(files: OpenFilesState) {

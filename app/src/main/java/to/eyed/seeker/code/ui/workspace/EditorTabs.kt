@@ -65,6 +65,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import to.eyed.seeker.code.core.ClosePosition
 import to.eyed.seeker.code.core.TabSettings
+import to.eyed.seeker.code.ui.common.UnsavedChangesDialog
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget

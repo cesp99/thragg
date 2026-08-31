@@ -260,4 +260,17 @@
     <string name="unsaved_save">Save</string>
     <string name="unsaved_cancel">Cancel</string>
     <string name="unsaved_dont_save">Don\'t save</string>
+    <!-- solana templates: the three cards on the New program route. Kept as
+         resources rather than literals because SolanaFramework carries only
+         @StringRes ids — the enum is host-testable that way, and the copy is
+         translatable. -->
+    <string name="solana_framework_anchor">Anchor</string>
+    <string name="solana_framework_anchor_language">Rust</string>
+    <string name="solana_framework_anchor_blurb">The framework almost everyone uses. Accounts, serialisation and an IDL are written for you.</string>
+    <string name="solana_framework_native">Native</string>
+    <string name="solana_framework_native_language">Rust</string>
+    <string name="solana_framework_native_blurb">One entrypoint and nothing else. Every byte is yours to parse.</string>
+    <string name="solana_framework_seahorse">Seahorse</string>
+    <string name="solana_framework_seahorse_language">Python</string>
+    <string name="solana_framework_seahorse_blurb">Python that compiles to an Anchor program. Builds through anchor build and needs Python in the guest.</string>
 </resources>

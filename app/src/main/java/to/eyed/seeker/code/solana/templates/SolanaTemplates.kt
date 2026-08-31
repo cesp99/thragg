@@ -498,9 +498,9 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
 /**
  * `seahorse init`: an Anchor project whose program is written in Python.
  *
- * The layout is the compiler's, not ours — Seahorse reads `programs_py/*.py`
- * and *generates* the Rust under `programs/`, which is why nothing is
- * scaffolded there. `seahorse build` writes it, then hands off to
+ * The layout is the compiler's, not ours — Seahorse reads the `.py` files
+ * under `programs_py/` and *generates* the Rust under `programs/`, which is
+ * why nothing is scaffolded there. `seahorse build` writes it, then hands off to
  * `anchor build`, so the `Anchor.toml` and workspace `Cargo.toml` below are
  * the same ones the Anchor template ships.
  */

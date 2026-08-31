@@ -1761,12 +1761,35 @@ object CoreBridge {
      * Answers a permission request. [optionId] must be one of the ids that
      * tool call's `options` offered — anything else is refused rather than
      * guessed at, and the request stays open. False when nothing was waiting.
+     *
+     * [answerMetaJson] (`""` for none) becomes the response's `_meta`, and is
+     * how a *question* that arrived through the permission channel is
+     * answered: the option id says which choice was taken and
+     * `{"spettro.app/questionAnswer":{"kind":"option","optionId":"opt-1"}}`
+     * says what that choice was — the only part a free-text answer can carry.
+     * Declining the whole walked form is the `cancelled` outcome plus
+     * `{"spettro.app/questionAnswer":{"kind":"declined"}}`. Malformed JSON is
+     * dropped and the choice still travels.
      */
     external fun acpRespondPermission(
         sessionId: Long,
         toolCallId: String,
         optionId: String,
+        answerMetaJson: String,
     ): Boolean
+
+    /**
+     * The permission answer without any `_meta` — every caller that is
+     * answering an ordinary Allow / Deny.
+     *
+     * Not `external`, and not a default argument: JNI binds by name, and a
+     * second *native* method of the same name would force both to be
+     * registered under their mangled signatures. An ordinary overload in
+     * front of the one native declaration costs nothing and keeps the call
+     * sites that have no metadata to send honest about it.
+     */
+    fun acpRespondPermission(sessionId: Long, toolCallId: String, optionId: String): Boolean =
+        acpRespondPermission(sessionId, toolCallId, optionId, "")
 
     /**
      * Switches the session's mode — Claude Code's `default` / `acceptEdits` /
@@ -1831,6 +1854,103 @@ object CoreBridge {
      * question that is already gone.
      */
     external fun acpRespondElicitation(elicitationId: String, actionJson: String): Boolean
+
+    // ---- Spettro's extension ------------------------------------------
+    //
+    // Everything below is `_spettro/*`: the superset the one agent this app
+    // ships speaks. All of it gates on `agent.spettroExtensions` in
+    // [acpSessionState] being present — absent means a generic ACP agent, and
+    // none of these will do anything useful.
+
+    /**
+     * Version counter for [acpPendingQuestions] — the [acpSessionVersion]
+     * contract: poll this single load, read the list only when it moves.
+     *
+     * A question that names a session is already folded into
+     * [acpSessionState] as `questions`, so the panel's ordinary poll finds it
+     * without a second loop; this counter is for one raised before any
+     * session exists. 0 means no agent is running, and a replaced agent never
+     * repeats a value already seen.
+     */
+    external fun acpQuestionsVersion(): Long
+
+    /**
+     * Every open Spettro question — `_spettro/question/ask`, which carries a
+     * whole ask-user form in one request rather than walking the user through
+     * it one permission prompt at a time — as
+     * `[{"id","session","payload"}]`.
+     *
+     * `payload` is the agent's own object, forwarded verbatim: `version`,
+     * `sessionId`, `question`, `context`, `options[]`, `allowCustomInput`,
+     * `questions[]`. The engine parses none of it, so a field the agent adds
+     * next release arrives without an engine change.
+     */
+    external fun acpPendingQuestions(): String
+
+    /**
+     * Answers one. [answerJson] is the JSON-RPC *result* the agent receives,
+     * built here — `{"answers":[…]}` for a filled form,
+     * `{"kind":"declined"}` for a refusal — because the shape belongs to the
+     * extension. False for a question that is already gone, and for malformed
+     * JSON, in which case nothing is sent at all: an agent answered with
+     * rubbish is worse off than one still waiting.
+     */
+    external fun acpRespondQuestion(questionId: String, answerJson: String): Boolean
+
+    /**
+     * The last `_spettro/account/update` the agent pushed, verbatim, or
+     * `"null"`.
+     *
+     * This is the **only** way a device-flow login progresses: the agent owns
+     * the two-second poller against the backend and pushes what it learns.
+     * The phone polls [acpAccountVersion] and reads this; it must never poll
+     * the backend itself.
+     */
+    external fun acpAccountStatus(): String
+
+    /** Version counter for [acpAccountStatus]. 0 means no agent is running. */
+    external fun acpAccountVersion(): Long
+
+    /**
+     * Calls one of the agent's `_spettro/…` methods — the single seam all
+     * nineteen of them go through. [paramsJson] is an object (`{}` when the
+     * method takes none) and travels exactly as given.
+     *
+     * **Blocking, up to 45 seconds** — `_spettro/providers/connect` verifies
+     * the key against the provider's own API before answering. Call it on
+     * `Dispatchers.IO`.
+     *
+     * The answer is an envelope, because there is no exception channel
+     * across JNI: `{"ok":true,"result":…}`, or
+     * `{"ok":false,"code":…,"message":…,"data":…}`. Two codes deserve their
+     * own words: `-32601` is an older CLI, so say "update Spettro" rather
+     * than "that failed", and `0` means the call never reached the wire.
+     *
+     * Workflow calls always pass `sessionId` and never `cwd`: an unknown
+     * session id is an error you can see, whereas an omitted scope silently
+     * falls back to the agent's process directory and lists the wrong repo.
+     */
+    external fun acpCallExtension(projectId: Long, method: String, paramsJson: String): String
+
+    /**
+     * Sends a message *into* the turn already running — **steering**.
+     *
+     * Not a new turn and not a cancel: the agent queues the text into the
+     * turn it is in the middle of, says so with a `→ steering queued` line,
+     * and keeps working. [acpPrompt] queues a whole new turn behind this one
+     * instead, and [acpPromptImmediately] stops the work to make room.
+     *
+     * False unless a turn is actually running **and** the agent advertised
+     * `spettroExtensions`: a second concurrent prompt to a generic ACP agent
+     * is two turns at once, which the protocol says nothing about. Same
+     * [mentionsJson] and [imagesJson] as [acpPrompt].
+     */
+    external fun acpSteer(
+        sessionId: Long,
+        text: String,
+        mentionsJson: String,
+        imagesJson: String,
+    ): Boolean
 
     /**
      * Puts away the `notice` in [acpSessionState] — the one line saying why

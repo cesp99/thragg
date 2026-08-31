@@ -66,6 +66,7 @@ use agent_client_protocol::schema::v1 as acp;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Lines, Responder};
 
 use crate::acp_elicit::Elicitations;
+use crate::acp_question::Questions;
 use crate::acp_terminal::{Terminals, snapshot_json};
 use crate::acp_thread::{
     Mention, PermissionDecision, Phase, PromptInput, SessionThread, parse_mentions,
@@ -98,6 +99,16 @@ const CONNECTION_STACK_SIZE: usize = 8 * 1024 * 1024;
 /// same shape of allowance the language servers carry, sized for the deepest
 /// ordinary case rather than the worst imaginable one.
 pub(crate) const PROCESSES_PER_AGENT: usize = guest::PROCESSES_PER_RUN + 4;
+
+/// How long a `_spettro/*` call gets before [`crate::Engine::acp_call_extension`]
+/// gives up on it.
+///
+/// Generous on purpose, and measured rather than guessed:
+/// `_spettro/account/status` blocks up to 15 s and
+/// `_spettro/providers/connect` up to 30 s, because the agent verifies the
+/// key against the provider's own API before answering. A ceiling under
+/// either would turn a working connect into "the agent is not answering".
+const EXTENSION_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// How much stderr is kept for error messages. Agents log freely; the last
 /// few lines are what explains an exit.
@@ -303,10 +314,11 @@ fn mcp_servers(servers: &BTreeMap<String, ContextServer>, caps: AgentCaps) -> Ve
             } => Some(acp::McpServer::Stdio(
                 acp::McpServerStdio::new(name.clone(), command.clone())
                     .args(args.clone())
-                    .env(env
-                        .iter()
-                        .map(|(key, value)| acp::EnvVariable::new(key.clone(), value.clone()))
-                        .collect()),
+                    .env(
+                        env.iter()
+                            .map(|(key, value)| acp::EnvVariable::new(key.clone(), value.clone()))
+                            .collect(),
+                    ),
             )),
             ContextServer::Http { url, headers, .. } if caps.mcp_http => {
                 Some(acp::McpServer::Http(
@@ -319,7 +331,9 @@ fn mcp_servers(servers: &BTreeMap<String, ContextServer>, caps: AgentCaps) -> Ve
                 ))
             }
             ContextServer::Http { .. } => {
-                log::info!("acp: context server {name:?} is HTTP and the agent takes no HTTP MCP; not sent");
+                log::info!(
+                    "acp: context server {name:?} is HTTP and the agent takes no HTTP MCP; not sent"
+                );
                 None
             }
         })
@@ -358,6 +372,17 @@ struct AgentInfo {
     /// offer. Every one of these is a method that is an error to call
     /// unasked, so they gate buttons rather than decorate them.
     caps: AgentCaps,
+    /// What the agent answered under `_meta["spettro.app/extensions"]`:
+    /// `{"version": u32, "methods": [String], "clientMethods": [String]}`,
+    /// forwarded verbatim.
+    ///
+    /// **This is the gate.** Present means the agent is Spettro and the whole
+    /// superset — workflows, the selector chips, question forms, steering,
+    /// the context gauge — is on the table; absent means a generic ACP agent
+    /// and none of it is offered. `version >= 4` gates the workflow surface.
+    /// The agent's `agent_name` is a secondary signal and never the gate: an
+    /// agent that renamed itself still answers the methods it advertises.
+    spettro_extensions: Option<serde_json::Value>,
 }
 
 /// What the agent said it can do with sessions, from `initialize`.
@@ -434,6 +459,21 @@ struct AgentShared {
     terminals: Terminals,
     /// The questions the agent is waiting on — `elicitation/create`.
     elicitations: Elicitations,
+    /// The questions the agent is waiting on through *its own* extension —
+    /// `_spettro/question/ask`. Beside the elicitations rather than inside
+    /// them: the payload is the agent's, not the protocol's, and modelling it
+    /// twice is how the two drift. See [`crate::acp_question`].
+    questions: Questions,
+    /// The last `_spettro/account/update` the agent pushed, verbatim, and a
+    /// counter for it.
+    ///
+    /// This is the **only** way the device-flow login progresses: the agent
+    /// owns the two-second poller against the backend and pushes what it
+    /// learns; the phone polls this cache and never the network. A login that
+    /// polled from here would be a second poller racing the first, on the
+    /// wrong side of the JNI boundary, on a battery.
+    account: Mutex<Option<serde_json::Value>>,
+    account_version: AtomicU64,
     /// The agent's own past sessions, from `session/list`. A cache behind a
     /// version counter, polled exactly like everything else the panel reads:
     /// the request is a round trip to the agent and the threads view opens
@@ -472,6 +512,9 @@ impl AgentShared {
             userland,
             terminals: Terminals::default(),
             elicitations: Elicitations::default(),
+            questions: Questions::default(),
+            account: Mutex::new(None),
+            account_version: AtomicU64::new(0),
             session_list: Mutex::new(SessionList::default()),
             shutdown: AtomicBool::new(false),
             dead: AtomicBool::new(false),
@@ -556,6 +599,13 @@ impl AgentShared {
             InitPhase::Ready(info) => info.caps,
             _ => AgentCaps::default(),
         }
+    }
+
+    /// Whether the agent advertised Spettro's extension surface — the gate
+    /// every Spettro-only behaviour hangs off. False until `initialize` has
+    /// answered, which is the safe default.
+    fn speaks_spettro(&self) -> bool {
+        matches!(&*self.init.lock().unwrap(), InitPhase::Ready(info) if info.spettro_extensions.is_some())
     }
 
     fn supports_embedded_context(&self) -> bool {
@@ -660,6 +710,7 @@ impl AgentShared {
         // question card the user can never dismiss.
         self.terminals.release_all();
         self.elicitations.cancel_all();
+        self.questions.cancel_all();
         let mine = self.own_sessions();
         for (_, handle) in &mine {
             handle.cancel_permissions();
@@ -719,15 +770,26 @@ impl AgentShared {
         // its `PromptResponse`, and a ghost permission dialog surfaced after
         // the user had already pressed Stop. Found by a skeptic pass with a
         // live agent; the window is the agent's whole streaming phase.
+        // The request's own `_meta`, forwarded whole. A permission request
+        // carrying `spettro.app/question` is a *question* walked through the
+        // permission channel, and the panel has to be able to tell.
+        let meta = request
+            .meta
+            .as_ref()
+            .and_then(|meta| serde_json::to_value(meta).ok());
         let late = handle.update(|thread| {
             if thread.turn_cancelled || thread.phase != Phase::Running {
                 // Still recorded, as cancelled: the transcript should say
                 // what the agent was trying when the stop landed.
-                thread.begin_permission(request.tool_call.clone(), Vec::new());
+                thread.begin_permission(request.tool_call.clone(), Vec::new(), meta.clone());
                 thread.finish_permission(&tool_call_id, PermissionDecision::Cancel);
                 true
             } else {
-                thread.begin_permission(request.tool_call.clone(), request.options.clone());
+                thread.begin_permission(
+                    request.tool_call.clone(),
+                    request.options.clone(),
+                    meta.clone(),
+                );
                 false
             }
         });
@@ -812,6 +874,90 @@ impl AgentShared {
             }
             Err(err) => log::warn!("acp: elicitation refused: {err:?}"),
         }
+    }
+
+    // ---- Spettro's extension ---------------------------------------------
+    //
+    // Two handlers, both untyped and both registered last: one request
+    // (`_spettro/question/ask`) and one notification
+    // (`_spettro/account/update`). Everything else `_`-prefixed falls through
+    // to the role default, which answers `-32601` — correct, and what the
+    // agent degrades on.
+
+    /// `_spettro/question/ask`: a whole ask-user form in one request.
+    ///
+    /// Parked, never answered here — the user answers on a JNI thread, long
+    /// after this returns. The params are not parsed beyond `sessionId`,
+    /// which is only used to decide *which panel* shows it: everything else
+    /// is Kotlin's to read, verbatim. See [`crate::acp_question`].
+    fn on_spettro_question(
+        self: &Arc<Self>,
+        request: agent_client_protocol::UntypedMessage,
+        responder: Responder<serde_json::Value>,
+    ) {
+        // Taken before the responder is parked, because parking consumes it.
+        let cancellation = responder.cancellation();
+        let session = request
+            .params
+            .get("sessionId")
+            .and_then(|id| id.as_str())
+            .map(|id| acp::SessionId::new(id.to_owned()))
+            .and_then(|id| self.session_for_acp_id(&id))
+            .map(|(our_id, _)| our_id);
+        // An unknown session id is **not** refused. The agent is blocked on
+        // this request either way, and a question the user never sees is a
+        // turn that never ends; a question with no thread of its own is shown
+        // in whichever thread is open, exactly as a request-scoped
+        // elicitation is.
+        if session.is_none() {
+            log::info!("acp: a Spettro question named no session we know; showing it anyway");
+        }
+        let pending = self.questions.open(request.params, session, responder);
+        log::info!("acp: Spettro question {} opened", pending.id);
+        // An agent may take its question back — `$/cancel_request`, which is
+        // what a cancelled turn does to a form it was waiting on. Nothing
+        // else notices: the responder is parked until somebody answers, so
+        // without this the sheet stays up for ever over a request that is no
+        // longer live. Same watch the elicitations keep, above.
+        if let Some(cx) = self.connection() {
+            let shared = self.clone();
+            let id = pending.id.clone();
+            let _ = cx.spawn(async move {
+                cancellation.cancelled().await;
+                if shared
+                    .questions
+                    .answer(&id, serde_json::json!({ "kind": "cancelled" }))
+                {
+                    log::info!("acp: Spettro question {id} withdrawn by the agent");
+                    shared.bump_sessions(None);
+                }
+                Ok(())
+            });
+        }
+        // It rides the session state, so the revision has to move or the
+        // panel never asks for it. All of them when it belongs to none.
+        self.bump_sessions(session);
+    }
+
+    /// Every notification whose method we have no typed handler for.
+    ///
+    /// Only `_spettro/account/update` means anything so far: the agent's own
+    /// view of who is signed in, pushed as the device flow progresses. True
+    /// when it was claimed — anything else keeps falling through the chain
+    /// rather than being swallowed here, because a handler that answers
+    /// "handled" for every method it does not know is a handler that hides
+    /// the next one.
+    fn on_extension_notification(
+        &self,
+        notification: &agent_client_protocol::UntypedMessage,
+    ) -> bool {
+        if notification.method.as_str() != "_spettro/account/update" {
+            log::debug!("acp: no handler for notification {}", notification.method);
+            return false;
+        }
+        *self.account.lock().unwrap() = Some(notification.params.clone());
+        self.account_version.fetch_add(1, Ordering::Release);
+        true
     }
 
     fn on_complete_elicitation(&self, notification: acp::CompleteElicitationNotification) {
@@ -1409,6 +1555,8 @@ async fn run_connection(
     let wait_terminal_shared = shared.clone();
     let kill_terminal_shared = shared.clone();
     let release_terminal_shared = shared.clone();
+    let question_shared = shared.clone();
+    let extension_shared = shared.clone();
     let main_shared = shared.clone();
 
     let result = Client
@@ -1509,11 +1657,89 @@ async fn run_connection(
             },
             agent_client_protocol::on_receive_notification!(),
         )
+        // ---- and the untyped pair, LAST --------------------------------
+        //
+        // `UntypedMessage` matches every method (jsonrpc.rs: `matches_method`
+        // returns true), so these two must be registered after every typed
+        // handler above — handlers run in registration order and `Handled::No`
+        // falls through, so a trailing catch-all cannot shadow a typed one but
+        // a leading one would shadow all of them. Anything not claimed here
+        // reaches the role default, which answers `-32601`: correct for a
+        // `_spettro/*` method this build does not serve, and what the agent
+        // degrades on.
+        //
+        // Deliberately not `acp::ExtRequest`: it does not implement
+        // `JsonRpcRequest`, and the typed `AgentRequest::ExtMethodRequest`
+        // route would swallow every inbound request instead of one family of
+        // them. Note that `UntypedMessage::method` keeps its leading `_`,
+        // which the typed enums strip.
+        .on_receive_request(
+            async move |request: agent_client_protocol::UntypedMessage,
+                        responder: Responder<serde_json::Value>,
+                        _cx| {
+                if request.method.as_str() == "_spettro/question/ask" {
+                    question_shared.on_spettro_question(request, responder);
+                    Ok(agent_client_protocol::Handled::Yes)
+                } else {
+                    Ok(agent_client_protocol::Handled::No {
+                        message: (request, responder),
+                        retry: false,
+                    })
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_notification(
+            async move |notification: agent_client_protocol::UntypedMessage, cx| {
+                if extension_shared.on_extension_notification(&notification) {
+                    Ok(agent_client_protocol::Handled::Yes)
+                } else {
+                    Ok(agent_client_protocol::Handled::No {
+                        message: (notification, cx),
+                        retry: false,
+                    })
+                }
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
         .connect_with(transport, async move |cx| agent_main(main_shared, cx).await)
         .await;
     if let Err(err) = result {
         log::info!("acp: connection ended: {err}");
     }
+}
+
+/// The client half of Spettro's extension handshake — **the gate**.
+///
+/// This one object is the difference between the phone rendering Spettro's
+/// ask-user forms and the phone being walked through them one permission
+/// prompt at a time. Spettro's `parseClientExtensions` reads exactly
+/// `params._meta["spettro.app/extensions"]["methods"]` and nothing else, so:
+///
+///  * it must be the **top-level** `_meta` of `initialize`, not
+///    `clientCapabilities._meta` — which is where the SDK's own
+///    `MetaCapabilityExt` helpers write, and why they are not used here;
+///  * `methods` must name every `_spettro/*` request this client actually
+///    serves, which is one: the trailing untyped handler in
+///    [`run_connection`];
+///  * getting it wrong fails **silently**. There is no error anywhere; the
+///    forms simply arrive as something worse.
+///
+/// Sent unconditionally, to every agent. `_meta` is the protocol's own
+/// extension point and an agent that has never heard of this key ignores it,
+/// so there is nothing to gate it on — and the alternative, guessing which
+/// agent we are talking to before it has said, is a guess made before the
+/// only sentence that could answer it.
+fn client_extensions() -> acp::Meta {
+    let mut meta = acp::Meta::new();
+    meta.insert(
+        "spettro.app/extensions".to_owned(),
+        serde_json::json!({
+            "version": 4,
+            "methods": ["_spettro/question/ask"],
+        }),
+    );
+    meta
 }
 
 /// The connection's own startup: initialize, then serve session requests
@@ -1557,7 +1783,8 @@ async fn agent_main(shared: Arc<AgentShared>, cx: ConnectionTo<Agent>) -> Result
                 .client_info(acp::Implementation::new(
                     "seeker-code",
                     crate::ENGINE_VERSION,
-                )),
+                ))
+                .meta(client_extensions()),
         )
         .block_task()
         .await;
@@ -1602,12 +1829,22 @@ async fn agent_main(shared: Arc<AgentShared>, cx: ConnectionTo<Agent>) -> Result
             .embedded_context,
         images: response.agent_capabilities.prompt_capabilities.image,
         caps: AgentCaps::read(&response.agent_capabilities),
+        // The other half of the handshake: what the agent says it serves.
+        // Trusted as it stands — the shipping CLI answers `version: 4` while
+        // its own docs still say 3, so the number on the wire is the only one
+        // worth believing.
+        spettro_extensions: response
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("spettro.app/extensions"))
+            .cloned(),
     };
     log::info!(
-        "acp: \"{}\" initialized (agent {:?} {:?})",
+        "acp: \"{}\" initialized (agent {:?} {:?}, spettro extensions {:?})",
         shared.name,
         info.agent_name,
-        info.agent_version
+        info.agent_version,
+        info.spettro_extensions
     );
     // Ready first, then drain: a session arriving between the two lands in
     // neither limbo — `acp_start_session` checks the phase under this lock.
@@ -1806,21 +2043,47 @@ async fn run_prompt(
             .block_task()
             .await;
 
+        let (next, settled) = handle.update(|thread| {
+            let next = match result {
+                Ok(response) => {
+                    // What this turn cost, before the response is reduced to its
+                    // stop reason. `usage` here is the *turn's* accounting and is
+                    // a different number from the `UsageUpdate` gauge: that one
+                    // is occupancy and can fall after a compaction, this one is
+                    // what the turn spent.
+                    if let Some(turn_usage) = turn_usage_json(&response) {
+                        thread.set_turn_usage(turn_usage);
+                    }
+                    thread.end_turn(response.stop_reason)
+                }
+                Err(err) if err.code == acp::ErrorCode::AuthRequired => {
+                    thread.auth_required("the agent wants you to sign in first".to_owned());
+                    None
+                }
+                Err(err) => {
+                    thread.fail_turn(shared.with_stderr(&format!("{err}")));
+                    None
+                }
+            };
+            // A follow-up to send means the turn settled and drained the
+            // queue, which has already counted the next one in — so ask the
+            // question that way round rather than reading the counter after
+            // it has moved on.
+            let settled = next.is_some() || thread.is_settled();
+            (next, settled)
+        });
         // However the turn ended, no permission question may outlive it: the
         // spec requires cancelled answers on cancellation, and a settled turn
         // has no open questions.
-        handle.cancel_permissions();
-        let next = handle.update(|thread| match result {
-            Ok(response) => thread.end_turn(response.stop_reason),
-            Err(err) if err.code == acp::ErrorCode::AuthRequired => {
-                thread.auth_required("the agent wants you to sign in first".to_owned());
-                None
-            }
-            Err(err) => {
-                thread.fail_turn(shared.with_stderr(&format!("{err}")));
-                None
-            }
-        });
+        //
+        // **Only once the session has settled.** A steering prompt is
+        // answered `end_turn` within milliseconds while the turn it steers
+        // runs on, and cancelling that turn's open permission request — which
+        // is what this did unconditionally — is the user pressing Stop on the
+        // very work they were trying to redirect.
+        if settled {
+            handle.cancel_permissions();
+        }
         match next {
             Some(follow_up) => {
                 prompt = follow_up;
@@ -1831,6 +2094,37 @@ async fn run_prompt(
             None => return,
         }
     }
+}
+
+/// What one turn cost, from the `session/prompt` response, in the shape the
+/// panel's turn readout wants:
+/// `{"inputTokens","outputTokens","totalTokens","cachedReadTokens",
+/// "cachedWriteTokens","tokensUsed"}`.
+///
+/// `None` for an agent that reports no usage at all, which leaves the last
+/// turn's figures alone rather than blanking them — a turn that said nothing
+/// about its cost has not said the cost was zero.
+fn turn_usage_json(response: &acp::PromptResponse) -> Option<serde_json::Value> {
+    let usage = response.usage.as_ref()?;
+    Some(serde_json::json!({
+        "inputTokens": usage.input_tokens,
+        "outputTokens": usage.output_tokens,
+        "totalTokens": usage.total_tokens,
+        "cachedReadTokens": usage.cached_read_tokens,
+        "cachedWriteTokens": usage.cached_write_tokens,
+        // Spettro puts the monotonic spend on the response's own `_meta`,
+        // and on the usage object's when it has one; take either.
+        "tokensUsed": crate::acp_thread::meta_u64(
+            response.meta.as_ref(),
+            crate::acp_thread::TOKENS_USED_KEY,
+        )
+        .or_else(|| {
+            crate::acp_thread::meta_u64(
+                usage.meta.as_ref(),
+                crate::acp_thread::TOKENS_USED_KEY,
+            )
+        }),
+    }))
 }
 
 /// A `file://` URI for `path`, percent-encoded.
@@ -2041,7 +2335,9 @@ fn directory_blocks(root: &Path, embedded: bool, relative: &str) -> Vec<acp::Con
             continue;
         };
         let relative = relative.to_string_lossy().replace('\\', "/");
-        let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(u64::MAX);
+        let size = std::fs::metadata(path)
+            .map(|meta| meta.len())
+            .unwrap_or(u64::MAX);
         let fits = index < MAX_DIRECTORY_FILES && size <= budget;
         if fits {
             budget = budget.saturating_sub(size);
@@ -2365,12 +2661,27 @@ impl crate::Engine {
         let Some(handle) = self.session_handle(session) else {
             return "null".to_owned();
         };
-        let (agent, elicitations) = {
+        let (agent, elicitations, questions) = {
             let slot = self.acp.agent.lock().unwrap();
             let elicitations = slot
                 .as_ref()
                 .map(|shared| shared.elicitations.for_session(session))
                 .unwrap_or_default();
+            // This session's Spettro questions, plus the ones that belong to
+            // no session — same rule as the elicitations beside them, and the
+            // same reason: a question with no thread is still blocking the
+            // agent, so it is shown in whichever thread is open.
+            let questions: Vec<serde_json::Value> = slot
+                .as_ref()
+                .map(|shared| shared.questions.view_json())
+                .and_then(|view| view.as_array().cloned())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|question| match question.get("session") {
+                    Some(serde_json::Value::Number(id)) => id.as_u64() == Some(session),
+                    _ => true,
+                })
+                .collect();
             let agent = match slot.as_ref().map(|shared| shared.init.lock().unwrap()) {
                 Some(init) => match &*init {
                     InitPhase::Ready(info) => serde_json::json!({
@@ -2386,13 +2697,18 @@ impl crate::Engine {
                         // is what a *prompt* may carry. It gates the
                         // composer's attach button.
                         "images": info.images,
+                        // Verbatim, and null for every agent that is not
+                        // Spettro. Everything Spettro-specific in the UI
+                        // gates on this being present; the workflow surface
+                        // additionally on `version >= 4`.
+                        "spettroExtensions": info.spettro_extensions,
                     }),
                     InitPhase::Starting => serde_json::json!({"starting": true}),
                     InitPhase::Failed(message) => serde_json::json!({"error": message}),
                 },
                 None => serde_json::Value::Null,
             };
-            (agent, elicitations)
+            (agent, elicitations, questions)
         };
         let thread = handle.thread.lock().unwrap();
         let mut state = thread.state_json(agent);
@@ -2401,6 +2717,12 @@ impl crate::Engine {
         // they are folded in here rather than kept in `SessionThread`.
         if let Some(object) = state.as_object_mut() {
             object.insert("elicitations".to_owned(), elicitations.into());
+            // Folded in here for the same reason, and so the panel's existing
+            // 120 ms `acpSessionVersion` poll picks a question up without a
+            // second poll loop of its own. `acpQuestionsVersion` exists only
+            // for the session-less case, exactly as
+            // `acpElicitationsVersion` does.
+            object.insert("questions".to_owned(), questions.into());
         }
         state.to_string()
     }
@@ -2466,6 +2788,228 @@ impl crate::Engine {
             return false;
         }
         shared.bump_sessions(None);
+        true
+    }
+
+    /// Version counter for [`Self::acp_pending_questions`] — the same
+    /// counter-then-payload contract as [`Self::acp_elicitations_version`],
+    /// connection id in the high bits and all.
+    ///
+    /// A question that belongs to a session also rides that session's own
+    /// revision (it is folded into `acp_session_state`), so the panel needs
+    /// this one only for a question raised before any session exists. 0 means
+    /// no agent is running.
+    pub fn acp_questions_version(&self) -> u64 {
+        let shared = self.acp.agent.lock().unwrap().clone();
+        shared
+            .map(|shared| (shared.id << 32) + shared.questions.version())
+            .unwrap_or(0)
+    }
+
+    /// Every open `_spettro/question/ask`, in the same shape the `questions`
+    /// array of `acp_session_state` takes:
+    /// `[{"id","session","payload"}]`, the payload verbatim.
+    ///
+    /// Unfiltered, unlike the session state's copy: this is the reader for a
+    /// question that belongs to no session, and one of those blocks the agent
+    /// from outside every thread.
+    pub fn acp_pending_questions(&self) -> String {
+        let shared = self.acp.agent.lock().unwrap().clone();
+        shared
+            .map(|shared| shared.questions.view_json().to_string())
+            .unwrap_or_else(|| "[]".to_owned())
+    }
+
+    /// Answer one of Spettro's questions. `answer_json` is the JSON-RPC
+    /// **result** the agent gets, built on the Kotlin side —
+    /// `{"answers":[…]}` for a filled form, `{"kind":"declined"}` for a
+    /// refusal — because the shape belongs to the extension, not to us.
+    ///
+    /// False for a question that is already gone **and** for malformed JSON,
+    /// in which case nothing is sent: an agent answered with rubbish is worse
+    /// off than an agent still waiting, which the user can still answer or
+    /// cancel.
+    pub fn acp_respond_question(&self, question_id: &str, answer_json: &str) -> bool {
+        let Ok(answer) = serde_json::from_str::<serde_json::Value>(answer_json) else {
+            log::warn!("acp: refusing to answer {question_id} with malformed JSON");
+            return false;
+        };
+        let shared = self.acp.agent.lock().unwrap().clone();
+        let Some(shared) = shared else {
+            return false;
+        };
+        if !shared.questions.answer(question_id, answer) {
+            return false;
+        }
+        shared.bump_sessions(None);
+        true
+    }
+
+    /// The last `_spettro/account/update` the agent pushed, verbatim, or
+    /// `"null"` when it has pushed none (or there is no agent).
+    ///
+    /// The agent owns the device-flow poller and pushes what it learns; this
+    /// is how the login progresses on screen. Read it when
+    /// [`Self::acp_account_version`] moves.
+    pub fn acp_account_status(&self) -> String {
+        let shared = self.acp.agent.lock().unwrap().clone();
+        shared
+            .and_then(|shared| shared.account.lock().unwrap().clone())
+            .map(|account| account.to_string())
+            .unwrap_or_else(|| "null".to_owned())
+    }
+
+    /// Version counter for [`Self::acp_account_status`], connection id in the
+    /// high bits as everywhere else here. 0 means no agent is running.
+    pub fn acp_account_version(&self) -> u64 {
+        let shared = self.acp.agent.lock().unwrap().clone();
+        shared
+            .map(|shared| (shared.id << 32) + shared.account_version.load(Ordering::Acquire))
+            .unwrap_or(0)
+    }
+
+    /// Call one of Spettro's `_spettro/*` methods and wait for the answer —
+    /// the single seam every one of them goes through.
+    ///
+    /// Nineteen methods, none of them modelled here: `params_json` is sent as
+    /// the request's params exactly as given and the result comes back
+    /// exactly as it arrived. Modelling them in Rust would mean a second
+    /// implementation of an extension whose shape is the agent's to change,
+    /// and one more place to forget to update.
+    ///
+    /// **Blocking**, up to [`EXTENSION_TIMEOUT`]: `_spettro/account/status`
+    /// takes up to 15 s and `_spettro/providers/connect` up to 30 s, because
+    /// it verifies the key against the provider's own API. Call it off the
+    /// main thread.
+    ///
+    /// The answer is an envelope, because JNI has no exception channel here
+    /// and an error that arrives as `"null"` is a bug the user gets blamed
+    /// for:
+    ///
+    /// ```json
+    /// {"ok":true,"result":{…}}
+    /// {"ok":false,"code":-32601,"message":"method not found"}
+    /// {"ok":false,"code":0,"message":"the agent is not running"}
+    /// ```
+    ///
+    /// `-32601` in particular is not a failure — it is an older CLI, and the
+    /// panel says "update Spettro" rather than "something went wrong".
+    pub fn acp_call_extension(
+        &self,
+        project: ProjectId,
+        method: &str,
+        params_json: &str,
+    ) -> String {
+        let _ = project;
+        let params: serde_json::Value = match serde_json::from_str(params_json) {
+            Ok(params) => params,
+            // Ours, not the agent's: a malformed params string is a bug on
+            // this side of JNI, and code 0 is what the envelope uses for
+            // "this never reached the wire".
+            Err(err) => return extension_failure(0, format!("bad params: {err}")),
+        };
+        let shared = self.acp.agent.lock().unwrap().clone();
+        let Some(shared) = shared else {
+            return extension_failure(0, "the agent is not running".to_owned());
+        };
+        let Some(cx) = shared.connection() else {
+            return extension_failure(0, "the agent is not running".to_owned());
+        };
+        let request = match agent_client_protocol::UntypedMessage::new(method, params) {
+            Ok(request) => request,
+            Err(err) => return extension_failure(0, format!("{err}")),
+        };
+        // The request goes out from a task on the connection's own event
+        // loop — nothing protocol-shaped may run on a JNI thread — and the
+        // answer comes back over a channel this thread waits on.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let task_cx = cx.clone();
+        if cx
+            .spawn(async move {
+                let result = task_cx.send_request(request).block_task().await;
+                let _ = tx.send(result);
+                Ok(())
+            })
+            .is_err()
+        {
+            return extension_failure(0, "the agent is not running".to_owned());
+        }
+        match rx.recv_timeout(EXTENSION_TIMEOUT) {
+            Ok(Ok(result)) => serde_json::json!({ "ok": true, "result": result }).to_string(),
+            Ok(Err(err)) => {
+                let code: i32 = err.code.into();
+                serde_json::json!({
+                    "ok": false,
+                    "code": code,
+                    "message": err.message,
+                    "data": err.data,
+                })
+                .to_string()
+            }
+            // The task is still out there and will answer nobody, which is
+            // fine: the channel's other end is dropped and the send fails.
+            Err(_) => extension_failure(0, format!("{method} did not answer in time")),
+        }
+    }
+
+    /// Send a message into the turn that is already running — **steering**.
+    ///
+    /// Not a new turn and not a cancel. Spettro takes a second concurrent
+    /// `session/prompt`, queues its text into the running turn, says so with
+    /// an `agent_message_chunk`, and answers *this* prompt `end_turn` within
+    /// milliseconds while the real turn carries on. The engine's side of that
+    /// bargain is [`crate::acp_thread::SessionThread::running_turns`]: the
+    /// instant `end_turn` must not settle the session.
+    ///
+    /// Refused unless a turn is actually running **and** the agent advertised
+    /// the Spettro extension: a second concurrent prompt to a generic ACP
+    /// agent is not steering, it is two turns at once, and the protocol says
+    /// nothing about what that means.
+    pub fn acp_steer(
+        &self,
+        session: u64,
+        text: &str,
+        mentions_json: &str,
+        images_json: &str,
+    ) -> bool {
+        let Some(handle) = self.session_handle(session) else {
+            return false;
+        };
+        let Some(shared) = self.acp.agent.lock().unwrap().clone() else {
+            return false;
+        };
+        if !shared.speaks_spettro() {
+            return false;
+        }
+        let Some(cx) = shared.connection() else {
+            return false;
+        };
+        let (project, root) = {
+            let thread = handle.thread.lock().unwrap();
+            if thread.phase != Phase::Running {
+                return false;
+            }
+            (thread.project, thread.root.clone())
+        };
+        let prompt = PromptInput {
+            text: text.to_owned(),
+            mentions: self.resolve_mentions(project, &root, parse_mentions(mentions_json)),
+            images: serde_json::from_str(images_json).unwrap_or_default(),
+        };
+        // Pushed as a user entry, but *not* as a new turn: see
+        // `push_steering_message`. Re-checked under the lock, because the
+        // turn may have settled between the read above and here.
+        let sent = handle.update(|thread| {
+            if thread.phase != Phase::Running {
+                return false;
+            }
+            thread.push_steering_message(&prompt.text);
+            true
+        });
+        if !sent {
+            return false;
+        }
+        start_prompt(&shared, &cx, session, prompt, false);
         true
     }
 
@@ -2620,7 +3164,10 @@ impl crate::Engine {
                         Some(other) => {
                             let thread = other.thread.lock().unwrap();
                             (
-                                thread.title.clone().unwrap_or_else(|| format!("Thread {session}")),
+                                thread
+                                    .title
+                                    .clone()
+                                    .unwrap_or_else(|| format!("Thread {session}")),
                                 thread_summary(&thread),
                             )
                         }
@@ -2686,10 +3233,7 @@ impl crate::Engine {
             .into_iter()
             .map(|file| {
                 let now = current_text(&self.buffers, &file.path);
-                let mut diff = acp::Diff::new(
-                    file.path.clone(),
-                    now.clone().unwrap_or_default(),
-                );
+                let mut diff = acp::Diff::new(file.path.clone(), now.clone().unwrap_or_default());
                 if let Some(before) = &file.before {
                     diff = diff.old_text(before.clone());
                 }
@@ -2760,7 +3304,9 @@ impl crate::Engine {
         };
         let target = handle.thread.lock().unwrap().first_waiting_option(kind);
         match target {
-            Some((tool_call, option)) => self.acp_respond_permission(session, &tool_call, &option),
+            Some((tool_call, option)) => {
+                self.acp_respond_permission(session, &tool_call, &option, "")
+            }
             None => false,
         }
     }
@@ -2773,7 +3319,10 @@ impl crate::Engine {
         let mut touched = Vec::with_capacity(plan.len());
         for (path, before) in plan {
             if !resolves_inside(root, &path) {
-                log::warn!("acp: refused to restore outside the project: {}", path.display());
+                log::warn!(
+                    "acp: refused to restore outside the project: {}",
+                    path.display()
+                );
                 continue;
             }
             let result = match before {
@@ -2837,7 +3386,21 @@ impl crate::Engine {
 
     /// The user answered a permission prompt. `option_id` is one of the ids
     /// the entry offered. False if nothing was waiting under that tool call.
-    pub fn acp_respond_permission(&self, session: u64, tool_call: &str, option_id: &str) -> bool {
+    ///
+    /// `answer_meta_json` (`""` for none) rides along as the response's
+    /// `_meta`. It is how a *question* walked through the permission channel
+    /// is answered — the option id says which choice was taken, and
+    /// `{"spettro.app/questionAnswer":{…}}` says what that choice was, which
+    /// is the only part a free-text answer can carry. Malformed JSON is
+    /// dropped rather than refused: the user's choice still travels, and that
+    /// is the part that unblocks the turn.
+    pub fn acp_respond_permission(
+        &self,
+        session: u64,
+        tool_call: &str,
+        option_id: &str,
+        answer_meta_json: &str,
+    ) -> bool {
         let Some(handle) = self.session_handle(session) else {
             return false;
         };
@@ -2873,13 +3436,17 @@ impl crate::Engine {
             Some(decision)
         });
         match decision {
-            Some(_) => responder
-                .respond(acp::RequestPermissionResponse::new(
+            Some(_) => {
+                let mut response = acp::RequestPermissionResponse::new(
                     acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
                         acp::PermissionOptionId::new(option_id.to_owned()),
                     )),
-                ))
-                .is_ok(),
+                );
+                if let Some(meta) = answer_meta(answer_meta_json) {
+                    response = response.meta(meta);
+                }
+                responder.respond(response).is_ok()
+            }
             None => {
                 // Unknown option: put the question back rather than answer
                 // with something the user did not choose.
@@ -3034,7 +3601,12 @@ impl crate::Engine {
                     for id in waiting {
                         // A retry after signing in is a fresh session: the
                         // one that failed never existed on the agent's side.
-                        create_session(task_shared.clone(), task_cx.clone(), PendingSession::new(id, None)).await;
+                        create_session(
+                            task_shared.clone(),
+                            task_cx.clone(),
+                            PendingSession::new(id, None),
+                        )
+                        .await;
                     }
                 }
                 Err(err) => {
@@ -3080,6 +3652,7 @@ impl crate::Engine {
             // And every question it had open, answered `cancel`: a responder
             // dropped without an answer is an agent waiting for ever.
             shared.elicitations.cancel_session(session);
+            shared.questions.cancel_session(session);
             // Tell the agent it is over. `session/close` is the method for
             // exactly this and is what Zed sends (agent_servers/src/acp.rs
             // :1845-1878) — but it is gated on a capability, so an agent
@@ -3263,6 +3836,30 @@ fn absolute_paths(root: &Path, paths: &[String]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The `_meta` to attach to a permission answer, from the JSON the panel
+/// sent. Empty or malformed means none: a choice that travels without its
+/// metadata still unblocks the agent, and refusing to answer at all would
+/// leave the turn stuck on a question the user has already answered.
+fn answer_meta(answer_meta_json: &str) -> Option<acp::Meta> {
+    if answer_meta_json.trim().is_empty() {
+        return None;
+    }
+    match serde_json::from_str::<acp::Meta>(answer_meta_json) {
+        Ok(meta) => Some(meta),
+        Err(err) => {
+            log::warn!("acp: ignoring malformed permission answer _meta: {err}");
+            None
+        }
+    }
+}
+
+/// The error half of [`crate::Engine::acp_call_extension`]'s envelope. Code 0
+/// means the call never reached the wire, which is a different thing from any
+/// JSON-RPC error and the panel says so differently.
+fn extension_failure(code: i32, message: String) -> String {
+    serde_json::json!({ "ok": false, "code": code, "message": message }).to_string()
+}
+
 /// Stop an agent: flag the watcher, which drops the process, which is the
 /// SIGQUIT-first shutdown. The connection future ends when the pipes close.
 fn shutdown_agent(shared: &Arc<AgentShared>) {
@@ -3272,6 +3869,7 @@ fn shutdown_agent(shared: &Arc<AgentShared>) {
     // otherwise leave that build running against the process budget.
     shared.terminals.release_all();
     shared.elicitations.cancel_all();
+    shared.questions.cancel_all();
     *shared.connection.lock().unwrap() = None;
 }
 
@@ -3485,7 +4083,12 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["embedded a.rs", "embedded b.rs", "link big.bin", "embedded c.rs"]
+            [
+                "embedded a.rs",
+                "embedded b.rs",
+                "link big.bin",
+                "embedded c.rs"
+            ]
         );
 
         // Outside the project: nothing at all.
@@ -3561,7 +4164,11 @@ mod tests {
                 other => panic!("unexpected {other:?}"),
             })
             .collect();
-        assert!(uris[0].0.ends_with("/a.rs?symbol=main#L1:1"), "{}", uris[0].0);
+        assert!(
+            uris[0].0.ends_with("/a.rs?symbol=main#L1:1"),
+            "{}",
+            uris[0].0
+        );
         assert_eq!(uris[0].1, "fn main() {}");
         assert!(uris[1].0.ends_with("/a.rs#L3:5"), "{}", uris[1].0);
         assert_eq!(uris[2].0, "https://example.com/page");
@@ -3572,7 +4179,10 @@ mod tests {
         let acp::ContentBlock::Text(text) = &blocks[3] else {
             panic!("expected text for an agent without embedded context");
         };
-        assert!(text.text.starts_with("[https://example.com/page](https://example.com/page)"));
+        assert!(
+            text.text
+                .starts_with("[https://example.com/page](https://example.com/page)")
+        );
         assert!(text.text.ends_with("the page"));
     }
 
@@ -3581,18 +4191,21 @@ mod tests {
     fn a_thread_and_the_diagnostics_summarize_as_text() {
         let mut thread = SessionThread::new(1, PathBuf::from("/proj"));
         thread.push_user_message("fix it");
-        thread.apply_update(acp::SessionUpdate::AgentThoughtChunk(acp::ContentChunk::new(
-            acp::ContentBlock::from("hmm".to_owned()),
-        )));
-        thread.apply_update(acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(
-            acp::ContentBlock::from("done".to_owned()),
-        )));
+        thread.apply_update(acp::SessionUpdate::AgentThoughtChunk(
+            acp::ContentChunk::new(acp::ContentBlock::from("hmm".to_owned())),
+        ));
+        thread.apply_update(acp::SessionUpdate::AgentMessageChunk(
+            acp::ContentChunk::new(acp::ContentBlock::from("done".to_owned())),
+        ));
         thread.apply_update(acp::SessionUpdate::ToolCall(
             acp::ToolCall::new(acp::ToolCallId::new("t1".to_owned()), "Edit a.rs")
                 .kind(acp::ToolKind::Edit),
         ));
         let summary = thread_summary(&thread);
-        assert_eq!(summary, "## User\n\nfix it\n\n## Agent\n\ndone\n\n- edit: Edit a.rs\n");
+        assert_eq!(
+            summary,
+            "## User\n\nfix it\n\n## Agent\n\ndone\n\n- edit: Edit a.rs\n"
+        );
         assert!(!summary.contains("hmm"), "thoughts are not the record");
 
         let rows = crate::lsp::ProjectDiagnosticRows {
@@ -4661,11 +5274,15 @@ mod tests {
                 enabled: true,
             },
         );
-        shared.pending_sessions.lock().unwrap().push(PendingSession {
-            id: 1,
-            resume: None,
-            context_servers,
-        });
+        shared
+            .pending_sessions
+            .lock()
+            .unwrap()
+            .push(PendingSession {
+                id: 1,
+                resume: None,
+                context_servers,
+            });
         assert!(start_agent(shared.clone(), userland, &spec, &project));
 
         // initialize and session/new run over the real pipes; fake_proot does
@@ -4692,8 +5309,15 @@ mod tests {
             // advertised the capability behind it — the conformance agent
             // gates each on exactly that — so this line *is* the capability
             // negotiation under test: `run` needs `terminal`, `ask` needs
-            // `elicitation.form`, `login` needs `elicitation.url`.
-            assert_eq!(names, ["plan", "echo", "run", "ask", "withdraw", "login", "mcp"]);
+            // `elicitation.form`, `login` needs `elicitation.url`, and
+            // `question` needs `_spettro/question/ask` to have arrived in the
+            // **top-level** `_meta` of `initialize`. That last one is the
+            // only visible consequence of the gate: put the key anywhere else
+            // and this row simply is not offered, with no error to say so.
+            assert_eq!(
+                names,
+                ["plan", "echo", "run", "ask", "withdraw", "login", "question", "mcp"]
+            );
             // …and `mcp` names the one server that was sent: the stdio one,
             // never the HTTP one an agent without HTTP MCP may not be given.
             let mcp = thread
@@ -4957,6 +5581,76 @@ mod tests {
                 _ => None,
             });
             assert_eq!(status, Some(ToolStatus::Failed), "exit 3 is a failure");
+        }
+
+        // ---- the extension handshake, and a question form ------------------
+        //
+        // THE GATE. The `_meta` this client sends on `initialize` is the one
+        // thing that decides whether a Spettro form arrives whole or as a
+        // walk of permission prompts, and getting it wrong is silent — no
+        // error, anywhere, ever. So it is asserted from both ends: the agent
+        // echoes back the methods it read out of the top-level `_meta`, and
+        // the question only arrives at all because it did.
+        {
+            let agent = shared.init.lock().unwrap();
+            let InitPhase::Ready(info) = &*agent else {
+                panic!("initialized");
+            };
+            let extensions = info
+                .spettro_extensions
+                .as_ref()
+                .expect("the agent advertised its extension surface");
+            assert_eq!(extensions["version"], 4);
+            assert_eq!(
+                extensions["clientMethods"][0], "_spettro/question/ask",
+                "the agent read our _meta from the top level of initialize"
+            );
+        }
+        assert!(shared.speaks_spettro());
+
+        let questions_from = shared.questions.version();
+        handle.update(|thread| thread.push_user_message("/question"));
+        start_prompt(&shared, &cx, 1, PromptInput::text_only("/question"), false);
+        wait_for("the question form", || {
+            !shared.questions.view_json().as_array().unwrap().is_empty()
+        });
+        assert!(
+            shared.questions.version() > questions_from,
+            "a question opening moves the counter"
+        );
+        let asked = shared.questions.view_json();
+        let question = &asked[0];
+        assert_eq!(question["session"], 1, "resolved from params.sessionId");
+        // Verbatim, all of it: nothing on this side models the payload.
+        assert_eq!(question["payload"]["allowCustomInput"], true);
+        assert_eq!(question["payload"]["questions"][0]["id"], "branch");
+        assert_eq!(
+            question["payload"]["questions"][0]["options"][1]["label"],
+            "development"
+        );
+
+        assert!(shared.questions.answer(
+            question["id"].as_str().unwrap(),
+            serde_json::json!({"answers": [
+                {"id": "branch", "value": "dev"},
+                {"id": "note", "value": "carry on"},
+            ]}),
+        ));
+        wait_for("the question turn to end", || {
+            let thread = handle.thread.lock().unwrap();
+            thread.phase == Phase::Ready && thread.stop_reason.as_deref() == Some("end_turn")
+        });
+        assert!(
+            shared.questions.view_json().as_array().unwrap().is_empty(),
+            "an answered question is over"
+        );
+        {
+            let thread = handle.thread.lock().unwrap();
+            let reply = last_reply(&thread);
+            assert!(
+                reply.contains("branch=dev") && reply.contains("note=carry on"),
+                "the answer reached the agent as its own result shape: {reply}"
+            );
         }
 
         // ---- turn four: a form elicitation, answered ------------------------

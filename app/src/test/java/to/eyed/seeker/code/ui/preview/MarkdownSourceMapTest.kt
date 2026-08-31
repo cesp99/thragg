@@ -117,7 +117,7 @@ class MarkdownSourceMapTest {
             """.trimIndent()
         )
         assertEquals(2, anchorBlockIndex(blocks, "#getting-started"))
-        assertEquals(0, anchorBlockIndex(blocks, "#seeker-code"))
+        assertEquals(0, anchorBlockIndex(blocks, "#seeker-ide"))
         assertNull(anchorBlockIndex(blocks, "#nothing-here"))
         assertNull(anchorBlockIndex(blocks, "#"))
     }

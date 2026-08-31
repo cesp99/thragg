@@ -216,6 +216,17 @@ pub struct Location {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolCallEntry {
     pub id: String,
+    /// Which turn of this conversation the call belongs to.
+    ///
+    /// **Tool-call ids repeat.** Spettro builds a fresh per-prompt turn state,
+    /// so `call-1`, `wf-1` and `ask-1` come round again in *every* turn; an
+    /// index that matched on the id alone therefore merged the second turn's
+    /// `call-1` into the first turn's card, and the workflow that was running
+    /// now was drawn on top of the one that finished five minutes ago. The
+    /// pair `(turn, id)` is what identifies a call — see
+    /// [`SessionThread::tool_call_index`] — and the ordinal travels so Kotlin
+    /// can key its own state by the same pair.
+    pub turn: u64,
     pub title: String,
     /// The `acp::ToolKind`, snake_case — what the UI picks an icon by.
     ///
@@ -246,6 +257,34 @@ pub struct ToolCallEntry {
     /// most calls do not need reading.
     #[serde(rename = "rawInput")]
     pub raw_input: Option<String>,
+    /// The **opening** `rawInput`: the first non-null one this call ever
+    /// carried, kept for ever after.
+    ///
+    /// `raw_input` above is last-write-wins, which is the protocol's rule and
+    /// right for a card that shows what the agent is doing now. It is also
+    /// lossy in the one place it matters: Spettro's workflow tool call
+    /// declares its phase list, description and origin on the *opening*
+    /// `tool_call`, and its finish update replaces `rawInput` wholesale with
+    /// `{run_id, workflow, agents, failed, cached, tokens}`. Keeping the
+    /// opening arguments is five lines here and removes the entire need to
+    /// scrape the agent's rendered ASCII tree back out of the card's text.
+    ///
+    /// Pretty-printed, exactly as `raw_input` is — Kotlin does
+    /// `JSONObject(entry.rawInputOpen)`.
+    #[serde(rename = "rawInputOpen")]
+    pub raw_input_open: Option<String>,
+    /// The `_meta` of the `session/request_permission` that made this call
+    /// wait, verbatim.
+    ///
+    /// Not decoration either: a tool call whose `permissionMeta` carries
+    /// `spettro.app/question` is not a permission prompt at all — it is a
+    /// question walked through the permission channel because the client did
+    /// not advertise the ask-user extension — and the panel draws it with the
+    /// question sheet rather than "Allow / Deny". The per-option flags
+    /// (`spettro.app/isRecommended`, `spettro.app/isCustomInput`) ride the
+    /// options' own `_meta`, which ACP already passes through.
+    #[serde(rename = "permissionMeta", skip_serializing_if = "Option::is_none")]
+    pub permission_meta: Option<serde_json::Value>,
     /// What `status` goes back to if the user allows the call — not serialized,
     /// the UI never needs it.
     #[serde(skip)]
@@ -289,7 +328,7 @@ pub enum EntryBody {
     /// snapshots it at the end of a turn and clears the live one at the start
     /// of the next.
     CompletedPlan {
-        entries: Vec<acp::PlanEntry>,
+        entries: Vec<PlanRow>,
     },
 }
 
@@ -352,11 +391,70 @@ pub struct ReviewFile {
     pub review: EditReview,
 }
 
+/// One task of the agent's plan, as the panel draws it.
+///
+/// ACP's own `PlanEntry` with one field lifted out of the text: the protocol
+/// has no *blocked* status, so Spettro appends the literal `" (blocked)"` to
+/// a pending task whose dependencies are unmet. A client that passes that
+/// through renders a task called "Run the test suite (blocked)", which is a
+/// sentence pretending to be a status; the suffix is stripped here and the
+/// fact travels beside the text where the UI can style it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PlanRow {
+    pub content: String,
+    pub priority: acp::PlanEntryPriority,
+    pub status: acp::PlanEntryStatus,
+    pub blocked: bool,
+}
+
+/// Spettro's spelling of the monotonic token spend, on the `_meta` of both
+/// `session/update`'s usage and the `session/prompt` response. Not part of
+/// ACP; read where it is found and ignored where it is not, which is what
+/// `_meta` is for.
+pub(crate) const TOKENS_USED_KEY: &str = "spettro.app/tokensUsed";
+
+/// One unsigned number out of an ACP `_meta` map, when it is there and is one.
+pub(crate) fn meta_u64(meta: Option<&acp::Meta>, key: &str) -> Option<u64> {
+    meta?.get(key)?.as_u64()
+}
+
+/// The literal suffix Spettro appends. Matched exactly, and only at the end:
+/// a task that genuinely ends in those nine characters is vanishingly rare
+/// beside a heuristic that would eat them anywhere in the line.
+const BLOCKED_SUFFIX: &str = " (blocked)";
+
+impl PlanRow {
+    fn from_entry(entry: acp::PlanEntry) -> Self {
+        match entry.content.strip_suffix(BLOCKED_SUFFIX) {
+            Some(content) => PlanRow {
+                content: content.to_owned(),
+                priority: entry.priority,
+                status: entry.status,
+                blocked: true,
+            },
+            None => PlanRow {
+                content: entry.content,
+                priority: entry.priority,
+                status: entry.status,
+                blocked: false,
+            },
+        }
+    }
+}
+
 /// Context-window usage, from ACP's `UsageUpdate`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Usage {
+    /// Context **occupancy** — the largest single request so far, which is
+    /// what fills the window. It can *decrease*, after a compaction: it is a
+    /// gauge, never a counter, and the UI must not draw it as one.
     pub used: u64,
     pub size: u64,
+    /// `_meta["spettro.app/tokensUsed"]` — the monotonic spend, which is the
+    /// number a user means by "how much have I used". Absent for an agent
+    /// that does not report it.
+    #[serde(rename = "tokensUsed")]
+    pub tokens_used: Option<u64>,
     /// What the turn has cost so far, when the agent says. Zed shows it
     /// beside the context bar (thread_view.rs:5728-5903); an agent that
     /// reports it and a client that drops it is a bill the user cannot see.
@@ -564,8 +662,10 @@ pub struct SessionThread {
     pub title: Option<String>,
     pub entries: Vec<Entry>,
     /// The agent's plan, replaced wholesale on every update — the protocol's
-    /// own rule (plan.rs: "the client replaces the entire plan").
-    pub plan: Vec<acp::PlanEntry>,
+    /// own rule (plan.rs: "the client replaces the entire plan"). An empty
+    /// `entries: []` is published deliberately when the last task goes, so
+    /// there is nothing to merge and nothing to keep.
+    pub plan: Vec<PlanRow>,
     pub usage: Option<Usage>,
     /// Session modes (Claude Code's default / acceptEdits / plan …), when the
     /// agent has them.
@@ -627,6 +727,26 @@ pub struct SessionThread {
     /// Every file the agent has edited in this thread, oldest first — the
     /// checkpoints and the review tab, see [`FileEdit`].
     pub edits: Vec<FileEdit>,
+    /// Which turn the conversation is on. Bumped once per *real* prompt (never
+    /// by a steering message, which joins the turn already running) and
+    /// stamped onto every tool call — see [`ToolCallEntry::turn`] for the
+    /// repeated-id defect it exists to close.
+    pub turn: u64,
+    /// How many `session/prompt` requests are in flight on this session.
+    ///
+    /// Normally one. It is two while a **steering** message rides alongside a
+    /// running turn: Spettro queues the steering prompt into the live turn and
+    /// answers it with `end_turn` within milliseconds, so its `end_turn`
+    /// arrives while the real turn is still streaming. Without this count that
+    /// instant reply settled the session — phase back to `Ready`, the plan
+    /// snapshotted, the queue drained and a third prompt fired on top of a
+    /// live turn. [`Self::end_turn`] does its settling work only when the last
+    /// one lands.
+    running_turns: usize,
+    /// What the last completed turn cost, from `PromptResponse.usage` and its
+    /// `_meta["spettro.app/tokensUsed"]`. Filled by `acp.rs::run_prompt`,
+    /// cleared when a turn starts, forwarded verbatim as `turnUsage`.
+    turn_usage: Option<serde_json::Value>,
 }
 
 impl SessionThread {
@@ -654,7 +774,19 @@ impl SessionThread {
             notice: None,
             turn_cancelled: false,
             edits: Vec::new(),
+            turn: 0,
+            running_turns: 0,
+            turn_usage: None,
         }
+    }
+
+    /// What the turn that just ended cost, as the panel's turn readout wants
+    /// it: `{"inputTokens","outputTokens","totalTokens","cachedReadTokens",
+    /// "cachedWriteTokens","tokensUsed"}`. Built in `acp.rs::run_prompt` from
+    /// the `session/prompt` response, because that is where the response is.
+    pub fn set_turn_usage(&mut self, value: serde_json::Value) {
+        self.turn_usage = Some(value);
+        self.bump();
     }
 
     /// Say why the last thing the user asked for did not happen.
@@ -694,10 +826,51 @@ impl SessionThread {
         });
     }
 
+    /// A real prompt turn is beginning: the ordinal moves and one more
+    /// `session/prompt` is in flight. Every caller of this is a place a
+    /// request actually goes out, which is what keeps the count honest.
+    fn begin_turn(&mut self) {
+        self.turn += 1;
+        self.running_turns += 1;
+        self.turn_usage = None;
+    }
+
+    /// A steering message joins the turn already running: one more prompt in
+    /// flight, but **not** a new turn. Bumping the ordinal here would restamp
+    /// the live turn's remaining tool calls and split every card in half.
+    ///
+    /// Deliberately does not touch `phase`, `stop_reason` or the plan either:
+    /// the running turn owns all three and is still running.
+    pub fn push_steering_message(&mut self, text: &str) {
+        self.running_turns += 1;
+        self.push_entry(EntryBody::User {
+            markdown: text.to_owned(),
+            chunks: vec![text.to_owned()],
+            optimistic: true,
+        });
+    }
+
+    /// Whether no `session/prompt` is in flight — the session has settled.
+    /// Read after a turn ends to decide whether the parked permission
+    /// requests are really over: a steering turn ending is not the end of the
+    /// turn it was steering, and answering that turn's open permission
+    /// `cancelled` would stop the work the user was steering.
+    pub fn is_settled(&self) -> bool {
+        self.running_turns == 0
+    }
+
+    /// One in-flight prompt has been answered. True when it was the last, and
+    /// therefore when the session may settle.
+    fn settle_turn(&mut self) -> bool {
+        self.running_turns = self.running_turns.saturating_sub(1);
+        self.running_turns == 0
+    }
+
     /// The user's message, pushed before the prompt request goes out so the
     /// panel shows it immediately — Zed does the same and calls it optimistic
     /// (acp_thread.rs:3670-3686).
     pub fn push_user_message(&mut self, text: &str) {
+        self.begin_turn();
         self.stop_reason = None;
         self.error = None;
         self.error_kind = None;
@@ -745,6 +918,7 @@ impl SessionThread {
             return None;
         }
         let queued = self.queue.remove(0);
+        self.begin_turn();
         self.push_entry(EntryBody::User {
             markdown: queued.prompt.text.clone(),
             chunks: vec![queued.prompt.text.clone()],
@@ -842,7 +1016,9 @@ impl SessionThread {
                 self.update_tool_call(update, status);
             }
             acp::SessionUpdate::Plan(plan) => {
-                self.plan = plan.entries;
+                // Wholesale replacement, `(blocked)` lifted out of each task's
+                // text — see [`PlanRow`].
+                self.plan = plan.entries.into_iter().map(PlanRow::from_entry).collect();
                 self.bump();
             }
             acp::SessionUpdate::AvailableCommandsUpdate(update) => {
@@ -885,9 +1061,18 @@ impl SessionThread {
                 }
             }
             acp::SessionUpdate::UsageUpdate(update) => {
+                // A window of zero divides every gauge by zero and would draw
+                // a full bar for an empty context. The agent falls back to a
+                // hard-coded window when it does not know the model's, so a
+                // zero here is a bug on the wire rather than a fact.
+                if update.size == 0 {
+                    log::debug!("acp: ignoring a usage update with a zero context window");
+                    return;
+                }
                 self.usage = Some(Usage {
                     used: update.used,
                     size: update.size,
+                    tokens_used: meta_u64(update.meta.as_ref(), TOKENS_USED_KEY),
                     cost: update.cost.map(|cost| Cost {
                         amount: cost.amount,
                         currency: cost.currency,
@@ -928,12 +1113,18 @@ impl SessionThread {
         }
     }
 
-    /// The index of a tool call, searched from the end because the one being
-    /// updated is almost always the last — Zed's own access pattern and its
-    /// reasoning (acp_thread.rs:3276-3292).
+    /// The index of a tool call **of this turn**, searched from the end
+    /// because the one being updated is almost always the last — Zed's own
+    /// access pattern and its reasoning (acp_thread.rs:3276-3292).
+    ///
+    /// The turn is half the key on purpose: an id alone is not unique across a
+    /// conversation, because Spettro numbers tool calls from one again in
+    /// every turn (see [`ToolCallEntry::turn`]).
     fn tool_call_index(&self, id: &acp::ToolCallId) -> Option<usize> {
+        let turn = self.turn;
         self.entries.iter().enumerate().rev().find_map(|(i, e)| {
-            matches!(&e.body, EntryBody::ToolCall(call) if call.id == id.0.as_ref()).then_some(i)
+            matches!(&e.body, EntryBody::ToolCall(call) if call.turn == turn && call.id == id.0.as_ref())
+                .then_some(i)
         })
     }
 
@@ -987,6 +1178,7 @@ impl SessionThread {
             };
             let mut call = ToolCallEntry {
                 id: tool_call.tool_call_id.0.to_string(),
+                turn: self.turn,
                 title: tool_call.title.clone(),
                 kind: kind_name(tool_call.kind).to_owned(),
                 status: ToolStatus::Pending,
@@ -994,6 +1186,8 @@ impl SessionThread {
                 content: Vec::new(),
                 locations: Vec::new(),
                 raw_input: None,
+                raw_input_open: None,
+                permission_meta: None,
                 resume: ToolStatus::Pending,
             };
             apply_tool_fields(
@@ -1019,10 +1213,15 @@ impl SessionThread {
     /// `waiting_for_confirmation` with the offered options. The parked
     /// responder is `acp.rs`'s to keep — this only records what the UI shows.
     /// Zed: `request_tool_call_authorization` (acp_thread.rs:3383-3418).
+    ///
+    /// `meta` is the request's own `_meta`, kept because a permission request
+    /// is not always a permission request — see
+    /// [`ToolCallEntry::permission_meta`].
     pub fn begin_permission(
         &mut self,
         tool_call: acp::ToolCallUpdate,
         options: Vec<acp::PermissionOption>,
+        meta: Option<serde_json::Value>,
     ) {
         let status = tool_call.fields.status.map(ToolStatus::from);
         self.update_tool_call(tool_call.clone(), status);
@@ -1031,6 +1230,13 @@ impl SessionThread {
                 call.resume = status_after_grant(call.status);
                 call.status = ToolStatus::WaitingForConfirmation;
                 call.options = options;
+                // Only when there is one: a plain permission request carries
+                // no `_meta`, and writing `null` over a question's metadata
+                // because a later plain request touched the same call would
+                // turn the question sheet back into Allow / Deny.
+                if meta.is_some() {
+                    call.permission_meta = meta;
+                }
             }
             self.touch(index);
         }
@@ -1099,6 +1305,16 @@ impl SessionThread {
     /// cancels what was pending, and a refusal removes the refused prompt from
     /// the transcript because the agent has removed it from its context.
     pub fn end_turn(&mut self, stop_reason: acp::StopReason) -> Option<PromptInput> {
+        // A steering prompt is answered `end_turn` within milliseconds while
+        // the turn it was steering runs on. Settling here would put the phase
+        // back to `Ready`, file the live plan as history and send the next
+        // queued prompt on top of a turn still streaming — see
+        // [`Self::running_turns`]. It moves the counter and nothing else, so
+        // the pill it pushed is on screen.
+        if !self.settle_turn() {
+            self.bump();
+            return None;
+        }
         self.phase = Phase::Ready;
         self.stop_reason = Some(stop_reason_name(stop_reason).to_owned());
         self.turn_cancelled = false;
@@ -1166,6 +1382,12 @@ impl SessionThread {
     /// The turn failed outright — transport error, agent bug. The session
     /// stays usable: the next prompt may well work.
     pub fn fail_turn(&mut self, message: String) {
+        // A steering prompt that failed while the real turn runs is a notice,
+        // not the end of anything: the turn it was steering is still going.
+        if !self.settle_turn() {
+            self.notice(message);
+            return;
+        }
         self.phase = Phase::Ready;
         self.error_kind = Some(ErrorKind::guess(&message));
         self.error = Some(message);
@@ -1180,6 +1402,9 @@ impl SessionThread {
 
     /// The session is over — the agent process exited, or refused to start.
     pub fn fail(&mut self, message: String) {
+        // Nothing is in flight any more, whatever the count said: the wire is
+        // gone, so no `end_turn` is coming for anything still counted.
+        self.running_turns = 0;
         self.phase = Phase::Unavailable;
         if self.error.is_none() {
             self.error_kind = Some(ErrorKind::guess(&message));
@@ -1208,6 +1433,9 @@ impl SessionThread {
 
     /// The agent wants `authenticate` first.
     pub fn auth_required(&mut self, message: String) {
+        // The prompt that hit this is over, and the session is unusable until
+        // the sign-in lands — same reasoning as [`Self::fail`].
+        self.running_turns = 0;
         self.phase = Phase::Unavailable;
         self.needs_auth = true;
         self.error_kind = Some(ErrorKind::Auth);
@@ -1365,7 +1593,9 @@ impl SessionThread {
     pub fn keep_edits(&mut self, paths: &[PathBuf]) -> bool {
         let mut changed = false;
         for edit in &mut self.edits {
-            if (paths.is_empty() || paths.contains(&edit.path)) && edit.review == EditReview::Pending {
+            if (paths.is_empty() || paths.contains(&edit.path))
+                && edit.review == EditReview::Pending
+            {
                 edit.review = EditReview::Kept;
                 changed = true;
             }
@@ -1491,6 +1721,12 @@ impl SessionThread {
             "entry_count": self.entries.len(),
             "plan": self.plan,
             "usage": self.usage,
+            // What the last turn cost, as against `usage`, which is what the
+            // context window holds now.
+            "turnUsage": self.turn_usage,
+            // Which turn the conversation is on, so a reader can key its own
+            // tool-call state by `(turn, id)` as the engine does.
+            "turn": self.turn,
             "modes": self.modes,
             "commands": self.commands,
             "configOptions": self.config_options,
@@ -1579,9 +1815,16 @@ fn apply_tool_fields(call: &mut ToolCallEntry, fields: acp::ToolCallUpdateFields
     if let Some(raw_input) = fields.raw_input
         && !raw_input.is_null()
     {
-        call.raw_input = Some(
-            serde_json::to_string_pretty(&raw_input).unwrap_or_else(|_| raw_input.to_string()),
-        );
+        let pretty =
+            serde_json::to_string_pretty(&raw_input).unwrap_or_else(|_| raw_input.to_string());
+        // Set once and never again: the *opening* arguments are the only
+        // place a workflow's declared phases are ever stated, and the finish
+        // update overwrites `rawInput` with its own summary. See
+        // [`ToolCallEntry::raw_input_open`].
+        if call.raw_input_open.is_none() {
+            call.raw_input_open = Some(pretty.clone());
+        }
+        call.raw_input = Some(pretty);
     }
     if call.content.is_empty()
         && let Some(raw_output) = fields.raw_output
@@ -2273,6 +2516,7 @@ mod tests {
         thread.begin_permission(
             acp::ToolCallUpdate::from(tool_call("t1", "Edit file").kind(acp::ToolKind::Edit)),
             options(),
+            None,
         );
         let EntryBody::ToolCall(call) = &thread.entries[0].body else {
             panic!("expected a tool call");
@@ -2309,6 +2553,7 @@ mod tests {
         thread.begin_permission(
             acp::ToolCallUpdate::from(tool_call("t1", "rm -rf")),
             options(),
+            None,
         );
         assert!(thread.finish_permission("t1", PermissionDecision::Reject));
         let EntryBody::ToolCall(call) = &thread.entries[0].body else {
@@ -2319,6 +2564,7 @@ mod tests {
         thread.begin_permission(
             acp::ToolCallUpdate::from(tool_call("t2", "again")),
             options(),
+            None,
         );
         assert!(thread.finish_permission("t2", PermissionDecision::Cancel));
         let EntryBody::ToolCall(call) = &thread.entries[1].body else {
@@ -2591,7 +2837,11 @@ mod tests {
             )]),
         ));
         assert!(thread.edits.is_empty(), "a pending diff is a proposal");
-        assert!(!thread.entries_json(0)["entries"][0]["checkpoint"].as_bool().unwrap_or(false));
+        assert!(
+            !thread.entries_json(0)["entries"][0]["checkpoint"]
+                .as_bool()
+                .unwrap_or(false)
+        );
 
         thread.apply_update(completed_diff(
             "t1",
@@ -2669,8 +2919,15 @@ mod tests {
         // Rows after the message are reverted; the message and earlier are not.
         let rows = thread.entries_json(0);
         let entries = rows["entries"].as_array().unwrap();
-        assert!(entries.iter().all(|row| row["index"] != 3 || row.get("reverted").is_none()));
-        for row in entries.iter().filter(|row| row["index"].as_u64().unwrap() > 3) {
+        assert!(
+            entries
+                .iter()
+                .all(|row| row["index"] != 3 || row.get("reverted").is_none())
+        );
+        for row in entries
+            .iter()
+            .filter(|row| row["index"].as_u64().unwrap() > 3)
+        {
             assert_eq!(row["reverted"], true, "row {row}");
         }
         assert!(entries[0].get("reverted").is_none());
@@ -2699,22 +2956,36 @@ mod tests {
         let files = thread.review_files();
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].path, std::fs::canonicalize(&a).unwrap());
-        assert_eq!(files[0].before.as_deref(), Some("a0"), "the earliest original");
+        assert_eq!(
+            files[0].before.as_deref(),
+            Some("a0"),
+            "the earliest original"
+        );
         assert_eq!(thread.pending_edit_count(), 2);
 
         let a_canonical = std::fs::canonicalize(&a).unwrap();
         assert!(thread.keep_edits(std::slice::from_ref(&a_canonical)));
         assert_eq!(thread.pending_edit_count(), 1);
         let files = thread.review_files();
-        assert_eq!(files[0].path, std::fs::canonicalize(&b).unwrap(), "pending first");
+        assert_eq!(
+            files[0].path,
+            std::fs::canonicalize(&b).unwrap(),
+            "pending first"
+        );
         assert_eq!(files[1].review, EditReview::Kept);
         // Kept, not forgotten: the checkpoint still covers it.
         assert!(thread.has_checkpoint(0));
-        assert!(!thread.keep_edits(&[a_canonical.clone()]), "nothing left to keep");
+        assert!(
+            !thread.keep_edits(&[a_canonical.clone()]),
+            "nothing left to keep"
+        );
 
         let plan = thread.reject_edits(&[]);
         assert_eq!(plan.len(), 2);
-        assert!(plan.iter().any(|(path, before)| path == &a_canonical && before.as_deref() == Some("a0")));
+        assert!(
+            plan.iter()
+                .any(|(path, before)| path == &a_canonical && before.as_deref() == Some("a0"))
+        );
         assert!(thread.edits.is_empty());
         assert_eq!(thread.pending_edit_count(), 0);
         assert!(thread.reject_edits(&[]).is_empty());
@@ -2726,17 +2997,26 @@ mod tests {
     fn the_first_waiting_prompt_answers_by_option_kind() {
         let mut thread = thread();
         thread.push_user_message("go");
-        assert_eq!(thread.first_waiting_option(acp::PermissionOptionKind::AllowOnce), None);
+        assert_eq!(
+            thread.first_waiting_option(acp::PermissionOptionKind::AllowOnce),
+            None
+        );
         thread.begin_permission(
             acp::ToolCallUpdate::from(tool_call("t1", "Edit")),
             vec![
                 acp::PermissionOption::new("yes", "Allow", acp::PermissionOptionKind::AllowOnce),
                 acp::PermissionOption::new("no", "Reject", acp::PermissionOptionKind::RejectOnce),
             ],
+            None,
         );
         thread.begin_permission(
             acp::ToolCallUpdate::from(tool_call("t2", "Run")),
-            vec![acp::PermissionOption::new("always", "Always", acp::PermissionOptionKind::AllowAlways)],
+            vec![acp::PermissionOption::new(
+                "always",
+                "Always",
+                acp::PermissionOptionKind::AllowAlways,
+            )],
+            None,
         );
         assert_eq!(thread.waiting_count(), 2);
         assert_eq!(
@@ -2749,8 +3029,14 @@ mod tests {
         );
         // The first prompt has no "always"; the second does, but it is not
         // first — the chord means the prompt in front of the user.
-        assert_eq!(thread.first_waiting_option(acp::PermissionOptionKind::AllowAlways), None);
-        assert_eq!(thread.state_json(serde_json::Value::Null)["waitingCount"], 2);
+        assert_eq!(
+            thread.first_waiting_option(acp::PermissionOptionKind::AllowAlways),
+            None
+        );
+        assert_eq!(
+            thread.state_json(serde_json::Value::Null)["waitingCount"],
+            2
+        );
     }
 
     /// The wire accepts both spellings of a mention: the bare path an older
@@ -2767,9 +3053,21 @@ mod tests {
                 {"kind":"diagnostics"}]"#,
         );
         assert_eq!(mentions.len(), 8);
-        assert_eq!(mentions[0], Mention::File { path: "notes.md".to_owned() });
-        assert_eq!(mentions[1], Mention::Directory { path: "src".to_owned() });
-        assert!(matches!(&mentions[2], Mention::Symbol { name, text, .. } if name == "main" && text.is_empty()));
+        assert_eq!(
+            mentions[0],
+            Mention::File {
+                path: "notes.md".to_owned()
+            }
+        );
+        assert_eq!(
+            mentions[1],
+            Mention::Directory {
+                path: "src".to_owned()
+            }
+        );
+        assert!(
+            matches!(&mentions[2], Mention::Symbol { name, text, .. } if name == "main" && text.is_empty())
+        );
         assert!(matches!(&mentions[4], Mention::Thread { session: 4, .. }));
         assert!(matches!(&mentions[7], Mention::Diagnostics { .. }));
         // Rubbish is no mentions, never a refused prompt.
@@ -2926,6 +3224,165 @@ mod tests {
         assert_eq!(call.locations[0].path, "src/lib.rs");
         assert_eq!(call.locations[0].line, Some(4));
         assert_eq!(call.locations[1].path, "/elsewhere/thing.txt");
+    }
+
+    /// ACP has no *blocked* status, so Spettro says it in the text. A client
+    /// that passes that through draws a task called "Run the tests
+    /// (blocked)" — a sentence pretending to be a status.
+    #[test]
+    fn a_blocked_plan_task_loses_its_suffix_and_keeps_the_fact() {
+        let mut thread = thread();
+        let entry = |content: &str| {
+            acp::PlanEntry::new(
+                content,
+                acp::PlanEntryPriority::Medium,
+                acp::PlanEntryStatus::Pending,
+            )
+        };
+        thread.apply_update(acp::SessionUpdate::Plan(acp::Plan::new(vec![
+            entry("Run the test suite (blocked)"),
+            entry("Write the tests"),
+            // Only the end of the line, and only exactly: a task that talks
+            // about being blocked is not a blocked task.
+            entry("Explain why (blocked) means what it does"),
+        ])));
+        assert_eq!(thread.plan[0].content, "Run the test suite");
+        assert!(thread.plan[0].blocked);
+        assert!(!thread.plan[1].blocked);
+        assert_eq!(
+            thread.plan[2].content,
+            "Explain why (blocked) means what it does"
+        );
+        assert!(!thread.plan[2].blocked);
+
+        // And it survives the trip into the transcript, where a finished plan
+        // is filed.
+        thread.apply_update(acp::SessionUpdate::Plan(acp::Plan::new(vec![
+            acp::PlanEntry::new(
+                "Run the test suite (blocked)",
+                acp::PlanEntryPriority::Medium,
+                acp::PlanEntryStatus::Completed,
+            ),
+        ])));
+        thread.end_turn(acp::StopReason::EndTurn);
+        let Some(EntryBody::CompletedPlan { entries }) = thread.entries.last().map(|e| &e.body)
+        else {
+            panic!("the finished plan is filed");
+        };
+        assert_eq!(entries[0].content, "Run the test suite");
+        assert!(entries[0].blocked);
+    }
+
+    /// The workflow card's whole input: the phases a run declares are stated
+    /// once, on the opening `tool_call`, and the finish update replaces
+    /// `rawInput` with its own summary.
+    #[test]
+    fn the_opening_raw_input_survives_the_update_that_replaces_it() {
+        let mut thread = thread();
+        thread.push_user_message("run the workflow");
+        thread.apply_update(acp::SessionUpdate::ToolCall(
+            tool_call("wf-1", "Workflow").raw_input(serde_json::json!({
+                "workflow": "release",
+                "phases": ["build", "test"],
+            })),
+        ));
+        thread.apply_update(acp::SessionUpdate::ToolCallUpdate(
+            acp::ToolCallUpdate::new(
+                acp::ToolCallId::new("wf-1"),
+                acp::ToolCallUpdateFields::new()
+                    .raw_input(serde_json::json!({"run_id": "r1", "failed": 0})),
+            ),
+        ));
+        let EntryBody::ToolCall(call) = &thread.entries[1].body else {
+            panic!("a tool call")
+        };
+        let now: serde_json::Value =
+            serde_json::from_str(call.raw_input.as_deref().unwrap()).unwrap();
+        let opening: serde_json::Value =
+            serde_json::from_str(call.raw_input_open.as_deref().unwrap()).unwrap();
+        assert_eq!(now["run_id"], "r1", "the card shows what is current");
+        assert_eq!(
+            opening["phases"][1], "test",
+            "and the declared phases are still there"
+        );
+    }
+
+    /// Spettro numbers its tool calls from one again in every turn, so an
+    /// index that matched on the id alone merged the second turn's `call-1`
+    /// into the first turn's card.
+    #[test]
+    fn a_repeated_tool_call_id_in_a_new_turn_is_a_new_card() {
+        let mut thread = thread();
+        thread.push_user_message("first");
+        thread.apply_update(acp::SessionUpdate::ToolCall(tool_call("call-1", "Read a")));
+        thread.end_turn(acp::StopReason::EndTurn);
+
+        thread.push_user_message("second");
+        thread.apply_update(acp::SessionUpdate::ToolCall(tool_call("call-1", "Read b")));
+
+        let calls: Vec<&ToolCallEntry> = thread
+            .entries
+            .iter()
+            .filter_map(|entry| match &entry.body {
+                EntryBody::ToolCall(call) => Some(call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 2, "two turns, two cards");
+        assert_eq!((calls[0].turn, calls[0].title.as_str()), (1, "Read a"));
+        assert_eq!((calls[1].turn, calls[1].title.as_str()), (2, "Read b"));
+
+        // And an update still lands on the *current* turn's card.
+        thread.apply_update(acp::SessionUpdate::ToolCallUpdate(
+            acp::ToolCallUpdate::new(
+                acp::ToolCallId::new("call-1"),
+                acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::Completed),
+            ),
+        ));
+        let EntryBody::ToolCall(second) = &thread.entries[3].body else {
+            panic!("the second card")
+        };
+        assert_eq!(second.status, ToolStatus::Completed);
+        let EntryBody::ToolCall(first) = &thread.entries[1].body else {
+            panic!("the first card")
+        };
+        assert_eq!(first.status, ToolStatus::Pending, "untouched");
+    }
+
+    /// A steering message rides the turn already running: its instant
+    /// `end_turn` must settle nothing. Without this the session went `Ready`
+    /// mid-turn, filed the live plan as history and fired the next queued
+    /// prompt on top of work still streaming.
+    #[test]
+    fn a_steering_turn_ending_does_not_settle_the_turn_it_steers() {
+        let mut thread = thread();
+        thread.push_user_message("do the big thing");
+        assert_eq!(thread.turn, 1);
+        thread.apply_update(acp::SessionUpdate::Plan(acp::Plan::new(vec![
+            acp::PlanEntry::new(
+                "the one task",
+                acp::PlanEntryPriority::Medium,
+                acp::PlanEntryStatus::Completed,
+            ),
+        ])));
+        thread.queue_prompt(&PromptInput::text_only("and then this"));
+
+        thread.push_steering_message("actually, use tabs");
+        assert_eq!(thread.turn, 1, "steering is not a new turn");
+        assert_eq!(thread.phase, Phase::Running);
+
+        // The steering prompt is answered first, and settles nothing.
+        assert!(thread.end_turn(acp::StopReason::EndTurn).is_none());
+        assert_eq!(thread.phase, Phase::Running, "the real turn runs on");
+        assert!(!thread.is_settled());
+        assert_eq!(thread.plan.len(), 1, "the plan is not filed yet");
+        assert_eq!(thread.queue.len(), 1, "and the queue is not drained");
+
+        // The real one lands, and everything happens at once.
+        let next = thread.end_turn(acp::StopReason::EndTurn);
+        assert!(next.is_some(), "the queued prompt goes out now");
+        assert!(thread.plan.is_empty(), "the finished plan is filed");
+        assert_eq!(thread.turn, 2, "and the queued prompt is a new turn");
     }
 
     #[test]

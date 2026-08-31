@@ -7,8 +7,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,7 +29,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.ui.theme.SeekerCodeByEyedTheme
 import to.eyed.seeker.code.ui.theme.ThemeStore
 import to.eyed.seeker.code.terminal.TerminalService
-import to.eyed.seeker.code.ui.workspace.WorkspaceScreen
+import to.eyed.seeker.code.ui.shell.SeekerShell
 
 class MainActivity : ComponentActivity() {
 
@@ -96,16 +94,23 @@ class MainActivity : ComponentActivity() {
                 }?.let { settings = it }
             }
             SeekerCodeByEyedTheme(settings) {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    WorkspaceScreen(
-                        settings = settings,
-                        settingsPath = File(filesDir, "settings.json").absolutePath,
-                        onSettingsChanged = { settings = it },
-                        incoming = incoming.value,
-                        onIncomingHandled = { incoming.value = null },
-                        modifier = Modifier.padding(innerPadding),
-                    )
-                }
+                // No Scaffold. Material's would insert its own insets and its
+                // own background between the window and the shell, and the
+                // shell's whole layout argument is that it owns those: the
+                // status bar and the cutout are padded once above the
+                // destination, the gesture inset is padding under the nav bar,
+                // and the IME is the editor's to lift its action row onto
+                // (docs/UI.md, "Code with the soft keyboard up" — the vertical
+                // budget is exact and there is no room in it for a second
+                // opinion about insets).
+                SeekerShell(
+                    settings = settings,
+                    settingsPath = File(filesDir, "settings.json").absolutePath,
+                    onSettingsChanged = { settings = it },
+                    incoming = incoming.value,
+                    onIncomingHandled = { incoming.value = null },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }

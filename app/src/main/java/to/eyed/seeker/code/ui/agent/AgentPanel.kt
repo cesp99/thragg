@@ -130,7 +130,7 @@ import to.eyed.seeker.code.terminal.TerminalSessions
 import to.eyed.seeker.code.terminal.Userland
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
 import to.eyed.seeker.code.ui.git.DiffLineRow
-import to.eyed.seeker.code.ui.preview.MarkdownText
+import to.eyed.seeker.code.ui.common.MarkdownText
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.workspace.ContextMenu
 import to.eyed.seeker.code.ui.workspace.ContextMenuItem

@@ -88,6 +88,10 @@ class Agent:
         # instead of exposing it. Empty until initialize, which the protocol
         # requires before anything else.
         self.client_capabilities = {}
+        # The `_spettro/*` methods the client said *it* serves, from the
+        # top-level `_meta` of `initialize`. Same rule as the capabilities
+        # above: nothing is offered that the client did not claim.
+        self.client_extensions = []
         # Per-session ids, "conf-<n>": the spec wants unique ids, and a
         # constant would collide the moment a client opened a second session
         # on the same process.
@@ -260,10 +264,34 @@ class Agent:
         if method == "initialize":
             self.client_capabilities = params.get("clientCapabilities") or {}
             log("client capabilities: " + json.dumps(self.client_capabilities))
+            # The extension handshake, read from the **top-level** `_meta` —
+            # not from `clientCapabilities._meta`, which is where a client
+            # that used the SDK's own helper would have put it, and which is
+            # the mistake this agent exists to catch. Spettro reads exactly
+            # this path and nothing else, and a client that gets it wrong is
+            # silently walked through forms one question at a time instead.
+            extensions = ((params.get("_meta") or {})
+                          .get("spettro.app/extensions") or {})
+            self.client_extensions = [
+                method_name for method_name in (extensions.get("methods") or [])
+                if isinstance(method_name, str)
+            ]
+            log("client extension methods: " + json.dumps(self.client_extensions))
             send({
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": {
+                    # The other half of the handshake, on the *response's*
+                    # `_meta`: what this agent serves, and what it heard the
+                    # client say it serves. A client gates its whole extended
+                    # surface on this object being present.
+                    "_meta": {
+                        "spettro.app/extensions": {
+                            "version": 4,
+                            "methods": ["_spettro/account/status", "_spettro/models/list"],
+                            "clientMethods": self.client_extensions,
+                        },
+                    },
                     "protocolVersion": 1,
                     # The whole session lifecycle, so a client that implements
                     # only `session/new` has somewhere to be caught out. Each
@@ -324,6 +352,9 @@ class Agent:
                                  "description": "Ask, then take the question back"})
             if self.can("elicitation", "url"):
                 commands.append({"name": "login", "description": "Ask you to visit a URL"})
+            if "_spettro/question/ask" in self.client_extensions:
+                commands.append({"name": "question",
+                                 "description": "Ask a whole form in one request"})
             if state["mcp"]:
                 commands.append({"name": "mcp",
                                  "description": "Context servers: " + ", ".join(state["mcp"])})
@@ -435,6 +466,8 @@ class Agent:
                 return self.withdraw_question(session_id)
             if prompt.startswith("/login"):
                 return self.ask_url(session_id)
+            if prompt.startswith("/question"):
+                return self.ask_question(session_id)
             if prompt.startswith("/plan"):
                 self.plan(session_id,
                           ("Look around", "in_progress"), ("Report back", "pending"))
@@ -615,6 +648,45 @@ class Agent:
             for key, value in sorted(content.items())
         )
         self.chunk(session_id, "agent_message_chunk", "Form answered: %s" % described)
+        return "end_turn"
+
+    def ask_question(self, session_id):
+        """The extension's ask-user form: every question in one request.
+
+        Offered only to a client that named `_spettro/question/ask` in the
+        top-level `_meta` of `initialize` — which is the whole point. A client
+        that puts that key anywhere else never sees this command, and gets
+        walked through the same questions one permission prompt at a time
+        without any error to say why.
+        """
+        if "_spettro/question/ask" not in self.client_extensions:
+            self.chunk(session_id, "agent_message_chunk", "This editor has no question form.")
+            return "end_turn"
+        answer = self.request("_spettro/question/ask", {
+            "version": 4,
+            "sessionId": session_id,
+            "question": "How should the conformance agent proceed?",
+            "context": "Asked as one form rather than as a walk.",
+            "allowCustomInput": True,
+            "questions": [
+                {"id": "branch", "question": "Which branch?",
+                 "options": [{"id": "main", "label": "main"},
+                             {"id": "dev", "label": "development"}]},
+                {"id": "note", "question": "Anything to add?", "options": []},
+            ],
+        })
+        if answer is None:
+            self.chunk(session_id, "agent_message_chunk", "The editor refused the question.")
+            return "end_turn"
+        if answer.get("kind") in ("declined", "cancelled"):
+            self.chunk(session_id, "agent_message_chunk",
+                       "Fair enough — %s." % answer.get("kind"))
+            return "end_turn"
+        described = ", ".join(
+            "%s=%s" % (item.get("id"), item.get("value"))
+            for item in answer.get("answers") or []
+        )
+        self.chunk(session_id, "agent_message_chunk", "Question answered: %s" % described)
         return "end_turn"
 
     def ask_url(self, session_id):

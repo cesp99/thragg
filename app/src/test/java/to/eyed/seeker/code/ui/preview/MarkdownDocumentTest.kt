@@ -1,4 +1,4 @@
-package to.eyed.conquest.code.ui.preview
+package to.eyed.seeker.code.ui.preview
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
