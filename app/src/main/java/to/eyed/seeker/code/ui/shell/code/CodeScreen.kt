@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +53,7 @@ import to.eyed.seeker.code.core.LanguageSettings
 import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.core.ResumedEffect
 import to.eyed.seeker.code.core.ShareOut
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.ui.common.BinaryPlaceholder
 import to.eyed.seeker.code.ui.common.UnsavedChangesDialog
 import to.eyed.seeker.code.ui.editor.Diagnostic
@@ -79,7 +82,11 @@ import to.eyed.seeker.code.ui.shell.agent.AgentSeams
 import to.eyed.seeker.code.ui.shell.agent.agentFixPrompt
 import to.eyed.seeker.code.ui.shell.build.CodeJump
 import to.eyed.seeker.code.ui.shell.projects.ProjectsSheet
+import to.eyed.seeker.code.ui.theme.ChipCaret
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.AutosaveTracker
 import to.eyed.seeker.code.ui.workspace.GoToLine
@@ -810,62 +817,107 @@ private fun CodeHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            // The ▾ is drawn only when there is a sheet behind it. A chevron
-            // on a control that opens nothing is a promise the header cannot
-            // keep; without it the chip is what the rest of the header is,
-            // which is identity.
-            text = (projectName ?: "No project") + if (onOpenProjects != null) " ▾" else "",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            maxLines = 1,
-            overflow = TextOverflow.MiddleEllipsis,
+        // The caret is drawn only when there is a sheet behind it. A chevron
+        // on a control that opens nothing is a promise the header cannot
+        // keep; without it the chip is what the rest of the header is, which
+        // is identity.
+        //
+        // It is a *drawable* rather than a `▾` appended to the label. Keeping
+        // it as punctuation was defensible on its own — but the same caret is
+        // drawn on Changes and on Problems, and one project cannot have two
+        // vocabularies for "this opens a picker": at labelLarge on the
+        // Seeker's 480dpi panel the character reads visibly thinner and
+        // smaller than every real icon beside it in the same bar, which is
+        // the whole defect this pass exists to remove.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .let { if (onOpenProjects != null) it.clickable(onClick = onOpenProjects) else it }
                 .padding(horizontal = 4.dp, vertical = 8.dp),
-        )
-        Text(
-            text = buildString {
-                append(file?.name ?: "")
-                if (file?.isDirty == true) append(" ●")
-            },
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            maxLines = 1,
-            overflow = TextOverflow.MiddleEllipsis,
-            modifier = Modifier.weight(1f, fill = true),
-        )
-        HeaderAction("⌕", onFind)
-        if (errorCount > 0) {
-            HeaderAction(
-                label = "✕$errorCount",
-                onClick = onProblems,
-                tint = theme.color("error", MaterialTheme.colorScheme.error),
+        ) {
+            Text(
+                text = projectName ?: "No project",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
+            if (onOpenProjects != null) {
+                ChipCaret(modifier = Modifier.padding(start = 2.dp))
+            }
         }
-        HeaderAction("⋮", onOverflow)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f, fill = true),
+        ) {
+            Text(
+                text = file?.name ?: "",
+                style = MaterialTheme.typography.labelMedium,
+                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (file?.isDirty == true) {
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_dot,
+                    contentDescription = "unsaved",
+                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    size = 8.dp,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
+        SeekerIconButton(
+            icon = R.drawable.ic_ui_magnifying_glass,
+            description = "Search in files",
+            onClick = onFind,
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        )
+        // The count is the point, so this one keeps its number and gains the
+        // glyph beside it rather than becoming an icon-only button.
+        if (errorCount > 0) {
+            ProblemsAction(errorCount, onProblems)
+        }
+        SeekerIconButton(
+            icon = R.drawable.ic_ui_more_vertical,
+            description = "More",
+            onClick = onOverflow,
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        )
     }
 }
 
+/** `✕ 3` — the error count, with the mark that says what is being counted. */
 @Composable
-private fun HeaderAction(
-    label: String,
-    onClick: () -> Unit,
-    tint: androidx.compose.ui.graphics.Color? = null,
-) {
+private fun ProblemsAction(errorCount: Int, onClick: () -> Unit) {
     val theme = LocalZedTheme.current
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = tint ?: theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        maxLines = 1,
+    val tint = theme.color("error", MaterialTheme.colorScheme.error)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .touchTarget()
             .clip(RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
-    )
+            .clickable(onClickLabel = "Problems", onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 8.dp)
+            .semantics { contentDescription = "$errorCount problems" },
+    ) {
+        SeekerIcon(
+            icon = R.drawable.ic_ui_close,
+            contentDescription = null,
+            tint = tint,
+            size = IconSize.Marker,
+        )
+        Text(
+            text = "$errorCount",
+            style = MaterialTheme.typography.labelLarge,
+            color = tint,
+            maxLines = 1,
+            modifier = Modifier.padding(start = 2.dp),
+        )
+    }
 }
 
 /**

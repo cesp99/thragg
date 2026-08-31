@@ -3,6 +3,7 @@ package to.eyed.seeker.code.ui.shell.build
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.solana.build.ArtifactFreshness
 import to.eyed.seeker.code.solana.build.AgentFix
 import to.eyed.seeker.code.solana.build.BuildAction
@@ -51,7 +53,10 @@ import to.eyed.seeker.code.ui.shell.code.CodeBuildSeam
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.ContextMenu
 import to.eyed.seeker.code.ui.workspace.ContextMenuItem
@@ -173,27 +178,38 @@ private fun BuildHeader(
             color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
             modifier = Modifier.weight(1f),
         )
-        // The one control that switches modes. `⌗` is the terminal's own
-        // glyph in this app's chrome, and the label always names where the tap
-        // goes rather than where you are.
-        Text(
-            text = if (inShell) "⌗ Build" else "⌗ Shell",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        // The one control that switches modes. The terminal mark is this app's
+        // own glyph for a shell, and the label always names where the tap goes
+        // rather than where you are.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
-                .clickable(onClick = onToggleShell)
+                .clickable(
+                    onClickLabel = if (inShell) "Build" else "Shell",
+                    onClick = onToggleShell,
+                )
                 .touchTarget()
                 .padding(horizontal = 4.dp),
-        )
-        Box {
+        ) {
+            SeekerIcon(
+                icon = R.drawable.ic_ui_terminal,
+                contentDescription = null,
+                tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                size = IconSize.Marker,
+            )
             Text(
-                text = "⋮",
-                style = MaterialTheme.typography.titleMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier
-                    .clickable { overflow = true }
-                    .touchTarget()
-                    .padding(horizontal = 4.dp),
+                text = if (inShell) "Build" else "Shell",
+                style = MaterialTheme.typography.labelMedium,
+                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            )
+        }
+        Box {
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_more_vertical,
+                description = "More",
+                onClick = { overflow = true },
+                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
             )
             ContextMenu(
                 expanded = overflow,
@@ -318,7 +334,8 @@ private fun ResultCard(state: ShellState, context: Context) {
             )
         }
         FlatButton(
-            label = "Problems ${errors.coerceAtLeast(issues.size)} →",
+            label = "Problems ${errors.coerceAtLeast(issues.size)}",
+            trailingIcon = R.drawable.ic_ui_arrow_right,
             modifier = Modifier.weight(1f),
         ) {
             state.push(Route.Problems)
@@ -352,7 +369,8 @@ private fun Actions(state: ShellState, context: Context, layout: ProjectLayout?)
         val label = BuildRunner.runningAction?.progressLabel ?: "Working"
         Box(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
             FlatButton(
-                label = "■ Stop · $label ${BuildRunner.clock(now - (started ?: now))}",
+                label = "Stop · $label ${BuildRunner.clock(now - (started ?: now))}",
+                icon = R.drawable.ic_ui_stop,
                 emphasis = true,
                 modifier = Modifier.fillMaxWidth(),
             ) { BuildRunner.stop() }
@@ -394,7 +412,12 @@ private fun Actions(state: ShellState, context: Context, layout: ProjectLayout?)
         FlatButton(label = "Deploy", modifier = Modifier.weight(1f)) {
             BuildRunner.start(context, state, BuildAction.Deploy)
         }
-        FlatButton(label = "▶  Build", emphasis = true, modifier = Modifier.weight(1.6f)) {
+        FlatButton(
+            label = "Build",
+            icon = R.drawable.ic_ui_play,
+            emphasis = true,
+            modifier = Modifier.weight(1.6f),
+        ) {
             BuildRunner.start(context, state, BuildAction.Build)
         }
     }
@@ -508,6 +531,10 @@ internal fun FlatButton(
     label: String,
     modifier: Modifier = Modifier,
     emphasis: Boolean = false,
+    /** Drawn before the label — play, stop. Decoration: the label names it. */
+    @DrawableRes icon: Int? = null,
+    /** Drawn after it, for a button that goes somewhere rather than doing something. */
+    @DrawableRes trailingIcon: Int? = null,
     onClick: () -> Unit,
 ) {
     val theme = LocalZedTheme.current
@@ -516,23 +543,46 @@ internal fun FlatButton(
     } else {
         theme.color("element.background", MaterialTheme.colorScheme.surfaceVariant)
     }
+    val ink = theme.color("text", MaterialTheme.colorScheme.onSurface)
     Box(
         modifier = modifier
             .height(44.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(background)
-            .clickable(onClick = onClick)
+            .clickable(onClickLabel = label, onClick = onClick)
             .touchTarget(),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.padding(horizontal = 8.dp),
-        )
+        ) {
+            if (icon != null) {
+                SeekerIcon(
+                    icon = icon,
+                    contentDescription = null,
+                    tint = ink,
+                    size = IconSize.Inline,
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = ink,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (trailingIcon != null) {
+                SeekerIcon(
+                    icon = trailingIcon,
+                    contentDescription = null,
+                    tint = ink,
+                    size = IconSize.Inline,
+                )
+            }
+        }
     }
 }
 

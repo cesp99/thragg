@@ -17,11 +17,13 @@ confident about from what is a judgement call.
   to identify Seeker IDE. Every IDE and file manager does this. We think the
   position is strong; it is still a judgement call and counsel should sign
   it off.
-- **Three marks could not stay as they were.** Two are dealt with: GitHub's
-  Octocat is now Lucide's `cloud`, and Zed's AI mark is now the hand-drawn
-  sparkle, both under their original drawable names. The third —
-  **Google's Android robot, still the launcher icon** — is unfixed and is
-  the one remaining trademark blocker on the release checklist.
+- **Three marks could not stay as they were. All three are now dealt with.**
+  GitHub's Octocat is now Lucide's `cloud` and Zed's AI mark is now the
+  hand-drawn sparkle, both under their original drawable names; and
+  **Google's Android robot is no longer the launcher icon** — it was
+  replaced with an original Eyed mark (a prompt chevron and a block cursor)
+  in three purpose-drawn layers. No trademark blocker remains on the release
+  checklist.
 - **"Seeker" and "Solana" are somebody else's marks**, and the app is called
   Seeker IDE. That needs written permission in the OEM agreement, not an
   assumption.
@@ -82,18 +84,19 @@ the icon mapping is generated from Zed so it would drift on the next sync.
 
 ## Marks that could not stay
 
-Three, in descending order of how bad they would be to ship. Two are
-resolved; the launcher icon is not, and it is the one to put in front of
-the owner first.
+Three, in descending order of how bad they would be to ship. All three are
+now resolved. What each one *was* is kept below rather than deleted: a
+compliance document that only records the current state cannot be audited,
+and "was this ever shipped?" is the question a reviewer actually asks.
 
 
 ### 1. Google's Android robot — the launcher icon
 
-`ic_launcher_background.xml`, `ic_launcher_foreground.xml`,
-`mipmap-anydpi/ic_launcher*.xml` and all ten `mipmap-*dpi/*.webp` are the
-unmodified Android Studio new-project template: `#3DDC84` (Android brand
-green) with the guide grid, and the bugdroid head as foreground *and*
-monochrome layer.
+**What was wrong.** `ic_launcher_background.xml`,
+`ic_launcher_foreground.xml`, `mipmap-anydpi/ic_launcher*.xml` and all ten
+`mipmap-*dpi/*.webp` were the unmodified Android Studio new-project
+template: `#3DDC84` (Android brand green) with the guide grid, and the
+bugdroid head as foreground *and* monochrome layer.
 
 Two independent problems. The artwork is offered under CC BY 3.0 and we ship
 no attribution, so even the permissive reading fails. And the robot is
@@ -101,8 +104,28 @@ Google's trademark; Google's brand guidelines do not permit it as or within
 a third-party product's own logo. On a Solana Seeker it would read as Google
 endorsement of a Solana device's preinstalled IDE.
 
-**Action:** original Eyed artwork, both vectors and all ten webps, with its
-own single-colour monochrome layer. Blocker.
+**Resolved.** The launcher is now an original Eyed mark: a prompt chevron
+and a block cursor — `>` and the cell a caret sits in — in bone (`#F4EFE3`)
+and amber (`#F2A63C`) on flat deep ink slate (`#1E2434`). Both glyphs are
+among the most generic in computing and carry nobody's trademark; nothing is
+traced from or evokes the Android robot, Google green, Solana's logo or
+gradient, or Zed's marks, and the amber is deliberate distance from all
+three palettes.
+
+It ships as **three** layers, not two: `ic_launcher_background.xml`,
+`ic_launcher_foreground.xml` and a purpose-drawn
+`ic_launcher_monochrome.xml` — the template's mistake was pointing
+`<monochrome>` at the foreground, which flattens away the colour that
+separates prompt from cursor. All ten `mipmap-*dpi/*.webp` are derived from
+those same vectors by `tools/render-launcher-icon.py`, whose `--check` fails
+if a bitmap drifts, and `LauncherIconTest` asserts the safe zone, the three
+distinct layers, and that no attribute paints `#3DDC84`. Attribution is in
+docs/THIRD_PARTY.md: *Original work, Copyright (C) 2026 Eyed,
+GPL-3.0-or-later.*
+
+The only remaining occurrence of the string `#3DDC84` anywhere under
+`app/src/main/res/` is the line in `ic_launcher_background.xml`'s header
+recording what was removed.
 
 ### 2. GitHub's Octocat — `ic_ui_github.xml`
 

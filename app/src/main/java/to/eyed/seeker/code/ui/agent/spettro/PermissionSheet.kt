@@ -1,5 +1,7 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -33,11 +35,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONObject
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentEntry
 import to.eyed.seeker.code.core.PermissionOption
 import to.eyed.seeker.code.core.SpettroAnswers
@@ -46,6 +50,8 @@ import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 // ---------------------------------------------------------------------------
@@ -64,8 +70,19 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  */
 object PermissionPrompt {
 
-    /** The headline, verbatim from docs/SPETTRO.md. Do not reword it. */
-    const val HEADLINE = "Spettro needs your approval"
+    /**
+     * The headline, verbatim from docs/SPETTRO.md except for the name, which
+     * is the *connected* agent's and not always Spettro's.
+     *
+     * A resource with a `%1$s` rather than a constant: this sheet is raised by
+     * an ordinary ACP `session/request_permission`, so any `agent_servers`
+     * entry reaches it, and an approval dialog that names the wrong program is
+     * the one place in the app where a misnamed sentence costs something —
+     * "Allow" is being read as a promise about who is being allowed. Do not
+     * reword the rest of it.
+     */
+    @StringRes
+    val HEADLINE: Int = R.string.agent_permission_headline
 
     /**
      * The `_meta` key that says this prompt is really a *question* being
@@ -126,12 +143,19 @@ object PermissionPrompt {
      */
     fun isCompaction(call: AgentEntry.ToolCall): Boolean = call.id.startsWith("compact")
 
-    /** One glyph, because a 44 dp header row holds one. */
-    fun glyph(call: AgentEntry.ToolCall): String = when {
-        isCompaction(call) -> "◍"
-        call.kind == ToolKind.Execute -> "▸"
-        call.kind == ToolKind.Think -> "?"
-        else -> "⛨"
+    /**
+     * One icon, because a 44 dp header row holds one.
+     *
+     * `◍`, `▸` and `⛨` before this; the first and the last are outside what a
+     * phone's UI face has to carry, and all three drew at the font's optical
+     * size rather than an icon's. Same four cases, same meanings.
+     */
+    @DrawableRes
+    fun icon(call: AgentEntry.ToolCall): Int = when {
+        isCompaction(call) -> R.drawable.ic_ui_compact
+        call.kind == ToolKind.Execute -> R.drawable.ic_ui_play
+        call.kind == ToolKind.Think -> R.drawable.ic_ui_circle_dashed
+        else -> R.drawable.ic_ui_shield
     }
 
     /**
@@ -247,6 +271,8 @@ object PermissionPrompt {
 fun PermissionSheet(
     state: ShellState,
     request: AgentEntry.ToolCall,
+    /** The connected agent's own name — whoever asked, not whoever we ship. */
+    agentName: String,
     onSelect: (PermissionOption, String) -> Unit,
     onDismiss: () -> Unit,
     queuePosition: Int = 1,
@@ -344,13 +370,14 @@ fun PermissionSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = PermissionPrompt.glyph(request),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                SeekerIcon(
+                    icon = PermissionPrompt.icon(request),
+                    contentDescription = null,
+                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    size = IconSize.Inline,
                 )
                 Text(
-                    text = PermissionPrompt.HEADLINE,
+                    text = stringResource(PermissionPrompt.HEADLINE, agentName),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                     color = theme.color("text", MaterialTheme.colorScheme.onSurface),
@@ -458,7 +485,7 @@ private fun OptionButton(
             )
             if (option.isRecommended) {
                 Text(
-                    text = "★ Recommended",
+                    text = "Recommended",
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.color("created", MaterialTheme.colorScheme.primary),
                     maxLines = 1,

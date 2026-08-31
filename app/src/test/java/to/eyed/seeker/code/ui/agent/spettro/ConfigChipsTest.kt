@@ -1,6 +1,7 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import to.eyed.seeker.code.core.AgentSessionState
@@ -95,23 +96,36 @@ class ConfigChipsTest {
      */
     @Test
     fun iconsComeFromCategoryAndFallBackToTheTwoIdsWithoutOne() {
-        assertEquals(
-            "⌁",
-            chipGlyph(option("""{"id":"stance","name":"Stance","type":"select","category":"mode"}""")),
+        val mode = chipIcon(
+            option("""{"id":"stance","name":"Stance","type":"select","category":"mode"}""")
         )
-        assertEquals(
-            "⬢",
-            chipGlyph(option("""{"id":"model","name":"Model","type":"select","category":"model"}""")),
+        val model = chipIcon(
+            option("""{"id":"model","name":"Model","type":"select","category":"model"}""")
         )
-        assertEquals(
-            "✻",
-            chipGlyph(
-                option("""{"id":"thinking","name":"T","type":"select","category":"thought_level"}""")
-            ),
+        val thinking = chipIcon(
+            option("""{"id":"thinking","name":"T","type":"select","category":"thought_level"}""")
         )
-        assertEquals("⛨", chipGlyph(option("""{"id":"permission","name":"P","type":"select"}""")))
-        assertEquals("⚡", chipGlyph(option("""{"id":"ultra","name":"U","type":"boolean"}""")))
-        assertEquals("◇", chipGlyph(option("""{"id":"sandbox","name":"S","type":"select"}""")))
+        val permission = chipIcon(option("""{"id":"permission","name":"P","type":"select"}"""))
+        val ultra = chipIcon(option("""{"id":"ultra","name":"U","type":"boolean"}"""))
+        val fallback = chipIcon(option("""{"id":"sandbox","name":"S","type":"select"}"""))
+
+        // Six distinct marks. Resource ids are generated numbers, so what is
+        // pinned here is that the six cases stay *told apart* — the failure
+        // this catches is a chip row where mode, model and thinking all draw
+        // the same shape and the row stops saying anything.
+        assertEquals(
+            6,
+            setOf(mode, model, thinking, permission, ultra, fallback).size,
+        )
+        // `category` wins over `id`: an agent that renames `mode` to `stance`
+        // keeps the mode mark rather than falling through to the diamond.
+        assertNotEquals(fallback, mode)
+        // And a category nobody knows lands on the fallback rather than on
+        // one of the five that mean something.
+        assertEquals(
+            fallback,
+            chipIcon(option("""{"id":"x","name":"X","type":"select","category":"weather"}""")),
+        )
     }
 
     // --- tint ----------------------------------------------------------------

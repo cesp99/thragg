@@ -315,9 +315,12 @@ permissions on top of GPLv3, not a standalone licence.
 
 ## 5. The in-app "Open source licences" screen
 
-**Specification only. Do not build from this file — it is here so the UI
-work can pick it up.** `docs/UI.md` owns the shell; this section owns what
-the screen must contain and where its content comes from.
+**Built.** `ui/shell/licences/` — `LicenceCatalog.kt` (the model, the parser
+and the filter, all pure and unit-tested), `LicencesScreen.kt` (the list and
+the legal header) and `LicenceDetailScreen.kt` (one component and its full
+text). `docs/UI.md` owns the shell; this section owns what the screen must
+contain and where its content comes from, and it is still the specification
+that section is checked against.
 
 An OEM preinstall is normally expected to expose every component and its
 full licence text from inside the app, **offline**, within a couple of taps,
@@ -345,6 +348,16 @@ Two entry points, both existing surfaces:
 
 List → detail, both scrolling, no search field (the list is long but it is
 grouped, and a filter field on a compliance screen is chrome).
+
+**As built there is one deviation from the paragraph above**, recorded here
+rather than argued twice: the list carries a filter field. "No search field"
+was written before the inventory was generated and turned out to be **615
+rows**, of which 471 are crates; scrolling to `unicode-ident` past all of
+them is hunting, not reading. The field filters the rows the screen already
+shows, over name, version, SPDX id, copyright holder and group, and the
+screen with an empty field is exactly the screen this section describes —
+header, groups and every row — so the concern behind the rule, that a
+compliance screen hide its contents behind a search box, does not arise.
 
 **The list screen** opens with a header block carrying, verbatim, the four
 things GPLv3 s0 calls Appropriate Legal Notices — s5(d) makes displaying
@@ -425,12 +438,17 @@ release or an OEM submission.
 
 ### Blockers
 
-- [ ] **Replace the launcher icon.** It is the unmodified Android Studio
+- [x] **Replace the launcher icon.** Was the unmodified Android Studio
       template — Google's Android robot on Android brand green, in both
       adaptive vectors, both `mipmap-anydpi` XMLs and all ten `.webp`. The
-      robot artwork is CC BY 3.0 and we ship no attribution; the robot is
+      robot artwork is CC BY 3.0 and we shipped no attribution; the robot is
       also Google's trademark and its brand guidelines do not permit it as a
-      third-party product's identity. Most visible defect in the package.
+      third-party product's identity. Now an original Eyed mark — a prompt
+      chevron and a block cursor — in **three** purpose-drawn layers
+      (`ic_launcher_background`, `_foreground`, `_monochrome`), with the ten
+      bitmaps derived from those vectors by `tools/render-launcher-icon.py`
+      and guarded by its `--check` and by `LauncherIconTest`. See
+      docs/TRADEMARKS.md §1 and docs/THIRD_PARTY.md.
 - [x] **Replace `ic_ui_github.xml`.** Was a stroke redraw of GitHub's mark,
       which GitHub's brand terms do not permit. Now Lucide's `cloud`, under
       the same drawable name; both call sites already show the remote's name
@@ -450,10 +468,17 @@ release or an OEM submission.
       `ic_ui_file_tree` loses its last caller in the same change.
 - [ ] **Fill in the postal address** in the written offer, in `NOTICE`,
       `README.md` and the in-app screen.
-- [ ] **Ship the notices bundle** (§4) and the licence texts, and surface
-      them from the licences screen (§5).
-- [ ] **Add the four Appropriate Legal Notices** to About / the licences
-      screen. Today this is a straight GPLv3 s4 and s5(d) failure.
+- [x] **Ship the notices bundle** (§4) and the licence texts, and surface
+      them from the licences screen (§5). Done: `tools/gen-licenses.py`
+      writes `app/src/main/assets/licenses/components.json` (615 components —
+      471 crates, 110 Maven modules, 34 hand-maintained rows) from cargo,
+      Gradle and `tools/licenses/manifest.jsonc`; the nineteen verbatim texts
+      sit beside it with their provenance and SHA-256s in `SOURCES.txt`; and
+      `ui/shell/licences/` reads both, offline.
+- [x] **Add the four Appropriate Legal Notices** to About / the licences
+      screen. Done: they are the header of the licences screen, as string
+      resources (`licences_notice_*`), with the source URL, the release, the
+      Zed commit and the full written offer under them.
 - [ ] **Build and publish the corresponding-source archive** (§3) for the
       first release, and confirm it builds `libproot_exec.so` byte-for-byte
       on a clean machine.
@@ -511,7 +536,9 @@ release or an OEM submission.
       [REUSE](https://reuse.software) specification with a `reuse lint` CI
       check — it turns an OEM provenance question into a command someone can
       run.
-- [ ] Add a CI job that runs the notices generator and fails on drift (§4).
+- [x] Add a CI job that runs the notices generator and fails on drift (§4).
+      `.github/workflows/licences.yml`, plus
+      `./gradlew :app:verifyLicenceAssets` for the same check locally.
 - [ ] Make `tools/build-proot.sh` assert that every patch it applies has an
       entry in `THIRD_PARTY.md`.
 

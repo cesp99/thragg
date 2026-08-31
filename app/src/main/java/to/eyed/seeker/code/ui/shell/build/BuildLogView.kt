@@ -28,12 +28,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.solana.build.BuildDiagnostics
 import to.eyed.seeker.code.solana.build.BuildIssue
 import to.eyed.seeker.code.solana.build.BuildLog
 import to.eyed.seeker.code.solana.build.BuildLogRow
 import to.eyed.seeker.code.ui.editor.DiagnosticSeverity
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.ContextMenu
@@ -236,13 +238,20 @@ private fun IssueRow(state: ShellState, issue: BuildIssue, projectRoot: String?)
                 .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = if (isError) "✕" else "!",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = tint,
-                modifier = Modifier.width(12.dp),
-            )
+            // A fixed 12dp column so that errors and warnings line their
+            // messages up down the log rather than each starting where its own
+            // mark happened to end.
+            Box(
+                modifier = Modifier.width(12.dp).padding(top = 2.dp),
+                contentAlignment = Alignment.TopStart,
+            ) {
+                SeekerIcon(
+                    icon = if (isError) R.drawable.ic_ui_close else R.drawable.ic_ui_warning,
+                    contentDescription = if (isError) "error" else "warning",
+                    tint = tint,
+                    size = IssueMarkSize,
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     // Wrapped, never truncated: docs/UI.md is explicit that a
@@ -269,13 +278,14 @@ private fun IssueRow(state: ShellState, issue: BuildIssue, projectRoot: String?)
                                 ),
                                 modifier = Modifier.weight(1f, fill = false),
                             )
-                            Text(
-                                text = "→",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = theme.color(
+                            SeekerIcon(
+                                icon = R.drawable.ic_ui_arrow_right,
+                                contentDescription = null,
+                                tint = theme.color(
                                     "text.accent",
                                     MaterialTheme.colorScheme.primary,
                                 ),
+                                size = IssueMarkSize,
                             )
                         }
                         issue.code?.let { code ->
@@ -363,3 +373,6 @@ private fun openIssue(state: ShellState, issue: BuildIssue, projectRoot: String?
 
 /** `14:22`. Device locale, because it is a wall clock and not a duration. */
 private val CLOCK = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+/** 11dp: the mark sits in a 12dp column beside `bodySmall`. */
+private val IssueMarkSize = 11.dp

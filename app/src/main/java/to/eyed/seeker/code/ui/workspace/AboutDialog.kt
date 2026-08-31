@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -24,6 +25,7 @@ import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.core.SystemSpecs
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.RowChevron
 
 /**
  * About — Zed's `zed::About` (zed/src/zed.rs), which shows the version and
@@ -39,9 +41,25 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  * moment when someone cannot find the fourth.
  */
 @Composable
-fun AboutDialog(onDismiss: () -> Unit) {
+fun AboutDialog(
+    onDismiss: () -> Unit,
+    /**
+     * Open the licences screen, if the caller has a shell to push it onto.
+     *
+     * docs/LICENSING.md §5 asks for a row here as well as in Settings, "so
+     * someone who went looking for the version finds the notices too" — and
+     * the version is exactly what someone checking what a build is made of
+     * comes here for. Nullable because this dialog is also reachable from the
+     * old workspace, which has no route stack; a null hides the row rather
+     * than showing one that cannot navigate.
+     */
+    onOpenLicences: (() -> Unit)? = null,
+) {
     val theme = LocalZedTheme.current
     val clipboard = LocalClipboardManager.current
+    // Read here rather than at the call site: `stringResource` is a
+    // composable and the semantics block below is not.
+    val licences = stringResource(R.string.licences_settings_row)
     // The engine's version is a JNI hop; every other line is a constant. Read
     // it off the main thread and paint the dialog before it lands.
     val specs by produceState<SystemSpecs?>(initialValue = null) {
@@ -94,6 +112,31 @@ fun AboutDialog(onDismiss: () -> Unit) {
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+            }
+            // The notices, from the screen someone opens to find out what
+            // they are running. docs/LICENSING.md §5 asks for exactly this
+            // second door.
+            if (onOpenLicences != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenLicences)
+                        .padding(top = 16.dp)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = licences
+                        },
+                ) {
+                    Text(
+                        text = licences,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = theme.color(
+                            "link_text.hover",
+                            MaterialTheme.colorScheme.primary,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    RowChevron()
                 }
             }
         }

@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.editor
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -110,6 +111,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.core.Runnable
 import to.eyed.seeker.code.ui.git.BlameHost
@@ -142,7 +144,10 @@ import to.eyed.seeker.code.ui.git.blameText
 import to.eyed.seeker.code.ui.git.rememberGitAnnotations
 import to.eyed.seeker.code.ui.workspace.GitStatusColours
 import kotlin.math.floor
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.ZedTheme
 
 private const val HIGHLIGHT_POLL_MILLIS = 100L
@@ -1705,7 +1710,7 @@ fun EditorPane(
                             if (j == 0) {
                                 // The header: Zed's hunk controls, right-aligned
                                 // (git.rs:3077-3175) — Stage or Unstage by the
-                                // staged bit, Restore, and the collapse chevron.
+                                // staged bit, Restore, and the collapse control.
                                 drawRect(
                                     color = border,
                                     topLeft = Offset(gutterWidth, top + lineHeight - 1f),
@@ -1716,7 +1721,16 @@ fun EditorPane(
                                     (if (staged) "Unstage" else "Stage") to
                                         (if (staged) HunkHeaderAction.Unstage else HunkHeaderAction.Stage),
                                     "Restore" to HunkHeaderAction.Restore,
-                                    "⌃" to HunkHeaderAction.Close,
+                                    // A word, not a `⌃`. These three are drawn
+                                    // into the editor's own canvas and measured
+                                    // through `layoutCache` for hit-testing, so
+                                    // a drawable here would mean a second draw
+                                    // path and a second piece of hit-rect
+                                    // arithmetic inside the paint loop. Its two
+                                    // neighbours are already words, and a word
+                                    // is the one thing a glyph cannot be: read
+                                    // aloud.
+                                    "Hide" to HunkHeaderAction.Close,
                                 )
                                 var right = size.width - state.charWidthPx.coerceIn(10f, 24f) - pad
                                 for ((label, action) in labels.asReversed()) {
@@ -3038,17 +3052,20 @@ private fun EditorActionRow(
                 ActionKey("unfold", act { state.unfoldAtCarets() })
                 ActionKey("outdent", act { state.outdent() })
                 ActionKey("del", act { state.delete() })
-                ActionKey("⌫word", act { state.deleteToPreviousWordStart() })
-                ActionKey("word⌦", act { state.deleteToNextWordEnd() })
-                ActionKey("↵above", act { state.newlineAbove() })
-                ActionKey("↵below", act { state.newlineBelow() })
+                // Words rather than `⌫`, `⌦` and `↵`: those three are keycap
+                // glyphs a phone's UI face is not obliged to carry, and a key
+                // that draws tofu is a key nobody presses.
+                ActionKey("del word back", act { state.deleteToPreviousWordStart() })
+                ActionKey("del word fwd", act { state.deleteToNextWordEnd() })
+                ActionKey("newline above", act { state.newlineAbove() })
+                ActionKey("newline below", act { state.newlineBelow() })
                 ActionKey("sig", act { signatureHelp.toggleAtCaret() })
                 ActionKey("type def", act { definition.goToCaret(GoToKind.TypeDefinition) })
                 ActionKey("impl", act { definition.goToCaret(GoToKind.Implementation) })
                 ActionKey("decl", act { definition.goToCaret(GoToKind.Declaration) })
-                ActionKey("＋cur↑", act { state.addCaretVertically(-1) })
-                ActionKey("＋cur↓", act { state.addCaretVertically(1) })
-                ActionKey("＋next", act { state.selectNextOccurrence() })
+                ActionKey("add caret ↑", act { state.addCaretVertically(-1) })
+                ActionKey("add caret ↓", act { state.addCaretVertically(1) })
+                ActionKey("add next", act { state.selectNextOccurrence() })
                 ActionKey("line↑", act { state.moveLines(-1) })
                 ActionKey("line↓", act { state.moveLines(1) })
                 ActionKey("dup", act { state.duplicateLines(above = false) })
@@ -3075,27 +3092,36 @@ private fun EditorActionRow(
             // carets and the selection.
             FixedKey("esc", act { if (!menu.dismiss()) state.vim?.handleKey("escape") ?: state.cancel() })
             // Zed's `editor::Tab`, for a keyboard that has no Tab at all.
-            FixedKey("⇥", act { state.tab() })
+            FixedKey("Tab", act { state.tab() }, icon = R.drawable.ic_ui_tab)
             // The arrow cluster a soft keyboard does not have. One column at a
             // time: this is the key you hold to nudge a caret off the end of a
             // string literal, which is the motion touch is worst at.
-            FixedKey("←", act { state.moveCursorHorizontally(-1) })
-            FixedKey("→", act { state.moveCursorHorizontally(1) })
-            FixedKey("↶", act { state.undo() })
-            FixedKey("↷", act { state.redo() })
+            FixedKey("Left", act { state.moveCursorHorizontally(-1) }, icon = R.drawable.ic_ui_arrow_left)
+            FixedKey("Right", act { state.moveCursorHorizontally(1) }, icon = R.drawable.ic_ui_arrow_right)
+            FixedKey("Undo", act { state.undo() }, icon = R.drawable.ic_ui_undo)
+            FixedKey("Redo", act { state.redo() }, icon = R.drawable.ic_ui_redo)
             // The shell's save, not vim's: `format_on_save`, the whitespace
             // rules and the write, in that order.
             FixedKey("save", act { onSaveBuffer?.invoke() }, enabled = onSaveBuffer != null)
-            // ▶ Build — the whole point of the fixed head. A running build
-            // shows ■, because the press that stops one must not look like the
-            // press that starts a second.
+            // Build — the whole point of the fixed head. A running build shows
+            // a stop block, because the press that stops one must not look like
+            // the press that starts a second.
             FixedKey(
-                label = if (buildRunning) "■" else "▶",
+                label = if (buildRunning) "Stop the build" else "Build",
                 onClick = act { onBuild?.invoke() },
                 enabled = onBuild != null,
                 accent = true,
+                icon = if (buildRunning) R.drawable.ic_ui_stop else R.drawable.ic_ui_play,
             )
-            FixedKey(if (expanded) "⌃" else "⌄", { expanded = !expanded })
+            FixedKey(
+                label = if (expanded) "Fewer keys" else "More keys",
+                onClick = { expanded = !expanded },
+                icon = if (expanded) {
+                    R.drawable.ic_ui_chevron_up
+                } else {
+                    R.drawable.ic_ui_chevron_down
+                },
+            )
         }
     }
 }
@@ -3130,14 +3156,23 @@ private fun ActionKeyStrip(content: @Composable androidx.compose.foundation.layo
  * One of the nine cells of the fixed head: an equal share of the width, the
  * full 44dp of height, and no padding between it and its neighbours — see the
  * arithmetic in [EditorActionRow]'s doc for why this is not `.touchTarget()`.
+ *
+ * [label] is what a screen reader says either way; [icon] decides whether it is
+ * also what is drawn. Seven of these keys used to draw a Unicode character —
+ * `⇥`, `↶`, `↷`, `▶` — which meant the drawn mark and the spoken name were the
+ * same string, so TalkBack announced this row as "left-pointing arrow, curved
+ * arrow, black right-pointing triangle". Splitting them fixes the metrics and
+ * the announcement at once.
  */
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.FixedKey(
     label: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    /** ▶ Build, which is the one key here that is an action rather than a motion. */
+    /** Build, which is the one key here that is an action rather than a motion. */
     accent: Boolean = false,
+    /** Drawn instead of [label] when the key is a mark rather than a word. */
+    @DrawableRes icon: Int? = null,
 ) {
     val theme = LocalZedTheme.current
     val ink = when {
@@ -3151,15 +3186,25 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
             .weight(1f)
             .fillMaxHeight()
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick)
             .semantics { contentDescription = label },
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = ink,
-            maxLines = 1,
-        )
+        if (icon != null) {
+            SeekerIcon(
+                icon = icon,
+                // The Box above is the labelled node; this is its picture.
+                contentDescription = null,
+                tint = ink,
+                size = IconSize.Action,
+            )
+        } else {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = ink,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -3180,10 +3225,10 @@ private fun ActionKey(label: String, onClick: () -> Unit) {
 }
 
 /**
- * The card a tap on the gutter's ✕ raises: what the server said, and the two
- * things a phone can do about it.
+ * The card a tap on the gutter's mark raises: what the server said, and the
+ * two things a phone can do about it.
  *
- * `[ Fix ▸ ]` is the design's thesis in one control — "every error carries a
+ * `Fix with agent` is the design's thesis in one control — "every error carries a
  * one-tap 'Fix with agent'" (docs/UI.md, "The design chosen"). It sits first
  * because it is the one that works when the server has no quick fix to offer,
  * which for a `cargo build` error is most of the time: rust-analyzer's code
@@ -3236,12 +3281,35 @@ private fun InlineDiagnosticCard(
                 Box(modifier = Modifier.weight(1f, fill = true))
             }
             if (onFixWithAgent != null) {
-                CardAction("[ Fix ▸ ]", accent = true, onClick = onFixWithAgent)
+                CardAction("Fix with agent", accent = true, onClick = onFixWithAgent)
             }
             CardAction("quick fix", accent = false, onClick = onQuickFix)
-            CardAction("✕", accent = false, onClick = onDismiss)
+            CardIconAction(
+                icon = R.drawable.ic_ui_close,
+                description = "Dismiss",
+                onClick = onDismiss,
+            )
         }
     }
+}
+
+/** The card's ✕. Icon-only, so it says its own name. */
+@Composable
+private fun CardIconAction(
+    @DrawableRes icon: Int,
+    description: String,
+    onClick: () -> Unit,
+) {
+    SeekerIconButton(
+        icon = icon,
+        description = description,
+        onClick = onClick,
+        tint = LocalZedTheme.current.color(
+            "text.muted",
+            MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        size = IconSize.Inline,
+    )
 }
 
 @Composable

@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.shell.code
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.FileMatch
 import to.eyed.seeker.code.core.ProjectEntry
 import to.eyed.seeker.code.core.ProjectSearchFile
@@ -50,7 +52,10 @@ import to.eyed.seeker.code.core.SearchQuery
 import to.eyed.seeker.code.ui.search.matchLine
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.OpenFilesState
 import to.eyed.seeker.code.ui.workspace.ProjectPanel
@@ -100,9 +105,9 @@ fun FilesSheet(
     var query by remember { mutableStateOf(TextFieldValue("")) }
     val focus = remember { FocusRequester() }
 
-    // ⌕ opened this sheet to search, so the keyboard comes with it; ☰ opened
-    // it to browse, so it does not — a tree with 300dp of keyboard over it is
-    // not a tree.
+    // The magnifier opened this sheet to search, so the keyboard comes with
+    // it; the tree button opened it to browse, so it does not — a tree with
+    // 300dp of keyboard over it is not a tree.
     LaunchedEffect(Unit) {
         if (initialMode == FilesMode.InFiles) runCatching { focus.requestFocus() }
     }
@@ -113,10 +118,11 @@ fun FilesSheet(
         title = "Files",
         field = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "⌕",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_magnifying_glass,
+                    contentDescription = null,
+                    tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    size = IconSize.Inline,
                     modifier = Modifier.padding(end = 8.dp),
                 )
                 BasicTextField(
@@ -141,12 +147,12 @@ fun FilesSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // "＋ New file" wants a directory to create in and a name to
-                // ask for, which is ProjectPanelMenu's long-press sheet — the
-                // tree below already carries it, so this row does not
-                // duplicate a worse version of it. ⑂ Changes is P7's route,
-                // pushed rather than opened here.
-                SheetAction("⑂ Changes", onOpenChanges)
+                // "New file" wants a directory to create in and a name to ask
+                // for, which is ProjectPanelMenu's long-press sheet — the tree
+                // below already carries it, so this row does not duplicate a
+                // worse version of it. Changes is P7's route, pushed rather
+                // than opened here.
+                SheetAction(R.drawable.ic_ui_git_fork, "Changes", onOpenChanges)
             }
         },
     ) {
@@ -174,8 +180,8 @@ fun FilesSheet(
  *
  * OPEN comes first because it is what the sheet is most often asked, and
  * because it is the Ctrl+Tab switcher's whole job — the list is short, it is
- * at the top of a 65% sheet, and it carries the dirty dot and a ✕ so the two
- * things you do to an open file are both here.
+ * at the top of a 65% sheet, and it carries the dirty dot and a close button
+ * so the two things you do to an open file are both here.
  */
 @Composable
 private fun ColumnScope.BrowseBody(
@@ -205,14 +211,15 @@ private fun ColumnScope.BrowseBody(
                         .clickable { onOpenFile(file.path) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    Text(
-                        text = if (file.isDirty) "●" else "○",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (file.isDirty) {
+                    SeekerIcon(
+                        icon = if (file.isDirty) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
+                        contentDescription = if (file.isDirty) "unsaved" else null,
+                        tint = if (file.isDirty) {
                             theme.color("text.accent", MaterialTheme.colorScheme.primary)
                         } else {
                             theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
                         },
+                        size = IconSize.Marker,
                         modifier = Modifier.padding(end = 8.dp),
                     )
                     Text(
@@ -229,19 +236,15 @@ private fun ColumnScope.BrowseBody(
                         overflow = TextOverflow.MiddleEllipsis,
                         modifier = Modifier.weight(1f, fill = true).padding(start = 8.dp),
                     )
-                    Text(
-                        text = "✕",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                        modifier = Modifier
-                            .touchTarget()
-                            // Through the model, never `close` directly: a
-                            // dirty buffer must raise the unsaved-changes
-                            // dialog the host composes, or the edits since the
-                            // last save go silently.
-                            .clickable { files.requestClose(index) }
-                            .padding(horizontal = 8.dp)
-                            .semantics { contentDescription = "Close ${file.name}" },
+                    // Through the model, never `close` directly: a dirty
+                    // buffer must raise the unsaved-changes dialog the host
+                    // composes, or the edits since the last save go silently.
+                    SeekerIconButton(
+                        icon = R.drawable.ic_ui_close,
+                        description = "Close ${file.name}",
+                        onClick = { files.requestClose(index) },
+                        tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        size = IconSize.Inline,
                     )
                 }
             }
@@ -436,18 +439,28 @@ private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SheetAction(label: String, onClick: () -> Unit) {
+private fun SheetAction(@DrawableRes icon: Int, label: String, onClick: () -> Unit) {
     val theme = LocalZedTheme.current
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+    val tint = theme.color("text.accent", MaterialTheme.colorScheme.primary)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .touchTarget()
             .clip(RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
+            .clickable(onClickLabel = label, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 6.dp),
-    )
+    ) {
+        // The words carry the meaning here, so the icon is decoration and the
+        // row's own click label is what a screen reader reads.
+        SeekerIcon(
+            icon = icon,
+            contentDescription = null,
+            tint = tint,
+            size = IconSize.Inline,
+        )
+        Text(text = label, style = MaterialTheme.typography.labelLarge, color = tint)
+    }
 }
 
 private val OpenListMaxHeight = 176.dp

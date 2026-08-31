@@ -3,6 +3,7 @@ package to.eyed.seeker.code.ui.shell.agent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,6 +42,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -50,6 +52,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentCommand
 import to.eyed.seeker.code.core.AgentMention
 import to.eyed.seeker.code.core.AgentSessionState
@@ -63,7 +66,10 @@ import to.eyed.seeker.code.ui.agent.spettro.rememberActivationTransformation
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -117,11 +123,47 @@ internal fun sendLabel(mode: SendMode): String = when (mode) {
 internal const val STEER_NOTE =
     "Steering sent — the agent takes it at its next step. The turn is still running."
 
+/**
+ * Which of the three sentences the empty box shows.
+ *
+ * The *choice* is here and the *wording* is in strings.xml, for two reasons
+ * that pull the same way. The box used to read "Message Spettro" whoever was
+ * on the other end — the app bar has always shown the connected agent's own
+ * `agentName`, so a hand-written `agent_servers` entry got a composer naming a
+ * program that was not running. And the name lands in the middle of the
+ * sentence, so it is `%1$s` in a resource rather than a `$name` in a template:
+ * a translation has to be free to move it, and a concatenation would not let
+ * it. Keeping the branch pure keeps it testable off a device.
+ */
+internal enum class ComposerHint {
+    /** No session to prompt: the agent is not running. */
+    Stopped,
+
+    /** Ready, with nothing worth naming beside the agent. */
+    Ready,
+
+    /** Ready, and the project is worth saying because a prompt resolves in it. */
+    ReadyInProject,
+}
+
 /** What the box says when it is empty. */
-internal fun composerPlaceholder(projectName: String?, enabled: Boolean): String = when {
-    !enabled -> "The agent is not running"
-    projectName.isNullOrBlank() -> "Message Spettro"
-    else -> "Message Spettro — working in $projectName"
+internal fun composerHint(projectName: String?, enabled: Boolean): ComposerHint = when {
+    !enabled -> ComposerHint.Stopped
+    projectName.isNullOrBlank() -> ComposerHint.Ready
+    else -> ComposerHint.ReadyInProject
+}
+
+/** [composerHint]'s sentence, with the connected agent's own name in it. */
+@Composable
+internal fun composerPlaceholder(
+    agentName: String,
+    projectName: String?,
+    enabled: Boolean,
+): String = when (composerHint(projectName, enabled)) {
+    ComposerHint.Stopped -> stringResource(R.string.agent_composer_stopped)
+    ComposerHint.Ready -> stringResource(R.string.agent_composer_message, agentName)
+    ComposerHint.ReadyInProject ->
+        stringResource(R.string.agent_composer_message_in_project, agentName, projectName.orEmpty())
 }
 
 /** A leading `/word`, the composer's command token. */
@@ -153,6 +195,8 @@ internal fun AgentComposer(
     shell: ShellState,
     state: AgentSessionState,
     thread: AgentThread?,
+    /** The connected agent's own name — the app bar's, so the two agree. */
+    agentName: String,
     projectName: String?,
     enabled: Boolean,
     focus: FocusRequester,
@@ -289,7 +333,12 @@ internal fun AgentComposer(
             ComposerChip("@" + (mention.textToken ?: mention.label)) { mentioned.remove(mention) }
         }
         for (image in attached) {
-            ComposerChip("🖼 " + image.name) { attached.remove(image) }
+            // The name alone. It used to carry a 🖼 prefix — an emoji in a
+            // chip, which draws from the emoji font at emoji metrics beside
+            // labelSmall text, and is tofu on a device without one. The chip
+            // is already visibly an attachment; the picture of a picture was
+            // not carrying its width.
+            ComposerChip(image.name) { attached.remove(image) }
         }
         attachError?.let { message ->
             Text(
@@ -343,7 +392,7 @@ internal fun AgentComposer(
                 Box {
                     if (field.text.isEmpty()) {
                         Text(
-                            text = composerPlaceholder(projectName, enabled),
+                            text = composerPlaceholder(agentName, projectName, enabled),
                             style = MaterialTheme.typography.bodyMedium,
                             color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
                             maxLines = 1,
@@ -361,15 +410,15 @@ internal fun AgentComposer(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (state.agent?.capabilities?.images == true) {
-                ComposerAction("＋", "Attach an image", enabled) {
+                ComposerAction(R.drawable.ic_agent_attach, "Attach an image", enabled) {
                     attachError = null
                     picker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 }
             }
-            ComposerAction("@", "Add context", enabled, onClick = onOpenMentions)
-            ComposerAction("/", "Commands", enabled) {
+            ComposerAction(R.drawable.ic_ui_at, "Add context", enabled, onClick = onOpenMentions)
+            ComposerAction(R.drawable.ic_ui_slash, "Commands", enabled) {
                 if (field.text.isEmpty()) replaceText("/")
             }
             Box(modifier = Modifier.weight(1f))
@@ -378,7 +427,7 @@ internal fun AgentComposer(
             // a Stop mid-turn is what makes a steer look like a cancel.
             if (busy) {
                 ComposerAction(
-                    label = "■",
+                    icon = R.drawable.ic_ui_stop,
                     description = "Stop the turn",
                     enabled = true,
                     tint = theme.color("error", MaterialTheme.colorScheme.error),
@@ -425,16 +474,14 @@ private fun SendButton(
 ) {
     val theme = LocalZedTheme.current
     val label = sendLabel(mode)
-    Text(
-        text = "▶ $label",
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Medium,
-        color = if (enabled) {
-            theme.color("text.accent", MaterialTheme.colorScheme.primary)
-        } else {
-            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-        },
-        maxLines = 1,
+    val ink = if (enabled) {
+        theme.color("text.accent", MaterialTheme.colorScheme.primary)
+    } else {
+        theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .touchTarget()
             .clip(RoundedCornerShape(8.dp))
@@ -446,36 +493,47 @@ private fun SendButton(
                 onClick = onClick,
             )
             .padding(horizontal = 10.dp, vertical = 6.dp),
-    )
+    ) {
+        SeekerIcon(
+            icon = R.drawable.ic_agent_send,
+            contentDescription = null,
+            tint = ink,
+            size = IconSize.Inline,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = ink,
+            maxLines = 1,
+        )
+    }
 }
 
 /** One tap target in the composer's bottom row. */
 @Composable
 private fun ComposerAction(
-    label: String,
+    @DrawableRes icon: Int,
     description: String,
     enabled: Boolean,
     tint: Color? = null,
     onClick: () -> Unit,
 ) {
     val theme = LocalZedTheme.current
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = when {
+    SeekerIconButton(
+        icon = icon,
+        description = description,
+        onClick = onClick,
+        enabled = enabled,
+        tint = when {
             !enabled -> theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
             tint != null -> tint
             else -> theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
         },
-        modifier = Modifier
-            .touchTarget()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled, onClickLabel = description, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
 
-/** An attachment or a mention, with the ✕ that takes it back. */
+/** An attachment or a mention, with the button that takes it back. */
 @Composable
 private fun ComposerChip(label: String, onRemove: () -> Unit) {
     val theme = LocalZedTheme.current
@@ -495,14 +553,12 @@ private fun ComposerChip(label: String, onRemove: () -> Unit) {
             overflow = TextOverflow.MiddleEllipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
-        Text(
-            text = "✕",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier
-                .touchTarget()
-                .clickable(onClickLabel = "Remove", onClick = onRemove)
-                .padding(horizontal = 2.dp),
+        SeekerIconButton(
+            icon = R.drawable.ic_ui_close,
+            description = "Remove $label",
+            onClick = onRemove,
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            size = IconSize.Marker,
         )
     }
 }
@@ -579,7 +635,7 @@ private fun SendOptionsSheet(
         )
         if (mode == SendMode.Steer) {
             Text(
-                text = "Tapping ▶ Steer instead hands it to the turn that is already " +
+                text = "Tapping Steer instead hands it to the turn that is already " +
                     "running — it keeps working, and nothing is cancelled.",
                 style = MaterialTheme.typography.labelSmall,
                 color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),

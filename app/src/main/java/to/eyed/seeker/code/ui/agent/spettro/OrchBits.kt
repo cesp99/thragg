@@ -43,7 +43,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -52,10 +51,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.Member
 import to.eyed.seeker.code.core.OrchCounts
 import to.eyed.seeker.code.core.OrchStatus
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.DisclosureMark
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import kotlin.math.PI
 import kotlin.math.cos
@@ -250,7 +253,12 @@ internal fun ProgressMeter(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
-            .semantics { contentDescription = counts.ratio },
+            // The em dash [OrchCounts.ratio] draws for a run with no members
+            // yet is a mark, not a word, so the meter says the sentence.
+            .semantics {
+                contentDescription =
+                    if (counts.total > 0) counts.ratio else "not started yet"
+            },
     ) {
         val radius = CornerRadius(size.height / 2f, size.height / 2f)
         val gap = if (done > 0f && failed > 0f) 1.5.dp.toPx() else 0f
@@ -355,18 +363,20 @@ internal fun StatusGlyph(
     ) {
         when (status) {
             OrchStatus.Running -> SpettroSpinner(accent, size = size)
-            OrchStatus.Done -> Text(
-                text = "✓",
-                style = MaterialTheme.typography.labelSmall,
-                color = doneColor(),
-                modifier = Modifier.clearAndSetSemantics { },
+            // The [Box] above already says "done" / "failed"; these are the
+            // picture of it and must not be read out a second time.
+            OrchStatus.Done -> SeekerIcon(
+                icon = R.drawable.ic_ui_check,
+                contentDescription = null,
+                tint = doneColor(),
+                size = size,
             )
 
-            OrchStatus.Failed -> Text(
-                text = "✗",
-                style = MaterialTheme.typography.labelSmall,
-                color = failColor(),
-                modifier = Modifier.clearAndSetSemantics { },
+            OrchStatus.Failed -> SeekerIcon(
+                icon = R.drawable.ic_ui_close,
+                contentDescription = null,
+                tint = failColor(),
+                size = size,
             )
         }
     }
@@ -585,11 +595,7 @@ internal fun MemberRow(
                 )
             }
             if (hasDetail) {
-                Text(
-                    text = if (expanded) "⌄" else "›",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                )
+                DisclosureMark(open = expanded, tint = muted)
             }
         }
 
@@ -699,7 +705,12 @@ internal fun GhostRow(item: String, modifier: Modifier = Modifier) {
             .alpha(0.5f)
             .padding(horizontal = 4.dp),
     ) {
-        Text("○", style = MaterialTheme.typography.labelSmall, color = muted)
+        SeekerIcon(
+            icon = R.drawable.ic_ui_circle,
+            contentDescription = null,
+            tint = muted,
+            size = IconSize.Marker,
+        )
         Text(
             text = "queued",
             style = MaterialTheme.typography.labelMedium,
@@ -745,11 +756,7 @@ internal fun Disclosure(
             .clickable(onClickLabel = label) { onToggle() }
             .padding(horizontal = 4.dp),
     ) {
-        Text(
-            text = if (open) "⌄" else "›",
-            style = MaterialTheme.typography.labelSmall,
-            color = muted,
-        )
+        DisclosureMark(open = open, tint = muted)
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,

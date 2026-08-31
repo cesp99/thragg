@@ -235,12 +235,20 @@ fun ProjectSearchPanel(
      * project search: `project_search::Deploy` opens a results editor over a
      * multibuffer of every hit (search/src/project_search.rs). [focus] names
      * the hit to land the caret on, or null to land at the top.
+     *
+     * **Null is the shell's answer.** There is no multibuffer on this device
+     * and there will not be one: the portrait shell has a single editor and
+     * the multibuffer's host — ui/workspace/ — is deleted in P10 along with
+     * core/MultiBufferSession.kt. Nulled here rather than in P10 so that
+     * deletion is a deletion and not a redesign; with it null the chip and
+     * Alt+Enter both go quiet and a hit opens its file, which is the
+     * behaviour a phone wanted anyway (docs/UI.md, P7).
      */
-    onOpenMultibuffer: (
+    onOpenMultibuffer: ((
         query: String,
         files: List<ProjectSearchFile>,
         focus: Pair<String, Int>?,
-    ) -> Unit,
+    ) -> Unit)? = null,
     /**
      * Whether the multibuffer is what a hit opens.
      *
@@ -459,8 +467,9 @@ fun ProjectSearchPanel(
      * fits a phone.
      */
     fun openHit(path: String, match: ProjectSearchMatch) {
-        if (multibufferIsDefault) {
-            onOpenMultibuffer(query.text, files.toList(), path to (match.line - 1))
+        val multibuffer = onOpenMultibuffer
+        if (multibufferIsDefault && multibuffer != null) {
+            multibuffer(query.text, files.toList(), path to (match.line - 1))
         } else {
             onOpenMatch(path, match)
         }
@@ -588,8 +597,9 @@ fun ProjectSearchPanel(
                 if (event.isAltPressed &&
                     (event.key == Key.Enter || event.key == Key.NumPadEnter)
                 ) {
-                    if (files.isEmpty()) return@onPreviewKeyEvent false
-                    onOpenMultibuffer(query.text, files.toList(), null)
+                    val multibuffer = onOpenMultibuffer
+                    if (files.isEmpty() || multibuffer == null) return@onPreviewKeyEvent false
+                    multibuffer(query.text, files.toList(), null)
                     return@onPreviewKeyEvent true
                 }
                 when (event.key) {
@@ -694,12 +704,13 @@ fun ProjectSearchPanel(
                     // The touch twin of Alt+Enter, and the only way to the
                     // multibuffer on a compact layout — where a hit still
                     // opens its file.
-                    if (files.isNotEmpty()) {
+                    val multibuffer = onOpenMultibuffer
+                    if (files.isNotEmpty() && multibuffer != null) {
                         BarButton(
                             glyph = "Multibuffer",
                             description = "Open the results in an editable multibuffer",
                             wide = true,
-                            onClick = { onOpenMultibuffer(query.text, files.toList(), null) },
+                            onClick = { multibuffer(query.text, files.toList(), null) },
                         )
                     }
                 }

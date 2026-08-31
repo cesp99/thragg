@@ -76,8 +76,16 @@ data class OrchCounts(
     val fraction: Float
         get() = if (total > 0) ((done + failed).toFloat() / total).coerceIn(0f, 1f) else 0f
 
-    /** `4/7`. */
-    val ratio: String get() = "${done + failed}/$total"
+    /**
+     * `4/7`, or `—` for a run that has declared work but launched none.
+     *
+     * A run can be drawn before a single member exists — a workflow that
+     * declared three phases publishes them as PENDING first, which is the
+     * whole point of declaring a plan. [total] is 0 there, and `0/0` reads as
+     * a run with nothing in it rather than one that has not started, which is
+     * the opposite of what the card is saying.
+     */
+    val ratio: String get() = if (total > 0) "${done + failed}/$total" else "—"
 
     val settled: Int get() = done + failed
 

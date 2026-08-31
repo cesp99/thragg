@@ -1,0 +1,60 @@
+Where each licence text in this directory came from
+===================================================
+
+docs/LICENSING.md §4 says these are "taken from spdx.org/licenses or
+gnu.org, never from a blog or a paste". This file is the evidence for that
+claim: the exact URL each file was fetched from and its SHA-256, so a
+reviewer can re-fetch and diff rather than read 35 KB of GPL by eye.
+
+Where a licence has a canonical publisher — the FSF for the GNU licences,
+the ASF for Apache-2.0, Mozilla for the MPL, the OFL project for OFL-1.1 —
+the publisher's own plain-text file is used in preference to SPDX's
+re-typeset copy. SPDX reflows its texts to ~110 columns; the publishers'
+are the documents the licences themselves refer to.
+
+Fetched 2026-08-31.
+
+  GPL-3.0.txt       https://www.gnu.org/licenses/gpl-3.0.txt
+                    3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+  GPL-2.0.txt       https://www.gnu.org/licenses/gpl-2.0.txt
+                    edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6
+  LGPL-3.0.txt      https://www.gnu.org/licenses/lgpl-3.0.txt
+                    e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118
+  Apache-2.0.txt    https://www.apache.org/licenses/LICENSE-2.0.txt
+                    cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+  MPL-2.0.txt       https://www.mozilla.org/media/MPL/2.0/index.txt
+                    3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04
+  OFL-1.1.txt       https://openfontlicense.org/documents/OFL.txt
+                    1d361a8f8e8ce6e68457dcd93fb56e162e6baa3bbb7e7573a290d44399f6b57e
+
+The rest are SPDX's canonical texts, from the SPDX licence-list-data
+repository, https://raw.githubusercontent.com/spdx/license-list-data/main/text/<id>.txt
+
+  MIT.txt           b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5
+  MIT-0.txt         59746d6285ffa44bfc7ecada352aa5d6a20dc8eab418a60ce091cc739012c135
+  ISC.txt           f2ec607f67bb0dd3053b49835b02110d5cd0f8eb6da3aac4dc0b142a6b299be9
+  BSD-2-Clause.txt  f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df
+  BSD-3-Clause.txt  5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d
+  0BSD.txt          e3f18c71e10d673590eb9856c1d79dd3b4b0d65404efb5e8584dbede7edd608b
+  Zlib.txt          bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d
+  BSL-1.0.txt       84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f
+  Unicode-3.0.txt   f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1
+  Unlicense.txt     0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240
+  CC0-1.0.txt       a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499
+  bzip2-1.0.6.txt   0a56dbabe7d2ff65dea26e8b795fe42c6204a192b974d8e9304fe356ccda9fd1
+  LLVM-exception.txt e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e
+
+Two of these are not standalone licences and are shipped because an SPDX
+expression in the closure names them:
+
+  LGPL-3.0.txt      is the *additional permissions* document. LGPLv3 sits on
+                    top of GPLv3, so every LGPL row also carries GPL-3.0.txt
+                    and the two must be read together.
+  LLVM-exception.txt is an exception to Apache-2.0, not a licence; the rows
+                    that name it carry Apache-2.0.txt beside it.
+
+MIT.txt, ISC.txt, BSD-2-Clause.txt, BSD-3-Clause.txt and Zlib.txt are the
+*templates*, with `<year>` and `<copyright holders>` unfilled — that is what
+the canonical text is. The filled-in copyright line for each component is
+the `copyright` field of its row in components.json, taken from that
+component's own licence file, and the screen prints it above the text.

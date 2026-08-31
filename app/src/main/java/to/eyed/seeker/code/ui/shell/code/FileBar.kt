@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.shell.code
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,12 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.OpenFilesState
 
 /**
@@ -57,10 +60,11 @@ import to.eyed.seeker.code.ui.workspace.OpenFilesState
  * vanish unreported, so the close request deliberately goes through the model
  * rather than calling `close` directly.
  *
- * The ⌕ and ☰ at the right end do **not** scroll away with the chips. They are
- * the two ways into the Files & Find sheet — ⌕ opens it searching *in files*,
- * ☰ opens it on the tree — and a control that is sometimes off the right edge
- * of the screen is a control you cannot rely on.
+ * The search and tree buttons at the right end do **not** scroll away with the
+ * chips. They are the two ways into the Files & Find sheet — the magnifier
+ * opens it searching *in files*, the tree opens it on the tree — and a control
+ * that is sometimes off the right edge of the screen is a control you cannot
+ * rely on.
  *
  * It hides itself whenever the IME is up, unconditionally and for the same
  * reason [to.eyed.seeker.code.ui.shell.ShellNavBar] does: with the keyboard
@@ -74,9 +78,9 @@ fun FileBar(
     onSelect: (index: Int) -> Unit,
     /** Long-press: close, asking first when the buffer is dirty. */
     onRequestClose: (index: Int) -> Unit,
-    /** ⌕ — the Files sheet, in its "in files" mode. */
+    /** The magnifier — the Files sheet, in its "in files" mode. */
     onFind: () -> Unit,
-    /** ☰ — the Files sheet, on the tree. */
+    /** The tree button — the Files sheet, on the tree. */
     onFiles: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -153,14 +157,15 @@ fun FileBar(
                         overflow = TextOverflow.MiddleEllipsis,
                     )
                     if (file.isDirty) {
-                        // The dot, not a ✕: closing is the long press, and a
-                        // tiny ✕ next to a tiny label on a 400dp row is two
-                        // targets inside one thumb.
-                        Text(
-                            text = " ●",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                            modifier = Modifier.semantics { contentDescription = "unsaved" },
+                        // The dot, not a close button: closing is the long
+                        // press, and a tiny ✕ next to a tiny label on a 400dp
+                        // row is two targets inside one thumb.
+                        SeekerIcon(
+                            icon = R.drawable.ic_ui_dot,
+                            contentDescription = "unsaved",
+                            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                            size = DirtyDotSize,
+                            modifier = Modifier.padding(start = 4.dp),
                         )
                     }
                 }
@@ -174,29 +179,45 @@ fun FileBar(
                 .fillMaxHeight()
                 .background(theme.color("border", MaterialTheme.colorScheme.outline)),
         )
-        FileBarAction("⌕", "Search in files", onFind)
-        FileBarAction("☰", "Files", onFiles)
+        FileBarAction(R.drawable.ic_ui_magnifying_glass, "Search in files", onFind)
+        FileBarAction(R.drawable.ic_ui_menu, "Files", onFiles)
     }
 }
 
+/**
+ * One of the two fixed buttons.
+ *
+ * 44dp of drawn width — the bar's height, so the two are square — and
+ * `touchTarget()` widens the *hit box* to 48dp on top of that. The height
+ * cannot grow past the bar's own 44dp and does not try to; widening what can
+ * be widened is still the difference between a thumb landing on this and a
+ * thumb landing on the last file chip.
+ */
 @Composable
-private fun FileBarAction(label: String, description: String, onClick: () -> Unit) {
+private fun FileBarAction(@DrawableRes icon: Int, description: String, onClick: () -> Unit) {
     val theme = LocalZedTheme.current
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .width(FileBarHeight)
             .fillMaxHeight()
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = description },
+            .clickable(onClickLabel = description, onClick = onClick)
+            .touchTarget(),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+        SeekerIcon(
+            icon = icon,
+            contentDescription = description,
+            tint = theme.color("text", MaterialTheme.colorScheme.onSurface),
         )
     }
 }
 
 /** 44dp, the same as the header and the action row — see docs/UI.md's budget. */
 internal val FileBarHeight = 44.dp
+
+/**
+ * The unsaved mark, smaller than [IconSize.Marker] on purpose: it sits inside
+ * a chip beside a `labelMedium` filename, and at 14dp it would be the biggest
+ * thing on the chip.
+ */
+private val DirtyDotSize = 8.dp

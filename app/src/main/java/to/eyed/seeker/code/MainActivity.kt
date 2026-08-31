@@ -66,6 +66,11 @@ class MainActivity : ComponentActivity() {
         // app-private storage, not the kind of I/O the main thread must be
         // kept away from.
         val initialSettings = AppSettings.load()
+        // The agent the user chose last time, back before the panel is looked
+        // at. Returns at once — the preferences read is on the sessions' own IO
+        // scope — and it stands down if anything has already chosen, so it
+        // cannot race the bundled agent registering itself.
+        AgentSessions.restoreChoice(this, initialSettings)
         // Before any session exists: Android only offers the notification
         // prompt to an app targeting API 32 or lower once a channel exists and
         // an activity starts, and the terminal's foreground service wants that

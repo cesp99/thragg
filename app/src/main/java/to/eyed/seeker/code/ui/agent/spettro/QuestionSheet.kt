@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.PermissionOption
 import to.eyed.seeker.code.core.QuestionAnswer
 import to.eyed.seeker.code.core.QuestionDraft
@@ -53,6 +54,11 @@ import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.SelectionMark
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 
@@ -397,7 +403,7 @@ fun QuestionSheet(
                     val last = page == pageCount - 1
                     PrimaryButton(
                         label = when {
-                            !last -> "Next  →"
+                            !last -> "Next"
                             hasReview -> "Send answers"
                             else -> "Send answer"
                         },
@@ -415,10 +421,18 @@ fun QuestionSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = "⍰",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                // Was `⍰` (U+2370, an APL symbol) at titleMedium — the most
+                // obscure codepoint left in the app, on the *headline* of the
+                // one sheet that stops a turn until it is answered. A device
+                // whose UI face lacks it drew tofu there. The agent's own
+                // sparkle instead: the headline beside it already says
+                // "…has a question", so the mark's job is to say who is
+                // asking, and that is the mark this app uses for the agent.
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_agent,
+                    contentDescription = null,
+                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    size = IconSize.Inline,
                 )
                 Text(
                     text = headline(request),
@@ -596,15 +610,27 @@ private fun QuestionPage(
             )
         }
         Spacer(Modifier.height(4.dp))
-        Text(
-            text = if (noteOpen) "✎ Hide note" else "✎ Add a note",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        val noteLabel = if (noteOpen) "Hide note" else "Add a note"
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .touchTarget()
-                .clickable(onClickLabel = "Add a note") { onToggleNote() }
+                .clickable(onClickLabel = noteLabel) { onToggleNote() }
                 .padding(vertical = 4.dp),
-        )
+        ) {
+            SeekerIcon(
+                icon = R.drawable.ic_ui_pencil,
+                contentDescription = null,
+                tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                size = IconSize.Marker,
+            )
+            Text(
+                text = noteLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            )
+        }
         Spacer(Modifier.height(12.dp))
     }
 }
@@ -632,23 +658,22 @@ private fun OptionRow(
             .clickable(onClickLabel = option.label, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
     ) {
-        Text(
-            // Radio for one, checkbox for many: the glyph is the only thing
-            // that says whether a second tap adds or replaces.
-            text = when {
-                multi && checked -> "☑"
-                multi -> "☐"
-                checked -> "(•)"
-                else -> "( )"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (checked) {
-                theme.color("text.accent", MaterialTheme.colorScheme.primary)
-            } else {
-                theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-            },
+        // Radio for one, checkbox for many: the mark is the only thing that
+        // says whether a second tap adds to the answer or replaces it.
+        Box(
             modifier = Modifier.width(TickWidth),
-        )
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            SelectionMark(
+                selected = checked,
+                multi = multi,
+                tint = if (checked) {
+                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                } else {
+                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -663,7 +688,7 @@ private fun OptionRow(
                         // A badge and nothing else. The row is not selected,
                         // not highlighted and not first — the agent's guess
                         // is information, not a decision.
-                        text = "★ Recommended",
+                        text = "Recommended",
                         style = MaterialTheme.typography.labelSmall,
                         color = theme.color("created", MaterialTheme.colorScheme.primary),
                         maxLines = 1,
@@ -679,13 +704,15 @@ private fun OptionRow(
             }
         }
         if (option.preview != null) {
-            Text(
-                text = "◱",
-                style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier
-                    .touchTarget()
-                    .clickable(onClickLabel = "Preview ${option.label}", onClick = onPreview),
+            // An icon-only button whose entire affordance was `◱` (U+25F1).
+            // An eye says "look at this" with no vocabulary to learn, and it
+            // is the mark the askpass and API-key reveals already use.
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_eye,
+                description = "Preview ${option.label}",
+                onClick = onPreview,
+                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                size = IconSize.Inline,
             )
         }
     }
@@ -782,19 +809,26 @@ private fun ReviewPage(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = "›",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                )
+                RowChevron()
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = "⚠ ${QuestionForm.UNANSWERED_WARNING}",
-            style = MaterialTheme.typography.bodySmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SeekerIcon(
+                icon = R.drawable.ic_ui_warning,
+                contentDescription = null,
+                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                size = IconSize.Marker,
+            )
+            Text(
+                text = QuestionForm.UNANSWERED_WARNING,
+                style = MaterialTheme.typography.bodySmall,
+                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            )
+        }
         Spacer(Modifier.height(12.dp))
     }
 }

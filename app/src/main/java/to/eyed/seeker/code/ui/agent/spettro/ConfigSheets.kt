@@ -3,6 +3,7 @@ package to.eyed.seeker.code.ui.agent.spettro
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,12 +24,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentConfigOption
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SelectionMark
 
 /**
  * The selector behind a chip: one modal bottom sheet, one radio list.
@@ -63,6 +67,12 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
 fun ConfigSheet(
     state: ShellState,
     option: AgentConfigOption,
+    /**
+     * The connected agent's own name, for the empty case. `configOptions` is
+     * ordinary ACP, so this sheet is reached by any `agent_servers` entry and
+     * the sentence must not name the one we happen to ship.
+     */
+    agentName: String,
     ultraStored: Boolean = false,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -112,7 +122,7 @@ fun ConfigSheet(
                         // Real, and not rare: a model list with nothing
                         // connected arrives empty, and so does any option the
                         // agent published before it had values for it.
-                        text = "Spettro has not offered any choices for this yet.",
+                        text = stringResource(R.string.agent_config_no_choices, agentName),
                         style = MaterialTheme.typography.bodyMedium,
                         color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
                         modifier = Modifier.padding(16.dp),
@@ -237,16 +247,26 @@ private fun ChoiceRow(
             .clickable(onClickLabel = "Select ${choice.name}", onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = if (selected) "(•)" else "( )",
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) {
-                theme.color("text.accent", MaterialTheme.colorScheme.primary)
-            } else {
-                theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-            },
+        // The shared [SelectionMark], in a fixed 32dp slot so every name in
+        // the sheet starts at the same x. This was `(•)` / `( )` typed as
+        // text: two parentheses and a middle dot at bodyMedium, which on the
+        // Seeker's 480dpi panel sat low against its own label and read as
+        // punctuation rather than as the control it is. Radio, not checkbox —
+        // picking a config choice replaces the answer, never adds to it.
+        Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier.width(32.dp),
-        )
+        ) {
+            SelectionMark(
+                selected = selected,
+                multi = false,
+                tint = if (selected) {
+                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                } else {
+                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+            )
+        }
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(2.dp),

@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.shell.agent
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,11 +29,14 @@ import to.eyed.seeker.code.core.ULTRA_LOCK_REASON
 import to.eyed.seeker.code.core.UltraState
 import to.eyed.seeker.code.ui.agent.spettro.ConfigSheet
 import to.eyed.seeker.code.ui.agent.spettro.ContextRing
-import to.eyed.seeker.code.ui.agent.spettro.chipGlyph
+import to.eyed.seeker.code.ui.agent.spettro.chipIcon
 import to.eyed.seeker.code.ui.agent.spettro.chipOrder
 import to.eyed.seeker.code.ui.agent.spettro.ultraStateText
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /**
@@ -81,7 +85,7 @@ fun AgentConfigSheet(
     SheetScaffold(
         state = shell,
         onDismiss = onDismiss,
-        title = state.agent?.agentName ?: "Agent",
+        title = agentDisplayName(state.agent?.agentName, null),
     ) {
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             if (ordered.isEmpty()) {
@@ -99,7 +103,7 @@ fun AgentConfigSheet(
                     val ultra = option.id == "ultra"
                     val ultraState = toolbar.ultraState
                     ConfigRow(
-                        glyph = chipGlyph(option),
+                        icon = chipIcon(option),
                         name = option.name,
                         value = if (ultra) {
                             ultraStateText(ultraState)
@@ -130,7 +134,7 @@ fun AgentConfigSheet(
                     }
                 } else {
                     ConfigRow(
-                        glyph = chipGlyph(option),
+                        icon = chipIcon(option),
                         name = option.name,
                         value = option.currentLabel,
                         onClick = { picking = option },
@@ -147,6 +151,7 @@ fun AgentConfigSheet(
         ConfigSheet(
             state = shell,
             option = option,
+            agentName = agentDisplayName(state.agent?.agentName, null),
             ultraStored = toolbar.ultraOn,
             onPick = { value ->
                 onPick(option, configValueJson(value))
@@ -159,7 +164,12 @@ fun AgentConfigSheet(
 
 /** One 56 dp row: what it is, what it is set to, and a chevron. */
 @Composable
-private fun ConfigRow(glyph: String, name: String, value: String, onClick: () -> Unit) {
+private fun ConfigRow(
+    @DrawableRes icon: Int,
+    name: String,
+    value: String,
+    onClick: () -> Unit,
+) {
     val theme = LocalZedTheme.current
     Row(
         modifier = Modifier
@@ -170,10 +180,11 @@ private fun ConfigRow(glyph: String, name: String, value: String, onClick: () ->
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = glyph,
-            style = MaterialTheme.typography.labelLarge,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        SeekerIcon(
+            icon = icon,
+            contentDescription = null,
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            size = IconSize.Inline,
         )
         Text(
             text = name,
@@ -190,11 +201,7 @@ private fun ConfigRow(glyph: String, name: String, value: String, onClick: () ->
             overflow = TextOverflow.StartEllipsis,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            text = "›",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        RowChevron()
     }
 }
 
@@ -219,11 +226,7 @@ private fun GaugeRow(state: AgentSessionState, onOpen: () -> Unit) {
             color = theme.color("text", MaterialTheme.colorScheme.onSurface),
             modifier = Modifier.weight(1f),
         )
-        Text(
-            text = "›",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        RowChevron()
     }
 }
 

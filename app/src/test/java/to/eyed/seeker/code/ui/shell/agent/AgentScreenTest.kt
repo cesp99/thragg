@@ -78,14 +78,73 @@ class AgentScreenTest {
         assertEquals("Queue", sendLabel(SendMode.Queue))
     }
 
+    /**
+     * The wording moved to strings.xml so the agent's own name can sit in the
+     * middle of it; the branch is what is still decidable off a device.
+     */
     @Test
     fun thePlaceholderNamesTheProjectBeingWorkedIn() {
         assertEquals(
-            "Message Spettro — working in seeker-ide",
-            composerPlaceholder("seeker-ide", enabled = true),
+            ComposerHint.ReadyInProject,
+            composerHint("seeker-ide", enabled = true),
         )
-        assertEquals("Message Spettro", composerPlaceholder(null, enabled = true))
-        assertEquals("The agent is not running", composerPlaceholder("x", enabled = false))
+        assertEquals(ComposerHint.Ready, composerHint(null, enabled = true))
+        assertEquals(ComposerHint.Ready, composerHint("   ", enabled = true))
+        assertEquals(ComposerHint.Stopped, composerHint("x", enabled = false))
+    }
+
+    // --- whose name is on the screen ----------------------------------------
+
+    /**
+     * The name the program gives itself in `initialize` beats the
+     * `agent_servers` key it was launched under, because the key is only what
+     * the user called the entry.
+     */
+    @Test
+    fun theConnectedAgentNamesItself() {
+        assertEquals("Spettro", agentDisplayName("Spettro", "spettro-dev"))
+        assertEquals("spettro-dev", agentDisplayName(null, "spettro-dev"))
+        assertEquals("Agent", agentDisplayName(null, null))
+    }
+
+    /** A blank name is no name: it would print an empty gap mid-sentence. */
+    @Test
+    fun aBlankNameFallsThroughRatherThanBeingShown() {
+        assertEquals("my-agent", agentDisplayName("  ", "my-agent"))
+        assertEquals("Agent", agentDisplayName("", " "))
+    }
+
+    // --- following the tail --------------------------------------------------
+
+    /**
+     * The tail item is the last one in the list, so seeing it is seeing the
+     * newest words. A list that has laid nothing out yet counts as at the tail:
+     * answering otherwise would leave the very first reply un-followed.
+     */
+    @Test
+    fun theTailIsWhereTheLastItemIsVisible() {
+        assertTrue(transcriptAtTail(lastVisibleIndex = 7, totalItems = 8))
+        assertFalse(transcriptAtTail(lastVisibleIndex = 3, totalItems = 8))
+        assertTrue(transcriptAtTail(lastVisibleIndex = null, totalItems = 8))
+        assertTrue(transcriptAtTail(lastVisibleIndex = null, totalItems = 0))
+    }
+
+    /**
+     * The rule the whole auto-scroll fix rests on: a reply *growing* under the
+     * fold pushes the tail item out of view with nobody touching the screen,
+     * and that must not read as "the user scrolled up". Only a drag decides.
+     */
+    @Test
+    fun growingTextDoesNotStopTheFollowButAFingerDoes() {
+        // Streaming pushed the tail off screen; no finger down.
+        assertTrue(followsTail(previous = true, dragging = false, atTail = false))
+        // The reader drags away from the tail: stop chasing them.
+        assertFalse(followsTail(previous = true, dragging = true, atTail = false))
+        // …and stays stopped once the finger is lifted.
+        assertFalse(followsTail(previous = false, dragging = false, atTail = false))
+        // Back at the tail, by hand or by a re-tap: follow again.
+        assertTrue(followsTail(previous = false, dragging = true, atTail = true))
+        assertTrue(followsTail(previous = false, dragging = false, atTail = true))
     }
 
     // --- the seams -----------------------------------------------------------

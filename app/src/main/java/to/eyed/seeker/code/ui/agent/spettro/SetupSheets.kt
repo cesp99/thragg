@@ -41,12 +41,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.ConnectOutcome
 import to.eyed.seeker.code.core.LocalProbe
 import to.eyed.seeker.code.core.ProviderEntry
 import to.eyed.seeker.code.core.SpettroSetup
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.SelectionMark
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 
@@ -244,15 +249,33 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                 onChoose = { chosen = it },
             )
             if (!expanded && grid.size > FEATURED_ROWS) {
-                Text(
-                    text = "⌄ ${grid.size - FEATURED_ROWS} more",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                val moreLabel = "${grid.size - FEATURED_ROWS} more"
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
                         .touchTarget()
-                        .clickable { expanded = true }
+                        .clickable(onClickLabel = moreLabel) { expanded = true }
                         .padding(top = 4.dp),
-                )
+                ) {
+                    SeekerIcon(
+                        icon = R.drawable.ic_ui_chevron_down,
+                        contentDescription = null,
+                        tint = theme.color(
+                            "text.muted",
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        size = IconSize.Marker,
+                    )
+                    Text(
+                        text = moreLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = theme.color(
+                            "text.muted",
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                    )
+                }
             }
             chosen?.let { provider ->
                 Spacer(Modifier.height(12.dp))
@@ -284,7 +307,7 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
     }
 }
 
-/** How many provider chips show before "⌄ N more" — the wireframe's five. */
+/** How many provider chips show before "N more" — the wireframe's five. */
 private const val FEATURED_ROWS = 5
 
 private fun keyPlaceholder(provider: ProviderEntry?): String = when (provider?.id) {
@@ -698,12 +721,23 @@ fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
                         }
                     },
             ) {
-                Text(
-                    text = if (model.favorite) "★" else "☆",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (model.favorite) theme.color("created", muted) else muted,
+                Box(
                     modifier = Modifier.width(24.dp),
-                )
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    SeekerIcon(
+                        icon = if (model.favorite) {
+                            R.drawable.ic_ui_star_filled
+                        } else {
+                            R.drawable.ic_ui_star
+                        },
+                        // The row's click label says what the tap does; this
+                        // says which of the two states it is in now.
+                        contentDescription = if (model.favorite) "favourite" else null,
+                        tint = if (model.favorite) theme.color("created", muted) else muted,
+                        size = IconSize.Inline,
+                    )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = model.displayName,
@@ -822,14 +856,16 @@ private fun SecretField(
             }
         }
         if (secret) {
-            Text(
-                text = if (reveal) "◉" else "◎",
-                style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier
-                    .touchTarget()
-                    .clickable(enabled = enabled, onClick = onToggleReveal)
-                    .padding(start = 8.dp),
+            // An eye, not two concentric circles: this is the same control
+            // the askpass dialog draws, and it should look like it.
+            SeekerIconButton(
+                icon = if (reveal) R.drawable.ic_ui_eye_off else R.drawable.ic_ui_eye,
+                description = if (reveal) "Hide" else "Reveal",
+                onClick = onToggleReveal,
+                enabled = enabled,
+                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                size = IconSize.Inline,
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
     }
@@ -935,12 +971,16 @@ private fun RadioRow(
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
     ) {
-        Text(
-            text = if (selected) "(•)" else "( )",
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+        Box(
             modifier = Modifier.width(32.dp),
-        )
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            SelectionMark(
+                selected = selected,
+                multi = false,
+                tint = theme.color("text", MaterialTheme.colorScheme.onSurface),
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

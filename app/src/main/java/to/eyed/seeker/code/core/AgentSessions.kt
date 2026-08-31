@@ -199,11 +199,57 @@ object AgentSessions {
     @Volatile
     private var generation = 0
 
+    /**
+     * The application context the choice is written through, handed over once
+     * by [restoreChoice] at startup.
+     *
+     * Held rather than passed, because the thing that has to be persisted is
+     * the *assignment* to [agent] and there are three of those — [choose],
+     * [startWith] and [reset] — reached from four screens. Threading a
+     * `Context` through all of them is how one of them ends up not writing,
+     * which is the state this file was already in. The application context is
+     * the process's own, so there is no activity to leak.
+     */
+    private var app: Context? = null
+
+    /**
+     * Put back the agent the user chose last time, and start remembering the
+     * one they choose next.
+     *
+     * Called once from the activity, with the settings it has already read.
+     * Returns at once: the preferences read is the first touch of that file and
+     * goes to disk, so it happens on [scope] rather than on the way to the
+     * first frame.
+     *
+     * The restore is **not** allowed to overwrite a choice that has already
+     * been made. The agent screen registers the bundled agent when it finds
+     * nothing configured, and that runs on IO too; whichever lands first wins
+     * and the other stands down, so the two cannot fight over [agent].
+     */
+    fun restoreChoice(context: Context, settings: AppSettings) {
+        val application = context.applicationContext
+        app = application
+        scope.launch {
+            val name = runCatching { AgentChoice.remembered(application) }.getOrNull()
+            val restored = AgentChoice.resolve(settings.agents, name) ?: return@launch
+            withContext(Dispatchers.Main) {
+                if (agent == null) agent = restored
+            }
+        }
+    }
+
+    /** Write [chosen] down, so the next launch starts where this one ended. */
+    private fun rememberChoice(chosen: AgentDefinition?) {
+        val application = app ?: return
+        scope.launch { runCatching { AgentChoice.remember(application, chosen?.name) } }
+    }
+
     /** Remember the choice without starting anything. */
     fun choose(chosen: AgentDefinition) {
         if (agent == chosen) return
         close()
         agent = chosen
+        rememberChoice(chosen)
     }
 
     /**
@@ -231,6 +277,7 @@ object AgentSessions {
                 scope.launch { runCatching { CoreBridge.acpCloseSession(thread.sessionId) } }
             }
             agent = chosen
+            rememberChoice(chosen)
         }
         newThread(project, projectName, rootPath)
     }
@@ -1099,6 +1146,9 @@ object AgentSessions {
     fun reset() {
         close()
         agent = null
+        // Forgotten on disk too, or the picker would be shown once and then
+        // undone by the next launch.
+        rememberChoice(null)
         rememberedMode = null
         queuedConfig.clear()
     }

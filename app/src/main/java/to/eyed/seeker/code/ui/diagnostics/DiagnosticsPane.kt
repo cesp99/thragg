@@ -64,8 +64,10 @@ import to.eyed.seeker.code.ui.editor.Diagnostic
 import to.eyed.seeker.code.ui.editor.DiagnosticSeverity
 import to.eyed.seeker.code.ui.editor.EditorState
 import to.eyed.seeker.code.ui.editor.FileDiagnosticRows
+import to.eyed.seeker.code.ui.editor.ProjectDiagnosticRows
 import to.eyed.seeker.code.ui.editor.rememberProjectDiagnostics
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
+import to.eyed.seeker.code.ui.theme.DisclosureMark
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.revealItem
 import to.eyed.seeker.code.ui.workspace.EntryIconMark
@@ -146,16 +148,48 @@ fun DiagnosticsPane(
     onOpenMultibuffer: ((List<FileDiagnosticRows>) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * The rows to draw, when the host has a source of its own — the Problems
+     * route, whose list is the engine's *merged with the last build's*
+     * (solana/build/BuildDiagnostics.kt). Null keeps the pane's own poll of
+     * the engine, which is what the workspace tab has always used.
+     *
+     * The merge cannot happen inside this pane: the engine's diagnostics store
+     * is read-only across JNI, so cargo's rows live beside it in Kotlin and
+     * only a consumer can put the two together (docs/UI.md, P4).
+     */
+    rows: ProjectDiagnosticRows? = null,
+    /**
+     * Whether the pane draws its own toolbar — counts, the warnings toggle and
+     * ✕.
+     *
+     * False for a host that carries those itself: the Problems route has a ←
+     * of its own, its counts in its header and an all/errors/warnings filter
+     * that is finer than this toggle. Two rows of chrome over a list on a
+     * 400dp screen is one row too many, and the filter would then exist twice
+     * with two different answers.
+     */
+    showToolbar: Boolean = true,
 ) {
     val theme = LocalZedTheme.current
-    val state = rememberProjectDiagnostics(project.id)
+    val polled = rememberProjectDiagnostics(project.id.takeIf { rows == null })
+    val state = rows ?: polled
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
-    var includeWarnings by remember { mutableStateOf(LastDiagnostics.includeWarnings) }
+    // With the toolbar gone the toggle has no switch, so nothing may be hidden
+    // behind it: the host filtered [rows] before handing them over and this
+    // pane draws what it was given.
+    var paneIncludeWarnings by remember { mutableStateOf(LastDiagnostics.includeWarnings) }
+    val includeWarnings = if (showToolbar) paneIncludeWarnings else true
     var selected by remember { mutableIntStateOf(-1) }
     val listState = rememberLazyListState()
     val focus = remember { FocusRequester() }
 
-    LaunchedEffect(focusToken) { focus.requestFocus() }
+    // Guarded: the pane used to be raised into a workspace that was already
+    // laid out, and is now also composed *with* the Problems route on its
+    // first frame — where the node may not be placed yet and `requestFocus`
+    // throws rather than returning false. Nothing on this surface depends on
+    // holding focus; the arrows are for a keyboard the phone does not have.
+    LaunchedEffect(focusToken) { runCatching { focus.requestFocus() } }
 
     val rows = remember(state, collapsed, includeWarnings) {
         diagnosticsRows(state.files, collapsed, includeWarnings)
@@ -247,7 +281,7 @@ fun DiagnosticsPane(
         // and toolbar — counts on the left, the warnings toggle and close on
         // the right — on `toolbar.background` behind a 1px `border.variant`
         // underline, like every toolbar here.
-        Column(
+        if (showToolbar) Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(theme.color("toolbar.background"))
@@ -318,8 +352,8 @@ fun DiagnosticsPane(
                     description = if (includeWarnings) "Hide warnings" else "Show warnings",
                     selected = includeWarnings,
                     onClick = {
-                        includeWarnings = !includeWarnings
-                        LastDiagnostics.includeWarnings = includeWarnings
+                        paneIncludeWarnings = !includeWarnings
+                        LastDiagnostics.includeWarnings = !includeWarnings
                         selected = -1
                     },
                 ) { color ->
@@ -441,11 +475,14 @@ private fun FileHeaderRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = if (row.isCollapsed) "▸" else "▾",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("icon.muted", theme.color("text.muted")),
-                modifier = Modifier.width(10.dp),
+            // Drawn, not typed. This caret is the one mark of this pane that
+            // survives into the shell: the Problems route hosts the pane with
+            // `showToolbar = false`, so the file rows are all of it that ships
+            // on the phone, and `▸`/`▾` at labelSmall were the thin, small
+            // marks the icon pass exists to remove.
+            DisclosureMark(
+                open = !row.isCollapsed,
+                tint = theme.color("icon.muted", theme.color("text.muted")),
             )
             EntryIconMark(
                 name = row.name,

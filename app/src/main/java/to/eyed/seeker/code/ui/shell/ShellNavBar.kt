@@ -8,7 +8,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -44,11 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +53,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.glyphHeight
 import to.eyed.seeker.code.ui.theme.touchTarget
 
@@ -129,7 +127,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
             label = "Build",
             state = state,
             landscape = landscape,
-            icon = { tint -> PlayGlyph(tint) },
+            icon = { tint -> NavIcon(R.drawable.ic_ui_play, tint) },
             badge = { BuildBadgeSlot(state) },
         )
     }
@@ -189,33 +187,14 @@ private fun RowScope.NavItem(
     }
 }
 
-@Composable
-private fun NavIcon(resource: Int, tint: Color) {
-    Image(
-        painter = painterResource(resource),
-        contentDescription = null,
-        colorFilter = ColorFilter.tint(tint),
-        modifier = Modifier.size(NavIconSize),
-    )
-}
-
 /**
- * The ▶ of the Build item, drawn rather than imported: the icon set carried
- * over from Zed has no play glyph (it had no build button), and a triangle is
- * three lines of Path against a new asset and a licence note.
+ * The item's mark. Deliberately unlabelled for a screen reader: the [Column]
+ * above it already carries the destination's name, and a second node saying
+ * "Code" underneath the first one is the same word read twice.
  */
 @Composable
-private fun PlayGlyph(tint: Color) {
-    Canvas(modifier = Modifier.size(NavIconSize)) {
-        val inset = size.minDimension * 0.18f
-        val path = Path().apply {
-            moveTo(inset, inset * 0.7f)
-            lineTo(size.width - inset, size.height / 2f)
-            lineTo(inset, size.height - inset * 0.7f)
-            close()
-        }
-        drawPath(path, color = tint)
-    }
+private fun NavIcon(resource: Int, tint: Color) {
+    SeekerIcon(icon = resource, contentDescription = null, tint = tint, size = NavIconSize)
 }
 
 /** ✦'s badge: "the agent finished, or is blocked, while you were elsewhere". */
@@ -274,16 +253,14 @@ private fun BoxScope.BuildBadgeSlot(state: ShellState) {
                 )
                 .semantics { contentDescription = "The last run failed" },
         )
-        BuildBadge.Tick -> Image(
-            painter = painterResource(R.drawable.ic_ui_check),
+        BuildBadge.Tick -> SeekerIcon(
+            icon = R.drawable.ic_ui_check,
             contentDescription = "The last run succeeded",
-            colorFilter = ColorFilter.tint(
-                theme.color("success", theme.color("created", Color(0xFF98C379)))
-            ),
+            tint = theme.color("success", theme.color("created", Color(0xFF98C379))),
+            size = BadgeTick,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset(x = BadgeOffset, y = -BadgeOffset)
-                .size(BadgeTick),
+                .offset(x = BadgeOffset, y = -BadgeOffset),
         )
     }
 }
@@ -344,7 +321,22 @@ private val LandscapeNavBarHeight: Dp
 
 private val BarHeight = 56.dp
 private val LandscapeBarHeight = 44.dp
-private val NavIconSize = 20.dp
+/**
+ * 24dp, which is what a Material navigation bar draws and what every other
+ * bottom bar on the phone draws beside it. It was 20dp, and 20dp is the reason
+ * this bar's three items read as smaller than the system's own chrome on a
+ * 480dpi screen — an icon is not text and does not get to be dense.
+ *
+ * The bar's height does not move. `labelSmall` is `XSMALL` (0.625) of the
+ * 16dp UI font, so its ink is 10sp * 1.3 = 13dp, and the `maxOf` below reads
+ * 24 + 13 + 8 = 45dp against [BarHeight]'s 56 — the 56 still wins, as it did
+ * at 41dp. Landscape's 44dp still wins at 24 + 8 = 32dp. The bar only starts
+ * growing past 56dp somewhere north of a 2.0 system font scale, which is
+ * exactly when it should.
+ * See [IconSize] for where the rest of the app's icon sizes live; this one is
+ * spelled out here because [NavBarHeight] is arithmetic that has to read.
+ */
+private val NavIconSize = IconSize.Nav
 private val BadgeDot = 7.dp
 private val BadgeTick = 11.dp
 private val BadgeOffset = 9.dp

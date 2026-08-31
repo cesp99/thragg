@@ -36,13 +36,17 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentTurnUsage
 import to.eyed.seeker.code.core.AgentUsage
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -327,6 +331,12 @@ fun ContextSheet(
     state: ShellState,
     usage: AgentUsage?,
     turnUsage: AgentTurnUsage?,
+    /**
+     * The connected agent's own name. A window that has not been reported yet
+     * is a sentence about whoever is on the other end — `usage` rides
+     * `session/update`, and a generic agent sends it too.
+     */
+    agentName: String,
     onCompact: () -> Unit,
     onToggleAutoCompact: (Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -350,8 +360,7 @@ fun ContextSheet(
             Spacer(Modifier.height(8.dp))
             if (usage == null || usage.size <= 0L) {
                 Text(
-                    text = "Spettro has not reported a context window yet. The gauge " +
-                        "appears with the first reply.",
+                    text = stringResource(R.string.agent_context_unreported, agentName),
                     style = MaterialTheme.typography.bodyMedium,
                     color = muted,
                 )
@@ -423,17 +432,33 @@ fun ContextSheet(
                 HorizontalDivider(color = theme.color("border.variant", Color.Transparent))
                 Spacer(Modifier.height(12.dp))
                 contextAdviceLine(fraction)?.let { advice ->
-                    Text(
-                        text = "⚠ $advice",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when (contextSeverity(fraction)) {
-                            ContextSeverity.FULL ->
-                                theme.color("error", MaterialTheme.colorScheme.error)
-                            else ->
-                                theme.color("warning", MaterialTheme.colorScheme.tertiary)
-                        },
+                    val ink = when (contextSeverity(fraction)) {
+                        ContextSeverity.FULL ->
+                            theme.color("error", MaterialTheme.colorScheme.error)
+                        else ->
+                            theme.color("warning", MaterialTheme.colorScheme.tertiary)
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth(),
-                    )
+                    ) {
+                        SeekerIcon(
+                            icon = R.drawable.ic_ui_warning,
+                            contentDescription = null,
+                            tint = ink,
+                            size = IconSize.Marker,
+                            // Nudged onto the first line's baseline: the advice
+                            // wraps to two lines at 400dp and a top-aligned
+                            // mark would sit above the cap height of the text.
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        Text(
+                            text = advice,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ink,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                 }
                 Row(

@@ -1,0 +1,501 @@
+// The rows no dependency graph can see.
+//
+// docs/LICENSING.md §4 names three inputs to the notices bundle: the Rust
+// closure (cargo), the Maven closure (Gradle), and "a checked-in manifest for
+// what neither tool can see". This is that third input, and it is the ONLY
+// hand-maintained part of components.json — everything with a Cargo.toml or a
+// POM behind it is derived, because a hand-curated list of 471 crates is a
+// list that is wrong within one sprint.
+//
+// JSONC: `//` comments are stripped by tools/gen-licenses.py before parsing,
+// the same shape settings.json has. Comments here are load-bearing — several
+// of these rows record a conclusion that took reading to reach.
+//
+// Every `licenseFiles` entry is an asset path relative to app/src/main/assets,
+// so a row can point at a licence text this bundle ships (licenses/MIT.txt) or
+// at a notice file that was already in the APK for another reason
+// (fonts/Lilex-LICENSE.txt). §5 asks for the second kind to be "folded in by
+// the generator's manifest rather than special-cased in Kotlin"; this is how.
+{
+  "groups": {
+    // Titles and blurbs for every group, including the generated ones. The
+    // order here is the order the screen lists them, and it is §5's order.
+    "app": {
+      "title": "This application",
+      "note": "Seeker IDE is Eyed's own work. Its engine crates are listed here; everything it is built ON is in the groups below."
+    },
+    "engine": {
+      "title": "Engine and terminal",
+      "note": "The editor engine is Zed's, vendored at one commit and built into libseekercore.so. The terminal is Termux's, vendored as two Gradle modules and built into libtermux.so."
+    },
+    "native": {
+      "title": "Native binaries",
+      "note": "Programs shipped beside the app and executed as separate processes rather than linked into it. The full edition only."
+    },
+    "rust": {
+      "title": "Rust crates",
+      "note": "Every crate in the aarch64-linux-android link closure of libseekercore.so, generated from cargo. Not from Cargo.lock: the lock file resolves crates that no build of this app links."
+    },
+    "android": {
+      "title": "Android libraries",
+      "note": "Every Maven artifact on the release runtime classpath, generated from Gradle. Build tooling — the Android Gradle Plugin, JAXB, Bouncy Castle — is not here because it is not in the APK."
+    },
+    "assets": {
+      "title": "Fonts, themes and icons",
+      "note": "Artwork and data files, which carry their own notices rather than a crate's."
+    },
+    "grammars": {
+      "title": "Syntax grammars",
+      "note": "The tree-sitter grammars are ordinary crates and are listed under Rust crates. What is here is the QUERY files — the .scm sets that decide what gets highlighted — which are copied text, not a dependency."
+    },
+    "downloaded": {
+      "title": "Downloaded after installation",
+      "note": "Not in this package. Setup fetches each of these from that component's own upstream, onto your device, at your request; Eyed hosts none of them and mirrors none of them, so no source obligation attaches to Eyed for any of them. They are listed because they end up on the same phone and a reader looking for them should find them."
+    }
+  },
+
+  "components": [
+    // ── This application ─────────────────────────────────────────────────
+    {
+      "id": "app/seeker-ide",
+      "group": "app",
+      "name": "Seeker IDE",
+      // Resolved by the generator from app/build.gradle.kts and
+      // core/Cargo.toml, so the release and the repository URL are recorded
+      // in one place each and cannot drift into a third.
+      "version": "@versionName",
+      "spdx": "GPL-3.0-or-later; as distributed, GPL-3.0",
+      "copyright": "Copyright (C) 2026 Eyed (Carlo Esposito)",
+      "url": "@sourceUrl",
+      "licenseFiles": ["licenses/GPL-3.0.txt"],
+      "note": "Eyed's own code is GPL-3.0-or-later. The application as built and distributed is GPL-3.0-ONLY, because it links Termux's terminal modules, which are GPL-3.0-only: no recipient of this APK may exercise the \"or later\" option over that code. Take Eyed's code out of the combination and the \"or later\" is yours again.\n\nSeeker IDE is a fork of Conquest Code, which reuses Zed's engine crates and vendors Termux's terminal libraries."
+    },
+
+    // ── Engine and terminal ──────────────────────────────────────────────
+    // The Zed and Eyed Rust crates are NOT listed here by hand: they are path
+    // packages in the cargo closure and the generator picks them up with
+    // everything else, which is why this group has only the things cargo
+    // cannot see.
+    {
+      "id": "engine/conquest-code",
+      "group": "engine",
+      "name": "Conquest Code",
+      "version": "",
+      "spdx": "GPL-3.0-or-later",
+      "copyright": "Copyright (C) the Conquest Code authors",
+      "url": "",
+      "licenseFiles": ["licenses/GPL-3.0.txt"],
+      "note": "Seeker IDE is a fork of Conquest Code, which supplies the editor, the Debian userland, the terminal, the LSP client, git and the ACP agent panel. Conquest Code in turn reuses Zed's engine crates and vendors Termux's terminal libraries."
+    },
+    {
+      "id": "engine/zed",
+      "group": "engine",
+      "name": "Zed (engine crates)",
+      "version": "bc538def45",
+      "spdx": "GPL-3.0-or-later AND Apache-2.0",
+      "copyright": "Copyright (C) Zed Industries, Inc.",
+      "url": "https://github.com/zed-industries/zed",
+      "licenseFiles": ["licenses/GPL-3.0.txt", "licenses/Apache-2.0.txt"],
+      "note": "51 crate directories vendored at one commit and compiled into libseekercore.so. They are split across two licences and each one is listed individually under Rust crates with its own — the GPL set is the editor proper (text, rope, language, lsp, worktree, settings, theme), the Apache set is gpui and its infrastructure (collections, util, sum_tree, http_client).\n\nFour of them declare no license field in their Cargo.toml and are shown here with the licence file that is on disk beside them, per core/vendor/VENDOR.md: gpui_shared_string and gpui_util are Apache-2.0, grammars and language_core are GPL-3.0-or-later."
+    },
+    {
+      "id": "engine/termux-terminal-emulator",
+      "group": "engine",
+      "name": "Termux terminal-emulator",
+      "version": "0.118.0 (3df69d1d)",
+      "spdx": "GPL-3.0-only",
+      "copyright": "Copyright (C) Fredrik Fornwall and the Termux contributors",
+      "url": "https://github.com/termux/termux-app",
+      "licenseFiles": ["licenses/GPL-3.0.txt", "licenses/Apache-2.0.txt"],
+      "note": "Vendored as a Gradle module, complete and unmodified, and the source of lib/*/libtermux.so in this package. It derives from Android Terminal Emulator (Apache-2.0, Copyright (C) Jack Palevich), which upstream records as an exception in its own LICENSE.md and which is reproduced in the module — hence both texts here.\n\nThis component is the reason the application as a whole is GPL-3.0-ONLY rather than or-later."
+    },
+    {
+      "id": "engine/termux-terminal-view",
+      "group": "engine",
+      "name": "Termux terminal-view",
+      "version": "0.118.0 (3df69d1d)",
+      "spdx": "GPL-3.0-only",
+      "copyright": "Copyright (C) Fredrik Fornwall and the Termux contributors",
+      "url": "https://github.com/termux/termux-app",
+      "licenseFiles": ["licenses/GPL-3.0.txt", "licenses/Apache-2.0.txt"],
+      "note": "Vendored as a Gradle module and MODIFIED: TerminalView.java carries three hunks marked SEEKER PATCH that add the search highlight. GPLv3 s5(a) requires modified files to say so and they do, in place; vendor/VENDOR.md is the full record. Same Android Terminal Emulator heritage as terminal-emulator."
+    },
+
+    // ── Native binaries ──────────────────────────────────────────────────
+    {
+      "id": "native/proot",
+      "group": "native",
+      "name": "proot",
+      "version": "v5.1.107.91",
+      "spdx": "GPL-2.0-or-later",
+      "copyright": "Copyright (C) the PRoot authors; Termux fork",
+      "url": "https://github.com/termux/proot",
+      "licenseFiles": ["licenses/GPL-2.0.txt"],
+      "note": "Shipped as lib/*/libproot_exec.so in the full edition and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked SEEKER PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
+    },
+    {
+      "id": "native/talloc",
+      "group": "native",
+      "name": "talloc",
+      "version": "2.4.2",
+      "spdx": "LGPL-3.0-or-later",
+      "copyright": "Copyright (C) Andrew Tridgell and the Samba team",
+      "url": "https://download.samba.org/pub/talloc/",
+      "licenseFiles": ["licenses/LGPL-3.0.txt", "licenses/GPL-3.0.txt"],
+      "note": "Statically linked into libproot_exec.so and into nothing else. LGPLv3 is a set of additional permissions on top of GPLv3, so both texts are here and must be read together.\n\nBuilt from a hand-written config.h rather than talloc's own waf build, which does not cross-compile comfortably; that config.h is part of the corresponding source and is in the release archive with the pinned upstream tarball."
+    },
+
+    // ── Fonts, themes and icons ──────────────────────────────────────────
+    {
+      "id": "assets/ibm-plex-sans",
+      "group": "assets",
+      "name": "IBM Plex Sans",
+      "version": "via Zed bc538def45",
+      "spdx": "OFL-1.1",
+      "copyright": "Copyright (C) 2017 IBM Corp.",
+      "url": "https://github.com/IBM/plex",
+      "licenseFiles": ["fonts/IBMPlexSans-LICENSE.txt", "licenses/OFL-1.1.txt"],
+      "note": "The interface typeface. OFL-1.1 requires the licence text to be bundled with the font, which it is: the first file above is the copy that ships beside the .ttf files."
+    },
+    {
+      "id": "assets/lilex",
+      "group": "assets",
+      "name": "Lilex",
+      "version": "via Zed bc538def45",
+      "spdx": "OFL-1.1",
+      "copyright": "Copyright (C) Mikhail Myrt",
+      "url": "https://github.com/mishamyrt/Lilex",
+      "licenseFiles": ["fonts/Lilex-LICENSE.txt", "licenses/OFL-1.1.txt"],
+      "note": "The editor and terminal typeface."
+    },
+    {
+      "id": "assets/theme-ayu",
+      "group": "assets",
+      "name": "Ayu palette",
+      "version": "via Zed bc538def45",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) 2016 Ike Ku",
+      "url": "https://github.com/ayu-theme/ayu-colors",
+      "licenseFiles": ["themes/LICENSES.txt", "licenses/MIT.txt"],
+      "note": "The theme FILES in assets/themes are Zed's and are GPL-3.0-or-later with Zed; the palette — the colours themselves — is the upstream author's under MIT."
+    },
+    {
+      "id": "assets/theme-gruvbox",
+      "group": "assets",
+      "name": "Gruvbox palette",
+      "version": "via Zed bc538def45",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) Pavel Pertsev",
+      "url": "https://github.com/morhetz/gruvbox",
+      "licenseFiles": ["themes/LICENSES.txt", "licenses/MIT.txt"],
+      "note": "Zed's copy of this notice carried MIT's unfilled \"Copyright (c) <YEAR> <COPYRIGHT HOLDER>\" template for all six Gruvbox entries. The holder is now named; the YEAR is still missing and will be added once it is confirmed against morhetz/gruvbox's own LICENSE.md. A guessed year in a shipped notice is worse than none."
+    },
+    {
+      "id": "assets/theme-one",
+      "group": "assets",
+      "name": "One Dark and One Light palettes",
+      "version": "via Zed bc538def45",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) 2014 GitHub Inc.",
+      "url": "https://github.com/atom/atom",
+      "licenseFiles": ["themes/LICENSES.txt", "licenses/MIT.txt"],
+      "note": "The app's default dark and light themes, by way of Atom."
+    },
+    {
+      "id": "assets/lucide",
+      "group": "assets",
+      "name": "Lucide (chrome icons)",
+      "version": "1.37.0 (796dad29)",
+      "spdx": "ISC",
+      "copyright": "Copyright (c) 2026 Lucide Contributors",
+      "url": "https://github.com/lucide-icons/lucide",
+      "licenseFiles": ["icons/lucide-LICENSE.txt", "icons/LICENSES.txt", "licenses/ISC.txt"],
+      "note": "33 drawables — every ic_ui_* and ic_agent_* glyph in the interface — converted from Lucide's SVGs by tools/import-lucide-icons.py at a pinned tag, with the source SVGs vendored under tools/lucide/ and checked against a SHA256SUMS on every run.\n\nISC requires the notice to appear in all copies. This screen is where that happens."
+    },
+    {
+      "id": "assets/feather",
+      "group": "assets",
+      "name": "Feather (the subset Lucide derives from)",
+      "version": "within Lucide 1.37.0",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) 2013-present Cole Bemis",
+      "url": "https://github.com/feathericons/feather",
+      "licenseFiles": ["icons/lucide-LICENSE.txt", "licenses/MIT.txt"],
+      "note": "Lucide began as a fork of Feather and its own LICENSE names the icons that still derive from it — most of the ones this app uses. Feather's MIT text travels inside Lucide's LICENSE, reproduced verbatim, and each generated drawable's header records whether it is on that list."
+    },
+    {
+      "id": "assets/zed-file-icons",
+      "group": "assets",
+      "name": "Zed file-type icons",
+      "version": "bc538def45",
+      "spdx": "GPL-3.0-or-later",
+      "copyright": "Copyright (C) Zed Industries, Inc.",
+      "url": "https://github.com/zed-industries/zed",
+      "licenseFiles": ["icons/LICENSES.txt", "licenses/GPL-3.0.txt"],
+      "note": "79 drawables, drawn by Zed's design team and converted by tools/import-zed-icons.py. About fifteen are neutral pictograms; the rest are language and tool marks — Docker's whale, GitLab's tanuki, the Rust gear, Python's snakes.\n\nCopyright is not the question here: the artwork is Zed's own and GPL-3.0-or-later. TRADEMARK is. Those marks belong to their owners, they appear only in the file tree to say what kind of file something is, and nothing about their use is a claim of affiliation or endorsement. See the trademark note at the end of this list."
+    },
+    {
+      "id": "assets/eyed-icons",
+      "group": "assets",
+      "name": "ic_ui_agent and ic_stat_terminal",
+      "version": "",
+      "spdx": "GPL-3.0-or-later",
+      "copyright": "Copyright (C) 2026 Eyed",
+      "url": "",
+      "licenseFiles": ["licenses/GPL-3.0.txt"],
+      "note": "The two drawables in this app that nobody else drew: the agent sparkle and the terminal status-bar glyph. Listed on their own line so the boundary between Eyed's artwork and everyone else's is legible rather than implied."
+    },
+
+    // ── Syntax grammars: the query files ─────────────────────────────────
+    // The grammars themselves are crates and appear under Rust crates. These
+    // rows are the .scm query sets, which are copied text with their own
+    // provenance — docs/THIRD_PARTY.md, "Tree-sitter queries", is the table
+    // this mirrors.
+    {
+      "id": "grammars/zed-queries",
+      "group": "grammars",
+      "name": "Zed's query sets (HTML, CSS and the built-in languages)",
+      "version": "bc538def45",
+      "spdx": "GPL-3.0-or-later",
+      "copyright": "Copyright (C) Zed Industries, Inc.",
+      "url": "https://github.com/zed-industries/zed",
+      "licenseFiles": ["licenses/GPL-3.0.txt"],
+      "note": "highlights.scm, indents.scm, outline.scm, brackets.scm, overrides.scm and injections.scm for the languages Zed ships, vendored at the commit above."
+    },
+    {
+      "id": "grammars/tree-sitter-java-queries",
+      "group": "grammars",
+      "name": "Java queries",
+      "version": "v0.23.5",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) Ayman Nadeem, Max Brunsfeld",
+      "url": "https://github.com/tree-sitter/tree-sitter-java",
+      "licenseFiles": ["licenses/MIT.txt"],
+      "note": "highlights.scm from upstream's queries/, with punctuation and operator captures appended; the rest written here."
+    },
+    {
+      "id": "grammars/tree-sitter-toml-queries",
+      "group": "grammars",
+      "name": "TOML queries",
+      "version": "v0.7.0",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) Amaan Qureshi",
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-toml",
+      "licenseFiles": ["licenses/MIT.txt"],
+      "note": "Adapted from upstream's queries/highlights.scm; the rest written here."
+    },
+    {
+      "id": "grammars/tree-sitter-dockerfile-queries",
+      "group": "grammars",
+      "name": "Dockerfile grammar and queries",
+      "version": "v0.2.0",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) Camden Cheek",
+      "url": "https://github.com/camdencheek/tree-sitter-dockerfile",
+      "licenseFiles": ["licenses/MIT.txt"],
+      "note": "The one grammar vendored as generated C rather than taken from crates.io: parser.c and scanner.c live at core/crates/tree-sitter-dockerfile/grammar/ with upstream's LICENSE beside them. queries/highlights.scm came with it, @none dropped."
+    },
+    {
+      "id": "grammars/tree-sitter-make-queries",
+      "group": "grammars",
+      "name": "Make queries",
+      "version": "v1.1.1",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) the tree-sitter-make authors",
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-make",
+      "licenseFiles": ["licenses/MIT.txt"],
+      "note": "Trimmed from upstream's queries/highlights.scm onto Zed's key set."
+    },
+    {
+      "id": "grammars/tree-sitter-sql-queries",
+      "group": "grammars",
+      "name": "SQL queries",
+      "version": "v0.3.11",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) Derek Stride",
+      "url": "https://github.com/DerekStride/tree-sitter-sql",
+      "licenseFiles": ["licenses/MIT.txt"],
+      "note": "queries/highlights.scm with Neovim's capture names renamed to Zed's."
+    },
+    {
+      "id": "grammars/tree-sitter-xml-queries",
+      "group": "grammars",
+      "name": "XML queries",
+      "version": "v0.7.0",
+      "spdx": "MIT",
+      "copyright": "Copyright (c) Amaan Qureshi",
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-xml",
+      "licenseFiles": ["licenses/MIT.txt"],
+      "note": "queries/xml/highlights.scm, with markup.* and @error renamed."
+    },
+    {
+      "id": "grammars/tree-sitter-scss-queries",
+      "group": "grammars",
+      "name": "SCSS queries",
+      "version": "v1.0.0",
+      "spdx": "MIT AND GPL-3.0-or-later",
+      "copyright": "Copyright (c) Amaan Qureshi; Copyright (C) Zed Industries, Inc.",
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-scss",
+      "licenseFiles": ["licenses/MIT.txt", "licenses/GPL-3.0.txt"],
+      "note": "Upstream's queries/highlights.scm, filled in from Zed's css/highlights.scm for what SCSS shares with CSS — so this one file is genuinely both."
+    },
+    {
+      "id": "grammars/tree-sitter-svelte-queries",
+      "group": "grammars",
+      "name": "Svelte queries",
+      "version": "v1.0.2",
+      "spdx": "MIT AND GPL-3.0-or-later",
+      "copyright": "Copyright (c) Amaan Qureshi; Copyright (C) Zed Industries, Inc.",
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-svelte",
+      "licenseFiles": ["licenses/MIT.txt", "licenses/GPL-3.0.txt"],
+      "note": "Zed's html/highlights.scm plus upstream's block-tag keywords and queries/injections.scm."
+    },
+    {
+      "id": "grammars/kotlin-queries",
+      "group": "grammars",
+      "name": "Kotlin queries",
+      "version": "for tree-sitter-kotlin-ng v1.1.0",
+      "spdx": "GPL-3.0-or-later",
+      "copyright": "Copyright (C) 2026 Eyed",
+      "url": "https://github.com/tree-sitter-grammars/tree-sitter-kotlin",
+      "licenseFiles": ["licenses/GPL-3.0.txt"],
+      "note": "Written here against the grammar's node names, because tree-sitter-kotlin-ng ships no queries of its own."
+    },
+
+    // ── Downloaded after installation ────────────────────────────────────
+    // Mirrors app/src/main/assets/solana/toolchain/manifest.json, which is the
+    // thing that actually downloads them. If a version moves there and not
+    // here, the two disagree — the generator cannot check that for us because
+    // the manifest has no licence field, so it is checked by eye at release.
+    {
+      "id": "downloaded/debian",
+      "group": "downloaded",
+      "name": "Debian userland",
+      "version": "stable-slim, rolling",
+      "spdx": "A collection of works under many licences",
+      "copyright": "Copyright (C) the Debian contributors and upstream authors",
+      "url": "https://www.debian.org",
+      "licenseFiles": [],
+      "note": "Debian's own stable-slim container image, fetched from Debian's registry and verified against its digest. Every package in it carries its own copyright file at /usr/share/doc/<package>/copyright inside the installed rootfs, which is where its licence is to be read."
+    },
+    {
+      "id": "downloaded/rustup",
+      "group": "downloaded",
+      "name": "rustup",
+      "version": "1.29.0",
+      "spdx": "MIT OR Apache-2.0",
+      "copyright": "Copyright (c) 2016 The Rust Project Developers",
+      "url": "https://github.com/rust-lang/rustup",
+      "licenseFiles": ["licenses/MIT.txt", "licenses/Apache-2.0.txt"]
+    },
+    {
+      "id": "downloaded/platform-tools",
+      "group": "downloaded",
+      "name": "SBF platform-tools",
+      "version": "v1.57",
+      "spdx": "Apache-2.0 AND Apache-2.0 WITH LLVM-exception",
+      "copyright": "Copyright (c) Anza Technology, Inc.; the LLVM Project",
+      "url": "https://github.com/anza-xyz/platform-tools",
+      "licenseFiles": ["licenses/Apache-2.0.txt", "licenses/LLVM-exception.txt"],
+      "note": "An LLVM with the SBF backend, and a Rust toolchain to drive it. The bundled LLVM is Apache-2.0 with the LLVM exception."
+    },
+    {
+      "id": "downloaded/rust-analyzer",
+      "group": "downloaded",
+      "name": "rust-analyzer",
+      "version": "2026-08-24",
+      "spdx": "MIT OR Apache-2.0",
+      "copyright": "Copyright (c) rust-analyzer developers",
+      "url": "https://github.com/rust-lang/rust-analyzer",
+      "licenseFiles": ["licenses/MIT.txt", "licenses/Apache-2.0.txt"]
+    },
+    {
+      "id": "downloaded/spettro",
+      "group": "downloaded",
+      "name": "Spettro (the coding agent)",
+      "version": "v2.7.3",
+      "spdx": "not yet stated",
+      "copyright": "Copyright (C) 2026 Eyed",
+      "url": "https://github.com/aploide/spettro",
+      "licenseFiles": [],
+      "note": "Eyed's own release artefact, fetched by default as part of Setup. Its licence has not been settled and this row says so rather than guessing: a stated licence that turns out to be wrong is worse than an honest blank. It is on the release checklist in docs/LICENSING.md."
+    },
+    {
+      "id": "downloaded/apt",
+      "group": "downloaded",
+      "name": "Build tools (via apt)",
+      "version": "",
+      "spdx": "Each package under its own terms",
+      "copyright": "Copyright (C) the Debian contributors and upstream authors",
+      "url": "https://www.debian.org",
+      "licenseFiles": [],
+      "note": "The compiler and headers the two on-device crate builds need, installed by apt from Debian's own archives. Same answer as the userland: each package's copyright file is inside the rootfs."
+    },
+    {
+      "id": "downloaded/cargo-build-sbf",
+      "group": "downloaded",
+      "name": "cargo-build-sbf",
+      "version": "4.2.0",
+      "spdx": "Apache-2.0",
+      "copyright": "Copyright (c) Anza Technology, Inc.",
+      "url": "https://crates.io/crates/solana-cargo-build-sbf",
+      "licenseFiles": ["licenses/Apache-2.0.txt"],
+      "note": "Built on device from crates.io."
+    },
+    {
+      "id": "downloaded/anchor",
+      "group": "downloaded",
+      "name": "Anchor CLI",
+      "version": "1.1.2",
+      "spdx": "Apache-2.0",
+      "copyright": "Copyright (c) the Anchor contributors",
+      "url": "https://github.com/coral-xyz/anchor",
+      "licenseFiles": ["licenses/Apache-2.0.txt"],
+      "note": "Built on device from crates.io. Anchor is also the shape the project scaffolds imitate — solana/templates/SolanaTemplates.kt writes an Anchor.toml, a crate manifest, a lib.rs and a test in the form `anchor init` produces, using Anchor's own placeholder program id."
+    }
+  ],
+
+  // Rows the generated Rust closure cannot answer for itself. Four vendored
+  // Zed crates declare no `license` in their Cargo.toml, which makes an SPDX
+  // scanner report four unlicensed packages inside libseekercore.so. The
+  // information is on disk — each carries a LICENSE-APACHE or a LICENSE-GPL —
+  // and core/vendor/VENDOR.md is correct about all four. Upstream Zed has the
+  // same gap. The real fix is four one-line additions to those Cargo.toml
+  // files, marked SEEKER PATCH; until someone can do that without colliding
+  // with a build in flight, this is where the answer lives, and the generator
+  // FAILS if a crate has no licence and no entry here.
+  "rustLicenceOverrides": {
+    "gpui_shared_string": "Apache-2.0",
+    "gpui_util": "Apache-2.0",
+    "grammars": "GPL-3.0-or-later",
+    "language_core": "GPL-3.0-or-later"
+  },
+
+  // Who holds copyright in a package that lives inside this tree, keyed by
+  // directory. Used ONLY when the package ships no copyright line of its own —
+  // and thirty of the vendored Zed crates do not, because their only licence
+  // file is the bare GPL, whose own copyright line belongs to the FSF and says
+  // nothing about who wrote the crate. Both holders below are recorded facts
+  // (core/vendor/VENDOR.md, docs/THIRD_PARTY.md), not inferences.
+  "rustPathCopyrights": {
+    "core/vendor": "Copyright (C) Zed Industries, Inc.",
+    "core/crates": "Copyright (C) 2026 Eyed"
+  },
+
+  // Maven groups the generator is willing to resolve a licence for, and where
+  // that answer comes from. A POM's <licenses> block is the authority, but
+  // Gradle only downloads POMs when something asks for them, and asking turns
+  // a notices build into a network build — which is exactly what must not
+  // happen on the machine that ships a release. So the licence is decided by
+  // group here, from the POMs as read at the time, and the generator FAILS on
+  // a group that is not in this table. Adding a dependency from a new
+  // publisher therefore cannot quietly produce an incomplete screen.
+  "mavenLicences": {
+    "androidx":            { "spdx": "Apache-2.0", "copyright": "Copyright (C) The Android Open Source Project", "url": "https://developer.android.com/jetpack/androidx" },
+    "com.google":          { "spdx": "Apache-2.0", "copyright": "Copyright (C) Google LLC", "url": "https://developers.google.com" },
+    "org.jetbrains":       { "spdx": "Apache-2.0", "copyright": "Copyright (C) JetBrains s.r.o. and Kotlin Programming Language contributors", "url": "https://github.com/JetBrains/kotlin" },
+    "org.jspecify":        { "spdx": "Apache-2.0", "copyright": "Copyright (C) The JSpecify Authors", "url": "https://jspecify.dev" },
+    "org.checkerframework": { "spdx": "MIT", "copyright": "Copyright (c) 2004-present the Checker Framework developers", "url": "https://checkerframework.org" },
+    "com.squareup":        { "spdx": "Apache-2.0", "copyright": "Copyright (C) Square, Inc.", "url": "https://square.github.io" }
+  }
+}

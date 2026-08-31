@@ -3,7 +3,6 @@ package to.eyed.seeker.code.ui.git
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -19,9 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -265,28 +263,9 @@ internal fun DiffBody(
             lineHeight = (settings.bufferFontSize * 1.618034f).sp,
         )
     }
-    // One scroll for the whole patch, horizontal as well: a diff of a long
-    // line must not be wrapped, or the two sides stop lining up.
-    //
-    // Every row is given the *same* content width — that of the longest line —
-    // because `horizontalScroll` writes its maximum from each node's own
-    // measure and the setter clamps the offset down to it. Sharing one state
-    // across rows of different widths meant the shortest visible row decided
-    // how far the patch could scroll, which for a short last line was: not at
-    // all.
-    val across = rememberScrollState()
-    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val contentWidth = remember(files, code) {
-        val longest = files.asSequence()
-            .flatMap { file -> file.hunks.asSequence() }
-            .flatMap { hunk -> hunk.lines.asSequence() }
-            .maxOfOrNull { it.text.length + 1 } ?: 0
-        // Measured from the font rather than guessed: the buffer font is
-        // monospaced, so one character's width times the longest line is
-        // exactly right.
-        val character = measurer.measure("M", code).size.width
-        (longest * character).coerceAtLeast(1)
-    }
+    // There is no shared horizontal scroll any more, and no measured content
+    // width to share across the rows: the lines wrap (see [DiffLineRow]). The
+    // patch is one vertical list and nothing in it is wider than the screen.
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         for ((fileIndex, file) in files.withIndex()) {
             item(key = "file:$fileIndex") {
@@ -350,7 +329,7 @@ internal fun DiffBody(
                     // a duplicate key throws inside LazyLayout.
                     key = { at, _ -> "line:$fileIndex:$index:$at" },
                 ) { _, line ->
-                    DiffLineRow(line, code, across, contentWidth)
+                    DiffLineRow(line, code)
                 }
             }
         }
@@ -510,12 +489,34 @@ private fun HeaderButton(label: String, enabled: Boolean, onClick: () -> Unit) {
     )
 }
 
+/**
+ * One line of a patch: its two line numbers, and its text — which **wraps**.
+ *
+ * Wrapping is the phone's rule and it is not a preference. 400dp of column at
+ * the buffer font is a little over forty characters, and a diff that has to be
+ * dragged sideways to be read is a diff that is not read: "diffs word-wrap,
+ * never scroll horizontally" (docs/UI.md, "Diff"). What this used to do — one
+ * `horizontalScroll` shared by every row and sized to the longest line — is
+ * what [across] and [contentWidth] carried. They are kept and ignored rather
+ * than removed: the two call sites still passing them are the agent's diff
+ * cards in ui/agent/, which P7 does not own, and they go when those do.
+ *
+ * The tint is the second half of the same change, and it is on the **row**
+ * rather than on the first visual line. A wrapped continuation of a `−` line
+ * carries no sign of its own and is otherwise indistinguishable from a `+`
+ * line — the one way a diff can lie about which side of the change you are
+ * reading. The Row is as tall as the wrapped text, so every visual line of a
+ * changed line sits on `created.background` / `deleted.background`.
+ */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun DiffLineRow(
     line: PatchLine,
     code: TextStyle,
-    across: androidx.compose.foundation.ScrollState,
-    contentWidth: Int,
+    /** Ignored — see above. Kept so ui/agent/'s two call sites still compile. */
+    across: ScrollState? = null,
+    /** Ignored — see above. */
+    contentWidth: Int = 0,
 ) {
     val theme = LocalZedTheme.current
     // The tokens Zed highlights expanded hunk rows with: the status pair
@@ -534,16 +535,16 @@ internal fun DiffLineRow(
     ) {
         LineNumber(if (line.oldLine == 0) "" else line.oldLine.toString(), code)
         LineNumber(if (line.newLine == 0) "" else line.newLine.toString(), code)
-        Box(modifier = Modifier.horizontalScroll(across)) {
-            Text(
-                text = "${line.kind}${line.text}",
-                style = code,
-                color = theme.color("editor.foreground"),
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.width(with(LocalDensity.current) { contentWidth.toDp() }),
-            )
-        }
+        Text(
+            text = "${line.kind}${line.text}",
+            style = code,
+            color = theme.color("editor.foreground"),
+            // No `maxLines`: the whole line is the point. A tab-indented Rust
+            // line wraps to three visual rows on this screen and all three are
+            // tinted.
+            softWrap = true,
+            modifier = Modifier.weight(1f).padding(end = 4.dp),
+        )
     }
 }
 

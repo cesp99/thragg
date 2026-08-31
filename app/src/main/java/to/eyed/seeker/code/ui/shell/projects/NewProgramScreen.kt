@@ -41,6 +41,7 @@ import to.eyed.seeker.code.solana.templates.SolanaScaffold
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SelectionMark
 import to.eyed.seeker.code.ui.workspace.Notifications
 
 /**
@@ -400,10 +401,10 @@ private fun FrameworkCard(
             .heightIn(min = CardHeight)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Text(
-            text = if (isSelected) "◉" else "○",
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        SelectionMark(
+            selected = isSelected,
+            multi = false,
+            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
             modifier = Modifier.padding(end = 10.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
@@ -467,10 +468,10 @@ private fun CheckRow(checked: Boolean, label: String, onToggle: () -> Unit) {
             .clickable(onClick = onToggle)
             .heightIn(min = CardHeight),
     ) {
-        Text(
-            text = if (checked) "☑" else "☐",
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        SelectionMark(
+            selected = checked,
+            multi = true,
+            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
             modifier = Modifier.padding(end = 10.dp),
         )
         Text(

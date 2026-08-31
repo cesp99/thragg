@@ -32,12 +32,17 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentPastSession
 import to.eyed.seeker.code.ui.shell.projects.relativeTime
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 import java.time.Instant
@@ -251,6 +256,11 @@ fun SessionPicker(
     onOpen: (AgentPastSession) -> Unit,
     onResume: (AgentPastSession) -> Unit,
     onNew: () -> Unit,
+    /**
+     * The connected agent's own name. `session/list` is the agent's own
+     * history, so "Asking …" has to name the agent that is being asked.
+     */
+    agentName: String,
     modifier: Modifier = Modifier,
     onScopeChange: (SessionScope) -> Unit = {},
     /** Session ids this app already holds a thread for — the ● rows. */
@@ -291,7 +301,7 @@ fun SessionPicker(
                 item {
                     Text(
                         text = when {
-                            loading -> "Asking Spettro…"
+                            loading -> stringResource(R.string.agent_sessions_loading, agentName)
                             query.isNotBlank() -> "No conversation matches “$query”."
                             else -> "No conversations yet. The first prompt starts one."
                         },
@@ -351,8 +361,15 @@ fun SessionPicker(
                 .clickable(onClickLabel = "New session", onClick = onNew)
                 .padding(horizontal = 16.dp),
         ) {
+            SeekerIcon(
+                icon = R.drawable.ic_ui_plus,
+                contentDescription = null,
+                tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                size = IconSize.Inline,
+                modifier = Modifier.padding(end = 8.dp),
+            )
             Text(
-                text = "＋  New session",
+                text = "New session",
                 style = MaterialTheme.typography.labelLarge,
                 color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
             )
@@ -414,16 +431,18 @@ private fun SessionRow(
                 )
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
-            // ● for a conversation this app is already holding open, ○ for one
-            // that only exists in the agent's store.
-            Text(
-                text = if (isOpen) "●" else "○",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isOpen) {
+            // A filled dot for a conversation this app is already holding
+            // open, a hollow one for a conversation that only exists in the
+            // agent's store.
+            SeekerIcon(
+                icon = if (isOpen) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
+                contentDescription = if (isOpen) "open" else null,
+                tint = if (isOpen) {
                     theme.color("text.accent", MaterialTheme.colorScheme.primary)
                 } else {
                     muted
                 },
+                size = IconSize.Marker,
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -465,7 +484,7 @@ private fun SessionRow(
                     maxLines = 1,
                 )
             }
-            Text(text = "›", style = MaterialTheme.typography.bodyMedium, color = muted)
+            RowChevron(tint = muted)
         }
         if (expanded) {
             RowAction(
@@ -585,10 +604,11 @@ fun SessionSearchField(
             .padding(horizontal = 10.dp, vertical = 10.dp),
         decorationBox = { field ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "🔍",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_magnifying_glass,
+                    contentDescription = null,
+                    tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    size = IconSize.Inline,
                 )
                 Spacer(Modifier.width(8.dp))
                 Box(modifier = Modifier.weight(1f)) {

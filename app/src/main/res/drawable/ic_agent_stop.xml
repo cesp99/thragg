@@ -5,9 +5,11 @@
      Derived by Lucide from Feather (MIT, (c) 2013-present Cole Bemis).
      Licence text ships at app/src/main/assets/icons/lucide-LICENSE.txt.
      Used for: stop a running turn.
-     Stroke width 1.8 on a 24 viewport = 1.2dp at 16dp, the
-     weight the rest of this app's icons draw at.
-     Filled rather than stroked: a stop control has to read as a block. -->
+     Stroke width 1.8 on a 24 viewport = 1.2dp at 16dp and
+     1.8dp at 24dp; the caller picks the size, ui/theme/Icons.kt says
+     which sizes exist.
+     Filled rather than stroked: this mark has to read as a solid
+     block at 12-14dp, where an outline reads as an empty box. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="16dp"
     android:height="16dp"

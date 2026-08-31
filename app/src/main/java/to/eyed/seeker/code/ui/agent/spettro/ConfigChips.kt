@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,11 +26,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentConfigOption
 import to.eyed.seeker.code.core.SpettroToolbar
 import to.eyed.seeker.code.core.ULTRA_LOCK_REASON
 import to.eyed.seeker.code.core.UltraState
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 
 /**
  * The five selectors Spettro advertises, as a 32 dp chip row above the
@@ -150,10 +154,11 @@ fun ConfigNotice(text: String, onDismiss: () -> Unit, modifier: Modifier = Modif
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text = "⚠",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("warning", MaterialTheme.colorScheme.error),
+        SeekerIcon(
+            icon = R.drawable.ic_ui_warning,
+            contentDescription = null,
+            tint = theme.color("warning", MaterialTheme.colorScheme.error),
+            size = IconSize.Marker,
         )
         Text(
             text = text,
@@ -191,10 +196,11 @@ private fun PlainChip(
         onClickLabel = if (option.isBool) "Toggle ${option.name}" else "Change ${option.name}",
         description = "${option.name}, ${option.currentLabel}",
     ) {
-        Text(
-            text = chipGlyph(option),
-            style = MaterialTheme.typography.labelSmall,
-            color = tint ?: theme.color("icon.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        SeekerIcon(
+            icon = chipIcon(option),
+            contentDescription = null,
+            tint = tint ?: theme.color("icon.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            size = IconSize.Marker,
         )
         // A select prints its *value* — the option's own name is already said
         // by the icon, and "Model: Claude Sonnet 4.5" does not fit beside four
@@ -275,10 +281,11 @@ private fun UltraChip(
             UltraState.Locked -> neutral
             else -> amber
         }
-        Text(
-            text = "⚡",
-            style = MaterialTheme.typography.labelSmall,
-            color = label,
+        SeekerIcon(
+            icon = R.drawable.ic_ui_zap,
+            contentDescription = null,
+            tint = label,
+            size = IconSize.Marker,
         )
         Text(
             text = option.name,
@@ -292,15 +299,16 @@ private fun UltraChip(
         // same thing to TalkBack, so neither colour nor glyph is load-bearing
         // alone.
         val suffix = when (state) {
-            UltraState.Suspended -> "⏸"
-            UltraState.Locked -> "🔒"
+            UltraState.Suspended -> R.drawable.ic_ui_pause
+            UltraState.Locked -> R.drawable.ic_ui_lock
             else -> null
         }
         if (suffix != null) {
-            Text(
-                text = suffix,
-                style = MaterialTheme.typography.labelSmall,
-                color = label,
+            SeekerIcon(
+                icon = suffix,
+                contentDescription = null,
+                tint = label,
+                size = IconSize.Marker,
             )
         }
     }
@@ -374,15 +382,21 @@ internal fun chipOrder(options: List<AgentConfigOption>): List<AgentConfigOption
  * those two are the only ids matched here; everything else is keyed on the
  * classification the agent itself published, which is what lets a renamed
  * option keep the right icon.
+ *
+ * These were Unicode characters — `⌁`, `⬢`, `✻`, `⛨` — and every one of them
+ * is outside the range a phone's UI face has to carry. A chip whose glyph is
+ * tofu is a chip whose meaning is gone, so this returns a drawable now; the
+ * mapping from category to *idea* is unchanged.
  */
-internal fun chipGlyph(option: AgentConfigOption): String = when (option.category) {
-    "mode" -> "⌁"
-    "model" -> "⬢"
-    "thought_level" -> "✻"
+@DrawableRes
+internal fun chipIcon(option: AgentConfigOption): Int = when (option.category) {
+    "mode" -> R.drawable.ic_ui_compass
+    "model" -> R.drawable.ic_ui_hexagon
+    "thought_level" -> R.drawable.ic_ui_sparkles
     else -> when (option.id) {
-        ULTRA_ID -> "⚡"
-        "permission" -> "⛨"
-        else -> "◇"
+        ULTRA_ID -> R.drawable.ic_ui_zap
+        "permission" -> R.drawable.ic_ui_shield
+        else -> R.drawable.ic_ui_diamond
     }
 }
 

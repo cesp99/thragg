@@ -7,7 +7,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.core.ProjectSummary
@@ -52,6 +55,9 @@ import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.build.ShellModes
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.workspace.Notifications
 import java.io.File
@@ -205,7 +211,7 @@ fun ProjectsSheet(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-        ActionRow(glyph = "＋", label = "New program") {
+        ActionRow(icon = R.drawable.ic_ui_plus, label = "New program") {
             state.push(Route.NewProgram)
             onDismiss()
         }
@@ -213,12 +219,14 @@ fun ProjectsSheet(
         // edition cannot run git at all (GitClone.isSupported), and offering
         // what it cannot do is worse than not mentioning it.
         if (GitClone.isSupported) {
-            ActionRow(glyph = "⤓", label = "Clone from GitHub") {
+            ActionRow(icon = R.drawable.ic_ui_clone, label = "Clone from GitHub") {
                 state.push(Route.Clone)
                 onDismiss()
             }
         }
-        ActionRow(glyph = "⤒", label = "Import a folder") { importLauncher.launch(null) }
+        ActionRow(icon = R.drawable.ic_ui_folder_import, label = "Import a folder") {
+            importLauncher.launch(null)
+        }
     }
 
     val menuTarget = menuFor
@@ -419,13 +427,24 @@ private fun ProjectListRow(
             .padding(horizontal = SheetPadding, vertical = 6.dp),
     ) {
         // The dot is the whole of "which one is open": a filled row plus a
-        // bullet, and no checkmark column stealing 24dp from the name.
-        Text(
-            text = if (isCurrent) "●" else " ",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            modifier = Modifier.padding(end = 10.dp),
-        )
+        // bullet, and no checkmark column stealing 24dp from the name. The
+        // slot is drawn whether or not the dot is in it, so every name below
+        // starts at the same x.
+        Box(
+            // Padding first, then the slot: the other way round the 10dp is
+            // taken *out of* the 8dp and the dot measures zero.
+            modifier = Modifier.padding(end = 10.dp).width(CurrentDotSlot),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isCurrent) {
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_dot,
+                    contentDescription = "open",
+                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    size = CurrentDotSize,
+                )
+            }
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = row.summary.name,
@@ -446,7 +465,7 @@ private fun ProjectListRow(
 }
 
 @Composable
-private fun ActionRow(glyph: String, label: String, onClick: () -> Unit) {
+private fun ActionRow(@DrawableRes icon: Int, label: String, onClick: () -> Unit) {
     val theme = LocalZedTheme.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -459,10 +478,11 @@ private fun ActionRow(glyph: String, label: String, onClick: () -> Unit) {
             .heightIn(min = RowHeight)
             .padding(horizontal = SheetPadding),
     ) {
-        Text(
-            text = glyph,
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        SeekerIcon(
+            icon = icon,
+            contentDescription = null,
+            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            size = IconSize.Inline,
             modifier = Modifier.padding(end = 12.dp),
         )
         Text(
@@ -508,11 +528,7 @@ private fun ToolRow(
                 modifier = Modifier.padding(end = 10.dp),
             )
         }
-        Text(
-            text = "›",
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        RowChevron()
     }
 }
 
@@ -837,3 +853,7 @@ fun ProjectsEntryPoint(state: ShellState, modifier: Modifier = Modifier) {
         ProjectsSheet(state = state, onDismiss = { open = false })
     }
 }
+
+/** The "open" slot: a fixed width, so the names below it line up. */
+private val CurrentDotSlot = 8.dp
+private val CurrentDotSize = 7.dp

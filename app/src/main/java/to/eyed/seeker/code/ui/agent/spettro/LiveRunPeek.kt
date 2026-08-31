@@ -38,10 +38,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.Member
 import to.eyed.seeker.code.core.OrchRun
 import to.eyed.seeker.code.core.OrchStatus
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /**
@@ -309,7 +312,12 @@ fun LiveRunPeek(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text("▲", style = MaterialTheme.typography.labelSmall, color = muted)
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_chevron_up,
+                    contentDescription = null,
+                    tint = muted,
+                    size = IconSize.Marker,
+                )
             }
             return@Column
         }
@@ -338,7 +346,12 @@ fun LiveRunPeek(
                     color = muted,
                 )
             }
-            Text("▼", style = MaterialTheme.typography.labelSmall, color = muted)
+            SeekerIcon(
+                icon = R.drawable.ic_ui_chevron_down,
+                contentDescription = null,
+                tint = muted,
+                size = IconSize.Marker,
+            )
         }
         CardRule()
         Column(
@@ -438,10 +451,15 @@ private fun PeekPhase(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(
-                text = if (pending) "○" else "●",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (pending) muted else theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            SeekerIcon(
+                icon = if (pending) R.drawable.ic_ui_circle else R.drawable.ic_ui_dot,
+                contentDescription = if (pending) "queued" else null,
+                tint = if (pending) {
+                    muted
+                } else {
+                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                },
+                size = PhaseDotSize,
             )
             Text(
                 text = title.ifBlank { "unphased" },
@@ -570,3 +588,6 @@ private fun PulseDot(color: Color, live: Boolean, size: androidx.compose.ui.unit
         drawCircle(color = color.copy(alpha = color.alpha * alpha), radius = this.size.minDimension / 4f)
     }
 }
+
+/** The phase bullet: 9dp, so it reads as punctuation beside `labelMedium`. */
+private val PhaseDotSize = 9.dp

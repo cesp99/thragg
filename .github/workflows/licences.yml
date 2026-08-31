@@ -1,0 +1,87 @@
+# The notices bundle, checked the two ways it can go stale.
+#
+# docs/LICENSING.md §4: `app/src/main/assets/licenses/components.json` is
+# generated, and the build "fails if the generated file differs from the
+# committed copy. Run it in CI on every PR, so adding a dependency without a
+# notice cannot merge." This is that job.
+#
+# 1. A Rust dependency moved. `tools/gen-licenses.py --check` re-derives the
+#    aarch64-linux-android link closure of `jni-bridge` from cargo and fails
+#    if the committed inventory is not what it produces — including when a new
+#    crate arrives under an SPDX identifier whose verbatim text this package
+#    does not yet ship, which is a hard failure inside the generator rather
+#    than a missing row on the screen.
+#
+# 2. A Maven dependency moved. The release runtime classpath is re-dumped by
+#    Gradle and compared. A publisher with no entry in the manifest's
+#    `mavenLicences` table fails the generator on the next step, which is the
+#    point: a new dependency from a new publisher must be given a licence
+#    deliberately, not defaulted to Apache-2.0 because most of them are.
+#
+# What this job does NOT do is check the licence *texts*. Those are verbatim
+# documents with recorded SHA-256s in `app/src/main/assets/licenses/SOURCES.txt`
+# and they do not change; a diff in one of them is a review question, not a
+# CI question.
+
+name: Licences
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/**/Cargo.toml"
+      - "core/Cargo.lock"
+      - "gradle/libs.versions.toml"
+      - "app/build.gradle.kts"
+      - "app/src/main/assets/licenses/**"
+      - "tools/gen-licenses.py"
+      - "tools/licenses/**"
+      - ".github/workflows/licences.yml"
+  pull_request:
+    paths:
+      - "core/**/Cargo.toml"
+      - "core/Cargo.lock"
+      - "gradle/libs.versions.toml"
+      - "app/build.gradle.kts"
+      - "app/src/main/assets/licenses/**"
+      - "tools/gen-licenses.py"
+      - "tools/licenses/**"
+      - ".github/workflows/licences.yml"
+
+jobs:
+  licences:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The generator runs `cargo tree --offline`, deliberately: a notices
+      # build that needs the network is one that cannot be reproduced from the
+      # corresponding-source archive in three years' time. So the registry is
+      # populated once, here, and the generator never reaches for it again.
+      #
+      # It also reads each crate's LICENSE file out of the unpacked registry
+      # source to find the copyright holder, which is why this is `cargo fetch`
+      # and not a lock-file read.
+      - name: Fetch the crate sources
+        working-directory: core
+        run: cargo fetch --target aarch64-linux-android
+
+      - name: The Rust inventory is what the tree says it is
+        run: python3 tools/gen-licenses.py --check
+
+      - name: The Maven inventory is what the release classpath says it is
+        run: |
+          ./gradlew :app:dumpMavenLicences --console=plain
+          git diff --exit-code -- tools/licenses/maven-runtime.json
+
+      # Re-run the generator over the freshly dumped Maven half. The step
+      # above only proves the dump did not move; this proves the inventory
+      # built from it did not either, and it is the step that fails when a new
+      # Maven group has no licence recorded for it.
+      - name: The notices bundle is up to date
+        run: python3 tools/gen-licenses.py --check

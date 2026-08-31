@@ -34,12 +34,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.OrchRun
 import to.eyed.seeker.code.core.OrchStatus
 import to.eyed.seeker.code.core.WorkflowPhase
 import to.eyed.seeker.code.core.WorkflowScript
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /**
@@ -117,7 +121,20 @@ fun WorkflowCard(
                     .heightIn(min = 36.dp)
                     .clickable(onClickLabel = run.name) { open = !open },
             ) {
-                Text("▣", style = MaterialTheme.typography.labelMedium, color = muted)
+                // The run's own mark. Was `▣` (U+25A3) typed as text — a
+                // codepoint a phone's UI face need not carry at all, drawn at
+                // labelMedium beside a titleSmall name, which is why it read
+                // as a speck. `git_graph` because what distinguishes a
+                // workflow from the swarm card beside it is its *structure* —
+                // phases with members hanging off them — and the swarm
+                // already wears its own distinguishing property (the Ultra
+                // bolt). A goal mark would not have told the two apart.
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_git_graph,
+                    contentDescription = null,
+                    tint = muted,
+                    size = IconSize.Marker,
+                )
                 Text(
                     text = run.name.ifBlank { "workflow" },
                     style = MaterialTheme.typography.titleSmall,
@@ -142,12 +159,17 @@ fun WorkflowCard(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                Text(
-                    // ⌄ open, ⌃ tucked away — the state, not the gesture, which is
-                    // the vocabulary every other card in this app already uses.
-                    text = if (open) "⌄" else "⌃",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
+                // Down open, up tucked away — the state, not the gesture,
+                // which is the vocabulary every other card in this app uses.
+                SeekerIcon(
+                    icon = if (open) {
+                        R.drawable.ic_ui_chevron_down
+                    } else {
+                        R.drawable.ic_ui_chevron_up
+                    },
+                    contentDescription = null,
+                    tint = muted,
+                    size = IconSize.Marker,
                 )
             }
 
@@ -284,7 +306,12 @@ fun WorkflowScriptRow(
                 .clickable(onClickLabel = "Workflow script") { sheet = true }
                 .padding(horizontal = 8.dp),
         ) {
-            Text("▣", style = MaterialTheme.typography.labelMedium, color = muted)
+            SeekerIcon(
+                icon = R.drawable.ic_ui_git_graph,
+                contentDescription = null,
+                tint = muted,
+                size = IconSize.Marker,
+            )
             Text(
                 text = "Workflow" + script.savedAs.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
@@ -294,7 +321,7 @@ fun WorkflowScriptRow(
             )
             Spacer(Modifier.weight(1f))
             StatusGlyph(script.status)
-            Text("›", style = MaterialTheme.typography.labelSmall, color = muted)
+            RowChevron(tint = muted)
         }
         if (script.error.isNotBlank()) {
             Text(

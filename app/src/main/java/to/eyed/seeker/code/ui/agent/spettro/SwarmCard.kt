@@ -28,11 +28,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.Member
 import to.eyed.seeker.code.core.OrchRun
 import to.eyed.seeker.code.core.OrchStatus
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /**
@@ -101,7 +104,12 @@ fun SwarmCard(
                     .heightIn(min = 36.dp)
                     .clickable(onClickLabel = "Ultra swarm") { open = !open },
             ) {
-                Text("⚡", style = MaterialTheme.typography.labelMedium, color = amber)
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_zap,
+                    contentDescription = null,
+                    tint = amber,
+                    size = IconSize.Marker,
+                )
                 Text(
                     text = "Ultra swarm" + run.subagentType.takeIf { it.isNotBlank() }
                         ?.let { " · $it" }.orEmpty(),
@@ -123,12 +131,17 @@ fun SwarmCard(
                         maxLines = 1,
                     )
                 }
-                Text(
-                    // ⌄ open, ⌃ tucked away — the state, not the gesture, which is
-                    // the vocabulary every other card in this app already uses.
-                    text = if (open) "⌄" else "⌃",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
+                // Down open, up tucked away — the state, not the gesture,
+                // which is the vocabulary every other card in this app uses.
+                SeekerIcon(
+                    icon = if (open) {
+                        R.drawable.ic_ui_chevron_down
+                    } else {
+                        R.drawable.ic_ui_chevron_up
+                    },
+                    contentDescription = null,
+                    tint = muted,
+                    size = IconSize.Marker,
                 )
             }
 
@@ -194,7 +207,7 @@ fun SwarmCard(
             val moreQueued = run.pending.size - ghosts.size
             if (moreQueued > 0) {
                 // A phone cannot spend 400 dp on work that has not started.
-                OverflowRow("○ +$moreQueued more queued") { showQueued = true }
+                OverflowRow("+$moreQueued more queued") { showQueued = true }
             } else if (showQueued && run.pending.size > GhostCap) {
                 OverflowRow("show fewer") { showQueued = false }
             }
@@ -226,21 +239,35 @@ fun SwarmCard(
     }
 }
 
-/** The `⑂ worktree` pill: an explanation one tap away, never a tooltip. */
+/** The `worktree` pill: an explanation one tap away, never a tooltip. */
 @Composable
 private fun WorktreePill(amber: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
-    Text(
-        text = "⑂ worktree",
-        style = MaterialTheme.typography.labelSmall,
-        color = amber,
-        maxLines = 1,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
             .border(1.dp, amber.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
             .clickable(onClickLabel = "What worktree isolation means") { onClick() }
             .padding(horizontal = 6.dp, vertical = 2.dp),
-    )
+    ) {
+        SeekerIcon(
+            icon = R.drawable.ic_ui_git_fork,
+            contentDescription = null,
+            tint = amber,
+            size = WorktreeMarkSize,
+        )
+        Text(
+            text = "worktree",
+            style = MaterialTheme.typography.labelSmall,
+            color = amber,
+            maxLines = 1,
+        )
+    }
 }
+
+/** 11dp: this pill is 16dp tall, so [IconSize.Marker] would burst it. */
+private val WorktreeMarkSize = 11.dp
 
 /**
  * The one-shot worktree sheet.

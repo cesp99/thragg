@@ -74,6 +74,30 @@ sealed interface Route {
     /** Fourteen rows and "Edit settings.json". */
     data object Settings : Route
 
+    /**
+     * Every component this package is built from, and its licence — the
+     * screen docs/LICENSING.md §5 specifies. Pushed from Settings and from
+     * About; keeps the nav bar, like every route but Setup.
+     */
+    data object Licences : Route
+
+    /**
+     * One component's full licence text.
+     *
+     * A route rather than state inside [Licences] so that back walks list →
+     * detail → list the way a reader expects, through the same
+     * ShellBackHandler step (BackStep.PopRoute) that every other pair of
+     * screens uses. §5 describes "list → detail" and leaves the mechanism
+     * open; making the detail a second route is what keeps the back gesture
+     * out of the screen's own hands.
+     *
+     * [name] is carried rather than looked up because [Route.title] is a pure
+     * property with no access to the catalogue — and a title that had to read
+     * a 260 KB asset to print itself would be a title that arrives a frame
+     * late. [id] is the row's stable identifier from components.json.
+     */
+    data class LicenceDetail(val id: String, val name: String) : Route
+
     /** Name, framework, cluster, "open a thread afterwards". */
     data object NewProgram : Route
 

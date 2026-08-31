@@ -1,4 +1,4 @@
-# The icon set, checked the three ways it can go wrong.
+# The icon set, checked the four ways it can go wrong.
 #
 # 1. Provenance drift. `tools/import-lucide-icons.py` converts from the
 #    snapshot vendored at `tools/lucide/`, whose digests are recorded in
@@ -16,6 +16,14 @@
 #    path with correct-looking `pathData` and no paint at all. It compiles, it
 #    inflates, and it is invisible — the one defect that reading the XML does
 #    not catch. So the drawables are rasterised and the pixels are counted.
+#
+# 4. The launcher icon's bitmaps drifting from its vectors. Every device this
+#    app supports draws the adaptive icon in `mipmap-anydpi/`, so the ten
+#    `mipmap-*dpi/*.webp` fallbacks can stop matching it and no build, test or
+#    launcher will say so — the app would simply show one icon on a phone and
+#    a different one in a store listing. They are generated from the vectors
+#    by `tools/render-launcher-icon.py`, and `--check` re-derives them and
+#    compares.
 
 name: Icons
 
@@ -24,17 +32,23 @@ on:
     branches: [main]
     paths:
       - "app/src/main/res/drawable/**"
+      - "app/src/main/res/mipmap-anydpi/**"
+      - "app/src/main/res/mipmap-*dpi/**"
       - "app/src/main/assets/icons/**"
       - "tools/import-lucide-icons.py"
       - "tools/import-zed-icons.py"
+      - "tools/render-launcher-icon.py"
       - "tools/lucide/**"
       - ".github/workflows/icons.yml"
   pull_request:
     paths:
       - "app/src/main/res/drawable/**"
+      - "app/src/main/res/mipmap-anydpi/**"
+      - "app/src/main/res/mipmap-*dpi/**"
       - "app/src/main/assets/icons/**"
       - "tools/import-lucide-icons.py"
       - "tools/import-zed-icons.py"
+      - "tools/render-launcher-icon.py"
       - "tools/lucide/**"
       - ".github/workflows/icons.yml"
 
@@ -60,10 +74,25 @@ jobs:
       - name: Every icon puts ink on the canvas
         run: python3 tools/render-icon-sheet.py -o /tmp/icon-sheet.png
 
+      - name: The launcher bitmaps still match the launcher vectors
+        run: |
+          python3 tools/render-launcher-icon.py --check
+          python3 tools/render-launcher-icon.py --sheet /tmp/launcher-icon.png
+
       - name: Keep the contact sheet
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: icon-sheet
           path: /tmp/icon-sheet.png
+          if-no-files-found: ignore
+
+      # A launcher icon is a 48dp decision, and the only way to make that
+      # decision is to look. This is the sheet to look at.
+      - name: Keep the launcher review sheet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-icon
+          path: /tmp/launcher-icon.png
           if-no-files-found: ignore

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher icon, monochrome layer for themed icons. Original work,
+  Copyright (C) 2026 Eyed.
+
+  A separate drawing, not `@drawable/ic_launcher_foreground` pointed at a
+  second time. The template did exactly that — background, foreground *and*
+  monochrome all resolved to the same two files — and it is the usual mistake,
+  because the foreground is designed against a known background and the
+  monochrome layer is not:
+
+  * The colour mark has two tones. The prompt is bone, the cursor is amber, and
+    the ~8.6 units of clear space between them is enough *because the two
+    shapes are different colours*. Flatten both to one tint, as the themed
+    launcher does, and that gap is the only thing left separating a chevron
+    from a rectangle. Here it is opened to ~10.7 units.
+  * A single-tone glyph loses the contrast that made the strokes read, so the
+    chevron is drawn heavier: 9.2 units against the colour version's 8.4.
+  * Themed icons sit on a solid system plate with no tile of their own, and a
+    glyph tuned to fill a coloured tile looks oversized on one. The whole mark
+    is inset ~5% (ink spans 30.4..77.6 horizontally, 32.1..75.9 vertically,
+    still centred on (54,54), furthest point 30.3 of the 33-unit safe radius).
+
+  The colour is `#FF000000` because the system re-tints this layer to the
+  theme's foreground colour and only the alpha channel survives the trip.
+  Black is what Google's own themed assets use, so a launcher that skipped the
+  tint would still show a legible dark glyph on a light plate rather than
+  nothing at all.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M35,36.7 L47.9,54 L35,71.3"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="9.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M66.4,43.8 L74.4,43.8 A3.2,3.2 0 0 1 77.6,47 L77.6,61 A3.2,3.2 0 0 1 74.4,64.2 L66.4,64.2 A3.2,3.2 0 0 1 63.2,61 L63.2,47 A3.2,3.2 0 0 1 66.4,43.8 Z"
+        android:fillColor="#FF000000" />
+</vector>

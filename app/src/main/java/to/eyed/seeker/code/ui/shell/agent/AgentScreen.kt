@@ -1,8 +1,10 @@
 package to.eyed.seeker.code.ui.shell.agent
 
 import android.content.Context
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +46,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import to.eyed.seeker.code.R
+import to.eyed.seeker.code.core.AgentChoice
 import to.eyed.seeker.code.core.AgentEntry
 import to.eyed.seeker.code.core.AgentMention
 import to.eyed.seeker.code.core.AgentNotifier
@@ -90,7 +96,12 @@ import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.projects.AgentThreadSeed
 import to.eyed.seeker.code.ui.shell.projects.ProjectsSheet
+import to.eyed.seeker.code.ui.theme.ChipCaret
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.revealItem
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.Notifications
 
@@ -139,6 +150,56 @@ internal fun mergedQuestions(
     loose: List<SpettroQuestion>,
 ): List<SpettroQuestion> =
     sessionQuestions + loose.filter { free -> sessionQuestions.none { it.id == free.id } }
+
+/**
+ * What to call the agent on screen, from the two names that may exist.
+ *
+ * [connected] is `initialize`'s own `agentInfo.name` — what the program on the
+ * other end of the pipe calls itself, and the only name that is certainly
+ * true. [chosen] is the `agent_servers` key the user launched, which is all
+ * there is before the handshake lands. "Agent" is the last resort and is
+ * never wrong, only vague.
+ *
+ * One function because the name is now read in six places (the bar, the
+ * composer, the approval sheet, the config sheet, the session picker, the
+ * notification) and six copies of the same elvis chain is how they drift.
+ */
+internal fun agentDisplayName(connected: String?, chosen: String?): String =
+    connected?.takeIf { it.isNotBlank() }
+        ?: chosen?.takeIf { it.isNotBlank() }
+        ?: "Agent"
+
+/**
+ * Whether the transcript's own tail is on screen.
+ *
+ * [lastVisibleIndex] is null for a list that has laid nothing out yet, which
+ * counts as "at the tail": a conversation that has not drawn a row cannot have
+ * been scrolled away from, and answering `false` there would leave the very
+ * first reply un-followed.
+ *
+ * The last item is the transcript's `tail` slot (the ticker / stop notice), so
+ * "the tail is visible" and "the newest words are visible" are the same
+ * question.
+ */
+internal fun transcriptAtTail(lastVisibleIndex: Int?, totalItems: Int): Boolean =
+    totalItems <= 0 || lastVisibleIndex == null || lastVisibleIndex >= totalItems - 1
+
+/**
+ * Whether to keep following the tail, one poll later.
+ *
+ * The rule that matters is the third branch. While the reader's finger is down
+ * their position *is* the answer: dragging away from the tail means stop,
+ * dragging back to it means resume. With no finger down, arriving at the tail
+ * re-arms it — but *leaving* the tail does not switch it off, because the
+ * commonest way to leave the tail with nobody touching the screen is a reply
+ * growing under the fold, and treating that as "the reader scrolled up" is
+ * precisely the bug this exists to avoid.
+ */
+internal fun followsTail(previous: Boolean, dragging: Boolean, atTail: Boolean): Boolean = when {
+    dragging -> atTail
+    atTail -> true
+    else -> previous
+}
 
 /** `2 files changed`, or null when the review bar has nothing to say. */
 internal fun reviewLabel(editedFiles: Int): String? = when {
@@ -196,9 +257,10 @@ private sealed interface AgentSheet {
  * SharedPreferences rather than settings.json: it is not a setting anybody
  * edits, it is a record that a question was asked, and putting it in the file
  * the user opens in the editor would invite them to flip a flag whose only
- * effect is to ask them again.
+ * effect is to ask them again. The file is [AgentChoice]'s — one place for the
+ * panel's small facts about this device, and the chosen agent is the other one.
  */
-private const val ASK_PREFS = "seeker.agent"
+private const val ASK_PREFS = AgentChoice.PREFS
 private const val ASKED_PERMISSION_KEY = "permission_choice_answered"
 
 private fun permissionChoiceAnswered(context: Context): Boolean =
@@ -272,6 +334,17 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     var sessionQuery by remember { mutableStateOf("") }
     var sessionScope by remember { mutableStateOf(SessionScope.PROJECT) }
     var lockedNotice by remember { mutableStateOf<String?>(null) }
+    // The notice says "raise the permission level first". Once the level *has*
+    // been raised the sentence is no longer true, and it used to stay on
+    // screen until the user tapped it away — which put it directly above an
+    // Ultra chip the same screen had just drawn solid and enabled, two
+    // contradictory claims at once (seen on the device: wave 4's
+    // build/conformance-shots/10-ultra-on.png). The lock going away is what
+    // retires the notice, not the user acknowledging it.
+    val ultraUnlocked = session.toolbar.canToggleUltra
+    LaunchedEffect(ultraUnlocked) {
+        if (ultraUnlocked) lockedNotice = null
+    }
 
     val rows = remember(snapshot.conversation) {
         foldOrchestration(snapshot.conversation.entries)
@@ -318,6 +391,11 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     LaunchedEffect(agent) {
         if (agent != null || !AgentSessions.isSupported) return@LaunchedEffect
         val result = withContext(Dispatchers.IO) { SpettroInstall.ensureRegistered(context) }
+        // The restore of the user's own choice runs on IO too and may have
+        // landed while this was in flight. It wins: falling back to the
+        // bundled agent over an agent that was deliberately picked is the
+        // forgetting this pair of effects exists to stop.
+        if (AgentSessions.agent != null) return@LaunchedEffect
         when (result) {
             is SpettroInstall.Result.Registered -> AgentSessions.choose(result.agent)
             is SpettroInstall.Result.Unconfirmed -> AgentSessions.choose(result.agent)
@@ -356,6 +434,32 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
         val answered = withContext(Dispatchers.IO) { permissionChoiceAnswered(context) }
         if (!answered) sheet = AgentSheet.PermissionChoice
     }
+    // Whether the transcript should keep following its own tail.
+    //
+    // **Latched, not derived fresh every frame**, and that is the whole
+    // difficulty of the fix. "Is the last item visible?" answers *no* the
+    // instant a growing reply pushes the tail item under the fold, which is
+    // exactly the moment we most want to follow — so a transcript wired that
+    // way stops following after the first paragraph that overflows the
+    // screen. It is turned off only by the reader's own hand (a drag that
+    // ends away from the tail) and back on the moment they come back to it,
+    // which is the rule the reader can actually feel: scroll up to read
+    // something and the stream stops chasing you; scroll back down and it
+    // resumes.
+    var following by remember(sessionId) { mutableStateOf(true) }
+    val atTail by remember(listState) {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            transcriptAtTail(info.visibleItemsInfo.lastOrNull()?.index, info.totalItemsCount)
+        }
+    }
+    // The drag, and not `isScrollInProgress`: our own `revealItem` is a scroll
+    // in progress too, and reading that would let the follow switch itself off.
+    val dragging by listState.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(dragging, atTail) {
+        following = followsTail(previous = following, dragging = dragging, atTail = atTail)
+    }
+
     // "Re-tapping the current destination scrolls it to the newest message."
     //
     // The newest message is at the END: this list is not `reverseLayout`, so
@@ -367,13 +471,30 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     LaunchedEffect(state.retapCount) {
         if (state.retapCount != retapSeen[0]) {
             retapSeen[0] = state.retapCount
-            runCatching { listState.animateScrollToItem(rows.size) }
+            // A retap is an explicit request for the tail, so it also re-arms
+            // the follow below: asking for the newest message and then not
+            // being shown the next one would be the wrong half of an answer.
+            following = true
+            runCatching { listState.revealItem(rows.size) }
         }
     }
     // The tail is where a conversation is read from, and a streamed answer
     // that arrives off-screen is an answer nobody sees.
-    LaunchedEffect(rows.size) {
-        if (rows.isNotEmpty()) runCatching { listState.animateScrollToItem(rows.size) }
+    //
+    // Keyed on the conversation's **revision** and not on `rows.size`. Text
+    // streams into the *last* row, which does not change the count, so a reply
+    // longer than the viewport used to grow past the bottom of the screen with
+    // the list standing still — the answer was being written somewhere below
+    // the fold and nothing moved until the next row arrived. The revision is
+    // the engine's own per-merge counter, so it ticks for every chunk.
+    //
+    // `rows.size` is the trailing `tail` item and it is the last item in the
+    // list, so scrolling to it clamps to the very bottom rather than parking
+    // its top at the top of the viewport: that is what keeps the view pinned
+    // while a single row grows taller than the screen.
+    LaunchedEffect(snapshot.conversation.revision, following) {
+        if (rows.isEmpty() || !following) return@LaunchedEffect
+        runCatching { listState.revealItem(rows.size) }
     }
     // A program scaffolded next door wants its first sentence said here.
     LaunchedEffect(project?.id, thread) {
@@ -398,7 +519,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     // it. Cancelled the moment nothing is waiting — see [AgentNotifier.waiting].
     val waitingCount = questions.size + approvals.size
     LaunchedEffect(waitingCount, AgentSessions.appInForeground) {
-        val name = session.agent?.agentName ?: agent?.name ?: "Agent"
+        val name = agentDisplayName(session.agent?.agentName, agent?.name)
         if (waitingCount > 0 && !AgentSessions.appInForeground) {
             AgentNotifier.waiting(context, name, AgentNotifier.waitingMessage(waitingCount))
         } else {
@@ -568,6 +689,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
             shell = state,
             state = session,
             thread = thread,
+            agentName = agentDisplayName(session.agent?.agentName, agent?.name),
             projectName = project?.rootName,
             enabled = session.canPrompt && sessionId != null,
             focus = composerFocus,
@@ -638,6 +760,11 @@ private fun AgentSheets(
 ) {
     val project = state.project
     val workspace = rememberCodeWorkspace()
+    // Every sheet below that names the agent names *this*, and never the one
+    // we bundle: `AgentSessions.agent` is the entry the user launched and
+    // `session.agent` is what the program calls itself once it has answered
+    // `initialize`.
+    val agentName = agentDisplayName(session.agent?.agentName, AgentSessions.agent?.name)
 
     when (sheet) {
         null -> Unit
@@ -663,7 +790,10 @@ private fun AgentSheets(
         AgentSheet.Overflow -> AgentOverflowSheet(
             shell = state,
             items = listOf(
-                OverflowItem("Sessions", "Spettro's own saved conversations") {
+                OverflowItem(
+                    "Sessions",
+                    stringResource(R.string.agent_overflow_sessions, agentName),
+                ) {
                     AgentSessions.refreshSessionList()
                     onSheet(AgentSheet.Sessions)
                 },
@@ -709,6 +839,7 @@ private fun AgentSheets(
         AgentSheet.Plan -> PlanSheet(
             state = state,
             plan = session.plan,
+            agentName = agentName,
             onDismiss = { onDismiss(null) },
         )
 
@@ -716,6 +847,7 @@ private fun AgentSheets(
             state = state,
             usage = session.usage,
             turnUsage = session.turnUsage,
+            agentName = agentName,
             // `/compact` is a prompt on the wire like any other command; the
             // agent owns what it means.
             onCompact = { AgentSessions.prompt("/compact", emptyList(), emptyList()) {} },
@@ -809,6 +941,7 @@ private fun AgentSheets(
                     PermissionSheet(
                         state = state,
                         request = call,
+                        agentName = agentName,
                         onSelect = { option, answerMeta ->
                             AgentSessions.respondToPermission(call.id, option.id, answerMeta)
                             onDismissedAnswered(call.key)
@@ -914,6 +1047,7 @@ private fun SessionsSheet(
                 AgentSessions.newThread(root.id, root.rootName, root.rootPath)
                 onDismiss()
             },
+            agentName = agentDisplayName(session.agent?.agentName, AgentSessions.agent?.name),
             onScopeChange = onScope,
             openSessionIds = open,
             canReplay = canReplay,
@@ -942,7 +1076,7 @@ private fun AgentBar(
     onOverflow: () -> Unit,
 ) {
     val theme = LocalZedTheme.current
-    val agentName = state.agent?.agentName ?: "Agent"
+    val agentName = agentDisplayName(state.agent?.agentName, null)
     val mode = state.toolbar.mode?.currentLabel
     Row(
         modifier = Modifier
@@ -953,50 +1087,65 @@ private fun AgentBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = (projectName ?: "No project") + " ▾",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            maxLines = 1,
-            overflow = TextOverflow.MiddleEllipsis,
+        // Both carets in this bar are drawables, for the reason spelled out
+        // on Code's header: a `▾` at label metrics is thinner and smaller than
+        // the real icons sharing the bar with it.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .touchTarget()
                 .clip(RoundedCornerShape(4.dp))
                 .clickable(onClickLabel = "Projects", onClick = onProjects)
                 .padding(horizontal = 4.dp, vertical = 8.dp),
-        )
-        Text(
-            text = if (mode.isNullOrBlank()) agentName else "$agentName · $mode ▾",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            maxLines = 1,
-            overflow = TextOverflow.MiddleEllipsis,
+        ) {
+            Text(
+                text = projectName ?: "No project",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            ChipCaret(modifier = Modifier.padding(start = 2.dp))
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .weight(1f)
                 .touchTarget()
                 .clip(RoundedCornerShape(4.dp))
                 .clickable(onClickLabel = "Agent settings", onClick = onConfig)
                 .padding(horizontal = 4.dp, vertical = 8.dp),
-        )
+        ) {
+            Text(
+                text = if (mode.isNullOrBlank()) agentName else "$agentName · $mode",
+                style = MaterialTheme.typography.labelMedium,
+                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // Only when there is a mode to change — the caret said "this
+            // opens something" even when the chip was just the agent's name.
+            if (!mode.isNullOrBlank()) {
+                ChipCaret(modifier = Modifier.padding(start = 2.dp))
+            }
+        }
         ContextRing(usage = state.usage, onClick = onContext)
-        BarAction("＋", "New thread", onNewThread)
-        BarAction("⋮", "More", onOverflow)
+        BarAction(R.drawable.ic_ui_plus, "New thread", onNewThread)
+        BarAction(R.drawable.ic_ui_more_vertical, "More", onOverflow)
     }
 }
 
 @Composable
-private fun BarAction(label: String, description: String, onClick: () -> Unit) {
+private fun BarAction(@DrawableRes icon: Int, description: String, onClick: () -> Unit) {
     val theme = LocalZedTheme.current
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier
-            .touchTarget()
-            .clip(RoundedCornerShape(4.dp))
-            .clickable(onClickLabel = description, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
+    SeekerIconButton(
+        icon = icon,
+        description = description,
+        onClick = onClick,
+        tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
     )
 }
 
@@ -1122,9 +1271,15 @@ private fun ReviewBar(label: String, onOpen: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         Text(
-            text = "Review →",
+            text = "Review",
             style = MaterialTheme.typography.labelMedium,
             color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        )
+        SeekerIcon(
+            icon = R.drawable.ic_ui_chevron_right,
+            contentDescription = null,
+            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            size = IconSize.Marker,
         )
     }
 }

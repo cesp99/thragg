@@ -38,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.solana.toolchain.ComponentRow
 import to.eyed.seeker.code.solana.toolchain.ComponentState
 import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
@@ -47,7 +48,9 @@ import to.eyed.seeker.code.solana.toolchain.ToolchainPhase
 import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.terminal.Userland
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 /**
@@ -171,7 +174,12 @@ private fun Masthead(textColor: androidx.compose.ui.graphics.Color) {
         modifier = Modifier.fillMaxWidth().padding(top = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "◎", style = MaterialTheme.typography.displaySmall, color = textColor)
+        SeekerIcon(
+            icon = R.drawable.ic_ui_target,
+            contentDescription = null,
+            tint = textColor,
+            size = IconSize.Hero,
+        )
         Text(
             text = "Seeker IDE",
             style = MaterialTheme.typography.titleLarge,
@@ -235,16 +243,26 @@ private fun ComponentRowView(row: ComponentRow, now: Long, onRetry: () -> Unit) 
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = glyph(state),
-                style = MaterialTheme.typography.labelLarge,
-                color = when (state) {
-                    is ComponentState.Installed -> theme.color("created", muted)
-                    is ComponentState.Failed -> theme.color("error", MaterialTheme.colorScheme.error)
-                    else -> muted
-                },
+            // A fixed 20dp slot whether or not there is a mark in it, so the
+            // names of the components stay in one column down the screen.
+            Box(
                 modifier = Modifier.width(20.dp),
-            )
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                stateIcon(state)?.let { (icon, said) ->
+                    SeekerIcon(
+                        icon = icon,
+                        contentDescription = said,
+                        tint = when (state) {
+                            is ComponentState.Installed -> theme.color("created", muted)
+                            is ComponentState.Failed ->
+                                theme.color("error", MaterialTheme.colorScheme.error)
+                            else -> muted
+                        },
+                        size = IconSize.Marker,
+                    )
+                }
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = row.component.name,
@@ -297,11 +315,19 @@ private fun ComponentRowView(row: ComponentRow, now: Long, onRetry: () -> Unit) 
     }
 }
 
-private fun glyph(state: ComponentState): String = when (state) {
-    is ComponentState.Installed -> "✓"
-    is ComponentState.Downloading, is ComponentState.Working -> "▶"
-    is ComponentState.Failed -> "✕"
-    is ComponentState.Pending, is ComponentState.Cancelled -> "·"
+/**
+ * The mark on the left of a component row, and the words behind it.
+ *
+ * `null` for a component that has not started: an empty slot is what "not yet"
+ * looks like, and the middle dot that used to sit there was a glyph carrying
+ * no meaning a screen reader could read.
+ */
+private fun stateIcon(state: ComponentState): Pair<Int, String>? = when (state) {
+    is ComponentState.Installed -> R.drawable.ic_ui_check to "installed"
+    is ComponentState.Downloading, is ComponentState.Working ->
+        R.drawable.ic_ui_play to "working"
+    is ComponentState.Failed -> R.drawable.ic_ui_close to "failed"
+    is ComponentState.Pending, is ComponentState.Cancelled -> null
 }
 
 /** The right-hand figure: a size, a byte count, or the words for a compile. */

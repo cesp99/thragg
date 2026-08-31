@@ -1,6 +1,7 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
 import android.content.Intent
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,9 +34,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.SetupGate
 import to.eyed.seeker.code.core.SpettroSetup
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 
@@ -125,7 +130,7 @@ fun SpettroSetupScreen(
             Spacer(Modifier.height(24.dp))
 
             SetupCard(
-                glyph = "◆",
+                icon = R.drawable.ic_ui_sparkles,
                 title = "Sign in to Spettro",
                 subtitle = "No key to type. Opens your browser.",
                 badge = "RECOMMENDED",
@@ -133,7 +138,7 @@ fun SpettroSetupScreen(
             )
             Spacer(Modifier.height(12.dp))
             SetupCard(
-                glyph = "⚿",
+                icon = R.drawable.ic_ui_key,
                 title = "Use my own API key",
                 subtitle = providerLine(),
                 chevron = true,
@@ -141,7 +146,7 @@ fun SpettroSetupScreen(
             )
             Spacer(Modifier.height(12.dp))
             SetupCard(
-                glyph = "⌂",
+                icon = R.drawable.ic_ui_house,
                 title = "Connect a local model",
                 subtitle = "Ollama or LM Studio, on device or on your network.",
                 chevron = true,
@@ -243,7 +248,7 @@ private fun providerLine(): String {
  */
 @Composable
 private fun SetupCard(
-    glyph: String,
+    @DrawableRes icon: Int,
     title: String,
     subtitle: String,
     onClick: () -> Unit,
@@ -268,12 +273,17 @@ private fun SetupCard(
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
     ) {
-        Text(
-            text = glyph,
-            style = MaterialTheme.typography.titleMedium,
-            color = text,
+        Box(
             modifier = Modifier.width(28.dp),
-        )
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            SeekerIcon(
+                icon = icon,
+                contentDescription = null,
+                tint = text,
+                size = IconSize.Inline,
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -299,7 +309,7 @@ private fun SetupCard(
             )
         }
         if (chevron) {
-            Text(text = "›", style = MaterialTheme.typography.titleMedium, color = muted)
+            RowChevron(tint = muted)
         }
     }
 }

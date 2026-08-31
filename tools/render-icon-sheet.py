@@ -7,11 +7,20 @@ inflates, it costs nothing at runtime, and it is invisible. The only way to know
 an icon survived the import is to rasterise it and look at the pixels.
 
     tools/render-icon-sheet.py 'ic_ui_*' 'ic_agent_*' -o /tmp/sheet.png
+    tools/render-icon-sheet.py 'ic_ui_*' --dp 14 -o /tmp/marks.png
 
 Each drawable is translated back into an SVG that rsvg-convert can rasterise —
 the same paths, the same paint — then tiled into one labelled PNG. Any tile
 with no ink is reported and the exit status is non-zero, so this works as a
 check as well as something to look at.
+
+`--dp` is the second question, and the one a 96px tile cannot answer: **does
+this icon still read at the size it is actually drawn?** It rasterises at
+`dp x density` pixels — 480dpi, the Seeker's panel, by default — so `--dp 14`
+is literally the pixels a status mark occupies on the device, and `--dp 24` is
+the nav bar. An icon whose interior detail closes up into a blob at 14dp is a
+drawable that passed the ink check and still fails on the phone; ui/theme/
+Icons.kt's four sizes were chosen against these sheets.
 """
 
 from __future__ import annotations
@@ -27,6 +36,10 @@ from pathlib import Path
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 CELL = 96  # px per tile; big enough that a 1.2dp stroke is unmistakable
+
+# The Seeker: 400 x 890dp at 480dpi, which is 3x. `--dp N` therefore rasterises
+# at 3N pixels, the exact pixel count the device puts on the glass.
+SEEKER_DENSITY = 3.0
 
 
 def a(node: ET.Element, name: str, default: str | None = None) -> str | None:
@@ -47,7 +60,7 @@ def colour(value: str | None) -> tuple[str, float] | None:
     return value, 1.0
 
 
-def to_svg(path: Path) -> tuple[str, int]:
+def to_svg(path: Path, cell: int = CELL) -> tuple[str, int]:
     """One VectorDrawable to one SVG string, plus the number of painted paths."""
     root = ET.parse(path).getroot()
     vw = a(root, "viewportWidth", "24")
@@ -101,7 +114,7 @@ def to_svg(path: Path) -> tuple[str, int]:
 
     walk(root, "")
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{CELL}" height="{CELL}" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{cell}" height="{cell}" '
         f'viewBox="0 0 {vw} {vh}">\n' + "\n".join(body) + "\n</svg>\n"
     )
     return svg, painted
@@ -133,8 +146,23 @@ def main() -> int:
     parser.add_argument("patterns", nargs="*", default=["*"], help="drawable name globs")
     parser.add_argument("-o", "--out", default="/tmp/icon-sheet.png")
     parser.add_argument("--columns", type=int, default=8)
+    parser.add_argument(
+        "--dp",
+        type=float,
+        help="rasterise at this many dp instead of one big tile — "
+        "the size the icon is actually drawn (see ui/theme/Icons.kt)",
+    )
+    parser.add_argument(
+        "--density",
+        type=float,
+        default=SEEKER_DENSITY,
+        help=f"screen density behind --dp (default {SEEKER_DENSITY:g}x, the Seeker)",
+    )
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parent.parent))
     args = parser.parse_args()
+
+    # At most one pixel per dp per density step, and never zero.
+    cell = max(8, round(args.dp * args.density)) if args.dp else CELL
 
     drawables = Path(args.repo) / "app/src/main/res/drawable"
     files = sorted(
@@ -150,14 +178,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tiles: list[str] = []
         for source in files:
-            svg, painted = to_svg(source)
+            svg, painted = to_svg(source, cell)
             svg_path = Path(tmp) / f"{source.stem}.svg"
             svg_path.write_text(svg)
             png = Path(tmp) / f"{source.stem}.png"
             # White on transparent, then flattened onto the app's dark chrome:
             # the icons are tinted at draw time, so white is what they become.
             subprocess.run(
-                ["rsvg-convert", "-w", str(CELL), "-h", str(CELL), "-o", str(png), str(svg_path)],
+                ["rsvg-convert", "-w", str(cell), "-h", str(cell), "-o", str(png), str(svg_path)],
                 check=True,
                 env={"PATH": "/usr/bin:/bin"},
             )
@@ -186,7 +214,8 @@ def main() -> int:
             check=True,
         )
 
-    print(f"{len(files)} drawables -> {args.out}")
+    size = f"{args.dp:g}dp at {args.density:g}x = {cell}px" if args.dp else f"{CELL}px"
+    print(f"{len(files)} drawables at {size} -> {args.out}")
     if blank:
         print("\nDREW NOTHING:", file=sys.stderr)
         for name in blank:

@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Seeker IDE's launcher icon. Original work, Copyright (C) 2026 Eyed, under the
+  project licence; see docs/THIRD_PARTY.md.
+
+  Three genuinely separate layers. `monochrome` in particular is its own
+  drawable rather than a second reference to `ic_launcher_foreground`, which is
+  what the Android Studio template did and what makes most themed icons look
+  broken — the reasoning is in ic_launcher_monochrome.xml.
+
+  This lives in `mipmap-anydpi` rather than `mipmap-anydpi-v26` because minSdk
+  is 31: there is no device in range that cannot inflate an `<adaptive-icon>`,
+  so the qualifier would only describe a bucket that is always selected. The
+  `mipmap-*dpi/*.webp` bitmaps beside it are the pre-O fallback and are
+  regenerated from these same vectors by tools/render-launcher-icon.py.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>

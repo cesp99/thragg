@@ -24,13 +24,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentPlanEntry
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 // ---------------------------------------------------------------------------
@@ -78,17 +82,26 @@ internal fun planSummary(plan: List<AgentPlanEntry>): PlanSummary? {
 }
 
 /**
- * The glyph for a task's state.
+ * The mark for a task's state, and the word behind it.
  *
- * Text glyphs rather than vector icons on purpose: they inherit the row's
- * colour and baseline for free, and this strip is rebuilt wholesale on every
- * plan update, so three drawables per row would be three allocations per
- * update for a shape 14 dp across.
+ * This used to be a table of Unicode characters, argued for on the grounds
+ * that a glyph inherits the row's colour and baseline for free and costs no
+ * allocation on a strip that is rebuilt on every plan update. Both halves of
+ * that were true and neither was the point: a `Text` glyph draws at the
+ * *font's* optical size, so these three marks came out thinner and smaller
+ * than every drawable beside them, and `◉` is not a codepoint a phone's UI
+ * face is obliged to have. The cost was never real either — `painterResource`
+ * caches the inflated drawable per resource id, so three ids is three cached
+ * painters for the life of the process, not three allocations per update.
+ *
+ * The second half of the pair is what a screen reader says. The mark is the
+ * only thing on the row that carries the state, so unlike most icons in this
+ * app it is *not* decoration and does get a description.
  */
-internal fun statusGlyph(status: AgentPlanEntry.Status): String = when (status) {
-    AgentPlanEntry.Status.Completed -> "✓"
-    AgentPlanEntry.Status.InProgress -> "◉"
-    AgentPlanEntry.Status.Pending -> "○"
+internal fun statusIcon(status: AgentPlanEntry.Status): Pair<Int, String> = when (status) {
+    AgentPlanEntry.Status.Completed -> R.drawable.ic_ui_check to "done"
+    AgentPlanEntry.Status.InProgress -> R.drawable.ic_ui_circle_dot to "in progress"
+    AgentPlanEntry.Status.Pending -> R.drawable.ic_ui_circle to "to do"
 }
 
 // ---------------------------------------------------------------------------
@@ -155,10 +168,11 @@ fun PlanStrip(
             color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
             maxLines = 1,
         )
-        Text(
-            text = "▲",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        SeekerIcon(
+            icon = R.drawable.ic_ui_chevron_up,
+            contentDescription = null,
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            size = IconSize.Marker,
         )
     }
 }
@@ -184,6 +198,11 @@ private val StripHeight = 32.dp
 fun PlanSheet(
     state: ShellState,
     plan: List<AgentPlanEntry>,
+    /**
+     * The connected agent's own name. `session/update`'s `plan` is ordinary
+     * ACP, so the empty sentence must not name the agent we bundle.
+     */
+    agentName: String,
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZedTheme.current
@@ -191,8 +210,7 @@ fun PlanSheet(
     SheetScaffold(state = state, onDismiss = onDismiss, title = "Plan") {
         if (summary == null) {
             Text(
-                text = "No plan yet. Spettro publishes one when a request needs more " +
-                    "than one step.",
+                text = stringResource(R.string.agent_plan_empty, agentName),
                 style = MaterialTheme.typography.bodyMedium,
                 color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -270,9 +288,9 @@ fun PlanRow(entry: AgentPlanEntry, modifier: Modifier = Modifier) {
 }
 
 /**
- * The status glyph, and the only thing on a plan row that animates.
+ * The status mark, and the only thing on a plan row that animates.
  *
- * Keyed on the task's text so that a *rewritten* task swaps its glyph without
+ * Keyed on the task's text so that a *rewritten* task swaps its mark without
  * a fade — the fade means "this task advanced", and it would be a lie on a row
  * that is a different task in the same position.
  */
@@ -287,10 +305,11 @@ private fun PlanGlyph(entry: AgentPlanEntry) {
                 animationSpec = tween(durationMillis = if (reduceMotion) 0 else 180),
                 label = "plan-status",
             ) { status ->
-                Text(
-                    text = statusGlyph(status),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = when (status) {
+                val (icon, said) = statusIcon(status)
+                SeekerIcon(
+                    icon = icon,
+                    contentDescription = said,
+                    tint = when (status) {
                         AgentPlanEntry.Status.Completed ->
                             theme.color("created", theme.color("text.muted", Color.Gray))
                         AgentPlanEntry.Status.InProgress ->
@@ -298,6 +317,7 @@ private fun PlanGlyph(entry: AgentPlanEntry) {
                         AgentPlanEntry.Status.Pending ->
                             theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
                     },
+                    size = IconSize.Marker,
                 )
             }
         }

@@ -4,6 +4,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentEntry
 import to.eyed.seeker.code.core.FileDiff
 import to.eyed.seeker.code.core.OrchRun
@@ -57,7 +59,9 @@ import to.eyed.seeker.code.ui.agent.spettro.rememberActivationBrush
 import to.eyed.seeker.code.ui.common.MarkdownText
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -177,18 +181,29 @@ internal fun toolVerb(call: AgentEntry.ToolCall): String = when (call.kind) {
     ToolKind.Other -> call.toolName.replaceFirstChar { it.uppercase() }.ifEmpty { "Tool" }
 }
 
-/** The one glyph a 44 dp row can hold for each kind. */
-internal fun toolGlyph(call: AgentEntry.ToolCall): String = when (call.kind) {
-    ToolKind.Execute -> "⌗"
-    ToolKind.Read -> "◇"
-    ToolKind.Edit -> "✎"
-    ToolKind.Delete -> "✕"
-    ToolKind.Move -> "→"
-    ToolKind.Search -> "⌕"
-    ToolKind.Fetch -> "↓"
-    ToolKind.Think -> if (call.toolName.startsWith("agent", ignoreCase = true)) "🧠" else "◌"
-    ToolKind.SwitchMode -> "⇄"
-    ToolKind.Other -> "•"
+/**
+ * The one icon a 44 dp row can hold for each kind.
+ *
+ * This used to be a table of Unicode characters drawn in a `Text` — `⌗`, `◇`,
+ * `✎`. Two of them (`⌗` U+2317, `⌦`-family marks) are outside what a phone's
+ * UI face is obliged to carry, one of them was an emoji that arrived in
+ * colour on a monochrome row, and all of them rendered at the font's optical
+ * size rather than an icon's. The mapping is unchanged; only the medium is.
+ */
+@DrawableRes
+internal fun toolIcon(call: AgentEntry.ToolCall): Int = when (call.kind) {
+    ToolKind.Execute -> R.drawable.ic_ui_terminal
+    ToolKind.Read -> R.drawable.ic_ui_diamond
+    ToolKind.Edit -> R.drawable.ic_ui_pencil
+    ToolKind.Delete -> R.drawable.ic_ui_trash
+    ToolKind.Move -> R.drawable.ic_ui_arrow_right
+    ToolKind.Search -> R.drawable.ic_ui_magnifying_glass
+    ToolKind.Fetch -> R.drawable.ic_ui_download
+    ToolKind.Think ->
+        if (call.toolName.startsWith("agent", ignoreCase = true)) R.drawable.ic_ui_brain
+        else R.drawable.ic_ui_circle_dashed
+    ToolKind.SwitchMode -> R.drawable.ic_ui_swap
+    ToolKind.Other -> R.drawable.ic_ui_circle
 }
 
 /**
@@ -429,12 +444,23 @@ private fun UserBubble(entry: AgentEntry.User, onRestore: () -> Unit) {
                 ),
             )
             if (entry.checkpoint) {
-                Text(
-                    text = "↺ restore checkpoint",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(top = 4.dp),
-                )
+                ) {
+                    SeekerIcon(
+                        icon = R.drawable.ic_ui_rotate_ccw,
+                        contentDescription = null,
+                        tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        size = IconSize.Marker,
+                    )
+                    Text(
+                        text = "restore checkpoint",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    )
+                }
             }
         }
     }
@@ -474,16 +500,27 @@ private fun AssistantRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(
-                    text = if (thinkingOpen) "⌄" else "›",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                SeekerIcon(
+                    icon = if (thinkingOpen) {
+                        R.drawable.ic_ui_chevron_down
+                    } else {
+                        R.drawable.ic_ui_chevron_right
+                    },
+                    contentDescription = null,
+                    tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    size = IconSize.Marker,
+                )
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_brain,
+                    contentDescription = null,
+                    tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    size = IconSize.Marker,
                 )
                 Text(
                     // "Thinking…" while it is the last thing on screen and
                     // nothing has been said yet; "Reasoning" once the answer
                     // has landed, because by then it is a record.
-                    text = if (spoken.isBlank()) "🧠 Thinking…" else "🧠 Reasoning",
+                    text = if (spoken.isBlank()) "Thinking…" else "Reasoning",
                     style = MaterialTheme.typography.labelMedium,
                     color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
                 )
@@ -636,10 +673,12 @@ private fun ToolCallRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = toolGlyph(call),
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            SeekerIcon(
+                icon = toolIcon(call),
+                // The verb beside it is the label; this is the picture of it.
+                contentDescription = null,
+                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                size = IconSize.Marker,
             )
             Text(
                 text = toolVerb(call),
@@ -665,10 +704,15 @@ private fun ToolCallRow(
                 )
             }
             ToolStatusMark(call.status)
-            Text(
-                text = if (waiting) "›" else if (open) "⌃" else "›",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            SeekerIcon(
+                icon = if (!waiting && open) {
+                    R.drawable.ic_ui_chevron_up
+                } else {
+                    R.drawable.ic_ui_chevron_right
+                },
+                contentDescription = null,
+                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                size = IconSize.Marker,
             )
         }
 
@@ -707,15 +751,34 @@ private fun ToolCallRow(
                 // the call *asked for* is the half worth reading (W-09).
                 val raw = call.rawInputOpen ?: call.rawInput
                 if (raw != null) {
-                    Text(
-                        text = "arguments ›",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .touchTarget()
-                            .clickable { sheet = MonoSheetRequest("Arguments", raw) }
+                            .clickable(onClickLabel = "Arguments") {
+                                sheet = MonoSheetRequest("Arguments", raw)
+                            }
                             .padding(vertical = 4.dp),
-                    )
+                    ) {
+                        Text(
+                            text = "arguments",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = theme.color(
+                                "text.muted",
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                        SeekerIcon(
+                            icon = R.drawable.ic_ui_chevron_right,
+                            contentDescription = null,
+                            tint = theme.color(
+                                "text.muted",
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            size = IconSize.Marker,
+                        )
+                    }
                 }
             }
         }
@@ -740,6 +803,9 @@ private data class MonoSheetRequest(val title: String, val body: String)
  * A **small dot** for completed rather than a green check: the check is
  * reserved for orchestration members, and a transcript in which every read
  * carries one reads as a list of achievements (docs/SPETTRO.md).
+ *
+ * 8dp rather than [IconSize.Marker]'s 14: this is punctuation at the end of a
+ * row, and a 14dp filled circle beside `labelSmall` is a bullet that shouts.
  */
 @Composable
 private fun ToolStatusMark(status: ToolCallStatus) {
@@ -754,16 +820,18 @@ private fun ToolStatusMark(status: ToolCallStatus) {
             color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
         )
 
-        ToolCallStatus.Completed -> Text(
-            text = "●",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        ToolCallStatus.Completed -> SeekerIcon(
+            icon = R.drawable.ic_ui_dot,
+            contentDescription = "done",
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            size = CompletedDotSize,
         )
 
-        ToolCallStatus.Failed -> Text(
-            text = "✗",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("error", MaterialTheme.colorScheme.error),
+        ToolCallStatus.Failed -> SeekerIcon(
+            icon = R.drawable.ic_ui_close,
+            contentDescription = "failed",
+            tint = theme.color("error", MaterialTheme.colorScheme.error),
+            size = IconSize.Marker,
         )
 
         ToolCallStatus.Rejected, ToolCallStatus.Canceled -> Text(
@@ -897,3 +965,6 @@ private fun TerminalBlock(
 
 /** How many lines of a command's output the card shows before the sheet. */
 private const val TERMINAL_TAIL_LINES = 40
+
+/** See [ToolStatusMark]: the completed dot is punctuation, not a mark. */
+private val CompletedDotSize = 8.dp

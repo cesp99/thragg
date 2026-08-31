@@ -11,8 +11,9 @@ where the notice file is the compliance artefact and a reviewer has to be able
 to check it. Coming straight from Lucide the answer is instead "Lucide 1.37.0,
 commit 796dad29, ISC, this drawable is that icon", which anyone can verify.
 
-    tools/import-lucide-icons.py            # convert from the vendored snapshot
-    tools/import-lucide-icons.py --fetch    # refresh the snapshot, then convert
+    tools/import-lucide-icons.py                  # convert the vendored snapshot
+    tools/import-lucide-icons.py --fetch          # refresh it first, then convert
+    tools/import-lucide-icons.py --archive x.zip  # refresh it from a local copy
 
 The snapshot under `tools/lucide/` is the source of truth: the SVGs this app
 actually uses, plus Lucide's LICENSE, plus a SHA256SUMS the converter checks on
@@ -56,12 +57,18 @@ LICENSE_SHA256 = "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c
 # for a tint.
 TINT = "#FFFFFFFF"
 
-# Lucide draws at stroke-width 2 on a 24 viewport. This app draws icons at
-# 16dp, where that would come out at 2/24*16 = 1.33dp — visibly heavier than
-# the 1.2dp the file icons and the rest of the chrome already use. 1.8/24*16 is
+# Lucide draws at stroke-width 2 on a 24 viewport. The git chrome draws icons
+# at 16dp, where that would come out at 2/24*16 = 1.33dp — visibly heavier than
+# the 1.2dp the file icons and the rest of that chrome already use. 1.8/24*16 is
 # exactly 1.2dp, so the set lands at the weight the app was designed around and
 # the swap is invisible. A uniform weight change is the one modification worth
 # making here; nothing else about the geometry is touched.
+#
+# The stroke is in *viewport units*, so it scales with whatever size the caller
+# draws at rather than staying 1.2dp forever: ui/theme/Icons.kt's 24dp nav slot
+# gets 1.8dp of stroke and its 22dp action slot 1.65dp, which is the weight a
+# 480dpi phone needs and the whole reason the glyph-as-text controls looked
+# thin next to these. Nothing here has to change for that to happen.
 STROKE_WIDTH = "1.8"
 
 CAPS = {"round": "round", "square": "square", "butt": "butt"}
@@ -91,8 +98,9 @@ class Icon:
     def __init__(self, lucide: str, note: str, fill: bool = False) -> None:
         self.lucide = lucide
         self.note = note
-        # `fill` turns a stroked outline into a solid shape. Used once, for the
-        # stop control, which has to read as a block rather than an empty box.
+        # `fill` turns a stroked outline into a solid shape. Used for the marks
+        # that have to read as a *block* at 12-14dp rather than as an empty
+        # outline: stop, the unsaved dot, a favourited star.
         self.fill = fill
 
 
@@ -153,6 +161,77 @@ ICONS: dict[str, Icon] = {
     # no equivalent of; `list-end` is the closest — a list, with the arrow at
     # the point new work joins it.
     "ic_agent_queue": Icon("list-end", "queue a message behind a running turn"),
+
+    # -----------------------------------------------------------------------
+    # The glyph-as-text migration.
+    #
+    # Until now roughly seventy controls across the shell and the editor drew
+    # their icon as a *Unicode character in a Text composable* — `⌕` for
+    # search, `☰` for the file tree, `⋮` for an overflow menu. Three things are
+    # wrong with that and all three showed up on a Seeker at 480dpi. A glyph
+    # renders at the font's optical size and stroke weight rather than at an
+    # icon metric, so it comes out thin and small beside a real drawable; the
+    # size it lands at is whatever the type scale says, so `labelSmall` and
+    # `titleMedium` call sites drew the same mark at different sizes; and the
+    # codepoint has to exist in the font, so a device whose UI face lacks
+    # `⛨` or `⌂` draws tofu where a control should be.
+    #
+    # These are the icons those call sites needed. Every one is a Lucide glyph
+    # picked to mean what the character it replaces meant, so nothing on screen
+    # changes its vocabulary — only its metrics. See ui/theme/Icons.kt for the
+    # one place their size is now decided.
+    # -----------------------------------------------------------------------
+    "ic_ui_arrow_left": Icon("arrow-left", "back, out of a pushed route"),
+    "ic_ui_arrow_right": Icon("arrow-right", "forward; a move tool call"),
+    "ic_ui_at": Icon("at-sign", "add context to a message (was a literal @)"),
+    "ic_ui_brain": Icon("brain", "the agent's reasoning block"),
+    "ic_ui_checkbox": Icon("square", "an unticked multi-select option"),
+    "ic_ui_checkbox_checked": Icon("square-check", "a ticked one"),
+    "ic_ui_chevron_right": Icon("chevron-right", "a row that opens something"),
+    "ic_ui_circle": Icon("circle", "queued, pending, not yet open"),
+    "ic_ui_circle_dashed": Icon("circle-dashed", "the agent planning"),
+    "ic_ui_circle_dot": Icon("circle-dot", "in progress; a chosen radio option"),
+    # Zed's clone affordance was `⤓`, which is an arrow into a bar and reads as
+    # "download" only if you already knew. A cloud with an arrow says where the
+    # bytes come from, and matches ic_ui_github beside it in the same sheet.
+    "ic_ui_clone": Icon("cloud-download", "clone a repository from a host"),
+    "ic_ui_compact": Icon("fold-vertical", "compact the conversation's context"),
+    "ic_ui_compass": Icon("compass", "the agent's mode — plan, coding, ask"),
+    "ic_ui_diamond": Icon("diamond", "a read tool call; an unclassified option"),
+    # Filled, not stroked: this is the dirty-buffer mark and the "open right
+    # now" mark, and both have to read as a solid dot at 12dp.
+    "ic_ui_dot": Icon("circle", "unsaved changes; a session already open", fill=True),
+    "ic_ui_download": Icon("download", "a fetch tool call"),
+    "ic_ui_folder_import": Icon("folder-input", "import a folder already on the device"),
+    # `⑂` is U+2442 OCR FORK, which is not a git glyph and not in most UI
+    # faces. Lucide's fork is the one every git client draws.
+    "ic_ui_git_fork": Icon("git-fork", "a swarm member running in its own worktree"),
+    "ic_ui_hexagon": Icon("hexagon", "which model the agent is using"),
+    "ic_ui_house": Icon("house", "a model served from this device"),
+    "ic_ui_key": Icon("key", "sign in with your own API key"),
+    "ic_ui_lock": Icon("lock", "a capability this plan does not include"),
+    "ic_ui_menu": Icon("menu", "the file tree"),
+    "ic_ui_more_vertical": Icon("ellipsis-vertical", "an overflow menu"),
+    "ic_ui_pause": Icon("pause", "suspended, waiting"),
+    "ic_ui_pencil": Icon("pencil", "an edit tool call; add a note"),
+    "ic_ui_play": Icon("play", "build, run, execute"),
+    "ic_ui_redo": Icon("redo-2", "redo — the mirror of ic_ui_undo"),
+    "ic_ui_return": Icon("corner-down-left", "insert a line"),
+    # `rotate-ccw` rather than `ic_ui_arrow_circle`'s `refresh-cw`: restoring a
+    # checkpoint goes backwards in time, and the two must not look the same.
+    "ic_ui_rotate_ccw": Icon("rotate-ccw", "restore a checkpoint"),
+    "ic_ui_shield": Icon("shield", "a permission request"),
+    "ic_ui_slash": Icon("slash", "the slash-command palette (was a literal /)"),
+    "ic_ui_sparkles": Icon("sparkles", "sign in to Spettro; the thinking level"),
+    "ic_ui_star": Icon("star", "not a favourite"),
+    "ic_ui_star_filled": Icon("star", "a favourite; the recommended answer", fill=True),
+    # A second filled square, name and all, so that a Build screen does not
+    # have to reach into the agent's namespace for its stop button.
+    "ic_ui_stop": Icon("square", "stop a running build", fill=True),
+    "ic_ui_swap": Icon("arrow-right-left", "the agent switching mode"),
+    "ic_ui_tab": Icon("arrow-right-to-line", "the Tab key, which a soft keyboard has not got"),
+    "ic_ui_target": Icon("target", "the Setup masthead; a hidden secret"),
+    "ic_ui_zap": Icon("zap", "Ultra — the swarm, armed"),
 }
 
 
@@ -245,9 +324,9 @@ def convert(svg_path: Path, icon: Icon, feather: set[str]) -> str:
         # something further in overrode that.
         fill = attrs.get("fill", "none")
         stroke = attrs.get("stroke", "none")
-        # A stop button drawn as an empty box does not read as stop. This is
-        # the one place the import deviates from what Lucide draws, and it is
-        # a fill, not a redraw.
+        # A stop button drawn as an empty box does not read as stop, and a
+        # 12dp hollow circle is not a dot. This is the only place the import
+        # deviates from what Lucide draws, and it is a fill, not a redraw.
         if icon.fill:
             fill, stroke = TINT, "none"
         opacity = attrs.get("opacity")
@@ -290,7 +369,8 @@ def convert(svg_path: Path, icon: Icon, feather: set[str]) -> str:
         else ""
     )
     fill_note = (
-        "\n     Filled rather than stroked: a stop control has to read as a block."
+        "\n     Filled rather than stroked: this mark has to read as a solid"
+        "\n     block at 12-14dp, where an outline reads as an empty box."
         if icon.fill
         else ""
     )
@@ -302,8 +382,9 @@ def convert(svg_path: Path, icon: Icon, feather: set[str]) -> str:
         f"{feather_note}\n"
         "     Licence text ships at app/src/main/assets/icons/lucide-LICENSE.txt.\n"
         f"     Used for: {icon.note}.\n"
-        f"     Stroke width {STROKE_WIDTH} on a 24 viewport = 1.2dp at 16dp, the\n"
-        f"     weight the rest of this app's icons draw at.{fill_note} -->\n"
+        f"     Stroke width {STROKE_WIDTH} on a 24 viewport = 1.2dp at 16dp and\n"
+        "     1.8dp at 24dp; the caller picks the size, ui/theme/Icons.kt says\n"
+        f"     which sizes exist.{fill_note} -->\n"
         '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n'
         '    android:width="16dp"\n'
         '    android:height="16dp"\n'
@@ -323,19 +404,40 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def fetch(vendor: Path) -> None:
-    """Refresh `tools/lucide/` from upstream, verifying both pins."""
-    print(f"fetching {ZIP_URL}")
-    with urllib.request.urlopen(ZIP_URL, timeout=120) as response:
-        archive = response.read()
+def fetch(vendor: Path, archive_path: Path | None = None) -> None:
+    """Refresh `tools/lucide/` from upstream, verifying both pins.
+
+    `archive_path` swaps the download for a release archive already on disk.
+    It changes nothing else: the bytes are checked against the same
+    [ZIP_SHA256] before anything is written, so a snapshot seeded from a local
+    copy is byte-identical to one seeded over the wire, and a wrong or tampered
+    file is rejected exactly as a wrong download would be. It exists because
+    fetching 1.3 MB from a release CDN is the one step of this import that can
+    fail for reasons that have nothing to do with the icons.
+    """
+    if archive_path is not None:
+        print(f"reading {archive_path}")
+        archive = archive_path.read_bytes()
+    else:
+        print(f"fetching {ZIP_URL}")
+        with urllib.request.urlopen(ZIP_URL, timeout=120) as response:
+            archive = response.read()
     if digest(archive) != ZIP_SHA256:
         raise SystemExit(f"archive sha256 {digest(archive)} != pinned {ZIP_SHA256}")
 
-    print(f"fetching {LICENSE_URL}")
-    with urllib.request.urlopen(LICENSE_URL, timeout=60) as response:
-        licence = response.read()
-    if digest(licence) != LICENSE_SHA256:
-        raise SystemExit(f"LICENSE sha256 {digest(licence)} != pinned {LICENSE_SHA256}")
+    # The licence is only re-downloaded when the vendored copy is not already
+    # the pinned one. Re-fetching a file whose digest we have just confirmed
+    # proves nothing, and it is the second thing that can fail offline.
+    vendored = vendor / "LICENSE"
+    if vendored.is_file() and digest(vendored.read_bytes()) == LICENSE_SHA256:
+        print(f"{vendored} already matches the pin")
+        licence = vendored.read_bytes()
+    else:
+        print(f"fetching {LICENSE_URL}")
+        with urllib.request.urlopen(LICENSE_URL, timeout=60) as response:
+            licence = response.read()
+        if digest(licence) != LICENSE_SHA256:
+            raise SystemExit(f"LICENSE sha256 {digest(licence)} != pinned {LICENSE_SHA256}")
 
     icons = vendor / "icons"
     icons.mkdir(parents=True, exist_ok=True)
@@ -436,12 +538,19 @@ def main() -> int:
         action="store_true",
         help="re-download the pinned release into tools/lucide/ before converting",
     )
+    parser.add_argument(
+        "--archive",
+        help="re-vendor from a copy of the pinned release already on disk "
+        "(implies --fetch; the sha256 is checked either way)",
+    )
     parser.add_argument("--repo", default=str(Path(__file__).resolve().parent.parent))
     args = parser.parse_args()
 
     repo = Path(args.repo)
     vendor = Path(__file__).resolve().parent / "lucide"
-    if args.fetch:
+    if args.archive:
+        fetch(vendor, Path(args.archive))
+    elif args.fetch:
         fetch(vendor)
     verify(vendor)
 

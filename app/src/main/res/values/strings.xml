@@ -273,4 +273,72 @@
     <string name="solana_framework_seahorse">Seahorse</string>
     <string name="solana_framework_seahorse_language">Python</string>
     <string name="solana_framework_seahorse_blurb">Python that compiles to an Anchor program. Builds through anchor build and needs Python in the guest.</string>
+    <!-- agent: every sentence that names the agent the panel is *connected to*.
+         The name is a placeholder and never a literal, because ACP is a
+         standard and the bundled agent is one entry in agent_servers like any
+         other — with a hand-written agent connected, "Message Spettro" names
+         a program that is not running. `%1$s` rather than concatenation so a
+         translation can put the name wherever its grammar wants it. The empty
+         state and the setup screens still say Spettro on purpose: that is what
+         the button installs, not what is answering. -->
+    <string name="agent_composer_stopped">The agent is not running</string>
+    <string name="agent_composer_message">Message %1$s</string>
+    <string name="agent_composer_message_in_project">Message %1$s — working in %2$s</string>
+    <string name="agent_permission_headline">%1$s needs your approval</string>
+    <string name="agent_config_no_choices">%1$s has not offered any choices for this yet.</string>
+    <string name="agent_plan_empty">No plan yet. %1$s publishes one when a request needs more than one step.</string>
+    <string name="agent_sessions_loading">Asking %1$s…</string>
+    <string name="agent_overflow_sessions">%1$s\'s own saved conversations</string>
+    <string name="agent_context_unreported">%1$s has not reported a context window yet. The gauge appears with the first reply.</string>
+
+    <!-- licences: the in-app Open source licences screen (docs/LICENSING.md §5).
+
+         The first four strings are the "Appropriate Legal Notices" GPLv3 s0
+         defines and s5(d) makes a CONDITION of conveying an interactive
+         program: the copyright notice, the warranty disclaimer, the statement
+         that recipients may redistribute under the GPL, and how to see a copy
+         of it. They are resources rather than literals because they have to
+         translate — but the two that quote the licence are worded as the GPL's
+         own appendix words them, and a translation must keep the meaning
+         exactly. This is the only place in the app where a loose paraphrase
+         is a licence violation rather than a wording preference. -->
+    <string name="licences_title">Open source licences</string>
+    <string name="licences_settings_row">Open source licences</string>
+    <string name="licences_settings_detail">what this app is built from, and the source offer</string>
+    <string name="licences_notice_copyright">Seeker IDE — Copyright (C) 2026 Eyed</string>
+    <string name="licences_notice_warranty">This program comes with ABSOLUTELY NO WARRANTY.</string>
+    <string name="licences_notice_redistribute">This is free software, and you are welcome to redistribute it under the terms of the GNU General Public License, version 3.</string>
+    <string name="licences_notice_view_gpl">View the GPL v3</string>
+    <!-- The outbound version is GPL-3.0-only even though Eyed's own code is
+         or-later, because the app links Termux's GPL-3.0-only terminal
+         modules. A notice that said "or later" here would invite a downstream
+         into infringing Termux's copyright. -->
+    <string name="licences_version_note">Eyed\'s own code is GPL-3.0-or-later. This application, as built and distributed, is GPL-3.0-only: it links Termux\'s terminal modules, which are GPL-3.0-only, so no recipient of this package may exercise the \"or later\" option over that code.</string>
+    <string name="licences_source_heading">THE SOURCE</string>
+    <string name="licences_source_intro">The complete source for this application, at the release it was built from:</string>
+    <string name="licences_source_release">Release %1$s · Zed engine at %2$s</string>
+    <string name="licences_offer_heading">WRITTEN OFFER FOR THE SOURCE</string>
+    <string name="licences_offer_body">For a period of three years from the date you received this software, and for as long as Eyed offers spare parts or customer support for the product model it came on, Eyed will give any third party who possesses this object code a complete machine-readable copy of the corresponding source for every GPL- and LGPL-licensed component in it, on a durable physical medium, for a charge no greater than the cost of the medium and of physically performing the distribution.</string>
+    <!-- The postal address is a documented blank, not an oversight: GPLv3
+         s6(b) describes a physical-medium transaction and a reviewer will look
+         for a postal address. It must be filled in NOTICE, README.md and here
+         at the same time, before the first public release. A placeholder that
+         says it is a placeholder is better than a plausible wrong address. -->
+    <string name="licences_offer_address">Eyed
+&lt;POSTAL ADDRESS — TO BE FILLED IN BEFORE THE FIRST PUBLIC RELEASE&gt;
+carlo@aploi.de</string>
+    <string name="licences_offer_note">The same source is published, without charge and without registration, at the repository above, and a corresponding-source archive is attached to every release. This offer stands regardless: a person who received this app preinstalled on a phone never visited that repository, and GPLv3 s6(d) does not reach them.</string>
+    <string name="licences_search_placeholder">Find a component or a licence</string>
+    <string name="licences_count">%1$d components</string>
+    <string name="licences_count_filtered">%1$d of %2$d components</string>
+    <string name="licences_no_matches">Nothing here matches that. The filter looks at the name, the version, the SPDX identifier and the copyright holder.</string>
+    <string name="licences_unavailable">The notices bundle could not be read. This is a defect, not an absence of obligations — report it, and see docs/THIRD_PARTY.md in the source for the full component register.</string>
+    <string name="licences_loading">Reading the notices bundle…</string>
+    <string name="licences_trademarks">Product names and logos shown beside file types are trademarks of their respective owners and are used only to identify file types. Seeker IDE is not affiliated with or endorsed by them.</string>
+    <string name="licences_detail_copyright">Copyright</string>
+    <string name="licences_detail_authors">Authors</string>
+    <string name="licences_detail_no_copyright">This component ships no copyright line inside the package it is distributed in. Its authors, as its own manifest names them, are above; its upstream is where the notice lives.</string>
+    <string name="licences_detail_upstream">Upstream</string>
+    <string name="licences_detail_origin">In this tree</string>
+    <string name="licences_detail_text_missing">This licence text is missing from the package. That is a packaging defect and a compliance failure; please report it.</string>
 </resources>

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,10 +26,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.ThemeMode
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.ZedTheme
 import to.eyed.seeker.code.ui.theme.ZedThemes
@@ -150,12 +153,24 @@ private fun ThemeRow(meta: ZedTheme.Meta, isSelected: Boolean, onClick: () -> Un
             .heightIn(min = RowHeight)
             .padding(horizontal = SheetPadding, vertical = 4.dp),
     ) {
-        Text(
-            text = if (isSelected) "●" else " ",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            modifier = Modifier.padding(end = 10.dp),
-        )
+        // A fixed slot whether or not the dot is in it, so the names stay in
+        // one column: the old blank string held the width by accident, and
+        // only for as long as a space and a bullet measured the same.
+        Box(
+            // Padding first, then the slot: the other way round the 10dp is
+            // taken *out of* the 8dp and the dot measures zero.
+            modifier = Modifier.padding(end = 10.dp).width(CurrentDotSlot),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isSelected) {
+                SeekerIcon(
+                    icon = R.drawable.ic_ui_dot,
+                    contentDescription = "current",
+                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    size = CurrentDotSize,
+                )
+            }
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = meta.name,
@@ -189,3 +204,7 @@ private val ThemeMode.label: String
 
 private val RowHeight = 44.dp
 private val SheetPadding = 16.dp
+
+/** The "current" slot: a fixed width, so the names below it line up. */
+private val CurrentDotSlot = 8.dp
+private val CurrentDotSize = 7.dp

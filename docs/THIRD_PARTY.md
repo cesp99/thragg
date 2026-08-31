@@ -111,29 +111,29 @@ by the crate section below.
 
 ## Icons
 
-The app has 117 drawables. They come from three different places under
-three different arrangements, and an earlier version of this file collapsed
-them into one row that attributed the wrong 79 files to Lucide. Split
-properly:
+The app has 158 drawables in `res/drawable`, plus ten `mipmap-*dpi`
+bitmaps. They come from three different places under three different
+arrangements, and an earlier version of this file collapsed them into one
+row that attributed the wrong 79 files to Lucide. Split properly:
 
 | Set | Count | Where from | Licence and attribution |
 |---|---|---|---|
 | `ic_file_*.xml` | 79 | Zed's `assets/icons/file_icons/`, converted by `tools/import-zed-icons.py` | **Zed Industries' own artwork**, GPL-3.0-or-later with Zed. Roughly 15 are neutral pictograms (file, folder, code, terminal, database, lock…); the rest are language and tool **brand marks** — Docker's whale, GitLab's tanuki, the Rust gear, Python's snakes, Java's cup, Swift's bird, React's atom, and so on — redrawn by Zed's design team. Those marks belong to their owners; see [TRADEMARKS.md](TRADEMARKS.md). |
-| `ic_ui_*.xml`, `ic_agent_*.xml` | 33 | [Lucide](https://lucide.dev) **1.37.0** (tag `1.37.0`, commit `796dad298f8d78c5da204c3e62a5ed93c2bfcd1e`), converted by `tools/import-lucide-icons.py` | **ISC**, © 2026 Lucide Icons and Contributors. Lucide's own LICENSE names the subset it derives from **Feather** (MIT, © 2013-present Cole Bemis) — most of what this app uses — and each generated drawable's header says whether it is on that list. Both texts ship verbatim at `app/src/main/assets/icons/lucide-LICENSE.txt`, with the aggregate notice at `app/src/main/assets/icons/LICENSES.txt`. The exact source SVGs are vendored at `tools/lucide/` with a `SHA256SUMS` the importer checks on every run, so the conversion is reproducible offline and a silent upstream edit cannot slip in. |
+| `ic_ui_*.xml`, `ic_agent_*.xml` | 75 | [Lucide](https://lucide.dev) **1.37.0** (tag `1.37.0`, commit `796dad298f8d78c5da204c3e62a5ed93c2bfcd1e`), converted by `tools/import-lucide-icons.py` | **ISC**, © 2026 Lucide Icons and Contributors. Lucide's own LICENSE names the subset it derives from **Feather** (MIT, © 2013-present Cole Bemis) — most of what this app uses — and each generated drawable's header says whether it is on that list. Both texts ship verbatim at `app/src/main/assets/icons/lucide-LICENSE.txt`, with the aggregate notice at `app/src/main/assets/icons/LICENSES.txt`. The exact source SVGs are vendored at `tools/lucide/` with a `SHA256SUMS` the importer checks on every run, so the conversion is reproducible offline and a silent upstream edit cannot slip in. |
 | `ic_ui_agent.xml`, `ic_stat_terminal.xml` | 2 | drawn for this project | Original work, Copyright (C) 2026 Eyed, GPL-3.0-or-later. |
 | `ic_ui_ai_zed.xml` | 1 | a stub | Original work, Copyright (C) 2026 Eyed, GPL-3.0-or-later — it draws the same sparkle `ic_ui_agent.xml` does. The name is all that is left of Zed's AI brand mark, which this file used to hold; it survives only until `ui/workspace/Docks.kt` is removed. See below. |
-| `ic_launcher_*`, `mipmap-*/ic_launcher*` | 2 + 10 | **the unmodified Android Studio new-project template** | ⚠ **Must not ship.** See below. |
+| `ic_launcher_background.xml`, `ic_launcher_foreground.xml`, `ic_launcher_monochrome.xml`, `mipmap-*/ic_launcher*` | 3 + 10 | **drawn for this project** — a prompt chevron and a block cursor, on ink, with an amber caret | **Original work, Copyright (C) 2026 Eyed**, GPL-3.0-or-later, under the project licence like the rest of Eyed's code. Nothing in it is traced from or derived from another party's mark: not the Android robot, not Google's brand green, not Solana's logo or its violet-to-green gradient, not Zed's. The ten `.webp` bitmaps are not drawn at all — `tools/render-launcher-icon.py` derives them from the two vectors the launcher itself inflates, and its `--check` mode fails if they drift. See below. |
 
 **Why the old attribution was wrong**, since it will be asked: Lucide and
 Feather are generic UI glyph sets. Lucide's published Brand Logos Statement
 says it does not accept brand logos and does not plan to, and points people
 at Simple Icons instead. So Lucide contains no Docker whale and never will,
 and "the file-icon set derives from Lucide and Feather" cannot be true of
-the 79 `ic_file_*`. It *was* true, loosely, of the 33 `ic_ui_*` /
-`ic_agent_*`, which the old text did not mention at all — the attribution
-was pointed at exactly the wrong files.
+the 79 `ic_file_*`. It *was* true, loosely, of the `ic_ui_*` /
+`ic_agent_*` set, which the old text did not mention at all — the
+attribution was pointed at exactly the wrong files.
 
-**Those 33 no longer go through Zed at all.** Zed's own
+**Those 75 no longer go through Zed at all.** Zed's own
 `crates/icons/README.md` says its icons are "mostly" sourced from Lucide,
 "sometimes" from Phosphor, and that many are drawn from scratch, so the most
 honest thing that could be said of an imported Zed glyph was "Lucide,
@@ -180,21 +180,74 @@ and `style`-declared paint, and refuses outright to emit a path that would
 draw nothing. Re-running it changes exactly those two files and leaves the
 other 77 byte-identical.
 
-### The launcher icon still cannot ship
+### The launcher icon, replaced
 
-`ic_launcher_background.xml` is a
-`#3DDC84` fill (Android's brand green) under the template's guide grid, and
-`ic_launcher_foreground.xml` is the Android robot head, wired through
-`mipmap-anydpi/ic_launcher.xml` as background, foreground *and* monochrome,
-with the stock robot `.webp` in all five density buckets. Two problems at
-once: the robot artwork is offered under CC BY 3.0 and we ship no
-attribution for it, and the robot is Google's trademark, which Google's
-brand guidelines do not permit as a third-party product's own identity. For
-an app preinstalled on a Seeker this reads as Google endorsement. It is also
-a plain product defect — the flagship IDE would ship with a placeholder.
-Replace both vectors and all ten webps with original Eyed artwork, and give
-the monochrome layer its own single-colour drawing rather than reusing the
-foreground.
+This was the last trademark blocker, and it is closed.
+
+What shipped until now was the Android Studio new-project template, untouched:
+`ic_launcher_background.xml` was a `#3DDC84` fill — Google's Android brand
+green — under the template's guide grid, `ic_launcher_foreground.xml` was the
+Android robot head, `mipmap-anydpi/ic_launcher.xml` wired that foreground in as
+both the foreground *and* the monochrome layer, and the stock robot `.webp` sat
+in all five density buckets. Two problems at once: the robot artwork is offered
+under CC BY 3.0 and we shipped no attribution for it, and the robot is Google's
+trademark, which Google's brand guidelines do not permit as a third-party
+product's own identity. On a phone that ships this app preinstalled it read as
+Google endorsement. It was also a plain product defect — the flagship IDE with
+a placeholder for a face.
+
+**The mark now is a prompt chevron and a block cursor**, bone and amber on deep
+ink slate: `>` and the cell a caret sits in. It is original work owned by Eyed,
+under the project licence, and it is built out of the two most generic glyphs
+in computing, so it carries nobody's trademark and needs nobody's permission.
+The colour is deliberate distance as much as taste — Android's green, Solana's
+violet-to-green gradient and the blues every other developer tool reaches for
+are all somewhere else on the wheel.
+
+Three files, and the third is the point:
+
+| File | Layer |
+|---|---|
+| `drawable/ic_launcher_background.xml` | Flat `#1E2434`, full 108x108 bleed. |
+| `drawable/ic_launcher_foreground.xml` | The mark, two-tone, inside the 66-unit safe circle. |
+| `drawable/ic_launcher_monochrome.xml` | A **separate drawing** for themed icons. |
+
+The monochrome layer is not the foreground referenced a second time, which is
+what the template did and what makes most themed icons look broken. A themed
+launcher flattens every tone to one, and in the colour mark the clear space
+between prompt and cursor is only half the reason they read as two shapes —
+the other half is that one is bone and one is amber. So the monochrome layer
+opens that gap (10.7 units against 8.6), draws the chevron heavier (9.2 against
+8.4) to hold up without the tonal contrast, and insets the whole mark about 5%
+because a glyph tuned to fill a coloured tile looks oversized on a bare system
+plate.
+
+`app/src/test/java/to/eyed/seeker/code/ui/theme/LauncherIconTest.kt` holds
+those decisions in place. It parses the shipped vectors and asserts what a
+redraw could plausibly break and no build would notice: that `<monochrome>`
+still resolves to a different drawable than `<foreground>`; that the
+monochrome gap is strictly wider than the colour one; that both layers stay
+inside the 66-unit safe circle, stay centred, still fill at least 55% of the
+visible viewport, and keep every stroke at 6 units or more (4dp at a 48dp
+render). Every one of those assertions was checked by breaking the icon on a
+copy and watching the right test fail — a guard that cannot fail is worse than
+no guard, because it reads like one.
+
+The ten `mipmap-*dpi/ic_launcher*.webp` are the pre-O fallback. They are
+generated, not drawn: `tools/render-launcher-icon.py` reads the same two
+vectors the launcher inflates, reuses the VectorDrawable-to-SVG translation in
+`tools/render-icon-sheet.py` so there is one converter and not two, reproduces
+the adaptive-icon geometry exactly (108-unit canvas, the middle 72 shown, then
+a mask — squircle for `android:icon`, circle for `android:roundIcon`), and
+`--check` fails if any bitmap no longer matches. That closes the one failure
+mode nobody would catch by review: the vector and the bitmap quietly becoming
+two different icons.
+
+`--sheet` writes the review sheet: 48, 96 and 192 px, both masks, on a light
+and a dark backdrop, plus the monochrome layer tinted onto a light and a dark
+system plate. It is worth looking at before changing anything here, because a
+launcher icon is a 48dp decision and every alternative this replaced looked
+fine at 512.
 
 ### Two brand marks, now dealt with
 
@@ -229,12 +282,23 @@ change and nothing else does:
   Lucide `folder-tree` because it is still referenced today; delete it too
   unless a panel switcher returns.
 
-Nothing else in `res/drawable` is unreferenced. All 117 are reachable: 41
-named directly from Kotlin, 77 `ic_file_*` resolved at runtime by name
-through `ZedFileIcons.kt` and `IconThemes.bundled`, and the launcher pair
-through `mipmap-anydpi/ic_launcher.xml`. The pruning that a smaller UI
-suggests is worth two files, not eighty, because the project panel survived
-and it drives the whole file-icon table.
+All 158 but one are reachable, and the arithmetic now closes: **75** of the
+76 `ic_ui_*` / `ic_agent_*` / `ic_stat_*` drawables are named directly from
+Kotlin, **79** `ic_file_*` are resolved at runtime by name through
+`ZedFileIcons.kt` and `IconThemes.bundled`, and the **3** launcher layers go
+through `mipmap-anydpi/ic_launcher.xml`. 75 + 79 + 3 = 157.
+
+The one that is not reachable is **`ic_ui_return.xml`**, orphaned when the
+editor's action row replaced its `↵` keycap with the word. `ic_ui_ai_zed`
+and `ic_ui_file_tree` are reachable only from `ui/workspace/Docks.kt` and
+fall with it. Reproduce the count with:
+
+    grep -rhoE 'R\.drawable\.ic_(ui|agent|stat)_[a-z0-9_]*' app/src/main/java \
+      | sed 's/R\.drawable\.//' | sort -u | wc -l
+
+The pruning that a smaller UI suggests is worth a handful of files, not
+eighty, because the project panel survived and it drives the whole file-icon
+table.
 
 `ai_zed.svg` has also come out of `tools/import-zed-icons.py`, which no
 longer imports chrome glyphs at all — its `UI_ICONS` tuple is gone and it is
@@ -305,10 +369,17 @@ target and feature set rather than over `Cargo.lock`.
 
 ## Android and Java dependencies
 
-Every one of these ships in the APK and none was previously declared. All
-are Apache-2.0 except `checker-qual`, which is MIT. Apache-2.0 flows into
-GPL-3 cleanly — which is precisely why this app targets GPL-3 and not GPL-2
-— but all of them require attribution the package does not currently carry.
+Every one of these ships in the APK. Apache-2.0 flows into GPL-3 cleanly —
+which is precisely why this app targets GPL-3 and not GPL-2 — but all of
+them require attribution, which the package now carries: the in-app
+licences screen (docs/LICENSING.md §5) is generated from
+`tools/licenses/maven-runtime.json`, the release runtime classpath of
+**both** flavours as dumped by `:app:dumpMavenLicences`.
+
+That dump is the authority for this table, and reconciling the two moved
+four rows. `org.checkerframework:checker-qual` is **not** on the release
+runtime classpath of either flavour and has been removed; Guava and its two
+companions **are**, and were missing.
 
 | Component | Coordinate | Licence |
 |---|---|---|
@@ -321,7 +392,9 @@ GPL-3 cleanly — which is precisely why this app targets GPL-3 and not GPL-2
 | Graphics Path (contributes `lib/*/libandroidx.graphics.path.so`) | `androidx.graphics:graphics-path`, transitive | Apache-2.0 |
 | Kotlin stdlib, kotlinx-coroutines | `org.jetbrains.kotlin:*` | Apache-2.0, © JetBrains s.r.o. |
 | JSpecify | `org.jspecify:jspecify`, transitive | Apache-2.0 |
-| Checker Framework qualifiers | `org.checkerframework:checker-qual`, transitive | MIT |
+| Guava | `com.google.guava:guava`, transitive | Apache-2.0 |
+| Guava `failureaccess` | `com.google.guava:failureaccess`, transitive | Apache-2.0 |
+| Guava `listenablefuture` (empty marker artifact) | `com.google.guava:listenablefuture`, transitive | Apache-2.0 |
 
 **Not in the APK, and therefore not a distribution obligation:** the Android
 Gradle Plugin, JAXB, Bouncy Castle, and the EPL-2.0 / GPL-2.0-with-Classpath

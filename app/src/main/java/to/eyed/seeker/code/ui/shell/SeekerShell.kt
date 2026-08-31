@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.CoreBridge
@@ -56,12 +57,18 @@ import to.eyed.seeker.code.ui.git.AskpassDialog
 import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
 import to.eyed.seeker.code.ui.shell.build.BuildBootstrap
 import to.eyed.seeker.code.ui.shell.build.BuildScreen
+import to.eyed.seeker.code.ui.shell.changes.ChangesScreen
+import to.eyed.seeker.code.ui.shell.changes.DiffScreen
+import to.eyed.seeker.code.ui.shell.changes.ProblemsScreen
+import to.eyed.seeker.code.ui.shell.licences.LicenceDetailScreen
+import to.eyed.seeker.code.ui.shell.licences.LicencesScreen
 import to.eyed.seeker.code.ui.shell.projects.CloneScreen
 import to.eyed.seeker.code.ui.shell.projects.NewProgramScreen
 import to.eyed.seeker.code.ui.shell.projects.openProjectInShell
 import to.eyed.seeker.code.ui.shell.settings.SettingsScreen
 import to.eyed.seeker.code.ui.shell.setup.SetupScreen
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.workspace.NotificationHost
 import to.eyed.seeker.code.ui.shell.agent.AgentScreen
 import to.eyed.seeker.code.ui.shell.code.CodeScreen
@@ -453,13 +460,15 @@ internal class PreImeKey {
 }
 
 /**
- * A full-screen route, until the chunks that own them land: Changes, Diff and
- * Problems are P7's, Settings, New program and Clone are P8's, Setup is P5's.
+ * A full-screen route. All seven are real; there is no placeholder body left.
  *
- * What is real here is the frame every one of them keeps: a ← in the route's
- * own top row (the bar below stays, so ← is *not* the only way back — the
- * gesture pops the same stack), and the route drawn over the destination it
- * was pushed from rather than replacing it.
+ * What this frame gives every one of them is the part they share: a ← in the
+ * route's own top row (the bar below stays, so ← is *not* the only way back —
+ * the gesture pops the same stack), the route's title beside it, and the route
+ * drawn over the destination it was pushed from rather than replacing it.
+ * Anything a route needs *in* that row — Changes' branch chip, Problems'
+ * filter — it draws as its own strip under this one, so this file stays a
+ * frame and does not grow a widget per route.
  */
 @Composable
 private fun RouteHost(
@@ -475,13 +484,15 @@ private fun RouteHost(
             modifier = Modifier.fillMaxWidth().height(44.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "←",
-                style = MaterialTheme.typography.titleMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                modifier = Modifier
-                    .clickable { state.pop() }
-                    .padding(horizontal = 16.dp),
+            // A back arrow with no `contentDescription` is a control TalkBack
+            // reads as "button", and this is the only way out of a pushed
+            // route other than the system gesture.
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_arrow_left,
+                description = "Back",
+                onClick = { state.pop() },
+                tint = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.padding(horizontal = 8.dp),
             )
             Text(
                 text = route.title,
@@ -493,9 +504,14 @@ private fun RouteHost(
             modifier = Modifier.fillMaxWidth().weight(1f),
             contentAlignment = Alignment.Center,
         ) {
-            // One branch per landed chunk; the rest keep the placeholder body
-            // above their own ← row. P8's three are here.
+            // One branch per route, and every one of them is a real screen.
             when (route) {
+                is Route.Changes -> ChangesScreen(state)
+
+                is Route.Diff -> DiffScreen(state, route)
+
+                is Route.Problems -> ProblemsScreen(state)
+
                 is Route.Settings -> SettingsScreen(
                     state = state,
                     settings = settings,
@@ -509,11 +525,12 @@ private fun RouteHost(
 
                 is Route.Setup -> SetupScreen(state)
 
-                else -> Text(
-                    text = "${route.title} lands here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                )
+                is Route.Licences -> LicencesScreen(state)
+
+                // The detail carries its own id; it does not need the shell,
+                // because a licence text is the same text whatever else is
+                // going on and nothing on it can navigate anywhere but back.
+                is Route.LicenceDetail -> LicenceDetailScreen(route.id)
             }
         }
     }
@@ -526,6 +543,10 @@ private val Route.title: String
         is Route.Diff -> path.substringAfterLast('/')
         is Route.Problems -> "Problems"
         is Route.Settings -> "Settings"
+        is Route.Licences -> "Licences"
+        // Carried on the route rather than looked up: a title that had to read
+        // a 260 KB asset to print itself would arrive a frame late.
+        is Route.LicenceDetail -> name
         is Route.NewProgram -> "New program"
         is Route.Clone -> "Clone"
         is Route.Setup -> "Set up the toolchain"

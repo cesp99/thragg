@@ -109,11 +109,25 @@ class PlanSurfaceTest {
         assertFalse(blocked.content.contains("blocked"))
     }
 
+    /**
+     * One drawable and one spoken word per status, and no two the same.
+     *
+     * The identity of the drawables is not asserted — a resource id is a
+     * generated number and pinning it would fail on every unrelated resource
+     * change. What matters is that the three statuses stay *distinguishable*:
+     * the bug this guards against is a copy-paste that gives "in progress" and
+     * "pending" the same mark, which on screen is a plan that never moves.
+     */
     @Test
-    fun theGlyphsAreOnePerStatus() {
-        assertEquals("○", statusGlyph(AgentPlanEntry.Status.Pending))
-        assertEquals("◉", statusGlyph(AgentPlanEntry.Status.InProgress))
-        assertEquals("✓", statusGlyph(AgentPlanEntry.Status.Completed))
+    fun theMarksAreOnePerStatusAndAllDifferent() {
+        val statuses = AgentPlanEntry.Status.entries
+        val icons = statuses.map { statusIcon(it).first }
+        val words = statuses.map { statusIcon(it).second }
+        assertEquals(statuses.size, icons.toSet().size)
+        assertEquals(statuses.size, words.toSet().size)
+        // Every mark carries words: this is the one icon in the app that is
+        // the sole bearer of its row's state, so it may not be decoration.
+        assertTrue(words.none { it.isBlank() })
     }
 
     @Test

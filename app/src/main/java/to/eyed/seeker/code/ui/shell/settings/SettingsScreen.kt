@@ -31,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import to.eyed.seeker.code.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +45,7 @@ import to.eyed.seeker.code.ui.editor.SoftWrapMode
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.workspace.AboutDialog
 import to.eyed.seeker.code.ui.workspace.Notifications
@@ -218,6 +221,15 @@ fun SettingsScreen(
                 open(path)
             },
         )
+        // Between the JSON door and About, which is where docs/LICENSING.md §5
+        // puts it. Two taps from anywhere in the app to every notice in the
+        // package — that reachability is the compliance requirement, not the
+        // existence of the files.
+        LinkRow(
+            label = stringResource(R.string.licences_settings_row),
+            detail = stringResource(R.string.licences_settings_detail),
+            onClick = { state.push(Route.Licences) },
+        )
         LinkRow(
             label = "About this device",
             detail = "engine version, ABI, page size",
@@ -238,7 +250,16 @@ fun SettingsScreen(
         // copyable bug report with the engine version, the ABI and the
         // kernel's page size. For a product whose premise rests on the page
         // size being 4 KB, that is cheap insurance (docs/UI.md, "Settings").
-        AboutDialog(onDismiss = { aboutOpen = false })
+        AboutDialog(
+            onDismiss = { aboutOpen = false },
+            onOpenLicences = {
+                // Close the dialog first: a route pushed under an open dialog
+                // leaves the dialog on top of it, and the back gesture would
+                // then close the dialog before popping the route.
+                aboutOpen = false
+                state.push(Route.Licences)
+            },
+        )
     }
 }
 
@@ -297,11 +318,7 @@ private fun LinkRow(
                 modifier = Modifier.padding(end = 10.dp),
             )
         }
-        Text(
-            text = "›",
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        RowChevron()
     }
 }
 

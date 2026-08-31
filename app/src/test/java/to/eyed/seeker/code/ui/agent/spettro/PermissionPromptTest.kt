@@ -2,6 +2,7 @@ package to.eyed.seeker.code.ui.agent.spettro
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -146,14 +147,34 @@ class PermissionPromptTest {
     fun theCompactionPromptGetsItsOwnIcon() {
         val compaction = call(id = "compact-1", kind = ToolKind.Other, title = "Context nearly full")
         assertTrue(PermissionPrompt.isCompaction(compaction))
-        assertEquals("◍", PermissionPrompt.glyph(compaction))
+        // Its own, and specifically not the shield every other prompt gets:
+        // compaction is a question about the conversation, not about a grant.
+        assertNotEquals(
+            PermissionPrompt.icon(call(kind = ToolKind.Edit)),
+            PermissionPrompt.icon(compaction),
+        )
     }
 
+    /**
+     * Four cases, four marks. Resource ids are generated, so the assertion is
+     * that they stay distinct rather than that they are any particular number.
+     */
     @Test
     fun kindsChooseTheIcon() {
-        assertEquals("▸", PermissionPrompt.glyph(call(kind = ToolKind.Execute)))
-        assertEquals("?", PermissionPrompt.glyph(call(kind = ToolKind.Think)))
-        assertEquals("⛨", PermissionPrompt.glyph(call(kind = ToolKind.Edit)))
+        val compaction = call(id = "compact-1", kind = ToolKind.Other, title = "Context nearly full")
+        val icons = listOf(
+            PermissionPrompt.icon(compaction),
+            PermissionPrompt.icon(call(kind = ToolKind.Execute)),
+            PermissionPrompt.icon(call(kind = ToolKind.Think)),
+            PermissionPrompt.icon(call(kind = ToolKind.Edit)),
+        )
+        assertEquals(4, icons.toSet().size)
+        // Everything that is not execute, think or a compaction is a grant,
+        // and every grant looks the same.
+        assertEquals(
+            PermissionPrompt.icon(call(kind = ToolKind.Edit)),
+            PermissionPrompt.icon(call(kind = ToolKind.Delete)),
+        )
     }
 
     /**
@@ -222,8 +243,15 @@ class PermissionPromptTest {
         assertFalse(PermissionPrompt.isWalkedQuestion(call()))
     }
 
+    /**
+     * The headline is a resource now, with the connected agent's name as its
+     * one argument: an ordinary ACP `session/request_permission` reaches this
+     * sheet from any `agent_servers` entry, and an approval dialog is the last
+     * place in the app that should name the wrong program. Only the id is
+     * assertable off a device; the wording lives in strings.xml.
+     */
     @Test
-    fun theHeadlineIsVerbatim() {
-        assertEquals("Spettro needs your approval", PermissionPrompt.HEADLINE)
+    fun theHeadlineNamesWhoeverIsConnected() {
+        assertEquals(to.eyed.seeker.code.R.string.agent_permission_headline, PermissionPrompt.HEADLINE)
     }
 }

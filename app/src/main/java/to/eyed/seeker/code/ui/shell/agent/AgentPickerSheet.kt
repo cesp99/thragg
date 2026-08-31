@@ -30,6 +30,7 @@ import to.eyed.seeker.code.solana.agents.SpettroInstall
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
+import to.eyed.seeker.code.ui.theme.SelectionMark
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /**
@@ -178,10 +179,10 @@ private fun AgentRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = if (selected) "(•)" else "( )",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        SelectionMark(
+            selected = selected,
+            multi = false,
+            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
         )
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
