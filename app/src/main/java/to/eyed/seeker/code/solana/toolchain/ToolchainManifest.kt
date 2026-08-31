@@ -39,6 +39,13 @@ data class ToolchainManifest(
      * What `cargo-build-sbf --tools-version` is told. It is the platform-tools
      * release tag and it has to agree with that component's URL, which
      * [ToolchainManifestTest] asserts rather than trusts.
+     *
+     * Actually telling the driver is `BuildTasks.buildCommand`'s job, and it
+     * is not optional: a build run without the flag made the 2026-08 device
+     * rehearsal download cargo-build-sbf's own pinned platform-tools
+     * (~450 MB) beside the identical v1.57 already installed, for 27 minutes,
+     * and then die. The cargo-build-sbf component's postInstall seeds the
+     * driver's cache as the second line of defence.
      */
     val platformToolsVersion: String,
     /** Where the toolchain lives inside the guest — `/opt/solana`. */
@@ -188,8 +195,11 @@ enum class InstallMethod(val key: String) {
     /**
      * The Debian rootfs, installed by the existing
      * [to.eyed.seeker.code.terminal.UserlandBackend]. The only component
-     * unpacked *through* proot, because Debian's own image contains a hard
-     * link that a host tar cannot reproduce into app storage.
+     * unpacked *through* proot — though the image's hard link (perl) survives
+     * neither route: SELinux denies `link(2)` to app processes, and on a real
+     * Seeker (2026-08) the entry vanished with tar still exiting 0, which is
+     * why DebianUserland materialises hard-link entries from the tar's own
+     * index and why this component's manifest verify runs `perl -e 1`.
      */
     Userland("userland"),
 

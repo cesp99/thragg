@@ -89,6 +89,17 @@ object SpettroSetup {
         private set
 
     /**
+     * True when the last login failure was the transport and not the account:
+     * the extension call answered Offline — no agent process, or a process
+     * that died and cannot be reached. The sheet keys its "start the agent"
+     * recovery off this rather than off `projectId < 0` alone, because a
+     * *died* agent leaves projectId non-negative while being exactly as
+     * unreachable as one that never started.
+     */
+    var loginOffline by mutableStateOf(false)
+        private set
+
+    /**
      * The last thing that went wrong, in the words it arrived in.
      *
      * Provider errors are shown **verbatim**: "key rejected (401)" is the
@@ -385,6 +396,7 @@ object SpettroSetup {
         val mine = ++loginGeneration
         loginJob?.cancel()
         lastError = null
+        loginOffline = false
         login = LoginStatus(loginId = null, status = "starting", browserUrl = null, error = null)
         loginJob = scope.launch {
             val started = AgentSessions.callExtension("_spettro/account/login/start")
@@ -392,7 +404,10 @@ object SpettroSetup {
                 is ExtResult.Ok -> started.result
                 ExtResult.Unsupported -> return@launch failLogin(mine, UPDATE_SPETTRO)
                 is ExtResult.Rpc -> return@launch failLogin(mine, started.message)
-                is ExtResult.Offline -> return@launch failLogin(mine, started.message)
+                is ExtResult.Offline -> {
+                    loginOffline = true
+                    return@launch failLogin(mine, started.message)
+                }
             }
             if (loginGeneration != mine) return@launch
             val status = LoginStatus.parse(json)

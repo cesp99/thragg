@@ -79,6 +79,37 @@ class GitCloneTest {
         assertEquals(listOf("done."), reader.feed("done.\r\n"))
     }
 
+    /**
+     * The Build log's half of the story: a `\r`-terminated record is a
+     * progress line being redrawn (cargo-build-sbf's tools download did it
+     * for 27 minutes on the device), a `\n`-terminated one is a real line,
+     * and a `\r\n` pair still yields exactly one record — the `\r` closes it
+     * (tagged as a redraw, which a throttle's drain still delivers) and the
+     * `\n` closes an empty record that is dropped as it always was.
+     */
+    @Test
+    fun tagsCarriageRedrawsSoABuildLogCanThrottleThem() {
+        val reader = GitProgressReader()
+        assertEquals(
+            listOf(
+                GitProgressReader.Record("12.5 / 450.0 MB", carriage = true),
+                GitProgressReader.Record("13.1 / 450.0 MB", carriage = true),
+                GitProgressReader.Record("done.", carriage = true),
+                GitProgressReader.Record("Compiling hello v0.1.0", carriage = false),
+            ),
+            reader.feedRecords(
+                "12.5 / 450.0 MB\r13.1 / 450.0 MB\rdone.\r\nCompiling hello v0.1.0\n"
+            ),
+        )
+        // A separator split across two reads still completes exactly once.
+        assertTrue(reader.feedRecords("halfway").isEmpty())
+        assertEquals(
+            listOf(GitProgressReader.Record("halfway there", carriage = true)),
+            reader.feedRecords(" there\r"),
+        )
+        assertEquals(emptyList<String>(), reader.flush())
+    }
+
     @Test
     fun holdsAPartialRecordUntilItsSeparatorArrives() {
         val reader = GitProgressReader()

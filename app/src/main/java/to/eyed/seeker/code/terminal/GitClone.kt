@@ -463,10 +463,18 @@ internal object GuestProcess {
      *
      * [onStart] runs before the first byte is read, which is the only ordering
      * that matters — a cancel arriving in that window must find the process.
+     *
+     * [onCarriage], when given, receives the records that were terminated by
+     * a bare `\r` — a progress line being redrawn in place — instead of
+     * [onRecord] receiving them. The Build log uses it to show a download's
+     * latest redraw without appending thousands of near-identical rows; with
+     * it null, every record goes to [onRecord] exactly as before, which is
+     * what git's and apt's own readers want.
      */
     fun run(
         command: ShellCommand,
         onStart: (Process) -> Unit = {},
+        onCarriage: ((String) -> Unit)? = null,
         onRecord: (String) -> Unit,
     ): Int {
         val process = start(command)
@@ -477,7 +485,10 @@ internal object GuestProcess {
             while (true) {
                 val read = source.read(buffer)
                 if (read < 0) break
-                for (record in reader.feed(String(buffer, 0, read))) onRecord(record)
+                for (record in reader.feedRecords(String(buffer, 0, read))) {
+                    if (record.carriage && onCarriage != null) onCarriage(record.text)
+                    else onRecord(record.text)
+                }
             }
         }
         for (record in reader.flush()) onRecord(record)
@@ -598,14 +609,32 @@ sealed interface CloneState {
 class GitProgressReader {
     private val pending = StringBuilder()
 
+    /**
+     * One completed record and *how it ended*. [carriage] is true for a
+     * record terminated by `\r` — a program redrawing one line in place —
+     * and false for a real `\n`-terminated line. The distinction exists for
+     * the Build log: `cargo-build-sbf`'s tools download redraws a progress
+     * line with bare carriage returns for minutes at a time (a 27-minute
+     * stretch on the device rehearsal), and a consumer that either drops
+     * those records or appends every redraw as a row needs to know which
+     * records are redraws so it can show the latest one and only sometimes.
+     * A `\r\n` pair is still one separator's worth of nothing: the `\r`
+     * completes the record and the `\n` completes an empty one, which is
+     * dropped as it always was.
+     */
+    data class Record(val text: String, val carriage: Boolean)
+
     /** The records completed by [text]. Empty separators (`\r\n`) are dropped. */
-    fun feed(text: String): List<String> {
-        val records = mutableListOf<String>()
+    fun feed(text: String): List<String> = feedRecords(text).map { it.text }
+
+    /** [feed], keeping which separator completed each record. */
+    fun feedRecords(text: String): List<Record> {
+        val records = mutableListOf<Record>()
         for (char in text) {
             if (char == '\r' || char == '\n') {
                 val record = pending.toString().trim()
                 pending.setLength(0)
-                if (record.isNotEmpty()) records += record
+                if (record.isNotEmpty()) records += Record(record, char == '\r')
             } else {
                 pending.append(char)
             }

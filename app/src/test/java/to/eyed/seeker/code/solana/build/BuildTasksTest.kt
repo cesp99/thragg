@@ -125,14 +125,12 @@ class BuildTasksTest {
 
     @Test
     fun `anchor and seahorse take their own commands`() {
-        assertEquals(
-            "anchor build",
-            BuildTasks.buildCommand(layout(ProjectFramework.Anchor), GuestTools())!!.line,
-        )
-        assertEquals(
-            "seahorse build",
-            BuildTasks.buildCommand(layout(ProjectFramework.Seahorse), GuestTools())!!.line,
-        )
+        val anchor = BuildTasks.buildCommand(layout(ProjectFramework.Anchor), GuestTools())!!
+        assertTrue(anchor.line.endsWith("anchor build"))
+        assertEquals("anchor build", anchor.display)
+        val seahorse = BuildTasks.buildCommand(layout(ProjectFramework.Seahorse), GuestTools())!!
+        assertTrue(seahorse.line.endsWith("seahorse build"))
+        assertEquals("seahorse build", seahorse.display)
     }
 
     @Test
@@ -141,9 +139,107 @@ class BuildTasksTest {
             layout(ProjectFramework.Native),
             GuestTools(cargoBuildSbf = true, platformCargo = true),
         )!!
-        assertTrue(command.line.startsWith("cargo build-sbf"))
+        assertTrue(
+            command.line.endsWith(
+                "cargo build-sbf -- --message-format=json-diagnostic-rendered-ansi"
+            )
+        )
         assertTrue(command.jsonDiagnostics)
         assertNull(command.note)
+    }
+
+    /**
+     * The rehearsal incident this table must never repeat: without
+     * `--tools-version <installed>`, cargo-build-sbf 4.2.0 ignores the 1.4 GB
+     * platform-tools already on the phone and downloads its own pinned
+     * release — 27 minutes into a demo, over the venue's Wi-Fi.
+     */
+    @Test
+    fun `the manifest's tools version is passed to cargo-build-sbf`() {
+        val command = BuildTasks.buildCommand(
+            layout(ProjectFramework.Native),
+            GuestTools(cargoBuildSbf = true),
+            platformToolsVersion = "v1.57",
+        )!!
+        assertTrue(
+            command.line.endsWith(
+                "cargo build-sbf --tools-version v1.57 " +
+                    "-- --message-format=json-diagnostic-rendered-ansi"
+            )
+        )
+        // The display is what the log's first row and the agent prompt see,
+        // and the flag is part of how the command actually works.
+        assertEquals("cargo build-sbf --tools-version v1.57", command.display)
+        // And the guard seeds the cache for that same version, so even a
+        // driver that ignores the flag finds its download already satisfied.
+        assertTrue(command.line.contains("/root/.cache/solana/"))
+        assertTrue(command.line.contains("for v in v1.57 "))
+    }
+
+    /**
+     * cargo-build-sbf's tools-install step uninstalls rustup's `solana`
+     * toolchain and links its own; the next build then dies with "override
+     * toolchain 'solana' is not installed" (the rehearsal's second hand
+     * repair). Every command line that reaches cargo-build-sbf — or rustup's
+     * cargo shim at all — must therefore relink first, silently.
+     */
+    @Test
+    fun `every rustup-shimmed command repairs the solana toolchain link first`() {
+        val guarded = listOf(
+            BuildTasks.buildCommand(
+                layout(ProjectFramework.Native),
+                GuestTools(cargoBuildSbf = true),
+                "v1.57",
+            )!!,
+            BuildTasks.buildCommand(layout(ProjectFramework.Anchor), GuestTools(), "v1.57")!!,
+            BuildTasks.buildCommand(layout(ProjectFramework.Seahorse), GuestTools(), "v1.57")!!,
+            BuildTasks.testCommand(layout(ProjectFramework.Anchor), "v1.57")!!,
+            BuildTasks.testCommand(layout(ProjectFramework.Native), "v1.57")!!,
+        )
+        for (command in guarded) {
+            val line = command.line
+            assertTrue(
+                "$line does not probe the solana toolchain",
+                line.contains("rustup which --toolchain solana rustc"),
+            )
+            assertTrue(
+                "$line does not relink platform-tools",
+                line.contains(
+                    "rustup toolchain link solana ${BuildTasks.PLATFORM_TOOLS}/rust"
+                ),
+            )
+            assertTrue(
+                "$line seeds no tools cache",
+                line.contains(
+                    "ln -sfn ${BuildTasks.PLATFORM_TOOLS} ${BuildTasks.TOOLS_CACHE}/"
+                ),
+            )
+            // stdout is the JSON diagnostics pipe; the guard must be silenced
+            // and finished before the real command starts.
+            assertTrue(
+                "$line leaks guard output into the diagnostics pipe",
+                line.contains(">/dev/null 2>&1; "),
+            )
+            assertTrue(
+                "$line runs the guard after the build",
+                line.indexOf("rustup which") <
+                    line.indexOf(command.display.substringBefore(' ')),
+            )
+        }
+    }
+
+    @Test
+    fun `the guard survives a manifest that failed to load`() {
+        // Null version: no --tools-version (there is nothing true to pass),
+        // but the relink and the discovered-pin seeding still run.
+        val command = BuildTasks.buildCommand(
+            layout(ProjectFramework.Native),
+            GuestTools(cargoBuildSbf = true),
+            platformToolsVersion = null,
+        )!!
+        assertFalse(command.line.contains("--tools-version"))
+        assertTrue(command.line.contains("rustup which --toolchain solana rustc"))
+        assertTrue(command.line.contains("cargo-build-sbf --version"))
     }
 
     @Test

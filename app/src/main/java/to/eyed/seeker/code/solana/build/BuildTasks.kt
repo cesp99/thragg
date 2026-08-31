@@ -193,6 +193,14 @@ object BuildTasks {
     const val SBF_TARGET = "sbpf-solana-solana"
 
     /**
+     * Where `cargo-build-sbf` keeps — and, when it thinks it is missing,
+     * *downloads* — a platform-tools per version: `<root>/<version>/platform-tools`.
+     * The installer and [toolchainGuard] seed symlinks under it pointing at
+     * [PLATFORM_TOOLS], which turns that downloader into a no-op.
+     */
+    const val TOOLS_CACHE = "/root/.cache/solana"
+
+    /**
      * The environment a build runs with, appended to the userland's own so
      * these win (see `UserlandBackend.execCommand`).
      *
@@ -432,6 +440,49 @@ object BuildTasks {
     // --- the command table ----------------------------------------------------
 
     /**
+     * The `sh` prefix that makes a `cargo-build-sbf` build survive its own
+     * driver, prepended to every command line that reaches `cargo-build-sbf`
+     * (directly, or through `anchor`). Two repairs, both learned in the same
+     * device rehearsal (2026-08) and both idempotent:
+     *
+     *  1. **Relink rustup's `solana` toolchain.** `cargo-build-sbf`'s
+     *     tools-install step *uninstalls* the linked `solana` toolchain and
+     *     links its own (e.g. `1.89.0-sbpf-solana-v1.56`); the next `cargo`
+     *     through rustup's shim then dies with "override toolchain 'solana'
+     *     is not installed". `rustup which --toolchain solana rustc` is the
+     *     probe — it fails both when the link is gone and when it dangles —
+     *     and the repair is the same link+default pair platform-tools'
+     *     manifest postInstall ran at setup.
+     *  2. **Seed the tools cache.** Without a populated
+     *     `$TOOLS_CACHE/<v>/platform-tools`, `cargo-build-sbf` downloads its
+     *     own platform-tools (~450 MB) for `<v>` — on the rehearsal device
+     *     that download ran 27 minutes and died, with 1.4 GB of the identical
+     *     toolchain already at [PLATFORM_TOOLS]. A symlink into place makes
+     *     the downloader a no-op. Seeded for the manifest's version *and* for
+     *     whatever version the installed driver itself pins (read from
+     *     `cargo-build-sbf --version`; 4.2.0 pins v1.56), because the pinned
+     *     default is what an `anchor build` with no `--tools-version` asks for.
+     *
+     * The whole group is wrapped in one redirect to /dev/null: the build's
+     * stdout is a JSON diagnostics pipe ([BuildCommand.jsonDiagnostics]) and
+     * nothing the guard prints may leak into it. `ln -sfn` and `mkdir -p`
+     * make re-running it — and running it over the hand-made symlinks that
+     * exist on devices set up before this guard did — a no-op.
+     */
+    fun toolchainGuard(platformToolsVersion: String?): String {
+        val versions = buildString {
+            platformToolsVersion?.let { append(it).append(' ') }
+            append("\$(cargo-build-sbf --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+' | head -n1)")
+        }
+        return "{ [ -d $PLATFORM_TOOLS/rust ] && { " +
+            "rustup which --toolchain solana rustc || " +
+            "{ rustup toolchain link solana $PLATFORM_TOOLS/rust && rustup default solana; }; " +
+            "for v in $versions; do " +
+            "mkdir -p $TOOLS_CACHE/\$v && ln -sfn $PLATFORM_TOOLS $TOOLS_CACHE/\$v/platform-tools; " +
+            "done; }; } >/dev/null 2>&1; "
+    }
+
+    /**
      * What Build runs, or null when nothing here can be built.
      *
      * The table is docs/SOLANA.md's, with one documented fallback. Anchor and
@@ -451,32 +502,52 @@ object BuildTasks {
      * [CargoDiagnostics]'s line parser instead — which is why that parser is
      * not a fallback in the apologetic sense but the main path for two of the
      * three frameworks.
+     *
+     * [platformToolsVersion] is the manifest's platform-tools release tag
+     * (`ToolchainManifest.platformToolsVersion`), and passing it as
+     * `--tools-version` is load-bearing, not decorative: without it,
+     * `cargo-build-sbf` 4.2.0 ignores the installed v1.57 entirely and
+     * downloads its own pinned v1.56 (~450 MB) on the first build — on the
+     * device rehearsal that download ran 27 min 39 s and then died. The flag
+     * plus [toolchainGuard]'s seeded cache is belt and braces: either alone
+     * keeps the demo build offline. Null (a manifest that failed to load)
+     * degrades to the guard alone.
      */
-    fun buildCommand(layout: ProjectLayout, tools: GuestTools): BuildCommand? = when {
+    fun buildCommand(
+        layout: ProjectLayout,
+        tools: GuestTools,
+        platformToolsVersion: String? = null,
+    ): BuildCommand? = when {
         layout.framework == ProjectFramework.Unknown -> null
 
+        // Seahorse and Anchor both end in `anchor build`, which drives
+        // cargo-build-sbf itself — with no --tools-version, so the guard's
+        // seeded cache is what keeps their tools download from happening.
         layout.framework == ProjectFramework.Seahorse ->
             BuildCommand(
-                line = "seahorse build",
+                line = toolchainGuard(platformToolsVersion) + "seahorse build",
                 display = "seahorse build",
                 jsonDiagnostics = false,
             )
 
         layout.framework == ProjectFramework.Anchor ->
             BuildCommand(
-                line = "anchor build",
+                line = toolchainGuard(platformToolsVersion) + "anchor build",
                 display = "anchor build",
                 jsonDiagnostics = false,
             )
 
         // Native, with cargo-build-sbf present: the canonical path, and the
         // one that produces target/deploy/.
-        tools.cargoBuildSbf ->
+        tools.cargoBuildSbf -> {
+            val versionFlag = platformToolsVersion?.let { " --tools-version $it" }.orEmpty()
             BuildCommand(
-                line = "cargo build-sbf -- --message-format=json-diagnostic-rendered-ansi",
-                display = "cargo build-sbf",
+                line = toolchainGuard(platformToolsVersion) +
+                    "cargo build-sbf$versionFlag -- --message-format=json-diagnostic-rendered-ansi",
+                display = "cargo build-sbf$versionFlag",
                 jsonDiagnostics = true,
             )
+        }
 
         // Native, without it: platform-tools' cargo, by absolute path.
         tools.platformCargo ->
@@ -505,20 +576,34 @@ object BuildTasks {
      * is unconditional: Agave has no arm64 build, so there is no local
      * validator on this phone to start.
      */
-    fun testCommand(layout: ProjectLayout): BuildCommand? = when (layout.framework) {
+    fun testCommand(
+        layout: ProjectLayout,
+        platformToolsVersion: String? = null,
+    ): BuildCommand? = when (layout.framework) {
         ProjectFramework.Unknown -> null
-        ProjectFramework.Native -> cargoTestCommand()
+        ProjectFramework.Native -> cargoTestCommand(platformToolsVersion)
+        // `anchor test` builds first, so it reaches cargo-build-sbf and needs
+        // the same guard a Build does. Native's `cargo test` is a host build
+        // through platform-tools' own cargo and touches neither rustup's
+        // `solana` link nor the tools cache.
         ProjectFramework.Anchor, ProjectFramework.Seahorse ->
             BuildCommand(
-                line = "anchor test --skip-local-validator",
+                line = toolchainGuard(platformToolsVersion) + "anchor test --skip-local-validator",
                 display = "anchor test --skip-local-validator",
                 jsonDiagnostics = false,
             )
     }
 
-    /** The Rust half of an Anchor project's tests, which needs no Node. */
-    fun cargoTestCommand(): BuildCommand = BuildCommand(
-        line = "cargo test --message-format=json-diagnostic-rendered-ansi",
+    /**
+     * The Rust half of an Anchor project's tests, which needs no Node.
+     * Guarded too: a bare `cargo` here is rustup's shim resolving the
+     * `solana` toolchain, which is exactly what `cargo-build-sbf`'s tools
+     * step un-links (see [toolchainGuard]) — so a `cargo test` pressed right
+     * after a Build is the second victim of that vandalism.
+     */
+    fun cargoTestCommand(platformToolsVersion: String? = null): BuildCommand = BuildCommand(
+        line = toolchainGuard(platformToolsVersion) +
+            "cargo test --message-format=json-diagnostic-rendered-ansi",
         display = "cargo test",
         jsonDiagnostics = true,
     )

@@ -14,6 +14,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.solana.templates.SolanaProgram
+import to.eyed.seeker.code.solana.toolchain.ToolchainManifest
 import to.eyed.seeker.code.terminal.GuestProcess
 import to.eyed.seeker.code.terminal.ShellCommand
 import to.eyed.seeker.code.terminal.TerminalSessions
@@ -78,6 +79,16 @@ object BuildRunner {
     /** Which build programs the guest has, as last probed. */
     var tools: GuestTools by mutableStateOf(GuestTools.NONE)
         private set
+
+    /**
+     * The manifest's platform-tools release tag, read once per [refresh] so
+     * [BuildTasks.buildCommand] can pass `--tools-version` — the flag whose
+     * absence sent the rehearsal's first build into a 27-minute download of a
+     * toolchain the phone already had. Null only when the manifest asset
+     * itself cannot be read, in which case the command degrades to the
+     * cache-seeding guard alone rather than refusing to build.
+     */
+    private var platformToolsVersion: String? = null
 
     /** Whether [refresh] has answered once for the current project. */
     var probed: Boolean by mutableStateOf(false)
@@ -168,6 +179,8 @@ object BuildRunner {
         // The probe is the expensive half and it says nothing about a project
         // that has nothing to build.
         if (detected.isBuildable) tools = BuildTasks.probe(context)
+        platformToolsVersion =
+            runCatching { ToolchainManifest.load(context).platformToolsVersion }.getOrNull()
         probed = true
     }
 
@@ -196,8 +209,8 @@ object BuildRunner {
         if (isRunning) return
         val current = layout ?: return
         val chosen = command ?: when (action) {
-            BuildAction.Build -> BuildTasks.buildCommand(current, tools)
-            BuildAction.Test -> BuildTasks.testCommand(current)
+            BuildAction.Build -> BuildTasks.buildCommand(current, tools, platformToolsVersion)
+            BuildAction.Test -> BuildTasks.testCommand(current, platformToolsVersion)
             BuildAction.Deploy -> null
         }
         if (action == BuildAction.Deploy) {
@@ -340,7 +353,29 @@ object BuildRunner {
                 }
             }
         }
-        val exit = execute(context, project, command.line) { line -> consume(parser.feed(line)) }
+        // Carriage-return redraws — cargo-build-sbf's tools download counting
+        // bytes for minutes — go through the throttle: without it the 27-min
+        // rehearsal download showed a log with nothing on it but the command,
+        // and *with* it but unthrottled it would be a thousand rows of the
+        // same byte counter. Redraws still go through the parser, because the
+        // no-line-is-ever-lost contract (CargoDiagnostics) has no exception
+        // for lines that happened to end in \r.
+        val throttle = ProgressThrottle()
+        val exit = execute(
+            context,
+            project,
+            command.line,
+            onProgress = { line ->
+                throttle.progress(line, System.currentTimeMillis())
+                    ?.let { consume(parser.feed(it)) }
+            },
+        ) { line ->
+            // Order matters: the redraw the throttle is holding happened
+            // before this line did.
+            throttle.drain()?.let { consume(parser.feed(it)) }
+            consume(parser.feed(line))
+        }
+        throttle.drain()?.let { consume(parser.feed(it)) }
         consume(parser.flush())
         return RunResult(exit, issues, null)
     }
@@ -361,6 +396,7 @@ object BuildRunner {
         context: Context,
         project: ProjectLayout,
         line: String,
+        onProgress: ((String) -> Unit)? = null,
         onLine: (String) -> Unit,
     ): Int {
         val command: ShellCommand = Userland.backend.execCommand(
@@ -375,6 +411,7 @@ object BuildRunner {
         return GuestProcess.run(
             command,
             onStart = { process -> current = process },
+            onCarriage = onProgress,
             onRecord = onLine,
         )
     }

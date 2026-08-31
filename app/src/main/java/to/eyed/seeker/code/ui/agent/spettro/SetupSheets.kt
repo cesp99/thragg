@@ -44,14 +44,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.ConnectOutcome
 import to.eyed.seeker.code.core.LocalProbe
 import to.eyed.seeker.code.core.ProviderEntry
 import to.eyed.seeker.code.core.SpettroSetup
 import to.eyed.seeker.code.ui.components.SelectableCard
 import to.eyed.seeker.code.ui.components.outlinedButtonEdge
+import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
@@ -87,9 +90,48 @@ fun SignInSheet(
 ) {
     val login = SpettroSetup.login
 
+    // The rehearsal's dead end: with no agent process up, the login fails at
+    // the first extension call and this sheet used to show "The agent is not
+    // running." over a lone Cancel — an error naming a thing the sheet gave
+    // no way to change. The condition is structural, not a string match:
+    // [SpettroSetup.loginOffline] is set from the ExtResult.Offline branch
+    // itself, so it covers both the never-started agent (projectId < 0) and
+    // the second rehearsal find — an agent that *died* mid-session, which
+    // leaves projectId non-negative while being exactly as unreachable.
+    val agentStopped = login?.status == "error" && SpettroSetup.loginOffline
+    val configured = AgentSessions.agent
+    val project = state.project
+    val canStart = agentStopped && configured != null && project != null
+
     // Started from the sheet rather than from the card, so a dismissed sheet
     // and a cancelled login are the same event.
     LaunchedEffect(Unit) { SpettroSetup.startLogin(onOpenUrl) }
+
+    // The second half of the "Start …" button below. `projectId` only turns
+    // non-negative after the spawn has succeeded (AgentSessions.startThread
+    // publishes the thread last), so this retries the login at exactly the
+    // moment a retry can work — and not at all if the start failed, which
+    // leaves the agent panel's own startError to say why.
+    var startRequested by remember { mutableStateOf(false) }
+    LaunchedEffect(startRequested, AgentSessions.projectId) {
+        if (startRequested && AgentSessions.projectId >= 0) {
+            startRequested = false
+            SpettroSetup.startLogin(onOpenUrl)
+        }
+    }
+    // The died-agent flavour: projectId never went negative, so the effect
+    // above would fire before the respawn has replaced the dead process.
+    // AgentSessions.open on a live projectId is what the start button calls;
+    // one extra beat lets the spawn settle before the retry goes out.
+    LaunchedEffect(startRequested) {
+        if (startRequested && AgentSessions.projectId >= 0) {
+            delay(1_500)
+            if (startRequested) {
+                startRequested = false
+                SpettroSetup.startLogin(onOpenUrl)
+            }
+        }
+    }
 
     // A completed login is the end of the sheet; the screen behind it watches
     // the gate and takes itself away.
@@ -105,14 +147,38 @@ fun SignInSheet(
         },
         title = "Sign in to Spettro",
         actions = {
-            SheetButton(
-                label = "Cancel",
-                primary = false,
-                onClick = {
-                    SpettroSetup.cancelLogin()
-                    onDismiss()
-                },
-            )
+            Column {
+                if (canStart) {
+                    // The recovery the error asks for. Starting the agent is
+                    // exactly what a tap on the Agent tab would have done —
+                    // AgentScreen.kt calls the same [AgentSessions.open] —
+                    // without making the user leave a sheet they will only
+                    // have to reopen.
+                    SheetButton(
+                        label = when {
+                            AgentSessions.isStarting || startRequested ->
+                                "Starting ${configured?.name}…"
+                            else -> "Start ${configured?.name} and retry"
+                        },
+                        primary = true,
+                        enabled = !AgentSessions.isStarting && !startRequested,
+                        onClick = {
+                            val open = project ?: return@SheetButton
+                            startRequested = true
+                            AgentSessions.open(open.id, open.rootName, open.rootPath)
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                SheetButton(
+                    label = "Cancel",
+                    primary = false,
+                    onClick = {
+                        SpettroSetup.cancelLogin()
+                        onDismiss()
+                    },
+                )
+            }
         },
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -123,7 +189,20 @@ fun SignInSheet(
                 "complete" -> "Signed in."
                 "expired" -> "The link expired. Close this and try again."
                 "cancelled" -> "The sign-in was cancelled."
-                "error" -> login.error ?: "The sign-in failed."
+                // The offline failure is reworded here rather than shown raw:
+                // "The agent is not running." names a thing this sheet can
+                // now fix, so the message says WHICH agent and what the
+                // button under it will do — or where to go when there is no
+                // agent to start.
+                "error" -> when {
+                    canStart ->
+                        "${configured?.name} is not running. Signing in goes through " +
+                            "the agent itself, so it has to be started first."
+                    agentStopped ->
+                        "No agent is running. Set one up from the Agent tab, then " +
+                            "come back and try again."
+                    else -> login.error ?: "The sign-in failed."
+                }
                 else -> "Waiting…"
             }
             Text(
@@ -139,6 +218,23 @@ fun SignInSheet(
                     style = MaterialTheme.typography.labelLarge,
                     color = LocalSeekerColors.current.accentInk,
                     modifier = Modifier.touchTarget().clickable { onOpenUrl(url) },
+                )
+            }
+            if (agentStopped && !canStart) {
+                // No configured agent (or no open project to bind one to), so
+                // there is nothing this sheet can start — the honest move is
+                // a signpost to the screen that can, in the same link shape
+                // "Open the link again" uses above.
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Open the Agent tab",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = LocalSeekerColors.current.accentInk,
+                    modifier = Modifier.touchTarget().clickable {
+                        SpettroSetup.cancelLogin()
+                        onDismiss()
+                        state.show(Destination.Agent)
+                    },
                 )
             }
         }

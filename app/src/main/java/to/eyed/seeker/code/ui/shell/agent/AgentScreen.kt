@@ -499,9 +499,17 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     // The bundled agent registers itself the first time this screen is opened
     // with nothing configured. Idempotent and cheap when there is nothing to
     // do — a settings read and a stat — but it blocks, so it goes to IO.
+    //
+    // It runs even when an agent is already chosen, because registration is
+    // also where a stale entry's environment gets refreshed: the launch env
+    // grows over time (GODEBUG landed this way), and a device configured
+    // before a new variable existed would otherwise keep launching Spettro
+    // without it forever. Only the *choosing* below is gated on nothing
+    // being picked.
     LaunchedEffect(agent) {
-        if (agent != null || !AgentSessions.isSupported) return@LaunchedEffect
+        if (!AgentSessions.isSupported) return@LaunchedEffect
         val result = withContext(Dispatchers.IO) { SpettroInstall.ensureRegistered(context) }
+        if (agent != null) return@LaunchedEffect
         // The restore of the user's own choice runs on IO too and may have
         // landed while this was in flight. It wins: falling back to the
         // bundled agent over an agent that was deliberately picked is the

@@ -24,7 +24,7 @@ free), not on assumptions:
 | Is there an SBF toolchain for arm64 Linux? | ✅ `platform-tools-linux-aarch64.tar.bz2`, v1.57 — **this is the load-bearing fact**; without it nothing else matters |
 | Is there an Agave/`solana` build for arm64 Linux? | ❌ x86_64 and macOS only — see [What we have to build ourselves](#what-we-have-to-build-ourselves) |
 | Is there an Anchor build for arm64 Linux? | ❌ Anchor ships no release binaries at all; `avm` builds from source |
-| Does a Solana program actually compile on the phone? | ✅ **yes** — a native `solana-program` crate built to `hello_solana.so` in **1 min 11 s** (4 min 18 s CPU; the build parallelises across cores) |
+| Does a Solana program actually compile on the phone? | ✅ **yes** — a native `solana-program` crate built to `hello_solana.so` in **1 min 15 s** (4 min 18 s CPU; the build parallelises across cores) |
 | Is the artifact real? | ✅ `llvm-readelf` reports `Machine: Solana Bytecode Format`, format `elf64-sbf`, with an exported `entrypoint` symbol — a deployable program, not a host build |
 | Does the real `cargo-build-sbf` pipeline work? | ✅ the toolchain built **itself** on the phone (`cargo install cargo-build-sbf`, 3 min 45 s) and then produced the canonical `target/deploy/` layout — `hello_solana.so` (17 KB, `Machine: Solana Bytecode Format`) plus the program keypair — in **34 s**. This is the same path `anchor build` takes |
 

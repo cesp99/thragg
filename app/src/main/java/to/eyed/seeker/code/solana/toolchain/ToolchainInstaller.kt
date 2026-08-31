@@ -51,7 +51,12 @@ import java.util.zip.GZIPInputStream
  *     traces every syscall, and platform-tools is 1.4 GB of small files. The
  *     one archive that cannot go that way is Debian's own rootfs, which
  *     contains a hard link (`perl`); that one is the existing
- *     [Userland.backend] install and it goes through proot as it always did.
+ *     [Userland.backend] install and it goes through proot as it always did —
+ *     and even there the hard link is not tar's to deliver (SELinux denies
+ *     `link(2)` to app processes; on a Seeker the entry vanished with exit 0
+ *     and apt died at 100 days later): DebianUserland materialises it as a
+ *     relative symlink from the tar's own index, and this component's
+ *     manifest verify (`perl -e 1`) proves it, not just `/bin/sh`.
  *  3. **`cargo-build-sbf` execs `rustup`.** rustup is installed with
  *     `--default-toolchain none`, so it downloads no compiler, and
  *     platform-tools' own `postInstall` then links itself in as the `solana`

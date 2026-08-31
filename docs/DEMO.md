@@ -38,14 +38,20 @@ mostly unattended.
 
 1. **Create** — Code tab → new program → name it something two-word so the
    name derivation shows (`Vault Counter` → crate `vault-counter`, module
-   `vault_counter`), framework **Native**, Create. The editor opens
-   `src/lib.rs` on a complete, commented entrypoint.
+   `vault_counter`), framework **Native**, Create. Rehearsal note: creating a
+   program lands on the **Agent tab first**, and signed out that tab shows the
+   setup card, not the editor. Signed in (preparation step 2) it is one tap
+   through to Code, where the editor opens `src/lib.rs` on a complete,
+   commented entrypoint — sign in beforehand or know the tap is coming.
 2. **Agent** — Agent tab, ask Spettro for a small, visible change: *"parse the
    first instruction byte and log increment/decrement/reset accordingly"*.
    Show the plan, the diff pill, the edit landing in the editor.
 3. **Build** — Build tab, run. Say out loud what the log shows: buffers
-   auto-saved, cargo streaming, and the wall time — **~34 s warm** (first-ever
-   build of a fresh crate against the warm cache: ~1 min 11 s). If the agent
+   auto-saved, cargo streaming, and the wall time — the first build of a fresh
+   crate against the warm cache is **~1 min 15 s**, and every rebuild after an
+   edit is **4–5 s** (a no-change rerun is ~4 s). The rebuild is the number to
+   lean on: it is edit-loop speed, and the old ~34 s figure undersold it
+   sevenfold. If the agent
    left a deliberate error in, this is where the red squiggle, the Problems
    row, and "Fix with agent" earn their keep — one round trip, rebuild, green.
 4. **The money shot** — the artifact row shows `target/deploy/vault_counter.so`

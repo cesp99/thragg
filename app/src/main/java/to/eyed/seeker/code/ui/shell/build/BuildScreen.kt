@@ -128,6 +128,18 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     }
     LaunchedEffect(state) { BuildBootstrap.install(state, context) }
 
+    // A new run supersedes the old verdict. The failure toast is an Error, so
+    // Notifications never expires it on its own — right, until a rebuild
+    // starts, at which point a red "Build failed" floating over a log that is
+    // busy succeeding is a lie (the rehearsal had it sitting over a green
+    // "Built" row for a whole demo beat). Keyed on isRunning rather than on
+    // the individual ▶ handlers so every path that starts work — Build, Test,
+    // Deploy, the sheet's cargo-test — clears it, including the ones added
+    // later.
+    LaunchedEffect(BuildRunner.isRunning) {
+        if (BuildRunner.isRunning) Notifications.dismissKey(BUILD_TOAST_KEY)
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         BuildBar(
             state = state,
@@ -205,7 +217,15 @@ object BuildBootstrap {
         // P2's runBuild() has already pushed Setup if there is no toolchain
         // and saved every dirty buffer by the time this is called; what is
         // left is the second half, which is the run.
-        CodeBuildSeam.run = { _ -> BuildRunner.start(app, state, BuildAction.Build) }
+        //
+        // The stale-verdict toast is dismissed here as well as in the
+        // screen's isRunning effect, because this seam is the one start path
+        // that runs while the user is on Code — where BuildScreen is not
+        // composed and its LaunchedEffect cannot fire.
+        CodeBuildSeam.run = { _ ->
+            Notifications.dismissKey(BUILD_TOAST_KEY)
+            BuildRunner.start(app, state, BuildAction.Build)
+        }
     }
 }
 
@@ -891,3 +911,14 @@ private fun logText(): String = BuildRunner.log.rows.joinToString("\n") { row ->
  * plus one, and Problems is one tap away and is the screen built for the list.
  */
 private const val PREVIEW_ISSUES = 3
+
+/**
+ * The toast key every build-lifecycle notification is raised under —
+ * `BuildRunner.NOTIFICATION_KEY`, restated because that constant is private
+ * to a package this screen only observes. The literal is the contract: it is
+ * what lets the ▶ handlers *take back* a "Build failed" that a new run has
+ * made stale, and if BuildRunner ever changes its key this must move with it
+ * (the symptom would be exactly rehearsal BUG 4 returning: a red failure
+ * toast outliving the next successful build).
+ */
+private const val BUILD_TOAST_KEY = "solana:build"

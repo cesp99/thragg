@@ -111,6 +111,38 @@ class ToolchainManifestTest {
     }
 
     /**
+     * cargo-build-sbf's install must seed the driver's own tools cache with
+     * symlinks to the platform-tools that is already installed — for the
+     * manifest's version *and* for the driver's own pinned default (v1.56
+     * for 4.2.0) — because a cold cache does not fail: it makes the first
+     * build download ~450 MB of a toolchain the phone already has, which on
+     * the 2026-08 device rehearsal ran 27 minutes and died. `ln -sfn`,
+     * because devices repaired by hand already carry the same symlink.
+     */
+    @Test
+    fun `cargo-build-sbf seeds the tools cache it would otherwise re-download`() {
+        val seed = manifest.component("cargo-build-sbf")!!
+            .postInstall.flatten().joinToString(" ")
+        assertTrue(
+            "the seeding must be idempotent over hand-made symlinks (ln -sfn)",
+            seed.contains("ln -sfn /opt/solana/platform-tools /root/.cache/solana/"),
+        )
+        assertTrue(
+            "the cache is not seeded for platformToolsVersion " +
+                "(${manifest.platformToolsVersion}) — --tools-version would download",
+            seed.contains(manifest.platformToolsVersion),
+        )
+        assertTrue(
+            "the cache is not seeded for 4.2.0's rehearsal-proven pin (v1.56) — " +
+                "a bare `anchor build` would download",
+            seed.contains("v1.56"),
+        )
+        // Belt and braces for a future bump: the pin is also discovered from
+        // the driver itself, which prints it without triggering the download.
+        assertTrue(seed.contains("cargo-build-sbf --version"))
+    }
+
+    /**
      * rustup is the *manager*, never a compiler: platform-tools already
      * carries a host toolchain, and a second Rust would be a gigabyte of
      * download nothing ever runs.

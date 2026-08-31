@@ -23,6 +23,10 @@ LAB=/data/local/tmp/seekerlab
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${SEEKER_WORK:-$HERE/../.lab}"
 PLATFORM_TOOLS_VERSION="${PLATFORM_TOOLS_VERSION:-v1.57}"
+# What cargo-build-sbf 4.2.0 itself pins and downloads when its cache is cold
+# and no --tools-version is passed — proven by the 2026-08 device rehearsal,
+# where the pinned download ran 27 min and died. See step_cargo_build_sbf.
+CARGO_BUILD_SBF_PINNED_TOOLS="${CARGO_BUILD_SBF_PINNED_TOOLS:-v1.56}"
 
 adbsh() { adb shell "$@"; }
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -121,6 +125,24 @@ step_cargo_build_sbf() {
   adbsh "$LAB/guest.sh /bin/bash -c '
     cargo install cargo-build-sbf --root /opt/solana/cli --target-dir /opt/solana/build 2>&1 | tail -3
     /opt/solana/cli/bin/cargo-build-sbf --version'"
+  # Seed cargo-build-sbf's own tools cache with symlinks to the platform-tools
+  # we already installed. Without this, a build that reaches its tools-install
+  # step (no cache entry for the version it wants) DOWNLOADS its own
+  # platform-tools (~450 MB) into /root/.cache/solana/<v>/ — on the 2026-08
+  # rehearsal that download ran 27 min 39 s and died. Seeded for:
+  #   * $PLATFORM_TOOLS_VERSION — what --tools-version asks for,
+  #   * whatever the just-built driver reports as its own pin (--version does
+  #     NOT trigger the download; the rehearsal proved it), because that pin
+  #     is what an `anchor build` with no --tools-version asks for,
+  #   * $CARGO_BUILD_SBF_PINNED_TOOLS as the rehearsal-proven fallback should
+  #     the --version output ever stop parsing.
+  # ln -sfn: idempotent, including over a hand-made repair symlink.
+  adbsh "$LAB/guest.sh /bin/bash -c '
+    pinned=\$(/opt/solana/cli/bin/cargo-build-sbf --version 2>/dev/null | grep -oE \"v[0-9]+\\.[0-9]+\" | head -n1)
+    for v in $PLATFORM_TOOLS_VERSION \$pinned $CARGO_BUILD_SBF_PINNED_TOOLS; do
+      mkdir -p /root/.cache/solana/\$v && ln -sfn /opt/solana/platform-tools /root/.cache/solana/\$v/platform-tools
+    done
+    ls -l /root/.cache/solana/'"
 }
 
 step_rust_analyzer() {
@@ -149,7 +171,17 @@ step_verify() {
   adbsh "mkdir -p $LAB/projects/hello_solana/src"
   adb push "$WORK/hello_solana/Cargo.toml" "$LAB/projects/hello_solana/Cargo.toml" >/dev/null
   adb push "$WORK/hello_solana/src/lib.rs" "$LAB/projects/hello_solana/src/lib.rs" >/dev/null
+  # The relink guard first, mirroring BuildTasks.toolchainGuard: a previous
+  # cargo-build-sbf run that reached its tools-install step UNINSTALLS the
+  # rustup \"solana\" toolchain and links its own — after which every cargo
+  # through the rustup shim dies with "override toolchain 'solana' is not
+  # installed" (2026-08 rehearsal, repaired by hand there). `rustup which`
+  # fails both when the link is gone and when it dangles; relinking is
+  # idempotent, so running it before every build costs nothing.
   adbsh "$LAB/guest.sh /bin/bash -c '
+    rustup which --toolchain solana rustc >/dev/null 2>&1 || {
+      rustup toolchain link solana /opt/solana/platform-tools/rust && rustup default solana
+    }
     cd /projects/hello_solana
     time cargo-build-sbf --tools-version $PLATFORM_TOOLS_VERSION 2>&1 | tail -5
     ls -la target/deploy/

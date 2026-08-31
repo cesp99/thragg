@@ -2,6 +2,8 @@ package to.eyed.seeker.code.terminal
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import to.eyed.seeker.code.core.SafeDelete
 import org.json.JSONObject
@@ -69,6 +71,13 @@ private object DebianUserland : UserlandBackend {
     /** Written last, so its presence means a complete install. */
     private fun marker(context: Context) = File(rootfs(context), ".seeker-userland")
 
+    /**
+     * The image's hard-link entries, one `path<TAB>target` line each, written
+     * at install time so [healHardLinks] can re-check them cheaply on every
+     * session without re-reading a 30 MB archive that is long deleted.
+     */
+    private fun hardLinkIndex(root: File) = File(root, ".seeker-hardlinks")
+
     private fun proot(context: Context) =
         File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
 
@@ -125,6 +134,10 @@ private object DebianUserland : UserlandBackend {
         // why. Cheap enough to redo per session: one IPC and a short write,
         // and only when the answer actually changed.
         refreshResolvConf(context, root)
+        // Same rationale, worse failure: a guest whose hard links were
+        // dropped (see [unpack]) fails as `apt` exiting 100 minutes later.
+        // When healthy this is one small read and an lstat per link.
+        runCatching { healHardLinks(root) }
         val projects = File(context.filesDir, "projects")
 
         val argv = listOf(
@@ -229,6 +242,15 @@ private object DebianUserland : UserlandBackend {
             // half-unpacked rootfs is deleted by the failure path either way.
             onProgress("Unpacking", null)
             unpack(context, blob, root)
+            // The unpack above cannot deliver the archive's hard-link entries
+            // (see [unpack] for what actually happens to them on hardware).
+            // Walk the archive's own index and materialise each one as a
+            // relative symlink, and keep the index so every later session can
+            // re-check for pennies.
+            val hardLinks = GZIPInputStream(blob.inputStream().buffered())
+                .use { TarHardLinks.index(it) }
+            hardLinkIndex(root).writeText(TarHardLinks.format(hardLinks))
+            for (link in hardLinks) heal(root, link)
             blob.delete()
 
             onProgress("Configuring", null)
@@ -343,6 +365,19 @@ private object DebianUserland : UserlandBackend {
      * Unpack under proot, so that the ownership and permissions inside the
      * rootfs come out right — we are not root, but the guest believes it is.
      * The tar is Android's own; only its view of the filesystem is faked.
+     *
+     * What this does NOT deliver, learned on a Seeker (2026-08): the image's
+     * hard-link entries. The tar here is toybox, whose hard-link case is a
+     * bare `link(2)`, and Android SELinux denies `link(2)`/`linkat(2)` to app
+     * processes. `--link2symlink` is on this invocation and still cannot
+     * save it: the rewrite runs on already-translated paths, and with no
+     * `-r` here the symlinks it fabricates carry absolute *host* text that
+     * dangles under the session proot's `-r`. On the device the entry for
+     * `/usr/bin/perl` simply never appeared while tar exited 0, and the
+     * failure surfaced days later as debconf's perl frontend exec-127,
+     * ca-certificates' postinst dying, and apt exiting 100. The caller's
+     * [heal] pass over [TarHardLinks.index] is what actually makes those
+     * entries exist; this unpack is trusted for everything else.
      */
     private fun unpack(context: Context, blob: File, root: File) {
         val log = File(context.cacheDir, "unpack.log")
@@ -360,6 +395,100 @@ private object DebianUserland : UserlandBackend {
         }
         val exit = process.waitFor()
         if (exit != 0) error("unpacking failed (exit $exit): ${log.readText().take(400)}")
+    }
+
+    // --- hard links, made real -------------------------------------------------
+
+    /**
+     * Make one of the image's hard links exist as a relative symlink.
+     *
+     * Idempotent and cheap when the guest is healthy (two lstat calls), so it
+     * doubles as the per-session self-heal. Three states it repairs, all seen
+     * or derived from the Seeker incident (see [unpack]):
+     *  - the path is simply absent (SELinux ate the `link(2)`; the device);
+     *  - the path is a dangling or host-absolute symlink (`--link2symlink`
+     *    debris, meaningless once the rootfs is mounted under `-r`);
+     *  - the *target* itself became `--link2symlink` debris, in which case
+     *    the real bytes are moved back under their Debian name first.
+     */
+    private fun heal(root: File, link: TarHardLink) {
+        val target = File(root, link.target)
+        restoreLinkedOriginal(root, target)
+        val file = File(root, link.path)
+        if (isGuestResolvable(file)) return
+        if (!isGuestResolvable(target)) return // nothing to point at; leave the evidence
+        file.delete()
+        file.parentFile?.mkdirs()
+        Os.symlink(TarHardLinks.relativeTarget(link.path, link.target), file.absolutePath)
+        Log.i(TAG, "healed hard link ${link.path} -> ${link.target}")
+    }
+
+    /**
+     * Whether [file] resolves *inside the guest*: a real file, or a symlink
+     * whose text is relative and lands on something that exists. A symlink
+     * with absolute text fails on purpose — at a hard-link path it can only
+     * be `--link2symlink` debris naming this app's host data directory, and
+     * `File.exists()` alone would bless it because the host can follow it.
+     */
+    private fun isGuestResolvable(file: File): Boolean {
+        val stat = runCatching { Os.lstat(file.absolutePath) }.getOrNull() ?: return false
+        if (!OsConstants.S_ISLNK(stat.st_mode)) return true
+        val text = runCatching { Os.readlink(file.absolutePath) }.getOrNull() ?: return false
+        return !text.startsWith("/") && File(file.parentFile, text).exists()
+    }
+
+    /**
+     * Undo `--link2symlink` damage to a file the image meant to *keep*: the
+     * rewrite renames the original to a hidden `.l2s.*` name and leaves the
+     * Debian name as a symlink with absolute host text. Host-side that chain
+     * still resolves, so the real bytes can be moved back where dpkg expects
+     * them; the `.l2s.*` stepping-stone is deleted as the debris it is.
+     */
+    private fun restoreLinkedOriginal(root: File, file: File) {
+        val stat = runCatching { Os.lstat(file.absolutePath) }.getOrNull() ?: return
+        if (!OsConstants.S_ISLNK(stat.st_mode)) return
+        val text = runCatching { Os.readlink(file.absolutePath) }.getOrNull() ?: return
+        if (!text.startsWith("/")) return
+        val rootPrefix = root.absolutePath + "/"
+        val real = runCatching { file.canonicalFile }.getOrNull() ?: return
+        if (!real.isFile || real.absolutePath == file.absolutePath) return
+        if (!real.absolutePath.startsWith(rootPrefix)) return
+        file.delete()
+        if (real.renameTo(file)) Log.i(TAG, "restored ${file.name} from ${real.name}")
+        val debris = File(text)
+        if (debris.name.startsWith(".l2s.") && debris.absolutePath.startsWith(rootPrefix)) {
+            debris.delete()
+        }
+    }
+
+    /**
+     * The per-session self-heal: every hard link the image declared, checked
+     * and recreated when absent.
+     *
+     * Runs from [inside] rather than a one-time migration because the failure
+     * it repairs is not one-time: any future image pull, backup restore or
+     * partial delete can drop a link again, and the cost when healthy is a
+     * small file read plus one lstat per entry (Debian slim has exactly one).
+     * Installs made before the index existed — including the Seeker that was
+     * hand-patched on-device — get the known-critical fallback: `perl`, the
+     * link whose absence took apt down with it.
+     */
+    private fun healHardLinks(root: File) {
+        val index = hardLinkIndex(root)
+        if (index.isFile) {
+            val links = runCatching { TarHardLinks.parse(index.readText()) }.getOrNull() ?: return
+            for (link in links) runCatching { heal(root, link) }
+            return
+        }
+        val perl = File(root, "usr/bin/perl")
+        if (isGuestResolvable(perl)) return
+        // debconf runs /usr/bin/perl; perl-base ships the real interpreter
+        // beside it as perl5.<version>. Point one at the other, exactly the
+        // repair that was applied by hand on the first bitten device.
+        val real = File(root, "usr/bin").listFiles()
+            ?.filter { it.name.startsWith("perl5.") && isGuestResolvable(it) }
+            ?.minByOrNull { it.name } ?: return
+        heal(root, TarHardLink("usr/bin/perl", "usr/bin/${real.name}"))
     }
 
     /** Rewrite the guest's resolvers if the device's have changed. */
@@ -395,7 +524,7 @@ private object DebianUserland : UserlandBackend {
         )
     }
 
-    /** The device's own DNS servers, falling back to public resolvers. */
+    /** The device's own DNS servers, with public resolvers appended after them. */
     private fun resolvConf(context: Context): String {
         val servers = runCatching {
             val manager = context.getSystemService(ConnectivityManager::class.java)
@@ -405,7 +534,70 @@ private object DebianUserland : UserlandBackend {
                 .orEmpty()
         }.getOrDefault(emptyList())
 
-        val chosen = servers.ifEmpty { listOf("1.1.1.1", "8.8.8.8") }
-        return chosen.joinToString("\n", postfix = "\n") { "nameserver $it" }
+        return GuestResolvers.conf(servers)
     }
+}
+
+/**
+ * What goes in the guest's `resolv.conf`, from what the device reported.
+ *
+ * The publics used to be a fallback for an *empty* device list only, and the
+ * rehearsal showed why that is not enough: the device's resolver refused the
+ * guest's queries (Spettro's auth poll died on its DNS lookup) while the same
+ * names resolved fine through a public server. Both resolvers the guest has —
+ * glibc's and Go's — walk the `nameserver` list on failure, so appending
+ * publics AFTER the device's own costs nothing on a healthy network (the
+ * first entry answers, the rest are never tried) and turns "the carrier's
+ * resolver dislikes proot" from a dead login into one slow lookup. Order
+ * matters: device first, so names only the LAN's resolver knows still
+ * resolve.
+ *
+ * A top-level object rather than a member of [DebianUserland], because that
+ * backend is file-private and this rule is the one piece of it that is pure
+ * enough to test on the host — see `GuestResolversTest`.
+ */
+internal object GuestResolvers {
+
+    /**
+     * How many device resolvers are kept: two, so at least one public entry
+     * stays inside glibc's window — glibc honours only the first three
+     * `nameserver` lines (MAXNS). A device that reports three or more
+     * resolvers, all misbehaving the same way, would otherwise push every
+     * public entry past line three and the fallback would exist only on
+     * paper. Go's resolver reads the whole list either way.
+     */
+    const val DEVICE_KEPT = 2
+
+    /**
+     * Cloudflare's and Google's, in that order — the same pair the empty-list
+     * fallback always wrote, now written unconditionally after the device's.
+     */
+    val PUBLIC = listOf("1.1.1.1", "8.8.8.8")
+
+    /** The `nameserver` lines to write, in order. */
+    fun list(device: List<String>): List<String> {
+        val kept = device.distinct().take(DEVICE_KEPT)
+        return kept + PUBLIC.filterNot { it in kept }
+    }
+
+    /**
+     * The whole file: the nameserver lines, then `options use-vc`.
+     *
+     * use-vc forces DNS over TCP, and it is here because nothing gentler
+     * worked. On the Seeker, the engine-spawned Spettro process hit
+     * `write udp ...->...:53: operation not permitted` from Go's resolver in
+     * multi-minute windows — same binary, same resolv.conf, same UID as a
+     * terminal-spawned instance that resolved fine, and Python UDP probes to
+     * every resolver passed from every spawn context while it was failing.
+     * Not zygote seccomp (the terminal shares the filters), not the resolver
+     * list (the block was UDP-wide). With use-vc the same open login went
+     * 17/17 then 12/12 clean where UDP polls were dying, and removing the
+     * line re-broke the same session twice — an A/B/A flip minutes apart.
+     * Both resolvers honour it: Go switches to TCP, glibc still answers
+     * `getent` (slower per lookup, which a phone's guest can afford; apt and
+     * cargo do a handful of lookups per run, not thousands).
+     */
+    fun conf(device: List<String>): String =
+        list(device).joinToString("\n", postfix = "\n") { "nameserver $it" } +
+            "options use-vc\n"
 }

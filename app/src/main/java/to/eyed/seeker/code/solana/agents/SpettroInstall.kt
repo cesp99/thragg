@@ -115,7 +115,30 @@ object SpettroInstall {
             Log.w(TAG, "could not read settings while registering the agent", error)
             return Result.Failed("Seeker IDE could not read its settings.")
         }
-        registered(settings)?.let { return Result.Registered(it) }
+        registered(settings)?.let { existing ->
+            // An entry is written once and then trusted, so a fix to
+            // [launchEnvironment] — the GODEBUG line below is one — would
+            // otherwise reach only fresh installs and never the device that
+            // already has the agent registered. Refresh the env in place,
+            // keeping the entry's own args (they carry the probed ACP flag)
+            // and any keys the user added by hand. Best effort: a failed
+            // write leaves a working entry with the old env, which is what
+            // we had anyway.
+            val env = refreshedEnvironment(existing.env)
+                ?: return Result.Registered(existing)
+            val refreshed = runCatching {
+                AppSettings.saveAgent(
+                    name = NAME,
+                    command = PROGRAM,
+                    args = existing.argv.drop(1),
+                    env = env,
+                )
+            }.getOrElse { error ->
+                Log.w(TAG, "could not refresh the agent's environment", error)
+                null
+            }?.let(::registered)
+            return Result.Registered(refreshed ?: existing)
+        }
 
         val probe = probeAcpArgs(app)
         val args = (probe.args ?: AgentCatalog.SPETTRO.acp.fallback) + listOf(
@@ -160,7 +183,33 @@ object SpettroInstall {
         // The agent shells out — `git`, `cargo`, the tools it runs for you —
         // and the toolchain's own directories are not on Debian's PATH.
         "PATH" to "${SolanaToolchain.GUEST_PATH_PREFIX}:${SolanaToolchain.GUEST_BASE_PATH}",
+        // Kept for a future cgo build of Spettro, and known to be a no-op
+        // today: v2.7.3 is a netgo binary and *says so* when it starts —
+        // "ignoring GODEBUG=netdns=cgo as the binary was compiled without
+        // support for the cgo resolver". The fix that actually cured the
+        // login poll's `write udp ...->...:53: operation not permitted` is
+        // `options use-vc` in the guest's resolv.conf (see [GuestResolvers]),
+        // which flips Go's own resolver to DNS over TCP. This line stays so
+        // a cgo build routes through glibc without anyone rediscovering why.
+        "GODEBUG" to "netdns=cgo",
     )
+
+    /**
+     * The env an already-registered entry should be rewritten with, or null
+     * when it already carries everything [launchEnvironment] wants.
+     *
+     * Merged over rather than replaced — `existing + wanted` — so a key the
+     * user added by hand in settings.json survives the refresh, while the
+     * keys this file owns are always brought up to date. Pure, so the
+     * decision is testable on the host — see `SpettroInstallTest`.
+     */
+    internal fun refreshedEnvironment(
+        existing: Map<String, String>,
+        wanted: Map<String, String> = launchEnvironment(),
+    ): Map<String, String>? {
+        if (wanted.all { (key, value) -> existing[key] == value }) return null
+        return existing + wanted
+    }
 
     /** What [probeAcpArgs] learned: the args to write, and why they may be wrong. */
     private data class Probe(val args: List<String>?, val note: String?)
