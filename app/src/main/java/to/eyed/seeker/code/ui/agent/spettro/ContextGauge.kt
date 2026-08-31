@@ -42,6 +42,7 @@ import to.eyed.seeker.code.core.AgentUsage
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.NoticeCard
 import to.eyed.seeker.code.ui.components.Severity
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
@@ -475,6 +476,7 @@ fun ContextNotice(
             }
             OutlinedButton(
                 onClick = onNewThread,
+                border = outlinedButtonEdge(),
                 contentPadding = ButtonDefaults.TextButtonContentPadding,
             ) {
                 Text(text = "New thread", style = MaterialTheme.typography.labelLarge)
@@ -649,6 +651,7 @@ fun ContextSheet(
                             onToggleAutoCompact(next)
                         },
                         modifier = Modifier.weight(1f),
+                        border = outlinedButtonEdge(),
                     ) {
                         Text(text = "Auto ${autoCompactWord(asked)}", maxLines = 1)
                     }

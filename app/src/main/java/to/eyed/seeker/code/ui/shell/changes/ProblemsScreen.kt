@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
@@ -31,11 +30,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import java.io.File
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.solana.build.BuildDiagnostics
+import to.eyed.seeker.code.ui.components.BottomActions
+import to.eyed.seeker.code.ui.components.BottomActionsGap
 import to.eyed.seeker.code.ui.components.EmptyState
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.components.SectionHeader
+import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
 import to.eyed.seeker.code.ui.editor.Diagnostic
 import to.eyed.seeker.code.ui.editor.DiagnosticSeverity
 import to.eyed.seeker.code.ui.editor.FileDiagnosticRows
@@ -167,12 +169,14 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
         } else {
             LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                // Fades into the action bar rather than being cut by it —
+                // the sixth and last of the pinned bars to adopt the seam.
+                modifier = Modifier.weight(1f).fillMaxWidth().fadeUnderBottomActions(),
                 contentPadding = PaddingValues(
                     start = MD.space4,
                     end = MD.space4,
                     top = MD.space2,
-                    bottom = MD.space6,
+                    bottom = BottomActionsGap,
                 ),
                 verticalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
@@ -201,15 +205,11 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
         }
 
-        HairlineDivider()
         // The one action, at the bottom, in the thumb's third of the screen —
-        // as every consequential action in this app is (docs/UI.md).
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = MD.space4, vertical = MD.space2),
-        ) {
+        // as every consequential action in this app is (docs/UI.md). The bar
+        // brings its own hairline and its own inset, so this screen no longer
+        // spells either.
+        BottomActions {
             Button(
                 onClick = { askAgent(state, context, problemsPrompt(shown)) },
                 enabled = shown.files.isNotEmpty(),

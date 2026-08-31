@@ -874,12 +874,25 @@ private fun UserlandBanner(
         }
         if (state is UserlandState.Installing) {
             val fraction = state.fraction
+            // The track is named because material3's default for it is
+            // `secondaryContainer`, which this app's bridge maps to Zed's
+            // `element.selected` — a fill a step BEYOND the top of the surface
+            // ladder (docs/VISUAL.md, "Foundations", the secondaryContainer
+            // trap). Left alone, the unfilled part of an install bar drew
+            // brighter than the status bar it sits on, which reads as a panel
+            // rather than as the part of the download that has not happened.
+            // Zed's own `element.background` is a rung below this row instead.
+            val trackColor = theme.color("element.background")
             if (fraction == null) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    trackColor = trackColor,
+                )
             } else {
                 LinearProgressIndicator(
                     progress = { fraction },
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    trackColor = trackColor,
                 )
             }
         }

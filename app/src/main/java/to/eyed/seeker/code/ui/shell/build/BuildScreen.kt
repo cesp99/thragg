@@ -498,7 +498,14 @@ private fun BuildBody(
     val issues = BuildRunner.lastIssues
     val failed = !BuildRunner.isRunning && state.build is BuildState.Failed
     val preview = if (BuildRunner.isRunning) emptyList() else issues.take(PREVIEW_ISSUES)
-    val header = reason != null || failed || preview.isNotEmpty()
+    // With no log yet the reason IS the page, so it is drawn once, by the
+    // empty state, with the Setup button on it. Printing it as a NoticeCard as
+    // well would put the same sentence twice on a screen that has nothing else
+    // on it. Over a log the card is right — it is a warning about the output
+    // below it — so the card comes back the moment there is output.
+    val log = BuildRunner.log
+    val notice = reason.takeIf { log.rows.isNotEmpty() }
+    val header = notice != null || failed || preview.isNotEmpty()
 
     Column(modifier = modifier.fillMaxSize()) {
         if (header) {
@@ -508,13 +515,13 @@ private fun BuildBody(
                     .padding(horizontal = MD.space4, vertical = MD.space3),
                 verticalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
-                if (reason != null) {
+                if (notice != null) {
                     NoticeCard(
                         severity = Severity.Warn,
                         title = null,
-                        body = reason.message,
+                        body = notice.message,
                         actions = {
-                            if (reason.setup) {
+                            if (notice.setup) {
                                 SeekerChip(
                                     label = "Set up the toolchain",
                                     onClick = { state.push(Route.Setup) },
@@ -578,8 +585,11 @@ private fun BuildBody(
 
         BuildLogView(
             state = state,
-            log = BuildRunner.log,
+            log = log,
             projectRoot = root,
+            // The empty state's whole job is to say what to do next, and
+            // "Press Run" is the wrong answer while Run is greyed.
+            unavailable = reason,
             modifier = Modifier
                 .weight(1f)
                 .padding(
@@ -706,10 +716,25 @@ private fun AnchorTestSheet(state: ShellState, onDismiss: () -> Unit, onCargoTes
 }
 
 /** Why the run control is dead, when it is. */
-private data class Unavailable(val message: String, val setup: Boolean)
+/**
+ * Why Run is greyed, in the words the screen will use.
+ *
+ * [headline] exists because this is read in two places that need two lengths:
+ * the [NoticeCard] over a log prints the sentence alone, and [BuildLogView]'s
+ * empty state needs a title over it. Internal rather than private so the log
+ * view can take one — the empty state that says "Press Run" has to be able to
+ * know that Run cannot be pressed.
+ */
+internal data class Unavailable(
+    val headline: String,
+    val message: String,
+    /** Whether Setup is the way out, and therefore whether to offer it. */
+    val setup: Boolean,
+)
 
-private fun unavailableReason(context: Context, layout: ProjectLayout?): Unavailable? = when {
+internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavailable? = when {
     !Userland.backend.isSupported -> Unavailable(
+        "No Linux guest on this device",
         // No userland means no compiler: Android will not execute a program
         // that arrived after installation. Said plainly rather than shown as a
         // disabled button with no explanation beside it.
@@ -721,11 +746,13 @@ private fun unavailableReason(context: Context, layout: ProjectLayout?): Unavail
     layout == null || !BuildRunner.probed -> null
 
     layout.framework == ProjectFramework.Unknown -> Unavailable(
+        "Nothing here to build",
         "No Anchor.toml and no Solana crate here, so there is nothing to build.",
         setup = false,
     )
 
     !BuildRunner.tools.canCompile -> Unavailable(
+        "The toolchain is not installed",
         "The Solana toolchain is not installed yet. It is about 600 MB to download " +
             "and 1.4 GB on disk, and it is what compiles a program to SBF.",
         setup = true,

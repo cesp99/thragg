@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -38,6 +39,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -97,12 +99,30 @@ import to.eyed.seeker.code.ui.theme.spatialSpec
  * and stop. The thumb's position under the finger does not: a drag that
  * stopped following the finger is a bug, not an accommodation.
  *
- * The stock track is used with everything the design asks for except one
- * thing. `SliderDefaults.Track(trackCornerSize = …)` is internal in material3
- * 1.4.0, so the track keeps its default pill ends instead of 12dp ones; the
- * 8dp gap either side of the handle, the 6dp inside corners and the 2.5dp
- * per-level dots — the three things that actually read as Expressive — are all
- * public and all here.
+ * THE HANDLE IS NOT THE FILL, AND IT IS NOT HELD OFF THE TRACK BY A GAP. Two
+ * measured corrections to the stock recipe, and they are the same correction
+ * twice. `thumbColor` was the level colour, so at the top of the ramp the handle
+ * was a stripe of accent on a bar of the same accent and the only thing
+ * marking it was that it is taller; it is `onSurface` now — the one ink the
+ * bridge solves against every rung of the ladder — and 12dp of it stands proud
+ * of the 16dp track at each end, on the sheet's own ground, which is where a
+ * grip is most legible anyway.
+ *
+ * And `thumbTrackGapSize` is 0 rather than 8dp, because material3 measures
+ * that gap from the handle's CENTRE (`thumbWidth / 2 + gap`, Slider.kt's
+ * `drawTrack`). At "off" the active track has zero width and is not drawn at
+ * all, so the *inactive* track began 11dp to the right of a handle sitting at
+ * x = 0: the handle hung off the left cap of its own scale, with the first
+ * tick stranded on bare sheet between the two. Widening the handle cannot fix
+ * it — the gap grows by exactly what the handle grows by — and the same hole
+ * opens mirrored at the top of the scale. What replaces the gap is
+ * `trackInsideCornerSize`, which rounds both halves toward the handle at 6dp
+ * whether or not a gap is set: the track now pinches AT the handle instead of
+ * stopping short of it, and a pinch cannot fall off the end of a track.
+ *
+ * `SliderDefaults.Track(trackCornerSize = …)` is internal in material3 1.4.0,
+ * so the track keeps its default pill ends instead of 12dp ones; the 6dp
+ * inside corners and the 2.5dp per-level dots are public and are here.
  */
 @Composable
 fun LevelSlider(
@@ -143,6 +163,13 @@ fun LevelSlider(
     } else {
         Color.White.copy(alpha = 0.85f)
     }
+    // The handle does NOT follow the fill, for the reason the ticks do: a tick
+    // is only ever on the fill, and the handle is only ever half on it. Most
+    // of its 40dp is above and below a 16dp track, on `surface`, and the
+    // 16dp that crosses the track crosses BOTH halves of it — so the one ink
+    // solved against the ladder and against the surface is the only one that
+    // works at every value.
+    val handleColor = scheme.onSurface
 
     // AnimatedContent's `transitionSpec` is NOT a composable lambda in this
     // version of compose-animation, so every spec it uses has to be resolved
@@ -186,11 +213,11 @@ fun LevelSlider(
             colors = SliderDefaults.colors(
                 activeTrackColor = levelColor,
                 inactiveTrackColor = scheme.surfaceContainerHighest,
-                thumbColor = levelColor,
+                thumbColor = handleColor,
                 activeTickColor = tickColor,
                 inactiveTickColor = scheme.onSurfaceVariant.copy(alpha = 0.35f),
             ),
-            thumb = { LevelHandle(color = levelColor, active = dragged || pressed) },
+            thumb = { LevelHandle(color = handleColor, active = dragged || pressed) },
             track = { state ->
                 SliderDefaults.Track(
                     sliderState = state,
@@ -202,7 +229,11 @@ fun LevelSlider(
                     ),
                     drawStopIndicator = null,
                     drawTick = { offset, color -> drawCircle(color, 2.5.dp.toPx(), offset) },
-                    thumbTrackGapSize = MD.space2,
+                    // Zero, and it is load-bearing — see the note on the gap
+                    // above. `SliderDefaults.Track` reads it as a distance
+                    // from the handle's centre, so any positive value strands
+                    // the handle outside the track at both ends of the scale.
+                    thumbTrackGapSize = 0.dp,
                     // 6dp, written as a literal: MD has no 6dp radius, and
                     // borrowing `iconGap` for a corner would name it after the
                     // wrong thing.
@@ -212,12 +243,14 @@ fun LevelSlider(
         )
         // The two ends, named. Without them the fill is a bar with nothing to
         // be measured against, and the ramp's whole argument is comparative.
+        // Each one yields to the pill when the pill is saying its word, so the
+        // pill always carries something the scale does not — see [EndLabel].
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = MD.space1),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            EndLabel(choices.first().name)
-            EndLabel(choices.last().name)
+            EndLabel(choices.first().name, taken = shownIndex == 0, fade = fade)
+            EndLabel(choices.last().name, taken = shownIndex == lastIndex, fade = fade)
         }
         val description = choices[shownIndex].description
         if (!description.isNullOrBlank()) {
@@ -272,7 +305,23 @@ private fun LevelPill(
         label = "level-pill",
         modifier = Modifier.fillMaxWidth(),
     ) { shown ->
-        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+        // MEASURED ON DEVICE. This was `Arrangement.End`, which pinned the pill
+        // to the right whatever the value — so a thinking level of "Off" drew
+        // the word "Off" hard against the right edge, directly above the "High"
+        // scale-end label, while the handle sat at the far LEFT. The pill names
+        // the value the handle is pointing at, so it has to be over the handle:
+        // a discrete slider's handle sits at `index / (size - 1)` of the track,
+        // and a bias of `2f * fraction - 1f` maps that to start-aligned at 0
+        // and end-aligned at 1, which also keeps the pill inside the row at
+        // both ends instead of overhanging them.
+        val fraction = if (names.size > 1) shown.toFloat() / (names.size - 1) else 0f
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = BiasAlignment(
+                horizontalBias = 2f * fraction - 1f,
+                verticalBias = 0f,
+            ),
+        ) {
             Text(
                 text = names[shown],
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
@@ -323,13 +372,35 @@ private fun LevelHandle(color: Color, active: Boolean) {
     }
 }
 
-/** One end of the scale, named under the track it belongs to. */
+/**
+ * One end of the scale, named under the track it belongs to — and blank while
+ * the pill is saying the same word.
+ *
+ * MEASURED ON DEVICE, and the [taken] parameter is the whole of it. The pill
+ * rides over the handle, so at the bottom of the scale "Off" was printed
+ * twice — once in the pill and once directly beneath it as the left end — and
+ * the pair read as a caption on the pill rather than as the end of an axis;
+ * the top of the scale did the same with its last name. A pill that repeats
+ * what is already written under it carries no information, so the *scale*
+ * gives the word up: the end that the value is currently sitting on fades out
+ * and the pill is the only place the word appears. Which end is named still
+ * bounds the axis, because the pill is standing on the other one.
+ *
+ * It fades rather than disappearing: the label keeps its space, so the row
+ * never reflows as the value moves, and [fade] is [effectSpec], so
+ * reduce-motion turns the fade into a substitution instead of stopping it.
+ */
 @Composable
-private fun EndLabel(text: String) {
+private fun EndLabel(text: String, taken: Boolean, fade: FiniteAnimationSpec<Float>) {
+    val ink by animateFloatAsState(
+        targetValue = if (taken) 0f else 0.7f,
+        animationSpec = fade,
+        label = "end-label",
+    )
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = ink),
         maxLines = 1,
     )
 }

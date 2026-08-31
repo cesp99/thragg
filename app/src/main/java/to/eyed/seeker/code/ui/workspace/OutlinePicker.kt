@@ -31,7 +31,6 @@ import org.json.JSONException
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.ui.editor.Caret
 import to.eyed.seeker.code.ui.editor.EditorState
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.revealItem
 
 /** One row of the buffer's outline, as the engine reports it. */
@@ -213,8 +212,14 @@ fun OutlinePicker(
 
 /**
  * One symbol, indented by its depth as Zed's outline rows are; the label at
- * the default size, `text` when selected and `text.muted` otherwise, like a
- * tree entry.
+ * the default size, promoted when selected and muted otherwise, like a tree
+ * entry.
+ *
+ * The selected row's ink is `onSecondaryContainer`, not a plain `onSurface`:
+ * [PickerListItem] paints selection with `secondaryContainer`, and the ink has
+ * to be solved against the fill it is actually drawn on. Zed's own pair here
+ * is `text` on `ghost_element.selected`, which is the same relationship said
+ * in the other half's vocabulary.
  */
 @Composable
 private fun OutlineRow(
@@ -222,12 +227,15 @@ private fun OutlineRow(
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     PickerListItem(isSelected = isSelected, onClick = onClick) {
         Text(
             text = entry.label,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (isSelected) theme.color("text") else theme.color("text.muted"),
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = (entry.depth * 12).dp),

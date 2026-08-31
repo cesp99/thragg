@@ -1187,8 +1187,8 @@ bottom of the Settings screen; saving it applies it. An edit reaches the
 picker as soon as you save; a conversation that is already running keeps the
 command it started with until you press **New**.
 
-The panel runs the agent inside the Linux userland, so it is absent from the
-Play edition entirely.
+The panel runs the agent inside the Linux userland, which every build now
+carries — there is one edition.
 
 ## Find in file
 

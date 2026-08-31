@@ -331,7 +331,7 @@ internal fun subAgentTask(call: AgentEntry.ToolCall): String =
  * ones, and [AgentEntry.ToolCall.openArgs] falls back to them anyway.
  */
 internal fun toolDetail(call: AgentEntry.ToolCall): String {
-    val args = call.args ?: call.openArgs ?: return oneLine(call.title)
+    val args = call.args ?: call.openArgs ?: return titleAfterVerb(call)
     fun str(key: String): String? = call.arg(key)
     val name = call.toolName.lowercase()
     if (name.startsWith("bash") || name.startsWith("shell") || name.startsWith("exec") ||
@@ -361,7 +361,32 @@ internal fun toolDetail(call: AgentEntry.ToolCall): String {
         .take(3)
         .mapNotNull { key -> str(key)?.let { "$key: $it" } }
         .toList()
-    return if (pairs.isEmpty()) oneLine(call.title) else oneLine(pairs.joinToString("  "))
+    return if (pairs.isEmpty()) titleAfterVerb(call) else oneLine(pairs.joinToString("  "))
+}
+
+/**
+ * The title with the word the row is about to print in front of it removed.
+ *
+ * Only reached when a call carries no usable arguments, which is the one path
+ * where the detail falls back to the title — and an ACP title is conventionally
+ * `"<verb> <target>"`, so the row drew `Edit  Edit edit-lib.rs`: [toolVerb]
+ * says "Edit" in `labelLarge` and the detail repeated it in `MonoSmall` a
+ * space later. Observed on the device against tools/conformance-agent.py,
+ * whose edit call sends `title = "Edit edit-lib.rs"` and no `path` argument.
+ *
+ * Deliberately narrow. It drops the leading token ONLY when that token is the
+ * verb itself, case-insensitively, and only when something is left over — so
+ * a title that is bare `"Edit"`, or one that opens on a real word like
+ * `"Editor settings"`, is returned whole. It cannot invent a detail and it
+ * cannot empty one; the worst it can do is leave the duplication alone.
+ */
+internal fun titleAfterVerb(call: AgentEntry.ToolCall): String {
+    val title = oneLine(call.title)
+    val verb = toolVerb(call)
+    if (!title.startsWith(verb, ignoreCase = true)) return title
+    // A space has to follow, or "Move" would eat the front of "Moved 3 files".
+    if (title.getOrNull(verb.length)?.isWhitespace() != true) return title
+    return title.substring(verb.length).trim().ifEmpty { title }
 }
 
 /**

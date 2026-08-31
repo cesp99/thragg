@@ -7,10 +7,9 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,6 +36,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import to.eyed.seeker.code.ui.components.BottomActions
 import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.touchTarget
 
@@ -158,7 +158,14 @@ fun SheetScaffold(
         dragHandle = null,
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.fillMaxHeight(fraction)) {
+        // MEASURED ON DEVICE. This was `fillMaxHeight(fraction)`, which made
+        // EVERY sheet exactly 65% of the window whatever was in it — so the
+        // permission sheet, whose whole content is a title and one line, drew
+        // ~470dp of empty grey between that line and its Allow/Reject pair at
+        // the floor. 65% is a CAP, not a height: a sheet wraps its content and
+        // stops growing there, which is what a Material bottom sheet does and
+        // what makes a short one read as a dialog rather than a broken page.
+        Column(modifier = Modifier.heightIn(max = windowHeight * fraction)) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -195,22 +202,26 @@ fun SheetScaffold(
                     modifier = Modifier.padding(horizontal = SheetPadding, vertical = TitleGap),
                 )
             }
-            // The body takes what is left, so the field below it cannot be
-            // pushed off the bottom by a long list.
+            // Weighted so a long body yields to the pinned row below rather
+            // than pushing it off the bottom — but `fill = false`, so a SHORT
+            // body takes only its own height and lets the column wrap. With
+            // `fill = true` the body stretched to the cap and the pinned row
+            // was pushed to the floor of a mostly empty sheet.
             Column(
                 modifier = Modifier
-                    .weight(1f, fill = true)
+                    .weight(1f, fill = false)
                     .fillMaxWidth(),
                 content = content,
             )
             if (field != null || actions != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .navigationBarsPadding()
-                        .padding(horizontal = SheetPadding, vertical = TitleGap),
-                ) {
+                // [BottomActions] and not a bare Column: the pinned row is a
+                // BAR, and a bar with no edge above it looks like it has eaten
+                // the row it is standing on. A sheet's body is clipped exactly
+                // where this begins — Projects lost half of its Settings row
+                // that way — so the hairline, the insets and the 16 × 12
+                // padding all come from the one component that four surfaces
+                // share, rather than from four copies of this Column.
+                BottomActions {
                     field?.invoke()
                     actions?.invoke()
                 }

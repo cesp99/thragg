@@ -24,7 +24,6 @@ import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.core.SystemSpecs
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.RowChevron
 
 /**
@@ -55,7 +54,6 @@ fun AboutDialog(
      */
     onOpenLicences: (() -> Unit)? = null,
 ) {
-    val theme = LocalZedTheme.current
     val clipboard = LocalClipboardManager.current
     // Read here rather than at the call site: `stringResource` is a
     // composable and the semantics block below is not.
@@ -78,7 +76,7 @@ fun AboutDialog(
                 Text(
                     text = stringResource(R.string.about_reading_the_engine_s_version),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp),
                 )
             } else {
@@ -97,10 +95,7 @@ fun AboutDialog(
                         Text(
                             text = label,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = theme.color(
-                                "text.muted",
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.width(96.dp),
                             maxLines = 1,
                         )
@@ -130,10 +125,12 @@ fun AboutDialog(
                     Text(
                         text = licences,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color(
-                            "link_text.hover",
-                            MaterialTheme.colorScheme.primary,
-                        ),
+                        // `primary`, which is `text.accent` solved: a link
+                        // has to clear 4.5:1 on the dialog it is drawn on, and
+                        // `link_text.hover` is a HOVER ink — on a phone there
+                        // is no hover, so this row wore the hover colour at
+                        // rest and nothing was ever the resting one.
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f),
                     )
                     RowChevron()

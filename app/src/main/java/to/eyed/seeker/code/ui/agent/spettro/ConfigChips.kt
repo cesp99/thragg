@@ -1,18 +1,19 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -30,8 +31,8 @@ import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 
 /**
- * The one line above the composer that says what the agent is set to, and the
- * five selectors behind it.
+ * The chip in the composer that says what the agent is set to, and the five
+ * selectors behind it.
  *
  * Three rules shape this file and none of them is cosmetic.
  *
@@ -55,51 +56,94 @@ import to.eyed.seeker.code.ui.theme.SeekerIcon
  */
 
 /**
- * The summary line: `coding · Sonnet 4.6 · Ask · high`, and a tap opens the
- * config sheet.
+ * The composer's config chip: `Sonnet 4.6  high`, and a tap opens the sheet.
  *
- * This is what bought back the 36dp horizontally-scrolling chip band. The same
- * five selectors are readable in ~20dp of a column that is 890dp tall and
- * spends most of it on a keyboard, and the row is a *statement of state* — you
- * read it, you do not aim at it — with one target instead of five.
+ * THIS REPLACED A ONE-LINE SUMMARY that read `⚙ Coding · Sonnet 4.6 · Ask
+ * first · Off` across the full width above the input row, and the owner was
+ * right about it: four readouts strung on one rule is a status bar, and a
+ * status bar is the shape you give facts nobody can act on. Every one of those
+ * four *is* actionable — they all open the same sheet — so the line was
+ * spending the composer's widest slot saying four things in order to offer one
+ * affordance.
  *
- * ULTRA IS NOT LOST WITH THE CHIPS. Its four-state gating is real protocol
- * behaviour, so a stored-on or locked Ultra puts an amber dot on the end of
- * this line and the full sentence in the sheet. The dot is a redundancy rather
- * than the signal: `stateDescription` says the same thing in words.
+ * So it is a chip in the control row instead, which is where
+ * spettro-chat-android's `InputBar` puts the same idea: it is **the row's only
+ * flexible element**, so it truncates under pressure and the buttons around it
+ * never compress. What it prints is the MODEL — the one selector whose value
+ * changes what the next answer costs and how good it is — and the thinking
+ * level beside it in a muted ink when thinking is on, because effort is a
+ * qualifier on the model rather than a fact of its own.
  *
- * @param onOpen open the config sheet. The whole row is the target — a 14dp
- *   glyph is not something to aim at, and the row already spans the column.
+ * MODE AND PERMISSION ARE STILL THERE, as controls rather than as words. They
+ * live one tap away in the config sheet, which is the surface the owner likes
+ * and which this does not touch; the sheet is also the only place either of
+ * them can be *changed*, which is what a user reading them wants next. The
+ * mode's identity colour still marks the transcript's own rows, so "which hat
+ * is it wearing" has not gone quiet.
+ *
+ * ULTRA IS NOT LOST WITH THE WORDS. Its four-state gating is real protocol
+ * behaviour — turning it on under `ask-first` is refused — so the chip carries
+ * an amber dot when Ultra is *engaged*, and the full sentence is in the sheet.
+ * Engaged means [UltraState.On], or [UltraState.Suspended] at half strength:
+ * on, but not applying this turn, which is the one case worth a mark the user
+ * did not ask for.
+ *
+ * [UltraState.Locked] draws NOTHING, and that is the correction to the first
+ * cut of this chip. Locked is "unavailable — raise the permission level
+ * first", which is the resting state of every default `ask-first` session that
+ * has never been near Ultra — so keying the dot off `!= Off` lit it more or
+ * less permanently and it stopped meaning anything. A dot that is always on is
+ * decoration.
+ *
+ * The dot is a redundancy rather than the signal: [configChipState] says the
+ * same thing in words to a screen reader — including the locked case, which
+ * has no dot — and it says the mode and the permission too, so nothing the old
+ * line announced is announced any less.
+ *
+ * There is no caret. The row-wide summary needed one to say it was a control
+ * and not a caption; a raised pill with a settings mark on it, sitting between
+ * two buttons, does not — and the width a stacked chevron costs is width the
+ * model name wants.
+ *
+ * @param onOpen open the config sheet. The whole chip is the target, which at
+ *   [ConfigChipHeight] by its own width clears WCAG 2.5.8's 24dp floor for a
+ *   labelled control without claiming a 48dp row the control row has not got.
  */
 @Composable
-fun ConfigSummaryRow(
+fun ConfigChip(
     toolbar: SpettroToolbar,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val summary = configSummary(toolbar)
-    if (summary.isEmpty()) return
+    // Nothing on the wire yet is no chip at all rather than an empty pill: the
+    // selectors arrive a poll after the session does, and a pill that says
+    // nothing for that second is worse than one that arrives with its name.
+    val label = configChipLabel(toolbar) ?: return
+    val effort = configChipEffort(toolbar)
+    val state = configChipState(toolbar)
     val colors = LocalSeekerColors.current
+    val scheme = MaterialTheme.colorScheme
     val ultra = toolbar.ultraState
     Row(
         modifier = modifier
-            .fillMaxWidth()
+            .heightIn(min = ConfigChipHeight)
+            .clip(CircleShape)
+            // A step above the composer's own container, which is itself a
+            // step above the band: the chip has to read as a thing sitting on
+            // the surface, the way the two discs beside it do.
+            .background(scheme.surfaceContainerHighest)
             .clickable(onClickLabel = "Agent settings", onClick = onOpen)
-            .padding(horizontal = MD.space4, vertical = MD.space05)
-            .heightIn(min = SummaryRowHeight)
+            .padding(horizontal = MD.space3, vertical = MD.pillPadY)
             .clearAndSetSemantics {
                 contentDescription = "Agent settings"
-                stateDescription = if (ultra == UltraState.Off) {
-                    summary
-                } else {
-                    "$summary. Ultra: ${ultraStateText(ultra)}"
-                }
+                stateDescription = state
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
     ) {
         // Lucide's `sliders-horizontal`, which is the Tune glyph under the
-        // name this project already gave it.
+        // name this project already gave it. It is what tells the eye the pill
+        // is a way in rather than a badge.
         SeekerIcon(
             icon = R.drawable.ic_ui_filter,
             contentDescription = null,
@@ -107,18 +151,32 @@ fun ConfigSummaryRow(
             size = IconSize.Marker,
         )
         Text(
-            text = summary,
+            text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = colors.accentInk,
+            color = scheme.onSurface,
             maxLines = 1,
+            // Both cuts are needed and they cut different ends. [chipLabel]
+            // takes the model's TAIL because that is where the variant lives;
+            // this is the last resort when even that does not fit the row, and
+            // it keeps the head, which is the wrong end — so it should only
+            // ever fire on a phone held in a very small window.
             overflow = TextOverflow.Ellipsis,
+            // `fill = false` so a short model name does not push the effort
+            // label and the dot to the far edge of the row.
             modifier = Modifier.weight(1f, fill = false),
         )
-        if (ultra != UltraState.Off) {
+        if (effort != null) {
+            Text(
+                text = effort,
+                style = MaterialTheme.typography.labelLarge,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        if (ultraEngaged(ultra)) {
             StatusDot(
-                // Suspended and locked are stated in words by the sheet; here
-                // they are the same amber at half strength, because the point
-                // of the dot on this line is only "Ultra is involved".
+                // Suspended is the half-strength one: Ultra is on, but this
+                // turn runs without it. Full amber is the plain "it is on".
                 color = if (ultra == UltraState.On) {
                     colors.ultraAmber
                 } else {
@@ -127,16 +185,6 @@ fun ConfigSummaryRow(
                 size = UltraDotSize,
             )
         }
-        // The spec's UnfoldMore is not in the vendored Lucide set (adding one
-        // means re-vendoring the pinned snapshot), and this is the closer of
-        // the two glyphs that are: the tap raises a sheet, which is exactly
-        // what `arrow-up-from-line` already means everywhere else in the app.
-        SeekerIcon(
-            icon = R.drawable.ic_ui_expand_up,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            size = SummaryCaretSize,
-        )
     }
 }
 
@@ -186,7 +234,7 @@ internal fun chipOrder(options: List<AgentConfigOption>): List<AgentConfigOption
 }
 
 /**
- * Reading order for the summary LINE, which is not the sheet's order.
+ * Reading order for the SPOKEN state, which is not the sheet's order.
  *
  * The sheet ranks Ultra first because it is the charged control and it must be
  * reachable without scrolling. A sentence has no scrolling and no Ultra — the
@@ -214,6 +262,67 @@ internal fun configSummary(toolbar: SpettroToolbar): String {
         .map { chipLabel(it) }
         .filter { it.isNotBlank() && it != "—" }
         .joinToString(" · ")
+}
+
+/**
+ * What [ConfigChip] prints, or null when the agent has advertised nothing.
+ *
+ * The model, because the model is the selector whose value the user is most
+ * often about to change and the only one whose *name* they need in front of
+ * them: mode and permission are two or three known words each and are read off
+ * the sheet in a second, while "which of thirty models is this" is not
+ * recoverable from memory.
+ *
+ * The fallback is the agent's first non-boolean selector rather than nothing.
+ * A generic ACP agent may publish no `model` at all (the conformance agent
+ * without `--spettro` publishes exactly one option, and it is not always this
+ * one), and a chip that vanishes takes the only route to the config sheet in
+ * the composer with it.
+ */
+internal fun configChipLabel(toolbar: SpettroToolbar): String? =
+    (toolbar.model ?: toolbar.options.firstOrNull { !it.isBool })
+        ?.let { chipLabel(it) }
+        ?.takeIf { it.isNotBlank() && it != "—" }
+
+/**
+ * The thinking level beside the model, or null when it is not thinking.
+ *
+ * `off` earns no ink. It is the default and it is the state the absence of a
+ * word already describes, and the chip's whole budget is the width the model
+ * name is not using. Matched on the VALUE rather than the label because the
+ * label is the agent's prose and a project could localise it; matched on
+ * `thought_level` as well as on the id, because this file does not hard-code
+ * the agent's option names (see the header).
+ */
+internal fun configChipEffort(toolbar: SpettroToolbar): String? {
+    val thinking = toolbar.thinking
+        ?: toolbar.options.firstOrNull { it.category == THOUGHT_LEVEL }
+        ?: return null
+    val value = thinking.currentValue?.lowercase() ?: return null
+    if (value in THINKING_OFF) return null
+    return chipLabel(thinking).takeIf { it.isNotBlank() && it != "—" }
+}
+
+/** ACP's category for a thinking scale; `SpettroToolbar.thinking` is the id. */
+private const val THOUGHT_LEVEL = "thought_level"
+
+/** The values that mean "not thinking", in every spelling seen on the wire. */
+private val THINKING_OFF = setOf("off", "none", "false", "0")
+
+/**
+ * What a screen reader is told the chip is set to.
+ *
+ * THE CHIP MUST ANNOUNCE EVERYTHING THE OLD SUMMARY LINE DID. Sighted users
+ * gave up two readouts for a shorter row; a TalkBack user gains nothing from a
+ * shorter row and would only have lost the mode and the permission level. So
+ * the spoken state is still the whole sentence — [configSummary] in reading
+ * order — with Ultra's four-state gating appended in words whenever the amber
+ * dot is showing, since a dot says nothing at all out loud.
+ */
+internal fun configChipState(toolbar: SpettroToolbar): String {
+    val summary = configSummary(toolbar).ifEmpty { "not reported yet" }
+    val ultra = toolbar.ultraState
+    return if (ultra == UltraState.Off) summary else "$summary. Ultra: ${ultraStateText(ultra)}"
 }
 
 /**
@@ -287,6 +396,16 @@ internal fun ultraTap(state: UltraState): UltraTap = when (state) {
     UltraState.On, UltraState.Suspended -> UltraTap.Set(false)
 }
 
+/**
+ * Whether Ultra is doing something the chip should mark.
+ *
+ * On, or on-and-suspended. NOT [UltraState.Locked]: that is the default
+ * `ask-first` session's resting state rather than anything the user set, and a
+ * dot that is lit by default is not a signal. See [ConfigChip]'s note.
+ */
+internal fun ultraEngaged(state: UltraState): Boolean =
+    state == UltraState.On || state == UltraState.Suspended
+
 /** What TalkBack says about an Ultra control; also the four states in words. */
 internal fun ultraStateText(state: UltraState): String = when (state) {
     UltraState.Off -> "Off"
@@ -295,11 +414,16 @@ internal fun ultraStateText(state: UltraState): String = when (state) {
     UltraState.Locked -> "Unavailable — raise the permission level first"
 }
 
-/** docs/VISUAL.md's 24dp summary band, less its 2dp of padding. */
-private val SummaryRowHeight = 20.dp
+/**
+ * The chip's drawn height, inside the control row's 48dp.
+ *
+ * Not 48: the row's height is already set by the touch targets of `＋` and
+ * send, and a 48dp pill between two 40dp discs reads as a fourth button. 32dp
+ * is a chip, and 32dp by however wide the model name is clears WCAG 2.5.8's
+ * 24dp floor for a control that carries its own label — the same argument the
+ * composer's draft chips make.
+ */
+internal val ConfigChipHeight = 32.dp
 
-/** Between [IconSize.Marker] and nothing: a caret, not a control. */
-private val SummaryCaretSize = 12.dp
-
-/** Small enough to be punctuation on a 20dp line, big enough to see. */
+/** Small enough to be punctuation on a 32dp chip, big enough to see. */
 private val UltraDotSize = 6.dp

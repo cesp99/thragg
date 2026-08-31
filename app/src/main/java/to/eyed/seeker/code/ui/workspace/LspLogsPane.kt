@@ -23,14 +23,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import org.json.JSONException
 import org.json.JSONObject
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.core.ResumedEffect
 import to.eyed.seeker.code.core.pollVersion
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MonoSmall
 
 /**
  * Zed's language server log view (crates/language_tools/src/lsp_log_view.rs,
@@ -71,7 +71,6 @@ fun LspLogsPane(
     serverName: String,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
     var log by remember(projectId, serverName) { mutableStateOf(ServerLog.EMPTY) }
     val listState = rememberLazyListState()
 
@@ -92,11 +91,16 @@ fun LspLogsPane(
         if (atTail && log.lines.isNotEmpty()) listState.scrollToItem(log.lines.lastIndex)
     }
 
-    Column(modifier = modifier.fillMaxSize().background(theme.color("editor.background"))) {
+    // A pane the shell raises, not a buffer: `editor.background` and
+    // `toolbar.background` become the M3 surface and the container rung above
+    // it. Nothing here has to agree with tree-sitter — the lines are apt's and
+    // the server's prose, and the one colour that carries meaning is the
+    // stderr warning below.
+    Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(theme.color("toolbar.background", theme.color("editor.background")))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -104,22 +108,26 @@ fun LspLogsPane(
             Text(
                 text = serverName,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text"),
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = "${log.lines.size} lines · stderr, log messages and RPC traffic",
                 style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (log.lines.isEmpty()) {
             Text(
                 text = "Nothing logged yet. The server writes here as it starts and answers.",
                 style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(12.dp),
             )
         } else {
+            // `warnInk`, solved: a `[stderr]` line is the one thing in this
+            // list worth finding at a glance, and the raw `warning` key is
+            // 1.64:1 on Ayu Light's panel.
+            val warning = LocalSeekerColors.current.warnInk
             SelectionContainer {
                 LazyColumn(
                     state = listState,
@@ -131,11 +139,16 @@ fun LspLogsPane(
                     items(log.lines) { line ->
                         Text(
                             text = line,
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            // The BUFFER face, not the system mono: a log
+                            // line set in Droid Sans Mono over Material ink
+                            // matches neither half (Type.kt, [MonoSmall]).
+                            style = MonoSmall,
                             color = when {
-                                line.startsWith("[stderr]") -> theme.color("warning", theme.color("text"))
-                                line.startsWith("→") || line.startsWith("←") -> theme.color("text.muted")
-                                else -> theme.color("text")
+                                line.startsWith("[stderr]") -> warning
+                                line.startsWith("→") || line.startsWith("←") ->
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+
+                                else -> MaterialTheme.colorScheme.onSurface
                             },
                             maxLines = 1,
                             softWrap = false,

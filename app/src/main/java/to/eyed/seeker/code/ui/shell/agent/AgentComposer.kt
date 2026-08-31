@@ -169,7 +169,7 @@ internal fun busyNote(mode: SendMode): String? = when (mode) {
 }
 
 /**
- * Which of the three sentences the empty box shows.
+ * Which of the two sentences the empty box shows.
  *
  * The *choice* is here and the *wording* is in strings.xml, for two reasons
  * that pull the same way. The box used to read "Message Spettro" whoever was
@@ -179,36 +179,35 @@ internal fun busyNote(mode: SendMode): String? = when (mode) {
  * sentence, so it is `%1$s` in a resource rather than a `$name` in a template:
  * a translation has to be free to move it, and a concatenation would not let
  * it. Keeping the branch pure keeps it testable off a device.
+ *
+ * There used to be a third, `ReadyInProject`, reading "Message %1$s — working
+ * in %2$s". It said the project name a third time — the app bar subtitle and
+ * the empty state both already carry it — and on a 400 dp column it never
+ * survived: the placeholder is one line, so what actually drew was "Message
+ * conformance-agent — working in swa…". A hint that truncates mid-word is
+ * worse than a shorter hint, and the word it was spending the room on was one
+ * the screen had said twice above.
  */
 internal enum class ComposerHint {
     /** No session to prompt: the agent is not running. */
     Stopped,
 
-    /** Ready, with nothing worth naming beside the agent. */
+    /** Ready. The agent's own name, and nothing the app bar already says. */
     Ready,
-
-    /** Ready, and the project is worth saying because a prompt resolves in it. */
-    ReadyInProject,
 }
 
 /** What the box says when it is empty. */
-internal fun composerHint(projectName: String?, enabled: Boolean): ComposerHint = when {
-    !enabled -> ComposerHint.Stopped
-    projectName.isNullOrBlank() -> ComposerHint.Ready
-    else -> ComposerHint.ReadyInProject
-}
+internal fun composerHint(enabled: Boolean): ComposerHint =
+    if (enabled) ComposerHint.Ready else ComposerHint.Stopped
 
 /** [composerHint]'s sentence, with the connected agent's own name in it. */
 @Composable
 internal fun composerPlaceholder(
     agentName: String,
-    projectName: String?,
     enabled: Boolean,
-): String = when (composerHint(projectName, enabled)) {
+): String = when (composerHint(enabled)) {
     ComposerHint.Stopped -> stringResource(R.string.agent_composer_stopped)
     ComposerHint.Ready -> stringResource(R.string.agent_composer_message, agentName)
-    ComposerHint.ReadyInProject ->
-        stringResource(R.string.agent_composer_message_in_project, agentName, projectName.orEmpty())
 }
 
 /** A leading `/word`, the composer's command token. */
@@ -231,14 +230,22 @@ internal fun commandMatches(
  * The box, the one button that adds to it, and the one that speaks.
  *
  * THE SHAPE, which is the whole of what changed (docs/VISUAL.md, "Agent — the
- * composer, three states"): a `surfaceContainer` column under a
+ * composer, three states"): a `surfaceContainer` band under a
  * [HairlineDivider], holding a 32dp horizontally-scrolling strip of whatever
- * has been attached, the caller's config summary, and one bottom-aligned row —
- * `＋`, the pill, and the circles. The field was a 10dp-radius box filled with
- * the *editor's* background, with no border and no focused state, and the send
- * control was the word "Send" in a transparent 8dp box; those two facts are
- * most of what the owner meant by "pretty bad". It is the same three controls,
- * dressed.
+ * has been attached and then ONE ROUNDED CONTAINER with two lines in it — the
+ * field across the full width, and a control row beneath it carrying `＋`, the
+ * caller's config chip, and the circles.
+ *
+ * THE FIELD AND THE CONTROLS STOPPED SHARING A LINE, and that is the fix.
+ * Everything on one line meant the field was what was left over after four
+ * controls, a config summary had nowhere to go but a full-width rule of its
+ * own above it, and the owner's verdict on the result was "the single line
+ * 'mode - model - permission - ultra' thing looks like shit". Stacked, the
+ * message gets the whole width at the size it is actually read at, and the
+ * config becomes a chip *in* the row rather than a fourth readout above it —
+ * which is how spettro-chat-android's `InputBar` has always drawn it, and its
+ * argument for the chip is the one this file now inherits: it is the row's
+ * only flexible element, so it truncates and the buttons never compress.
  *
  * WHAT DID NOT CHANGE, because every one of them is protocol-correct and has
  * an argument written under it: [SendMode] and its three labels, the
@@ -259,7 +266,6 @@ internal fun AgentComposer(
     thread: AgentThread?,
     /** The connected agent's own name — the app bar's, so the two agree. */
     agentName: String,
-    projectName: String?,
     enabled: Boolean,
     focus: FocusRequester,
     onOpenMentions: () -> Unit,
@@ -267,15 +273,17 @@ internal fun AgentComposer(
     onSteered: () -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * The one-line config summary that sits directly over the input row —
-     * `ConfigSummaryRow`, which belongs to the config surface rather than to
-     * the composer because it is that sheet's *reading* of its own state.
+     * The config chip that sits in the control row between `＋` and the
+     * circles — `ConfigChip`, which belongs to the config surface rather than
+     * to the composer because it is that sheet's *reading* of its own state.
      *
      * A slot rather than a call so the two can land independently: the
-     * composer draws the band whether or not anything is in it, and the screen
-     * decides what a summary of the session is.
+     * composer draws the flexible slot whether or not anything is in it (an
+     * agent that has advertised no selectors leaves it empty, and the row
+     * still holds its shape), and the screen decides what the session's
+     * settings amount to.
      */
-    configSummary: (@Composable () -> Unit)? = null,
+    config: (@Composable () -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -393,8 +401,9 @@ internal fun AgentComposer(
     val focused by interaction.collectIsFocusedAsState()
     // The hairline warms to the accent on focus and cools back. It is the only
     // thing on the screen that says which control the keyboard is typing into,
-    // now that the field is a pill on a container rather than a hole cut in
-    // the panel.
+    // and it is drawn on the CONTAINER rather than on the field: the two lines
+    // inside it are one control as far as the user is concerned, and lighting
+    // half of it would say they were two.
     val edge by animateColorAsState(
         targetValue = if (focused) scheme.primary.copy(alpha = 0.5f) else scheme.outlineVariant,
         animationSpec = effectSpec(),
@@ -459,36 +468,18 @@ internal fun AgentComposer(
                 ),
             )
         }
-        configSummary?.invoke()
-
-        Row(
+        // THE CONTAINER. One rounded surface holds both lines, so the field
+        // and the controls read as one object rather than as a pill with
+        // things parked either side of it; the border is on the container for
+        // the same reason.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = MD.space4, vertical = MD.space2),
-            // Bottom, not Center: the pill grows upward as the message reaches
-            // six lines and the three controls stay on the line the thumb
-            // already found.
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                .padding(horizontal = MD.space4, vertical = MD.space2)
+                .clip(RoundedCornerShape(MD.radiusXl))
+                .background(scheme.surfaceContainerHigh)
+                .border(MD.hairline, edge, RoundedCornerShape(MD.radiusXl)),
         ) {
-            ComposerCircle(
-                icon = R.drawable.ic_ui_plus,
-                description = "Add to this message",
-                enabled = enabled,
-                fill = Color.Transparent,
-                ink = accentIcon,
-                size = IconSize.Action,
-                // A sheet of one row is a worse control than the row itself:
-                // with no image capability and no commands, `＋` *is* the
-                // mention picker, so it opens it.
-                onClick = {
-                    if (state.agent?.capabilities?.images == true || state.commands.isNotEmpty()) {
-                        adding = true
-                    } else {
-                        onOpenMentions()
-                    }
-                },
-            )
             BasicTextField(
                 value = field,
                 onValueChange = ::setField,
@@ -498,19 +489,16 @@ internal fun AgentComposer(
                 // The glow travels through the letters of an activation phrase as
                 // it is typed — never a box behind them (K10).
                 visualTransformation = rememberActivationTransformation(ActivationSurface.COMPOSER),
+                // Six lines, and now the controls genuinely do not move: they
+                // are on their own line under this one, so growing the field
+                // pushes the whole container up the screen instead of
+                // re-laying-out the row the thumb is aiming at.
                 maxLines = 6,
                 interactionSource = interaction,
                 modifier = Modifier
-                    .weight(1f)
-                    // The two discs are centred in a 48dp target, so their
-                    // drawn edge stops [CircleInset] short of the row's
-                    // bottom; the pill matches it rather than sitting proud.
-                    .padding(bottom = CircleInset)
+                    .fillMaxWidth()
                     .heightIn(min = FieldMinHeight)
-                    .clip(RoundedCornerShape(MD.pill))
-                    .background(scheme.surfaceContainerHigh)
-                    .border(MD.hairline, edge, RoundedCornerShape(MD.pill))
-                    .padding(horizontal = MD.space3, vertical = MD.composerPadY)
+                    .padding(start = MD.space4, end = MD.space4, top = MD.space3, bottom = MD.space2)
                     .focusRequester(focus)
                     .onPreviewKeyEvent { event ->
                         // A *soft* keyboard's Enter never arrives as a key event —
@@ -530,7 +518,7 @@ internal fun AgentComposer(
                     Box {
                         if (field.text.isEmpty()) {
                             Text(
-                                text = composerPlaceholder(agentName, projectName, enabled),
+                                text = composerPlaceholder(agentName, enabled),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = scheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -541,46 +529,86 @@ internal fun AgentComposer(
                     }
                 },
             )
-            // **Cancel is its own control.** Steering and stopping are opposite
-            // acts and they are never the same button: a Send that turned into
-            // a Stop mid-turn is what makes a steer look like a cancel. Both
-            // circles are on screen at once for the whole of a running turn,
-            // which is the point spettro-android's composer concedes.
-            if (busy) {
+            // THE CONTROL ROW. No arrangement spacing on purpose: each disc is
+            // [CircleSize] centred in a 48dp target, so two adjacent controls
+            // already sit [CircleInset] × 2 apart, and adding a gap on top of
+            // that would push send off the container's own edge.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = CircleInset, vertical = CircleInset),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 ComposerCircle(
-                    // `ic_agent_stop`, not `ic_ui_stop`: identical art, but
-                    // the drawables are named for what they stop and this one
-                    // stops a turn. The composer had the build's.
-                    icon = R.drawable.ic_agent_stop,
-                    description = "Stop the turn",
-                    enabled = true,
-                    fill = scheme.error,
-                    ink = scheme.onError,
-                    onClick = onStop,
+                    icon = R.drawable.ic_ui_plus,
+                    description = "Add to this message",
+                    enabled = enabled,
+                    fill = Color.Transparent,
+                    ink = accentIcon,
+                    size = IconSize.Action,
+                    // A sheet of one row is a worse control than the row itself:
+                    // with no image capability and no commands, `＋` *is* the
+                    // mention picker, so it opens it.
+                    onClick = {
+                        if (state.agent?.capabilities?.images == true || state.commands.isNotEmpty()) {
+                            adding = true
+                        } else {
+                            onOpenMentions()
+                        }
+                    },
+                )
+                // The row's ONE flexible element, and the reason the controls
+                // never compress: whatever the caller draws here is given the
+                // slack and told to truncate, so a thirty-character model id
+                // cannot squeeze `＋` or send. A `Box` rather than a weight on
+                // the slot itself, because a slot has no `RowScope`.
+                Box(
+                    modifier = Modifier.weight(1f).padding(horizontal = MD.space1),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    config?.invoke()
+                }
+                // **Cancel is its own control.** Steering and stopping are opposite
+                // acts and they are never the same button: a Send that turned into
+                // a Stop mid-turn is what makes a steer look like a cancel. Both
+                // circles are on screen at once for the whole of a running turn,
+                // which is the point spettro-android's composer concedes.
+                if (busy) {
+                    ComposerCircle(
+                        // `ic_agent_stop`, not `ic_ui_stop`: identical art, but
+                        // the drawables are named for what they stop and this one
+                        // stops a turn. The composer had the build's.
+                        icon = R.drawable.ic_agent_stop,
+                        description = "Stop the turn",
+                        enabled = true,
+                        fill = scheme.error,
+                        ink = scheme.onError,
+                        onClick = onStop,
+                    )
+                }
+                ComposerCircle(
+                    icon = if (mode == SendMode.Queue) {
+                        R.drawable.ic_agent_queue
+                    } else {
+                        R.drawable.ic_agent_send
+                    },
+                    description = sendLabel(mode),
+                    enabled = enabled && (field.text.isNotBlank() || attached.isNotEmpty()),
+                    // Disabled keeps the accent at 35% rather than going grey: an
+                    // empty composer is the resting state of this screen, and a
+                    // dead grey disc is what the resting state would look like.
+                    fill = scheme.primary,
+                    disabledFill = scheme.primary.copy(alpha = 0.35f),
+                    ink = scheme.onPrimary,
+                    // `onPrimary` is solved against a *full* primary; over a 35%
+                    // wash of it it is not, and `onSurfaceVariant` is already
+                    // solved against the container the wash sits on.
+                    disabledInk = scheme.onSurfaceVariant,
+                    longClickLabel = "More ways to send",
+                    onLongClick = { if (busy) longPress = true },
+                    onClick = { send() },
                 )
             }
-            ComposerCircle(
-                icon = if (mode == SendMode.Queue) {
-                    R.drawable.ic_agent_queue
-                } else {
-                    R.drawable.ic_agent_send
-                },
-                description = sendLabel(mode),
-                enabled = enabled && (field.text.isNotBlank() || attached.isNotEmpty()),
-                // Disabled keeps the accent at 35% rather than going grey: an
-                // empty composer is the resting state of this screen, and a
-                // dead grey disc is what the resting state would look like.
-                fill = scheme.primary,
-                disabledFill = scheme.primary.copy(alpha = 0.35f),
-                ink = scheme.onPrimary,
-                // `onPrimary` is solved against a *full* primary; over a 35%
-                // wash of it it is not, and `onSurfaceVariant` is already
-                // solved against the container the wash sits on.
-                disabledInk = scheme.onSurfaceVariant,
-                longClickLabel = "More ways to send",
-                onLongClick = { if (busy) longPress = true },
-                onClick = { send() },
-            )
         }
         note?.let { line ->
             Text(
@@ -655,13 +683,27 @@ internal fun AgentComposer(
     }
 }
 
-/** The height of the pill at one line, and of the two circles beside it. */
-private val FieldMinHeight = 40.dp
+/**
+ * The field's height at one line, padding included.
+ *
+ * Bigger than the [CircleSize] it used to match, because it no longer shares a
+ * line with the discs: on its own row an empty field that is only as tall as a
+ * button reads as a slot rather than as a place to write, and this is the line
+ * the screen exists for.
+ */
+private val FieldMinHeight = 44.dp
 
 /** The drawn height of a control in the input row. */
 private val CircleSize = 40.dp
 
-/** Half of what a 48dp touch target adds around a [CircleSize] disc. */
+/**
+ * Half of what a 48dp touch target adds around a [CircleSize] disc.
+ *
+ * Also the control row's own padding, which is not a coincidence: at 4dp on
+ * the row and 4dp inside each target, a disc's drawn edge lands 8dp from the
+ * container's, and two neighbouring discs land 8dp apart. One number, and
+ * every gap in the row comes out the same.
+ */
 private val CircleInset = 4.dp
 
 /** The attachment strip: one row, whatever the count. */
@@ -681,9 +723,9 @@ private val ChipLabelMax = 140.dp
  * times is how three 40dp circles end up three different sizes. The drawn disc
  * is [CircleSize] inside a 48dp target: `minimumInteractiveComponentSize()`
  * grows the hit box and centres the disc in it, which clears WCAG 2.5.8
- * without changing a pixel of what is drawn. The [CircleInset] the pill takes
- * on its own bottom edge is the other half of that — 4dp each side of a 40dp
- * disc in a 48dp slot, so all three controls sit on one line.
+ * without changing a pixel of what is drawn. [CircleInset] is the other half
+ * of that — 4dp each side of a 40dp disc in a 48dp slot — and the control row
+ * pads by the same 4dp so the discs sit square in their container.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

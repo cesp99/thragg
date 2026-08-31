@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,6 +58,10 @@ import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.core.RemoteOpResult
 import to.eyed.seeker.code.core.ResumedEffect
 import to.eyed.seeker.code.core.pollVersion
+import to.eyed.seeker.code.ui.components.BottomActions
+import to.eyed.seeker.code.ui.components.BottomActionsGap
+import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.git.GitDraftStore
 import to.eyed.seeker.code.ui.git.CommitDrafts
 import to.eyed.seeker.code.ui.git.GitOps
@@ -222,14 +225,21 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
         HairlineDivider()
 
         LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            // The gutter is 16dp and the last row clears the commit bar by 24
-            // (docs/VISUAL.md, "Foundations", RHYTHM).
+            // The fade is the fifth adoption of the seam the other four
+            // pinned bars got: a hairline alone still guillotines whichever
+            // row happens to straddle the commit bar, and a change list is
+            // exactly the wrong place for a half-drawn row — a file cut in
+            // two reads as a rendering fault on the one screen whose job is
+            // to be believed about what changed.
+            modifier = Modifier.weight(1f).fillMaxWidth().fadeUnderBottomActions(),
+            // The gutter is 16dp and the last row clears the commit bar by
+            // exactly the height of that fade, so at full scroll the gradient
+            // lands on padding (docs/VISUAL.md, "Foundations", RHYTHM).
             contentPadding = PaddingValues(
                 start = MD.space4,
                 end = MD.space4,
                 top = MD.space2,
-                bottom = MD.space6,
+                bottom = BottomActionsGap,
             ),
             verticalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
@@ -322,7 +332,6 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
         }
 
-        HairlineDivider()
         CommitBar(
             message = message,
             stagedCount = model.stagedCount,
@@ -665,12 +674,11 @@ private fun CommitBar(
     onEdit: () -> Unit,
     onCommit: (andPush: Boolean) -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = MD.space4, vertical = MD.space2),
-    ) {
+    // The shared bar, so the edge, the gesture-handle inset and the gutter
+    // are the same three decisions Projects, New program, Setup and every
+    // sheet make — this screen was drawing two of them by hand and missing
+    // the third.
+    BottomActions {
         Text(
             text = message.ifBlank { "Commit message…" },
             // Material prose, deliberately: a commit message is a sentence
@@ -701,6 +709,7 @@ private fun CommitBar(
             OutlinedButton(
                 onClick = { if (!busy) onCommit(false) },
                 enabled = !busy,
+                border = outlinedButtonEdge(!busy),
                 modifier = Modifier.weight(1f),
             ) {
                 Text(

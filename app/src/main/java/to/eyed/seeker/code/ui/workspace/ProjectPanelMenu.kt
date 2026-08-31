@@ -1,6 +1,7 @@
 package to.eyed.seeker.code.ui.workspace
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -48,7 +47,6 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import to.eyed.seeker.code.core.ProjectWorktree
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /** One line of the project panel's context menu. */
 sealed interface PanelMenuEntry {
@@ -85,17 +83,20 @@ fun ProjectContextMenu(
     // DropdownMenuItems, which bring their own ripple (material3's Menu.kt
     // passes `indication = ripple()` explicitly, so the theme's NoIndication
     // never reaches them) and Material's menu surface tokens.
-    val theme = LocalZedTheme.current
     DropdownMenu(
         expanded = true,
         onDismissRequest = onDismiss,
         offset = offset,
         shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, theme.color("border.variant")),
-        containerColor = theme.color(
-            "elevated_surface.background",
-            MaterialTheme.colorScheme.surface,
-        ),
+        // The same two inks as before under their Material names — the bridge
+        // maps `surfaceContainer` from `elevated_surface.background` and
+        // `outlineVariant` from `border.variant`. It matters that they come
+        // through the scheme rather than raw: this menu opens over the Files
+        // sheet, which is `surfaceContainer` too, and the ladder de-dupe is
+        // what stops the two collapsing into one edgeless slab on the nine
+        // bundled themes whose rungs 2 and 3 are the same hex.
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.onPreviewKeyEvent { event ->
             // Escape closes it. Arrows and Enter are Compose's own focus
             // traversal, which the items are already wired for.
@@ -114,7 +115,7 @@ fun ProjectContextMenu(
                         // Zed's ListSeparator: 1px `border.variant`, 6px above
                         // and below (list_separator.rs:9-12).
                         HorizontalDivider(
-                            color = theme.color("border.variant"),
+                            color = MaterialTheme.colorScheme.outlineVariant,
                             modifier = Modifier.padding(vertical = 6.dp),
                         )
 
@@ -127,27 +128,28 @@ fun ProjectContextMenu(
 
 @Composable
 private fun PanelMenuRow(entry: PanelMenuEntry.Action, onDismiss: () -> Unit) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier
             .fillMaxWidth()
+            // Hover and press are the indication's job now, not a fill this
+            // row paints: `ghost_element.hover` has no M3 answer because it is
+            // a state layer. The clip is what keeps that layer in the corners.
             .clip(RoundedCornerShape(4.dp))
-            .background(
-                if (hovered && entry.enabled) {
-                    theme.color("ghost_element.hover", Color.Transparent)
-                } else {
-                    Color.Transparent
-                }
-            )
             .then(
                 if (entry.enabled) {
                     Modifier
                         .pointerHoverIcon(PointerIcon.Hand)
-                        .clickable(interactionSource = interaction, indication = null) {
+                        // The long-press menu of a file row, opened from the
+                        // Files sheet: a Material surface, so it takes the
+                        // Material ripple. `indication = null` here gave a
+                        // phone menu no press feedback at all.
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = LocalIndication.current,
+                        ) {
                             onDismiss()
                             entry.onClick()
                         }
@@ -163,7 +165,7 @@ private fun PanelMenuRow(entry: PanelMenuEntry.Action, onDismiss: () -> Unit) {
             color = if (entry.enabled) {
                 MaterialTheme.colorScheme.onSurface
             } else {
-                theme.color("text.disabled", MaterialTheme.colorScheme.onSurfaceVariant)
+                MaterialTheme.colorScheme.onSurface.copy(alpha = DISABLED_ALPHA)
             },
             modifier = Modifier.weight(1f),
         )
@@ -348,11 +350,13 @@ internal fun PanelDialog(
     onDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface),
+            // `surfaceContainerHigh` rather than `surfaceContainer`: M3's own
+            // dialog rung, and one step above the Files sheet this is raised
+            // over, so a rename prompt has an edge without a shadow.
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.widthIn(min = 320.dp, max = 520.dp),
         ) {
             Column(modifier = Modifier.padding(vertical = 16.dp)) {
@@ -386,12 +390,18 @@ internal fun PanelTextField(
     onSubmit: () -> Unit,
     onEscape: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
-            .background(theme.color("editor.background"), RoundedCornerShape(6.dp))
+            // A field on the dialog's own ladder, not a patch of buffer:
+            // `editor.background` under a dialog is the one place in the app
+            // where the editor's canvas appears with no editor in it, and on
+            // the Ayu family it is a different hue from the dialog around it.
+            .background(
+                MaterialTheme.colorScheme.surfaceContainerHighest,
+                RoundedCornerShape(6.dp),
+            )
             .pointerHoverIcon(PointerIcon.Text)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
@@ -400,7 +410,7 @@ internal fun PanelTextField(
             onValueChange = onValueChange,
             singleLine = true,
             textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
-            cursorBrush = SolidColor(theme.color("editor.foreground")),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester)
@@ -436,12 +446,11 @@ internal fun PanelActions(content: @Composable () -> Unit) {
 
 @Composable
 internal fun PanelMessage(text: String, isError: Boolean = false) {
-    val theme = LocalZedTheme.current
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
         color = if (isError) {
-            theme.color("error", MaterialTheme.colorScheme.error)
+            MaterialTheme.colorScheme.error
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
@@ -456,13 +465,12 @@ internal fun PanelTextAction(
     isDestructive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
         color = when {
-            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
-            isDestructive -> theme.color("error", MaterialTheme.colorScheme.error)
+            !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = DISABLED_ALPHA)
+            isDestructive -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.primary
         },
         modifier = Modifier

@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.GitSession
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.git.DiffBody
 import to.eyed.seeker.code.ui.git.DiffPane
 import to.eyed.seeker.code.ui.git.DiffTarget
@@ -153,6 +154,7 @@ fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifi
                         state.pop()
                     },
                     modifier = Modifier.weight(1f),
+                    border = outlinedButtonEdge(),
                 ) {
                     ButtonMark(R.drawable.ic_ui_close)
                     Text("Reject")
@@ -170,6 +172,7 @@ fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifi
             } else {
                 OutlinedButton(
                     onClick = { discardAsk = true },
+                    border = outlinedButtonEdge(),
                     modifier = Modifier.weight(1f),
                 ) { Text("Discard…") }
                 Button(

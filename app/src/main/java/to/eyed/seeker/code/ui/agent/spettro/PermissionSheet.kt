@@ -42,6 +42,7 @@ import to.eyed.seeker.code.core.PermissionOption
 import to.eyed.seeker.code.core.SpettroAnswers
 import to.eyed.seeker.code.core.ToolKind
 import to.eyed.seeker.code.ui.components.ZedCodeBlock
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
@@ -473,6 +474,13 @@ private fun OptionButton(
             onClick = onClick,
             enabled = enabled,
             shape = shape,
+            // The edge follows the CONTENT here — the one site that asks for
+            // it. A reject's label is `error` on purpose, and an accent edge
+            // round red text is the control giving two answers about itself.
+            border = outlinedButtonEdge(
+                enabled = enabled,
+                color = if (option.isAllow) scheme.primary else scheme.error,
+            ),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = if (option.isAllow) scheme.onSurface else scheme.error,
             ),

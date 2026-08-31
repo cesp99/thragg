@@ -3,6 +3,7 @@ package to.eyed.seeker.code.ui.workspace
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import to.eyed.seeker.code.ui.theme.ZedTheme
+import to.eyed.seeker.code.ui.theme.readable
 
 /**
  * Version-control state of a single project entry, the way the tree paints it.
@@ -158,6 +159,38 @@ class GitStatusColours(
         GitFileStatus.None, GitFileStatus.Ignored ->
             if ((isIgnored || status == GitFileStatus.Ignored) && dimIgnored) ignored else default
     }
+
+    /**
+     * The same six meanings, made legible on [ground].
+     *
+     * The project panel is drawn on a Material sheet now, and this is the one
+     * table in it that still reads the Zed theme — because these hues MEAN
+     * something: the amber a modified file wears here is the amber the diff,
+     * the git panel and the buffer's gutter wear, and a tree that answered
+     * "changed" in an M3 role would disagree with all three. So the hue is
+     * kept and only the lightness moves, by the smallest distance that clears
+     * 4.5:1 — which is not optional on a sheet: measured across the bundled
+     * themes, Ayu Light's `created` is **2.11:1** on the panel ground and One
+     * Light's is 2.64:1 (docs/VISUAL.md, "The hybrid").
+     *
+     * [default] and [ignored] are left alone deliberately. `default` is
+     * already a solved M3 role handed in by the caller, and `ignored` is
+     * SUPPOSED to be hard to read — dimming is the whole of what it says, and
+     * solving it to 4.5:1 would delete the meaning it carries.
+     *
+     * Not used by the editor's or the diff's tables ([from]): those are drawn
+     * inside `ZedSurface`, where raw is the rule.
+     */
+    fun solvedOn(ground: Color): GitStatusColours = GitStatusColours(
+        default = default,
+        modified = readable(modified, ground),
+        added = readable(added, ground),
+        untracked = readable(untracked, ground),
+        deleted = readable(deleted, ground),
+        renamed = readable(renamed, ground),
+        conflicted = readable(conflicted, ground),
+        ignored = ignored,
+    )
 
     companion object {
         /**

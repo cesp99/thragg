@@ -4,11 +4,11 @@ import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -38,10 +38,13 @@ import to.eyed.seeker.code.solana.templates.SolanaFramework
 import to.eyed.seeker.code.solana.templates.SolanaNames
 import to.eyed.seeker.code.solana.templates.SolanaProgram
 import to.eyed.seeker.code.solana.templates.SolanaScaffold
+import to.eyed.seeker.code.ui.components.BottomActions
+import to.eyed.seeker.code.ui.components.BottomActionsGap
 import to.eyed.seeker.code.ui.components.Choice
 import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.components.SegmentedSelect
+import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.MD
@@ -129,6 +132,14 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                // The form is CLIPPED where the action bar begins, and LOCATION
+                // — the last field, and the one nobody scrolls looking for —
+                // was the row that landed on the cut. The fade turns the cut
+                // into "there is more", and the gap at the foot of this column
+                // is what lets the last row scroll clear of it
+                // ([BottomActions]). Before the scroll, so it masks the
+                // VIEWPORT rather than the content.
+                .fadeUnderBottomActions()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = MD.space4),
         ) {
@@ -247,48 +258,49 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
                     modifier = Modifier.weight(1f),
                 )
             }
+            Spacer(Modifier.height(BottomActionsGap))
         }
 
         // Actions at the bottom of the screen, above the IME — the rule every
         // surface in this app follows (docs/UI.md). Create is DISABLED rather
         // than hidden while the name is bad, so the reason for its state can
-        // be read off the field above it (docs/VISUAL.md).
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(MD.space3, Alignment.End),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(horizontal = MD.space4, vertical = MD.space2),
-        ) {
-            TextButton(onClick = { state.pop() }) {
-                Text("Cancel", style = MaterialTheme.typography.labelLarge)
-            }
-            Button(
-                onClick = {
-                    creating = true
-                    // [ProjectWork], not a composition scope: creating ends
-                    // by opening the project, which pops this very route.
-                    ProjectWork.launch {
-                        val created = createProgram(
-                            context = context,
-                            state = state,
-                            displayName = trimmed,
-                            framework = framework,
-                            cluster = cluster,
-                            openThread = openThread,
-                        )
-                        creating = false
-                        if (created) state.pop()
-                    }
-                },
-                enabled = canCreate,
+        // be read off the field above it (docs/VISUAL.md). The hairline, the
+        // insets and the padding are [BottomActions]', so this bar sits on the
+        // same seam as Setup's and every sheet's.
+        BottomActions {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MD.space3, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    text = if (creating) "Creating…" else "Create",
-                    style = MaterialTheme.typography.labelLarge,
-                )
+                TextButton(onClick = { state.pop() }) {
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
+                }
+                Button(
+                    onClick = {
+                        creating = true
+                        // [ProjectWork], not a composition scope: creating ends
+                        // by opening the project, which pops this very route.
+                        ProjectWork.launch {
+                            val created = createProgram(
+                                context = context,
+                                state = state,
+                                displayName = trimmed,
+                                framework = framework,
+                                cluster = cluster,
+                                openThread = openThread,
+                            )
+                            creating = false
+                            if (created) state.pop()
+                        }
+                    },
+                    enabled = canCreate,
+                ) {
+                    Text(
+                        text = if (creating) "Creating…" else "Create",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
             }
         }
     }

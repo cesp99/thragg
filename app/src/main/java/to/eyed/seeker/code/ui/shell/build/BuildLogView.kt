@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +41,7 @@ import to.eyed.seeker.code.solana.build.BuildLog
 import to.eyed.seeker.code.solana.build.BuildLogRow
 import to.eyed.seeker.code.ui.components.EmptyState
 import to.eyed.seeker.code.ui.editor.DiagnosticSeverity
+import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.MD
@@ -96,11 +99,22 @@ import java.util.Locale
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BuildLogView(
+internal fun BuildLogView(
     state: ShellState,
     log: BuildLog,
     projectRoot: String?,
     modifier: Modifier = Modifier,
+    /**
+     * Why Run is greyed, or null when it is armed.
+     *
+     * The empty state is the only thing on this screen when nothing has been
+     * built, so it is the only thing that can tell the user what to do — and
+     * it told them to press a control that was disabled, on a device with no
+     * toolchain, which is every first run. [BuildScreen] already computes the
+     * answer for the run button and the overflow; handing it here is what
+     * stops the two disagreeing.
+     */
+    unavailable: Unavailable? = null,
 ) {
     val theme = LocalZedTheme.current
     val listState = rememberLazyListState()
@@ -126,15 +140,47 @@ fun BuildLogView(
     }
 
     if (rows.isEmpty()) {
-        // No island: an empty bordered box is a frame around nothing, and the
-        // way out of this state is the run control in the app bar rather than
-        // anything that could be an [EmptyState] action.
+        // No island: an empty bordered box is a frame around nothing. When Run
+        // is armed the way out of this state is the run control in the app bar
+        // and there is nothing to put in the action slot; when it is NOT armed
+        // the way out is Setup, and this is the only place on the screen with
+        // room to offer it.
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            EmptyState(
-                headline = "Nothing built yet",
-                body = "Press Run and the compiler's output arrives here, " +
-                    "line by line, with every problem tappable.",
-            )
+            if (unavailable == null) {
+                EmptyState(
+                    headline = "Nothing built yet",
+                    body = "Press Run and the compiler's output arrives here, " +
+                        "line by line, with every problem tappable.",
+                )
+            } else {
+                EmptyState(
+                    headline = unavailable.headline,
+                    body = unavailable.message,
+                    action = if (unavailable.setup) {
+                        {
+                            Button(
+                                onClick = { state.push(Route.Setup) },
+                                // Zero in all five slots: depth here is a fill
+                                // step and a hairline, never a shadow
+                                // (docs/VISUAL.md, ELEVATION).
+                                elevation = ButtonDefaults.buttonElevation(
+                                    0.dp, 0.dp, 0.dp, 0.dp, 0.dp,
+                                ),
+                            ) {
+                                Text(
+                                    text = "Set up the toolchain",
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                        }
+                    } else {
+                        // No userland, or no Solana crate in this folder:
+                        // there is no button that would help, and inventing
+                        // one is the defect this branch exists to avoid.
+                        null
+                    },
+                )
+            }
         }
         return
     }

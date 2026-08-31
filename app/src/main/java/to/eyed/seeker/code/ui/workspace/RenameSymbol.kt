@@ -1,11 +1,10 @@
 package to.eyed.seeker.code.ui.workspace
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -55,7 +53,6 @@ import to.eyed.seeker.code.ui.editor.EditSummary
 import to.eyed.seeker.code.ui.editor.EditorState
 import to.eyed.seeker.code.ui.editor.LspRequestState
 import to.eyed.seeker.code.ui.editor.requestRename
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.rem
 
 /**
@@ -80,7 +77,6 @@ internal fun RenameSymbol(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
     val scope = rememberCoroutineScope()
     val originalName = remember(editor) { editor.wordUnderCaret() }
     var query by remember(editor) {
@@ -167,8 +163,11 @@ internal fun RenameSymbol(
             .padding(8.dp)
             .widthIn(max = rem(24f))
             .clip(RoundedCornerShape(8.dp))
-            .background(theme.color("elevated_surface.background"))
-            .border(1.dp, theme.color("border.variant"), RoundedCornerShape(8.dp))
+            // GoToLine's dress, and the same argument: raised over the buffer
+            // but drawn outside `ZedSurface`, so the raised M3 rung and the
+            // Material hairline rather than the raw Zed keys they map from.
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -208,16 +207,16 @@ internal fun RenameSymbol(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { confirm() }),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = theme.color("text"),
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
-                    cursorBrush = SolidColor(theme.cursor),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 )
                 if (query.text.isEmpty()) {
                     Text(
                         text = "New name",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("text.placeholder"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
                 }
@@ -229,14 +228,18 @@ internal fun RenameSymbol(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(theme.color("border.variant")),
+                .background(MaterialTheme.colorScheme.outlineVariant),
         )
         Text(
             text = statusText,
             style = MaterialTheme.typography.bodyMedium,
             // An error reads as one; the rest stays muted like GoToLine's
             // status line.
-            color = if (note != null) theme.color("error") else theme.color("text.muted"),
+            color = if (note != null) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             maxLines = 2,
             modifier = Modifier
                 .fillMaxWidth()
@@ -248,25 +251,16 @@ internal fun RenameSymbol(
 /** GoToLine's ghost action button, verbatim in dress. */
 @Composable
 private fun RenameAction(glyph: String, description: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier = Modifier
             .height(22.dp)
             .widthIn(min = 22.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(
-                when {
-                    pressed -> theme.color("ghost_element.active")
-                    hovered -> theme.color("ghost_element.hover")
-                    else -> Color.Transparent
-                }
-            )
+            // The ghost ramp is the state layer, drawn by the indication.
             .clickable(
                 interactionSource = interaction,
-                indication = null,
+                indication = LocalIndication.current,
                 onClickLabel = description,
                 onClick = onClick,
             )
@@ -277,7 +271,7 @@ private fun RenameAction(glyph: String, description: String, onClick: () -> Unit
         Text(
             text = glyph,
             style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("icon"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

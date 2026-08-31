@@ -1,11 +1,10 @@
 package to.eyed.seeker.code.ui.workspace
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -45,7 +43,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.ui.editor.Caret
 import to.eyed.seeker.code.ui.editor.EditorState
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.rem
 
 /** A line, and optionally a column, both as the user counts them: from 1. */
@@ -116,7 +113,6 @@ internal fun GoToLine(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
     var query by remember(editor) { mutableStateOf(TextFieldValue("")) }
     val focus = remember { FocusRequester() }
 
@@ -182,8 +178,13 @@ internal fun GoToLine(
             // narrowed to what a phone actually has when it has less.
             .widthIn(max = rem(24f))
             .clip(RoundedCornerShape(8.dp))
-            .background(theme.color("elevated_surface.background"))
-            .border(1.dp, theme.color("border.variant"), RoundedCornerShape(8.dp))
+            // Zed's elevated surface and its hairline, by their Material
+            // names. This panel floats over the buffer but is not IN it — it
+            // is chrome the shell raises, drawn outside `ZedSurface`
+            // (CodeScreen.kt:813) — so its ground is the M3 ladder's raised
+            // rung and its inks are solved against that.
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -241,16 +242,18 @@ internal fun GoToLine(
                     // key handler, so it is answered here as well.
                     keyboardActions = KeyboardActions(onGo = { onDismiss() }),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = theme.color("text"),
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
-                    cursorBrush = SolidColor(theme.cursor),
+                    // `primary`, not the theme's `cursor` key: that one is the
+                    // buffer's caret, tuned against `editor.background`.
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 )
                 if (query.text.isEmpty()) {
                     Text(
                         text = "${openedAt.headRow + 1}:${openedAt.headCol + 1}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("text.placeholder"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
                 }
@@ -264,14 +267,14 @@ internal fun GoToLine(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(theme.color("border.variant")),
+                .background(MaterialTheme.colorScheme.outlineVariant),
         )
         // Zed's status line: what the query means right now, muted, in the
         // same `px_2` `py_1` (go_to_line.rs:342-346).
         Text(
             text = statusText,
             style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text.muted"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             modifier = Modifier
                 .fillMaxWidth()
@@ -290,25 +293,17 @@ internal fun GoToLine(
  */
 @Composable
 private fun Action(glyph: String, description: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier = Modifier
             .height(22.dp)
             .widthIn(min = 22.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(
-                when {
-                    pressed -> theme.color("ghost_element.active")
-                    hovered -> theme.color("ghost_element.hover")
-                    else -> Color.Transparent
-                }
-            )
+            // The ghost ramp is the state layer the ripple draws; the clip
+            // keeps it inside the 4dp corners. Nothing is painted at rest.
             .clickable(
                 interactionSource = interaction,
-                indication = null,
+                indication = LocalIndication.current,
                 onClickLabel = description,
                 onClick = onClick,
             )
@@ -319,7 +314,7 @@ private fun Action(glyph: String, description: String, onClick: () -> Unit) {
         Text(
             text = glyph,
             style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("icon"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

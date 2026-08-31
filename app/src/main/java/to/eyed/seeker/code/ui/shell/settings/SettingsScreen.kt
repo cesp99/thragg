@@ -14,6 +14,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -155,37 +156,56 @@ fun SettingsScreen(
                 onClick = { state.push(Route.Setup) },
             )
             HairlineDivider()
+            // "not set up yet" was the wrong sentence under a dead chevron:
+            // it names a job the user could do and then will not let them do
+            // it. Nothing on this device is unset — the sheet these rows open
+            // is not in the build. The row says that and drops the chevron.
             LinkRow(
                 label = "Cluster",
-                detail = if (onOpenCluster == null) "not set up yet" else "devnet",
-                enabled = onOpenCluster != null,
-                onClick = { onOpenCluster?.invoke() },
+                detail = if (onOpenCluster == null) "not in this build yet" else "devnet",
+                onClick = onOpenCluster,
             )
             HairlineDivider()
             LinkRow(
                 label = "Wallet",
-                detail = if (onOpenWallet == null) "not set up yet" else "Seed Vault",
-                enabled = onOpenWallet != null,
-                onClick = { onOpenWallet?.invoke() },
+                detail = if (onOpenWallet == null) "not in this build yet" else "Seed Vault",
+                onClick = onOpenWallet,
             )
         }
 
         SectionHeader("Agent", modifier = Modifier.padding(top = MD.space4))
         SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            // ONE ROW, NOT TWO. "Install an agent" used to sit under this
+            // one carrying the SAME onClick — two rows, one action, and while
+            // the picker is null neither could perform it. A permanently grey
+            // row whose whole text is a verb is the worst case of the dead
+            // affordance: it has no readout to fall back on, so with the
+            // chevron gone there would be nothing left of it but a promise.
+            // This row already says what is installed and is the route to the
+            // picker the day it lands, so the second row was only ever a
+            // second door into the same room.
             LinkRow(
                 label = "Coding agent",
                 // The agents in settings.json are the only agents there are —
                 // the panel names none of its own (core/AppSettings.kt,
                 // `agents`).
-                detail = settings.agents.firstOrNull()?.name ?: "none installed",
-                enabled = onOpenAgentPicker != null,
-                onClick = { onOpenAgentPicker?.invoke() },
-            )
-            HairlineDivider()
-            LinkRow(
-                label = "Install an agent",
-                enabled = onOpenAgentPicker != null,
-                onClick = { onOpenAgentPicker?.invoke() },
+                detail = if (settings.agents.isNotEmpty()) {
+                    settings.agents.first().name
+                } else {
+                    "none installed"
+                },
+                // The last row that ran a readout and a sentence together in
+                // the trailing column, and it clipped for exactly the reason
+                // the Advanced three did: `none installed · no installer in
+                // this build yet` is 46 characters against [DetailMax]'s
+                // 168dp, so what reached the screen was `none installed · no
+                // in…` — the readout survived and the half that explained
+                // the missing chevron did not. The readout stays right, the
+                // precondition goes under the label where a sentence has
+                // room to be read.
+                description = "no installer in this build yet"
+                    .takeIf { settings.agents.isEmpty() && onOpenAgentPicker == null },
+                onClick = onOpenAgentPicker,
             )
         }
 
@@ -242,15 +262,20 @@ fun SettingsScreen(
 
         SectionHeader("Advanced", modifier = Modifier.padding(top = MD.space4))
         SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            // Null rather than disabled, for the reason on [LinkRow]: with no
+            // settings.json on disk and no editor registered to open it there
+            // is nothing behind the chevron, so there is no chevron.
+            val openInEditor = state.openPath
             LinkRow(
                 label = "Edit settings.json",
-                detail = "every key, including the ones with no row",
-                enabled = settingsPath != null && state.openPath != null,
-                onClick = {
-                    val path = settingsPath ?: return@LinkRow
-                    val open = state.openPath ?: return@LinkRow
-                    state.show(Destination.Code)
-                    open(path)
+                description = "every key, including the ones with no row",
+                onClick = if (settingsPath != null && openInEditor != null) {
+                    {
+                        state.show(Destination.Code)
+                        openInEditor(settingsPath)
+                    }
+                } else {
+                    null
                 },
             )
             HairlineDivider()
@@ -260,13 +285,13 @@ fun SettingsScreen(
             // compliance requirement, not the existence of the files.
             LinkRow(
                 label = stringResource(R.string.licences_settings_row),
-                detail = stringResource(R.string.licences_settings_detail),
+                description = stringResource(R.string.licences_settings_detail),
                 onClick = { state.push(Route.Licences) },
             )
             HairlineDivider()
             LinkRow(
                 label = "About this device",
-                detail = "engine version, ABI, page size",
+                description = "engine version, ABI, page size",
                 onClick = { aboutOpen = true },
             )
         }
@@ -307,13 +332,41 @@ fun SettingsScreen(
 private const val MIN_FONT_SIZE = 10f
 private const val MAX_FONT_SIZE = 24f
 
-/** A row that goes somewhere: a label, an optional readout, and a chevron. */
+/**
+ * A row that goes somewhere: a label, an optional readout or description, and
+ * a chevron.
+ *
+ * TWO SLOTS, BECAUSE THEY ARE TWO DIFFERENT THINGS, and conflating them is
+ * what put "every key, including the ones w…" on screen. [detail] is a
+ * READOUT — `devnet`, `installed · 41 MB`, the current theme — a value the
+ * row's own control decides, which belongs on the right where the eye scans a
+ * column of values and which is capped at [DetailMax] so it cannot squeeze the
+ * label. [description] is a SENTENCE about where the row goes, and a sentence
+ * has no business in a 168 dp trailing column: cut there it loses the half
+ * that carried the meaning, so all three Advanced rows were paying a line's
+ * ink to say nothing. It goes under the label instead, at 2 dp, exactly as
+ * [ToggleRow] has always drawn its own (docs/VISUAL.md, "Foundations",
+ * RHYTHM: 2dp between a label and its description).
+ *
+ * NO SUCH THING AS A DISABLED LINK ROW. [onClick] is nullable and null draws a
+ * STATEMENT — the label, the readout, no chevron and no click target — because
+ * the alternative, which this row used to draw, is a lie with an arrow on it.
+ * A greyed "Wallet ›" names a destination, promises it is one tap away, and
+ * then refuses the tap with no reason given; the user's only reading is that
+ * they have done something wrong. A row with no chevron is not a control that
+ * failed, it is a line of information, so it keeps its ink at full strength
+ * and lets [detail] carry the precondition ("not in this build yet"). The
+ * 38 % disabled alpha that used to be here is Material's answer for a control
+ * that will become live when the FORM around it is valid — a Create button
+ * beside an empty name field — and none of these rows is that.
+ */
 @Composable
 private fun LinkRow(
     label: String,
     detail: String? = null,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
+    description: String? = null,
+    /** Where the row goes; null when there is nowhere for it to go. */
+    onClick: (() -> Unit)?,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
@@ -321,27 +374,38 @@ private fun LinkRow(
         horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .heightIn(min = MD.rowMin)
             .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            // Material's disabled alpha rather than the muted role: muted is a
-            // *kind* of text in this design, not a state, and using it for
-            // both makes a live secondary line read as switched off.
-            color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            // The label is the only WEIGHTED child, so it absorbs the slack and
-            // pushes the readout and the chevron to the row's edge. It used to
-            // share a weight with the readout, and two weights split the row in
-            // half — which parked the chevron in the middle of the card on
-            // every row whose readout was short, while an icon-bearing sibling
-            // put its own on the edge.
-            modifier = Modifier.weight(1f),
-        )
+        // The label is the only WEIGHTED child, so it absorbs the slack and
+        // pushes the readout and the chevron to the row's edge. It used to
+        // share a weight with the readout, and two weights split the row in
+        // half — which parked the chevron in the middle of the card on
+        // every row whose readout was short, while an icon-bearing sibling
+        // put its own on the edge.
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    // Two lines because the widest of these needs one and a
+                    // half at 12sp, and a description that ellipsises is the
+                    // thing this slot exists to stop.
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = MD.space05),
+                )
+            }
+        }
         if (detail != null) {
             Text(
                 text = detail,
@@ -351,14 +415,18 @@ private fun LinkRow(
                 overflow = TextOverflow.Ellipsis,
                 // Unweighted, so it measures first — capped, so that measuring
                 // first cannot squeeze the label. An uncapped readout like
-                // "what this app is built from, and the source offer" takes its
+                // "installed · 412 MB / One Dark / Solarized Light" takes its
                 // whole intrinsic width and leaves the part that says what the
                 // row *is* with nothing; [DetailMax] is the share of a 400dp
                 // row a readout may have before it is the one that ellipsises.
+                // A readout is short by nature, which is why the cap is a
+                // safety net here and was a gag on a sentence.
                 modifier = Modifier.widthIn(max = DetailMax),
             )
         }
-        RowChevron()
+        // The chevron IS the affordance. Drawn only when there is something
+        // behind it, so its absence is the row saying so.
+        if (onClick != null) RowChevron()
     }
 }
 
@@ -471,9 +539,40 @@ private fun SliderRow(
             steps = (range.endInclusive - range.start).toInt() - 1,
             onValueChangeFinished = { dragging?.let { onValue(it) } },
             modifier = Modifier.fillMaxWidth(),
+            // THREE ROLES SPELLED OUT, and all three for one reason:
+            // material3 1.4.0's slider defaults are written against a stock M3
+            // palette, where `secondaryContainer` is a pale lavender well away
+            // from `primary`. Under this scheme it is Zed's `element.selected`
+            // (MaterialBridge.kt, band A) — a fill a step BEYOND the top of the
+            // surface ladder, further from the canvas than
+            // `surfaceContainerHighest` on all eleven bundled themes
+            // (MaterialBridgeTest, "secondaryContainer is a sixth fill rung").
+            // So:
+            //
+            //  - `inactiveTrackColor` is `SliderTokens.InactiveTrackColor` =
+            //    secondaryContainer, which drew the unspent half of the track
+            //    as the brightest panel on a Settings page — a raised surface
+            //    where the design wanted the quietest rung;
+            //  - `defaultSliderColors` (Slider.kt:1169-1171) then sets
+            //    `activeTickColor = InactiveTrackColor` and
+            //    `inactiveTickColor = ActiveTrackColor`, i.e. each half's ticks
+            //    in the OTHER half's colour — so full-strength `primary` dots
+            //    ran along the UNSELECTED half and the slider read as if all of
+            //    it were chosen.
+            //
+            // Same trap ShellNavBar.kt avoids by refusing secondaryContainer
+            // for its indicator, and the same answer LevelSlider.kt gives.
+            colors = SliderDefaults.colors(
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.55f),
+                inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            ),
         )
     }
 }
 
-/** The share of a 400dp row a readout may take before it is the one that ellipsises. */
+/**
+ * The share of a 400dp row a READOUT may take before it is the one that
+ * ellipsises. A description does not go here at all — see [LinkRow].
+ */
 private val DetailMax = 168.dp

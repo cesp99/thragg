@@ -6,10 +6,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -107,6 +110,18 @@ private fun SelectorsLightPreview() {
     PreviewHost(dark = false) { Selectors() }
 }
 
+@Preview(name = "Bottom bar — One Dark", widthDp = 400, heightDp = 320, showBackground = true)
+@Composable
+private fun BottomBarDarkPreview() {
+    PreviewHost(dark = true) { PinnedBar() }
+}
+
+@Preview(name = "Bottom bar — Ayu Light", widthDp = 400, heightDp = 320, showBackground = true)
+@Composable
+private fun BottomBarLightPreview() {
+    PreviewHost(dark = false) { PinnedBar() }
+}
+
 @Preview(name = "Notices — One Dark", widthDp = 400, showBackground = true)
 @Composable
 private fun NoticesDarkPreview() {
@@ -164,6 +179,52 @@ private fun Gallery() {
         body = "Start one to talk to Spettro.",
         action = { Button(onClick = {}) { Text("New thread") } },
     )
+}
+
+/**
+ * The pinned bar and its seam, which is the only component you cannot judge
+ * from a still of the component alone.
+ *
+ * [BottomActions] is three decisions and two of them are about the thing
+ * ABOVE it, so the preview draws the thing above it: a list tall enough to
+ * run under the bar, wearing [fadeUnderBottomActions] and ending in a
+ * [BottomActionsGap]. What you are looking for is the last visible row
+ * DISSOLVING into the hairline rather than being cut across the middle of its
+ * glyphs — the defect this component exists to remove, and the one that is
+ * invisible in a screenshot of a bar on its own.
+ *
+ * A fixed `heightDp` on the two `@Preview`s, deliberately: the fade only says
+ * anything when the content overflows, and a preview that wraps its content
+ * would show the honest-at-rest case where there is nothing under the
+ * gradient to dim.
+ */
+@Composable
+private fun PinnedBar() {
+    Column(modifier = Modifier.height(200.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .fadeUnderBottomActions()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            repeat(8) { i ->
+                Text(
+                    text = "A row that has to survive the bar — ${i + 1}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(vertical = MD.space2),
+                )
+            }
+            Spacer(Modifier.height(BottomActionsGap))
+        }
+        BottomActions {
+            Row(horizontalArrangement = Arrangement.spacedBy(MD.space3)) {
+                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Create") }
+                TextButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            }
+        }
+    }
 }
 
 /** Everything that takes an answer from the user. */

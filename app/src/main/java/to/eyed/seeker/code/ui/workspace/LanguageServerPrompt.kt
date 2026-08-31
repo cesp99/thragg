@@ -1,10 +1,9 @@
 package to.eyed.seeker.code.ui.workspace
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,7 +49,6 @@ import to.eyed.seeker.code.core.LanguageServers
 import to.eyed.seeker.code.core.AptInstallState
 import to.eyed.seeker.code.core.targetOrNull
 import to.eyed.seeker.code.terminal.Userland
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 /**
  * Zed's `Button` at `ButtonSize::Medium`: a 28px box with 8px of horizontal
@@ -101,7 +99,6 @@ fun LanguageServerPrompt(
     if (!LanguageServerInstaller.isSupported) return
 
     val context = LocalContext.current
-    val theme = LocalZedTheme.current
     val state = LanguageServerInstaller.state
     val focus = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -224,7 +221,7 @@ fun LanguageServerPrompt(
                 text = "LANGUAGE SERVER",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = theme.color("text.muted"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             when (val current = state) {
@@ -265,7 +262,7 @@ fun LanguageServerPrompt(
                     Text(
                         text = current.target.question(current.plan),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("text"),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Body(current.target.detail(current.plan, Userland.backend.displayName))
                     Actions {
@@ -290,7 +287,7 @@ fun LanguageServerPrompt(
                     Text(
                         text = "Installing ${current.target.packageList}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("text"),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     // apt's last line, verbatim: it names the mirror, the
                     // package and the phase, which is more than any summary of
@@ -308,7 +305,7 @@ fun LanguageServerPrompt(
                     Text(
                         text = current.summary,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("error", MaterialTheme.colorScheme.error),
+                        color = MaterialTheme.colorScheme.error,
                     )
                     // apt's own words, kept verbatim: they are usually the only
                     // thing that names the mirror or the broken dependency.
@@ -338,11 +335,10 @@ fun LanguageServerPrompt(
 /** One line of explanation, `Color::Muted` as Zed's notification bodies are. */
 @Composable
 private fun Body(text: String, maxLines: Int = Int.MAX_VALUE) {
-    val theme = LocalZedTheme.current
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
-        color = theme.color("text.muted"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
     )
@@ -362,25 +358,29 @@ private fun Actions(content: @Composable () -> Unit) {
 
 /**
  * What apt is doing, drawn the way the clone dialog draws a phase with no
- * percentage: a full bar in the selected fill. apt reports lines, not
- * fractions — "Get:14 http://deb.debian.org … 4,096 kB" — and a bar that
- * invented a percentage from them would be a bar that lies.
+ * percentage: a full bar in the accent. apt reports lines, not fractions —
+ * "Get:14 http://deb.debian.org … 4,096 kB" — and a bar that invented a
+ * percentage from them would be a bar that lies.
+ *
+ * The fill is `primary` rather than the `element.selected` it used to be: this
+ * is a progress track, not a selected row, and M3 already names both halves of
+ * one — track `surfaceContainerHighest`, indicator `primary`. Reading it as a
+ * selection was the Zed vocabulary having no word for a bar.
  */
 @Composable
 private fun Bar() {
-    val theme = LocalZedTheme.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(4.dp)
             .clip(RoundedCornerShape(2.dp))
-            .background(theme.color("element.background"))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .background(theme.color("element.selected"))
+                .background(MaterialTheme.colorScheme.primary)
         )
     }
 }
@@ -392,7 +392,6 @@ private fun LanguageList(
     onSelect: (Int) -> Unit,
     listState: LazyListState,
 ) {
-    val theme = LocalZedTheme.current
     LazyColumn(
         state = listState,
         contentPadding = PickerListPadding,
@@ -406,14 +405,20 @@ private fun LanguageList(
                 Text(
                     text = item.language,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text"),
+                    // The row is `secondaryContainer` when selected, so its
+                    // ink is the one solved against that fill.
+                    color = if (index == selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                     maxLines = 1,
                 )
                 Box(modifier = Modifier.weight(1f))
                 Text(
                     text = item.packages.joinToString(" "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted"),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -425,10 +430,11 @@ private fun LanguageList(
 /**
  * A modal button: filled for the primary answer, ghost for the way out.
  *
- * The ghost ramp is Zed's — transparent, `ghost_element.hover`,
- * `ghost_element.active` — and the filled one is `element.background` /
- * `.hover` / `.active`, swapped instantly with no ripple
- * (button_like.rs:298-329).
+ * Zed draws two three-rung ramps here — `element.background/.hover/.active`
+ * for the filled one and the `ghost_element.*` trio for the other, swapped
+ * instantly with no ripple (button_like.rs:298-329). On this side of the seam
+ * each collapses to a resting fill plus a state layer: only the RESTING rung
+ * is a colour, and hover and press are what the indication draws over it.
  */
 @Composable
 private fun PromptButton(
@@ -436,31 +442,22 @@ private fun PromptButton(
     isPrimary: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val pressed by interaction.collectIsPressedAsState()
-    val fill = when {
-        pressed -> theme.color(
-            if (isPrimary) "element.active" else "ghost_element.active",
-            Color.Transparent,
-        )
-        hovered -> theme.color(
-            if (isPrimary) "element.hover" else "ghost_element.hover",
-            Color.Transparent,
-        )
-        isPrimary -> theme.color("element.background", Color.Transparent)
-        else -> Color.Transparent
-    }
     Box(
         modifier = Modifier
             .height(ButtonHeight)
             .clip(RoundedCornerShape(4.dp))
-            .background(fill)
+            .background(
+                if (isPrimary) {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                } else {
+                    Color.Transparent
+                }
+            )
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(
                 interactionSource = interaction,
-                indication = null,
+                indication = LocalIndication.current,
                 onClickLabel = label,
                 onClick = onClick,
             )
@@ -471,9 +468,9 @@ private fun PromptButton(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = if (isPrimary) {
-                theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                MaterialTheme.colorScheme.primary
             } else {
-                theme.color("text.muted")
+                MaterialTheme.colorScheme.onSurfaceVariant
             },
             maxLines = 1,
         )

@@ -9,11 +9,12 @@
 # Two things about this device are not the usual Android story, and both are
 # handled here rather than left as folklore:
 #
-#   * The full edition targets SDK 28, because proot may only execute a
-#     downloaded binary at that target — which is the whole reason the phone
-#     can compile Solana programs at all. Android 14+ refuses to sideload a
-#     target that old, and Play Protect says "Unsafe app blocked". The install
-#     therefore needs --bypass-low-target-sdk-block.
+#   * The app targets SDK 28 — unconditionally, since there is one edition
+#     now — because proot may only execute a downloaded binary at that
+#     target, which is the whole reason the phone can compile Solana
+#     programs at all. Android 14+ refuses to sideload a target that old,
+#     and Play Protect says "Unsafe app blocked", so the install needs
+#     --bypass-low-target-sdk-block.
 #   * Only arm64-v8a matters. The Seeker has no 32-bit ABI at all, and the
 #     Rust engine is by far the largest thing in the package, so building the
 #     other ABIs doubles the wait for nothing.

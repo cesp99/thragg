@@ -2853,8 +2853,9 @@ mod tests {
 
     #[test]
     fn status_is_empty_without_a_userland() {
-        // The play flavour, and the full flavour before the rootfs lands: the
-        // query answers "nothing to show", never an error.
+        // Every build carries a userland now, but not until the rootfs has
+        // been downloaded: before that the query answers "nothing to show",
+        // never an error.
         let engine = crate::Engine::new();
         let dir = tempfile::tempdir().unwrap();
         let id = engine.open_project(dir.path());

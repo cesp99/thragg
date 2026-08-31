@@ -154,6 +154,57 @@ class MaterialBridgeTest {
         }
     }
 
+    /**
+     * `secondaryContainer` is a SIXTH RUNG OF THE FILL LADDER, and that is why
+     * no stock M3 default may be left holding it.
+     *
+     * This is the trap that shipped twice. Material's own components use the
+     * role as a *state*: `NavigationBarItem`'s selection pill,
+     * `SliderTokens.InactiveTrackColor`, `ProgressIndicatorTokens.TrackColor`,
+     * `FilterChipTokens.FlatSelectedContainerColor`,
+     * `OutlinedSegmentedButtonTokens.SelectedContainerColor`. That is correct
+     * in a stock M3 palette, where `secondaryContainer` is a pale tint of the
+     * seed sitting a long way from every surface. It is wrong here, because
+     * the bridge maps it to Zed's `element.selected` — a real fill from the
+     * same family as the ladder, and, as this asserts, one that lands a step
+     * BEYOND `surfaceContainerHighest` in every bundled theme, in both
+     * appearances. Anything painted in it therefore draws as the most raised
+     * panel on the screen rather than as a state on the panel it is part of,
+     * and, at 1.31–1.57:1 against `surface`, it is not even a mark: it is a
+     * surface, and it is louder than every surface the app actually uses.
+     *
+     * The two halves are the two ways the mistake shows up, so both are
+     * pinned. `ShellNavBar`'s pill and `SettingsScreen`'s slider track both
+     * read this role by default and both were wrong on the device before they
+     * were overridden; the ratchet that stops the third one is
+     * [StockDefaultsTest].
+     */
+    @Test
+    fun `secondaryContainer is a sixth fill rung, not a state, on every theme`() {
+        for (theme in BundledThemes.all) {
+            val s = theme.palette().scheme
+            val role = s.secondaryContainer.luminance()
+            val top = s.surfaceContainerHighest.luminance()
+            // "Away from the canvas" is up on a dark theme and down on a light
+            // one, which is the same convention the ladder itself is checked
+            // against above.
+            val beyond = if (theme.isDark) role > top else role < top
+            assertTrue(
+                "${theme.name} secondaryContainer ${"%.4f".format(role)} is inside the " +
+                    "ladder (top rung ${"%.4f".format(top)}) — if that is now true the trap " +
+                    "below has changed shape and the call sites that work around it need " +
+                    "re-reading, not deleting",
+                beyond,
+            )
+            val ratio = contrastRatio(s.secondaryContainer, s.surface)
+            assertTrue(
+                "${theme.name} secondaryContainer is ${"%.2f".format(ratio)}:1 on surface, " +
+                    "which would make it a legible MARK — it is meant to be a fill",
+                ratio < MARK_RATIO,
+            )
+        }
+    }
+
     @Test
     fun `surface tint is transparent, so tonal elevation washes nothing`() {
         // The single biggest existing bug in the bridge: left as `primary`,

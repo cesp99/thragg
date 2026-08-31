@@ -81,16 +81,16 @@ class AgentScreenTest {
     /**
      * The wording moved to strings.xml so the agent's own name can sit in the
      * middle of it; the branch is what is still decidable off a device.
+     *
+     * It names the agent and NOT the project. The project used to be in there
+     * too, and on the phone the line came out as "Message conformance-agent —
+     * working in swa…" — a one-line placeholder cannot hold both, and the app
+     * bar subtitle and the empty state say the project name already.
      */
     @Test
-    fun thePlaceholderNamesTheProjectBeingWorkedIn() {
-        assertEquals(
-            ComposerHint.ReadyInProject,
-            composerHint("seeker-ide", enabled = true),
-        )
-        assertEquals(ComposerHint.Ready, composerHint(null, enabled = true))
-        assertEquals(ComposerHint.Ready, composerHint("   ", enabled = true))
-        assertEquals(ComposerHint.Stopped, composerHint("x", enabled = false))
+    fun thePlaceholderNamesTheAgentAndNotTheProject() {
+        assertEquals(ComposerHint.Ready, composerHint(enabled = true))
+        assertEquals(ComposerHint.Stopped, composerHint(enabled = false))
     }
 
     // --- whose name is on the screen ----------------------------------------
@@ -440,9 +440,9 @@ class AgentScreenTest {
     }
 
     /**
-     * The bar's second line is identity, and it drops the mode rather than
-     * printing a placeholder for an agent that has none: a generic ACP agent
-     * publishes no modes, and "Agent · —" is a dash where a fact should be.
+     * The bar names the CONVERSATION and falls back to the project only when
+     * the thread has no name yet — a title of `seeker-ide` with one project
+     * open says nothing the Projects control beside it does not already say.
      *
      * (`tickerLabel` used to be tested here. It is gone: the elapsed/token
      * readout is `ui/components/RunTicker.kt` now, pinned to the status strip
@@ -450,10 +450,39 @@ class AgentScreenTest {
      * are pinned by `RunTickerFormatTest`.)
      */
     @Test
-    fun theSubtitleNamesTheAgentAndDropsAnAbsentMode() {
-        assertEquals("Spettro · coding", barSubtitle("Spettro", "coding"))
-        assertEquals("Spettro", barSubtitle("Spettro", null))
-        assertEquals("Agent", barSubtitle("Agent", "  "))
+    fun theTitleNamesTheThreadAndFallsBackToTheProject() {
+        assertEquals("Fix the resume crash", barTitle("Fix the resume crash", "seeker-ide"))
+        assertEquals("seeker-ide", barTitle(null, "seeker-ide"))
+        assertEquals("seeker-ide", barTitle("  ", "seeker-ide"))
+        assertEquals("No project", barTitle(null, null))
+    }
+
+    /**
+     * The second line is identity plus the context the title gave up, and it
+     * carries NO mode: the mode was on the bar, on the status strip and on the
+     * composer's summary row at the same time, and this is the copy that had
+     * nothing attached to it. It also refuses to print the project twice —
+     * with an unnamed thread the title is already the project.
+     */
+    @Test
+    fun theSubtitleNamesTheAgentAndTheProjectTheTitleGaveUp() {
+        assertEquals("Spettro · seeker-ide", barSubtitle("Spettro", "seeker-ide", "Fix the crash"))
+        assertEquals("Spettro", barSubtitle("Spettro", "seeker-ide", null))
+        assertEquals("Spettro", barSubtitle("Spettro", "seeker-ide", " "))
+        assertEquals("Agent", barSubtitle("Agent", null, "Fix the crash"))
+    }
+
+    /**
+     * The status strip reports run state, and the mode is not run state: a
+     * band that stays up for a pill the composer already shows is 37 dp of an
+     * 890 dp column spent on nothing, for the whole of every fresh thread.
+     */
+    @Test
+    fun theStatusStripStandsDownForTheModeAlone() {
+        assertFalse(stripReports(busy = false, hasPlan = false, hasUsage = false))
+        assertTrue(stripReports(busy = true, hasPlan = false, hasUsage = false))
+        assertTrue(stripReports(busy = false, hasPlan = true, hasUsage = false))
+        assertTrue(stripReports(busy = false, hasPlan = false, hasUsage = true))
     }
 
     /**

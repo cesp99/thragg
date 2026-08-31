@@ -2,6 +2,7 @@ package to.eyed.seeker.code.ui.workspace
 
 import android.os.SystemClock
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -10,8 +11,6 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -106,6 +105,7 @@ import to.eyed.seeker.code.core.ShowDiagnostics
 import to.eyed.seeker.code.core.TrashResult
 import to.eyed.seeker.code.core.TrashedEntry
 import to.eyed.seeker.code.ui.editor.FileDiagnostics
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.LocalUiFontSize
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.glyphHeight
@@ -686,17 +686,23 @@ fun ProjectPanel(
      */
     onAddFolder: (() -> Unit)? = null,
 ) {
+    // The Zed theme, for exactly one thing: the version-control inks below.
+    // Everything else in this panel is chrome and reads the Material scheme;
+    // `SeamTest.the project tree's only Zed read is its git status` is what
+    // holds that line, and it fails on any other `theme.color` in this file.
     val theme = LocalZedTheme.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val density = LocalDensity.current
     var menu by remember(project) { mutableStateOf<PanelMenu?>(null) }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(theme.color("panel.background"))
-    ) {
+    // NO GROUND OF ITS OWN. The tree used to paint `panel.background` — the
+    // M3 `surface` — while its only host is the Files sheet, which is
+    // `surfaceContainer` (SheetScaffold.kt:110). Two rungs of the same ladder,
+    // one inside the other, with no border between them: that darker slab
+    // under the file list is what made the panel read as a desktop app embedded
+    // in a phone app. A panel is chrome; chrome takes the ground it is given.
+    Column(modifier = modifier.fillMaxSize()) {
         if (project == null) {
             PanelMessage("No project open")
             return@Column
@@ -708,41 +714,60 @@ fun ProjectPanel(
         val tree = remember(project, gitignoredFiles, statusSource, panel.autoFoldDirs) {
             ProjectTreeState(project, gitignoredFiles, statusSource, panel.autoFoldDirs)
         }
-        // Resolved once per theme, never per row: `ZedTheme.color` is a map
-        // read, and this panel draws one row per visible line per frame.
-        val onSurface = MaterialTheme.colorScheme.onSurface
-        val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+        // Resolved once per theme, never per row: this panel draws one row
+        // per visible line per frame, and a scheme read is cheap but a map
+        // read is not.
+        val scheme = MaterialTheme.colorScheme
+        val onSurfaceVariant = scheme.onSurfaceVariant
+        // THE ONE ZED READ LEFT IN THIS FILE, and it is deliberate. Git status
+        // is the panel's only colour that carries MEANING out of the theme:
+        // `modified` amber, `created` green, `conflict` red are the same inks
+        // the diff, the git panel and the buffer's gutter paint, and a tree
+        // that answered "changed" in a Material role would disagree with all
+        // three. So the hue stays Zed's — and only the hue: `solvedOn` moves
+        // each one the smallest distance that clears 4.5:1 on the ground it is
+        // now drawn on, because the ground is a Material sheet and Ayu Light's
+        // `created` is 2.11:1 there (docs/VISUAL.md, "The hybrid").
+        //
         // The panel's plain name colour is `text.muted`, not `text` —
         // `entry_label_color(false)` (items.rs:2177-2183); a marked row's name
-        // is promoted back to `text` in the row itself.
-        val colours = remember(theme, onSurfaceVariant) {
-            GitStatusColours.forProjectPanel(theme, onSurfaceVariant, onSurfaceVariant)
+        // is promoted in the row itself.
+        val seeker = LocalSeekerColors.current
+        val cardGround = seeker.cardGround
+        val colours = remember(theme, onSurfaceVariant, cardGround) {
+            GitStatusColours
+                .forProjectPanel(theme, onSurfaceVariant, onSurfaceVariant)
+                .solvedOn(cardGround)
         }
-        // One tint for every icon: Zed's file icons are monochrome and it is
-        // the row's *name* that carries git status. `icon.muted` is what its
-        // project panel asks for.
-        val iconColour = theme.color("icon.muted", onSurfaceVariant)
-        // `element.*`, not `ghost_element.*`: the project panel does not take
-        // the generic ListItem ramp — `get_item_color` overrides it with
-        // `element_hover` for hover and `element_selected` for a marked row
-        // (project_panel.rs:611-629), and the active file is marked by a 1px
-        // `panel.focused_border` border rather than by a fill
-        // (project_panel.rs:5729-5743).
-        val errorColour = MaterialTheme.colorScheme.error
-        val rowColours = remember(theme, onSurfaceVariant, errorColour) {
+        // One tint for every icon, and it is NOT one of the meaning-carrying
+        // reads: the bundled icon set is monochrome by design — "the icon says
+        // what kind of file it is, the row's colour says what git thinks of
+        // it" (FileIcons.tintable) — so `icon.muted` here was only ever the
+        // panel's quiet ink, which is what `onSurfaceVariant` is. A user icon
+        // theme's own art is not tinted at all and is untouched by this.
+        val iconColour = onSurfaceVariant
+        // `warnInk`, not the raw `warning` key: a diagnostic mark outranks git
+        // status on a row's NAME, so it is body text on the sheet and has to
+        // clear 4.5:1 there — Ayu Light's raw `warning` is 1.64:1.
+        val warnInk = seeker.warnInk
+        // Zed's `get_item_color` gives the panel `element_hover` for hover and
+        // `element_selected` for a marked row rather than the generic ListItem
+        // ramp (project_panel.rs:611-629). Only the SELECTED half survives as
+        // a colour: hover and press are states, so they become the M3 state
+        // layer the ripple draws, which is also how a row in a sheet gets any
+        // press feedback at all. The active file stays a 1px border rather
+        // than a fill, as in Zed (project_panel.rs:5729-5743).
+        val rowColours = remember(scheme, warnInk) {
             RowColours(
-                hover = theme.color("element.hover", Color.Transparent),
-                pressed = theme.color("element.active", Color.Transparent),
-                selected = theme.color("element.selected"),
-                activeBorder = theme.color("panel.focused_border"),
-                indentGuide = theme.color("panel.indent_guide"),
-                indentGuideActive = theme.color("panel.indent_guide_active"),
-                stickyBackground = theme.color("panel.overlay_background"),
-                stickyHover = theme.color("panel.overlay_hover"),
-                selectedText = theme.color("text", onSurface),
-                dropTarget = theme.color("drop_target.background", theme.color("element.selected")),
-                diagnosticError = theme.color("error", errorColour),
-                diagnosticWarning = theme.color("warning", onSurfaceVariant),
+                selected = scheme.secondaryContainer,
+                activeBorder = scheme.primary,
+                indentGuide = scheme.outlineVariant,
+                indentGuideActive = scheme.outline,
+                stickyBackground = scheme.surfaceContainerHigh,
+                selectedText = scheme.onSecondaryContainer,
+                dropTarget = scheme.primaryContainer,
+                diagnosticError = scheme.error,
+                diagnosticWarning = warnInk,
             )
         }
         val dimIgnored = gitignoredFiles == GitignoredFiles.Dimmed
@@ -2055,13 +2080,15 @@ private fun TrashUndoBar(
     onUndo: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(rem(0.5f)),
         modifier = Modifier
             .fillMaxWidth()
-            .background(theme.color("status_bar.background"))
+            // One rung up from whatever the panel was given, which is what
+            // `status_bar.background` was doing relative to `panel.background`
+            // — a foot strip that is visibly not another row of the tree.
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = rem(0.5f), vertical = rem(0.375f)),
     ) {
         Text(
@@ -2253,8 +2280,6 @@ private fun ProjectRootRow(
     menu: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val isPressed by interaction.collectIsPressedAsState()
     val pressed = remember { mutableStateOf(Offset.Zero) }
     val contextGesture = rememberPointerContextMenu(
         onPress = { at, _ -> pressed.value = at },
@@ -2267,20 +2292,17 @@ private fun ProjectRootRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(rowHeight(spacing))
+                // Only the drop highlight is a fill; hover and press come
+                // back from the indication below.
                 .background(
-                    when {
-                        isDropTarget -> rowColours.dropTarget
-                        isPressed -> rowColours.pressed
-                        hovered -> rowColours.hover
-                        else -> Color.Transparent
-                    }
+                    if (isDropTarget) rowColours.dropTarget else Color.Transparent
                 )
                 .pointerHoverIcon(PointerIcon.Hand)
                 .then(contextGesture)
                 .focusProperties { canFocus = false }
                 .combinedClickable(
                     interactionSource = interaction,
-                    indication = null,
+                    indication = LocalIndication.current,
                     onClick = onClick,
                     onLongClick = { onContextMenu(pressed.value) },
                 )
@@ -2368,8 +2390,15 @@ private fun SelectionCheckbox(isMarked: Boolean, color: Color) {
 
 /** The backgrounds a row can have, resolved once per theme. */
 private class RowColours(
-    val hover: Color,
-    val pressed: Color,
+    /**
+     * A marked row's fill — `element_selected` (project_panel.rs:611-629),
+     * which is what the bridge derives `secondaryContainer` from.
+     *
+     * Hover and press are gone from this table on purpose. They are STATES,
+     * and under M3 a state is a layer the indication draws, not a colour a row
+     * paints; keeping them here as fills is what made a phone's file tree
+     * silent under a finger.
+     */
     val selected: Color,
     /** The 1px border marking the open file (project_panel.rs:5729-5743). */
     val activeBorder: Color,
@@ -2377,17 +2406,24 @@ private class RowColours(
     /** The guide run the selection hangs from (project_panel.rs:7218-7222). */
     val indentGuideActive: Color,
     /**
-     * A pinned row's resting and hover colours — the `is_sticky` branch of
-     * `get_item_color`: `panel.overlay_background` / `panel.overlay_hover`
-     * (project_panel.rs:611-629). Marked and focused stay the shared colours.
+     * A pinned row's resting colour — the `is_sticky` branch of
+     * `get_item_color` (project_panel.rs:611-629), one rung up the Material
+     * ladder so the stack reads as raised over the list it is covering.
+     * Marked and focused stay the shared colours; the hover twin went with the
+     * state layer.
      */
     val stickyBackground: Color,
-    val stickyHover: Color,
-    /** `text` — what a marked row's plain name turns (items.rs:2177-2183). */
+    /**
+     * What a marked row's plain name turns (items.rs:2177-2183) — the ink
+     * solved for [selected], since that is the fill it lands on.
+     */
     val selectedText: Color,
     /**
-     * The folder a drag is hovering, in `drop_target.background` — Zed's own
-     * key for the highlight under a drag (project_panel.rs, `drag_target`).
+     * The folder a drag is hovering — Zed's `drop_target.background`
+     * (project_panel.rs, `drag_target`), and `primaryContainer` here because
+     * it has to out-read [selected] while a finger is on top of it, and the
+     * primary and secondary containers are the only pair on this scheme
+     * guaranteed to differ in both appearances.
      */
     val dropTarget: Color,
     /** `error` and `warning`, for `show_diagnostics`. */
@@ -2470,22 +2506,23 @@ private fun ProjectRow(
         else -> tinted
     }
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val isPressed by interaction.collectIsPressedAsState()
-    // Zed's precedence: a marked row is `element.selected` even under the
-    // pointer (bg_hover_color stays `marked` — project_panel.rs:5708-5711).
-    // A sticky row rests on `panel.overlay_background` and hovers to
-    // `panel.overlay_hover` (project_panel.rs:611-629); Zed gives it no
-    // pressed colour of its own, so the hover one stands in.
+    // What is left of Zed's precedence once hover and press have gone to the
+    // state layer: three fills, all of which say something about the row
+    // rather than about the finger. Zed's own rule survives in the order —
+    // a marked row stays marked under the pointer (bg_hover_color keeps
+    // `marked`, project_panel.rs:5708-5711) — and it now survives for free,
+    // because the ripple composites OVER whichever of these is showing
+    // instead of replacing it.
     val background = when {
         // The drop highlight wins over everything: it is the answer to "will
         // this land here?", and it has to be legible while the finger is on
         // top of the row.
         isDropTarget -> rowColours.dropTarget
         isSelected -> rowColours.selected
-        isPressed -> if (isSticky) rowColours.stickyHover else rowColours.pressed
-        hovered -> if (isSticky) rowColours.stickyHover else rowColours.hover
-        else -> if (isSticky) rowColours.stickyBackground else Color.Transparent
+        // A pinned row rests one rung up so the sticky stack reads as raised
+        // over the list scrolling under it (`is_sticky`, project_panel.rs:611-629).
+        isSticky -> rowColours.stickyBackground
+        else -> Color.Transparent
     }
     // A long press has no coordinates of its own, so the last press is
     // remembered: the menu should open under the finger, not at the row's edge.
@@ -2629,8 +2666,12 @@ private fun ProjectRow(
                 .clickable(
                     interactionSource = interaction,
                     // Zed swaps a row's colour instantly and has no ripple at
-                    // all; the pressed background below is the whole feedback.
-                    indication = null,
+                    // all — which is right inside `ZedSurface` and wrong here,
+                    // because this tree's only host is the Files sheet. A 48dp
+                    // row that does not answer a press is the clearest "not a
+                    // real Android app" tell there is (docs/VISUAL.md,
+                    // "Projects (sheet)").
+                    indication = LocalIndication.current,
                 ) {
                     // The tail of a long press, not a click: the menu it
                     // opened is up, and opening the file behind it as well

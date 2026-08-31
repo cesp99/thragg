@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,7 @@ import to.eyed.seeker.code.core.ProjectsRoot
 import to.eyed.seeker.code.core.SafTransfer
 import to.eyed.seeker.code.terminal.GitClone
 import to.eyed.seeker.code.terminal.TerminalSessions
+import to.eyed.seeker.code.ui.components.BottomActionsGap
 import to.eyed.seeker.code.ui.components.EmptyState
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.SeekerCard
@@ -59,6 +61,8 @@ import to.eyed.seeker.code.ui.components.SeekerSearchField
 import to.eyed.seeker.code.ui.components.SeekerSpinner
 import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.components.StatusDot
+import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
@@ -230,6 +234,10 @@ fun ProjectsSheet(
                     OutlinedButton(
                         onClick = { state.push(Route.Clone); onDismiss() },
                         modifier = Modifier.weight(1f),
+                        // The shared edge, because Material's default one
+                        // is invisible under this scheme and this pair is
+                        // where that was first seen (see [outlinedButtonEdge]).
+                        border = outlinedButtonEdge(),
                     ) {
                         Text("Clone…", style = MaterialTheme.typography.labelLarge)
                     }
@@ -261,12 +269,18 @@ fun ProjectsSheet(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            // The list is CLIPPED where the pinned New program / Clone row
+            // begins, and the Tools card is the last thing in it — so Settings,
+            // the bottom row of that card, was drawn sliced in half. The fade
+            // says "there is more below" where a hard cut said "this is
+            // broken"; the gap below matches it, so scrolled to the end the
+            // gradient lands on padding rather than on the row you came for.
+            modifier = Modifier.fillMaxWidth().weight(1f).fadeUnderBottomActions(),
             contentPadding = PaddingValues(
                 start = MD.space4,
                 end = MD.space4,
                 top = MD.space3,
-                bottom = MD.space6,
+                bottom = BottomActionsGap,
             ),
             verticalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
@@ -329,9 +343,12 @@ fun ProjectsSheet(
                         // The wallet IS a keypair, so the key glyph is the
                         // literal thing rather than a metaphor.
                         icon = R.drawable.ic_ui_key,
-                        detail = if (onOpenWallet == null) "Not set up yet" else null,
-                        enabled = onOpenWallet != null,
-                        onClick = { onOpenWallet?.invoke() },
+                        // "Not set up yet" named a job the row then refused
+                        // to let anybody start. Nothing on this device is
+                        // unset: the Wallet sheet is not in the build, which
+                        // is a fact about the app and not about the user.
+                        detail = if (onOpenWallet == null) "Not in this build yet" else null,
+                        onClick = onOpenWallet,
                     )
                     HairlineDivider()
                     ToolRow(
@@ -652,14 +669,24 @@ private fun ProjectListRow(
     }
 }
 
-/** A row in a card group: a label, an optional readout, and a chevron. */
+/**
+ * A row in a card group: a label, an optional readout, and a chevron.
+ *
+ * [onClick] is nullable and null draws a STATEMENT rather than a disabled
+ * control — no chevron, no target, full-strength ink — for the reason
+ * SettingsScreen's `LinkRow` gives at length: a greyed row with an arrow on it
+ * names a destination, promises it is one tap away and then refuses the tap.
+ * The Wallet row is the case that forced it. It has to stay visible, because
+ * it is the only route to the wallet and a feature nobody can find is worse
+ * than one that is not there yet, but until P6 lands there is nothing behind
+ * it — so it is a line of information and it is drawn as one.
+ */
 @Composable
 private fun ToolRow(
     label: String,
     detail: String? = null,
     @DrawableRes icon: Int? = null,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
@@ -667,7 +694,13 @@ private fun ToolRow(
         horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(enabled = enabled, onClick = onClick)
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
             .heightIn(min = MD.rowMin)
             .padding(horizontal = MD.space3),
     ) {
@@ -682,11 +715,7 @@ private fun ToolRow(
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            // A disabled row keeps its ink at 38%, Material's own disabled
-            // alpha, rather than dropping to the muted role — muted is a
-            // *kind* of text here, not a state, and reusing it for both makes
-            // a live secondary line look switched off.
-            color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
+            color = scheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             // MEASURED: the label is the ONLY weighted child. It was weighted
@@ -712,7 +741,9 @@ private fun ToolRow(
                 modifier = Modifier.widthIn(max = DetailMax),
             )
         }
-        RowChevron()
+        // The chevron IS the affordance, so it is drawn only when there is
+        // something behind it.
+        if (onClick != null) RowChevron()
     }
 }
 

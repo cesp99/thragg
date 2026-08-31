@@ -61,10 +61,12 @@ import to.eyed.seeker.code.ui.components.Choice as UiChoice
 import to.eyed.seeker.code.ui.components.DrillPage
 import to.eyed.seeker.code.ui.components.DrillRow
 import to.eyed.seeker.code.ui.components.LevelSlider
+import to.eyed.seeker.code.ui.components.NoticeCard
 import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.components.SegmentedSelect
 import to.eyed.seeker.code.ui.components.SelectRow
+import to.eyed.seeker.code.ui.components.Severity
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
@@ -475,8 +477,10 @@ private fun DrillEntry(
  * A stock M3 `Switch`, which the agent panel did not contain a single one of
  * before this. Ultra's FOUR states are not lost to it: the switch carries the
  * two the switch can carry (stored on / stored off), and the two that are
- * neither — SUSPENDED and LOCKED — are carried by the sentence under it and by
- * `stateDescription`, so neither colour nor position is the only signal.
+ * neither — SUSPENDED and LOCKED — are carried by a `NoticeCard` under it and
+ * by `stateDescription`, so neither colour nor position is the only signal.
+ * The card rather than a line of amber text, because those two states are the
+ * only *warnings* on this sheet and the app has one shape for a warning.
  *
  * LOCKED IS NOT A HIDDEN CONTROL. The switch is drawn disabled and the row
  * stays tappable, because the tap is one of the two places the reason is told
@@ -547,24 +551,43 @@ private fun FlagSection(
                 },
             )
         }
-        val note = when {
+        // The two states the switch cannot draw are the two that are warned
+        // about, and a warning on this app is a [NoticeCard] — everywhere
+        // else on this screen and on the ones either side of it. This was two
+        // lines of bare amber `bodySmall` under the switch: no card, no
+        // hairline, no glyph, the one warning in the app that was styled as a
+        // thrown error rather than as a notice, on the sheet where the amber
+        // ALSO means "Ultra is armed" two rows up. The card is what tells the
+        // two ambers apart — one is a fill on a control, the other is an
+        // object with a mark on it that you read.
+        //
+        // M3's `Surface` consumes pointer input, so the card is the one part
+        // of a locked row that does NOT open the reason on tap. That is the
+        // right way round: the tap existed to fetch a sentence that the card
+        // now keeps on screen permanently, and the header and the switch above
+        // it are still inside the row's click target for anyone who tries.
+        val gate = when {
             locked -> ULTRA_LOCK_REASON
             ultra && ultraState == UltraState.Suspended -> ultraStateText(ultraState)
-            else -> option.description?.takeIf { it.isNotBlank() }
+            else -> null
         }
-        if (note != null) {
-            Text(
-                text = note,
-                style = MaterialTheme.typography.bodySmall,
-                // The two states the switch cannot draw are the two that are
-                // warned about; anything else is an ordinary description.
-                color = if (locked || (ultra && ultraState == UltraState.Suspended)) {
-                    colors.warnInk
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.padding(top = MD.space05),
+        if (gate != null) {
+            NoticeCard(
+                severity = Severity.Warn,
+                title = null,
+                body = gate,
+                modifier = Modifier.padding(top = MD.space2),
             )
+        } else {
+            val description = option.description?.takeIf { it.isNotBlank() }
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MD.space05),
+                )
+            }
         }
     }
 }

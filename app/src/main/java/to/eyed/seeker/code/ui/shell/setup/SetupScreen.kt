@@ -47,12 +47,15 @@ import to.eyed.seeker.code.solana.toolchain.ToolchainManifest
 import to.eyed.seeker.code.solana.toolchain.ToolchainPhase
 import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.terminal.Userland
+import to.eyed.seeker.code.ui.components.BottomActions
+import to.eyed.seeker.code.ui.components.BottomActionsGap
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.NoticeCard
 import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.components.SeekerChip
 import to.eyed.seeker.code.ui.components.SeekerSpinner
 import to.eyed.seeker.code.ui.components.Severity
+import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
@@ -133,6 +136,14 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                // The steps are CLIPPED where the action bar begins, and a
+                // running install is exactly when the list is long enough to
+                // reach it — the last component was drawn sliced in half with
+                // nothing to say the list continued. The fade says it; the
+                // 24dp at the foot of this column is what lets that last row
+                // scroll clear of the fade ([BottomActions]). Before the
+                // scroll, so it masks the VIEWPORT rather than the content.
+                .fadeUnderBottomActions()
                 .verticalScroll(rememberScrollState())
                 // 16dp is the screen gutter, everywhere, on every screen.
                 .padding(horizontal = MD.space4),
@@ -189,7 +200,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 )
             }
 
-            Spacer(Modifier.height(MD.space6))
+            Spacer(Modifier.height(BottomActionsGap))
         }
 
         // The actions sit at the bottom, in the thumb zone, which is the
@@ -506,12 +517,12 @@ private fun Actions(
         else -> "Start"
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = MD.space4, vertical = MD.space3),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    // [BottomActions] rather than a bare Column, and this is the screen that
+    // needed it most: Setup is the one route that hides the shell's nav bar
+    // (Route.hidesNavBar), so nothing below this was clearing the gesture
+    // handle — and with the whole step list scrolling into it, the bar had no
+    // edge of its own either.
+    BottomActions(horizontalAlignment = Alignment.CenterHorizontally) {
         Button(
             onClick = {
                 when {

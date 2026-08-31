@@ -283,7 +283,6 @@
          the button installs, not what is answering. -->
     <string name="agent_composer_stopped">The agent is not running</string>
     <string name="agent_composer_message">Message %1$s</string>
-    <string name="agent_composer_message_in_project">Message %1$s — working in %2$s</string>
     <string name="agent_permission_headline">%1$s needs your approval</string>
     <string name="agent_config_no_choices">%1$s has not offered any choices for this yet.</string>
     <string name="agent_plan_empty">No plan yet. %1$s publishes one when a request needs more than one step.</string>

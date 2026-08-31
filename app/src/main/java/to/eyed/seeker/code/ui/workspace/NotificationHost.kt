@@ -1,13 +1,12 @@
 package to.eyed.seeker.code.ui.workspace
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +39,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import to.eyed.seeker.code.R
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.ZedRadius
-import to.eyed.seeker.code.ui.theme.ZedTheme
 import to.eyed.seeker.code.ui.theme.rem
 
 /**
@@ -138,17 +135,21 @@ fun NotificationHost(
  */
 @Composable
 private fun Toast(notification: AppNotification, onDismiss: () -> Unit) {
-    val theme = LocalZedTheme.current
-    val accent = severityColour(theme, notification.severity)
+    val accent = severityColour(notification.severity)
     Row(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(rem(ZedRadius.MD)))
-            .background(
-                theme.color("elevated_surface.background", theme.color("background"))
-            )
+            // A toast is drawn over EVERY screen, both halves of the app
+            // included, so it takes M3's raised rung rather than the editor's
+            // own `elevated_surface.background`: over a sheet that is already
+            // `surfaceContainer` the raw key is the same hex on nine of the
+            // eleven bundled themes, and the card had no edge but the severity
+            // border. `High` and not `Highest`, because the buttons inside it
+            // rest on the rung above.
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .border(
                 1.dp,
                 // The border carries the severity, as Zed's status colours do
@@ -181,7 +182,7 @@ private fun Toast(notification: AppNotification, onDismiss: () -> Unit) {
             Text(
                 text = notification.message,
                 style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = MaterialTheme.colorScheme.onSurface,
                 // Long enough for a compiler's sentence, short enough that
                 // four of them still fit above a phone's status bar.
                 maxLines = 6,
@@ -235,24 +236,20 @@ private fun StackFooter(stack: NotificationStack) {
  */
 @Composable
 private fun ToastButton(label: String, emphasised: Boolean, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(rem(ZedRadius.SM)))
-            .background(
-                when {
-                    pressed -> theme.color("element.active", Color.Transparent)
-                    hovered -> theme.color("element.hover", Color.Transparent)
-                    else -> theme.color("element.background", Color.Transparent)
-                }
-            )
+            // Zed's `element.*` ramp collapses to one resting fill plus the
+            // state layer: `element.background` is a rung of the ladder, so it
+            // is named as one — the rung above the toast, so the button reads
+            // as raised on it — and hover and press are what the indication
+            // draws over that.
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(
                 interactionSource = interaction,
-                indication = null,
+                indication = LocalIndication.current,
                 onClickLabel = label,
                 onClick = onClick,
             )
@@ -263,9 +260,9 @@ private fun ToastButton(label: String, emphasised: Boolean, onClick: () -> Unit)
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (emphasised) FontWeight.Medium else null,
             color = if (emphasised) {
-                theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                MaterialTheme.colorScheme.primary
             } else {
-                theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                MaterialTheme.colorScheme.onSurfaceVariant
             },
         )
     }
@@ -280,25 +277,17 @@ internal fun GhostIconButton(
     box: Dp = ControlBox,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier = Modifier
             .size(box)
+            // Ghost means nothing at rest and the state layer on top; the clip
+            // is what rounds that layer to the button's corners.
             .clip(RoundedCornerShape(rem(ZedRadius.SM)))
-            .background(
-                when {
-                    pressed -> theme.color("ghost_element.active", Color.Transparent)
-                    hovered -> theme.color("ghost_element.hover", Color.Transparent)
-                    else -> Color.Transparent
-                }
-            )
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(
                 interactionSource = interaction,
-                indication = null,
+                indication = LocalIndication.current,
                 onClickLabel = label,
                 onClick = onClick,
             ),
@@ -308,20 +297,30 @@ internal fun GhostIconButton(
             painter = painterResource(icon),
             contentDescription = label,
             colorFilter = ColorFilter.tint(
-                tint ?: theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                tint ?: MaterialTheme.colorScheme.onSurfaceVariant
             ),
             modifier = Modifier.size(ControlIcon),
         )
     }
 }
 
-/** Zed's status colours: `info`, `warning`, `error` (theme/src/styles/status.rs). */
-private fun severityColour(theme: ZedTheme, severity: NotificationSeverity): Color =
-    when (severity) {
-        NotificationSeverity.Info -> theme.color("info", theme.color("text.accent"))
-        NotificationSeverity.Warning -> theme.color("warning", theme.color("text.accent"))
-        NotificationSeverity.Error -> theme.color("error", theme.color("text.accent"))
-    }
+/**
+ * Zed's status colours — `info`, `warning`, `error` (theme/src/styles/status.rs)
+ * — as the Material half spells them.
+ *
+ * Same three meanings, same three keys underneath: `primary` is derived from
+ * `text.accent`, which is exactly what `info` fell back to here, and `error` is
+ * the `error` key itself. Only `warning` changes shape, and it has to: it is
+ * drawn as an icon and as a border, so it wants MARK_RATIO against the card it
+ * lands on, and the raw key is 1.64:1 on Ayu Light. `warnMark` on
+ * [LocalSeekerColors] is that key already solved.
+ */
+@Composable
+private fun severityColour(severity: NotificationSeverity): Color = when (severity) {
+    NotificationSeverity.Info -> MaterialTheme.colorScheme.primary
+    NotificationSeverity.Warning -> LocalSeekerColors.current.warnMark
+    NotificationSeverity.Error -> MaterialTheme.colorScheme.error
+}
 
 private fun severityIcon(severity: NotificationSeverity): Int = when (severity) {
     NotificationSeverity.Info -> R.drawable.ic_file_info

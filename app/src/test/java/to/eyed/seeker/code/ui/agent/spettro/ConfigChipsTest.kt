@@ -2,6 +2,9 @@ package to.eyed.seeker.code.ui.agent.spettro
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import to.eyed.seeker.code.core.AgentSessionState
 import to.eyed.seeker.code.core.SpettroToolbar
@@ -229,6 +232,121 @@ class ConfigChipsTest {
         )
     }
 
+    // --- the composer chip ---------------------------------------------------
+
+    /**
+     * The chip prints the model, because the model is the one selector whose
+     * value is not recoverable from memory. The mode and the permission level
+     * are still *reachable* — the sheet is a tap away — and they are still
+     * *announced*, which is what [configChipState] is for.
+     */
+    @Test
+    fun theChipPrintsTheModelAndTheThinkingLevelBesideIt() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"mode","name":"Mode","type":"select","category":"mode",
+                     "currentValue":"coding"},
+                    {"id":"model","name":"Model","type":"select","category":"model",
+                     "currentValue":"sonnet-4-6"},
+                    {"id":"thinking","name":"Thinking","type":"select",
+                     "category":"thought_level","currentValue":"high"}]}"""
+            )
+        )
+        assertEquals("sonnet-4-6", configChipLabel(toolbar))
+        assertEquals("high", configChipEffort(toolbar))
+    }
+
+    /**
+     * `off` earns no ink: it is the default, and the chip's whole budget is
+     * the width the model name is not using.
+     */
+    @Test
+    fun thinkingOffPrintsNothingBesideTheModel() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"model","name":"Model","type":"select","category":"model",
+                     "currentValue":"sonnet-4-6"},
+                    {"id":"thinking","name":"Thinking","type":"select",
+                     "category":"thought_level","currentValue":"off",
+                     "options":[{"name":"Off","value":"off"}]}]}"""
+            )
+        )
+        assertNull(configChipEffort(toolbar))
+    }
+
+    /**
+     * An agent with no `model` still gets a chip, because the chip is the only
+     * route to the config sheet from the composer. A boolean is never it: "On"
+     * on its own names nothing.
+     */
+    @Test
+    fun anAgentWithoutAModelFallsBackToItsFirstSelector() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"verbose","name":"Verbose","type":"boolean","currentValue":true},
+                    {"id":"sandbox","name":"Sandbox","type":"select","currentValue":"strict"}]}"""
+            )
+        )
+        assertEquals("strict", configChipLabel(toolbar))
+    }
+
+    /** Nothing on the wire is no chip at all, rather than an empty pill. */
+    @Test
+    fun anAgentThatHasSaidNothingHasNoChip() {
+        assertNull(configChipLabel(SpettroToolbar(emptyList())))
+    }
+
+    /**
+     * THE CHIP ANNOUNCES EVERYTHING THE SUMMARY LINE DID. Sighted users traded
+     * two readouts for a shorter row; a screen reader user would only have
+     * lost the mode and the permission level, so the spoken state keeps the
+     * whole sentence and appends Ultra's gating in words.
+     */
+    @Test
+    fun theSpokenStateKeepsTheModeThePermissionAndUltra() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"mode","name":"Mode","type":"select","category":"mode",
+                     "currentValue":"coding"},
+                    {"id":"model","name":"Model","type":"select","category":"model",
+                     "currentValue":"sonnet-4-6"},
+                    {"id":"permission","name":"Permission","type":"select",
+                     "currentValue":"ask-first",
+                     "options":[{"name":"Ask first","value":"ask-first"}]},
+                    {"id":"thinking","name":"Thinking","type":"select",
+                     "category":"thought_level","currentValue":"high"},
+                    {"id":"ultra","name":"Ultra","type":"boolean","currentValue":true}]}"""
+            )
+        )
+        // Stored-on under ask-first is Suspended, which is exactly the state a
+        // dot cannot express.
+        assertEquals(
+            "coding · sonnet-4-6 · Ask first · high. Ultra: " +
+                "On but suspended — the permission level is Ask first",
+            configChipState(toolbar),
+        )
+    }
+
+    /** Ultra off says nothing about Ultra: the dot is not drawn either. */
+    @Test
+    fun theSpokenStateLeavesUltraOutWhenItIsOff() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"model","name":"Model","type":"select","category":"model",
+                     "currentValue":"sonnet-4-6"},
+                    {"id":"permission","name":"Permission","type":"select",
+                     "currentValue":"yolo","options":[{"name":"YOLO","value":"yolo"}]},
+                    {"id":"ultra","name":"Ultra","type":"boolean","currentValue":false}]}"""
+            )
+        )
+        assertEquals("sonnet-4-6 · YOLO", configChipState(toolbar))
+    }
+
     // --- the Ultra gate ------------------------------------------------------
 
     /**
@@ -254,4 +372,20 @@ class ConfigChipsTest {
         assertEquals(spoken.size, spoken.toSet().size)
         assertEquals("On but suspended — the permission level is Ask first", ultraStateText(UltraState.Suspended))
     }
+    /**
+     * The amber dot means Ultra is *engaged*, not merely "not off".
+     *
+     * `Locked` is the resting state of any default `ask-first` session, so the
+     * first cut lit the dot on more or less every screen at rest and it
+     * stopped carrying information. Locked stays in the spoken state, where a
+     * sentence can explain itself; it does not get a mark.
+     */
+    @Test
+    fun theUltraDotSkipsTheStateEverySessionStartsIn() {
+        assertTrue(ultraEngaged(UltraState.On))
+        assertTrue(ultraEngaged(UltraState.Suspended))
+        assertFalse(ultraEngaged(UltraState.Locked))
+        assertFalse(ultraEngaged(UltraState.Off))
+    }
+
 }

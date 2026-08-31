@@ -13,18 +13,22 @@ package to.eyed.seeker.code.ui.workspace
  * provenance comments attached to the code they describe, and keeps the file
  * that answers "what does a picker look like here" one grep away.
  *
- * Zed half: every colour below is drawn raw from LocalZedTheme, unsolved,
- * because that is the rule on this side of the seam (docs/VISUAL.md, "The
- * hybrid").
+ * MATERIAL half, and it was on the wrong one. The rule is where a surface is
+ * DRAWN, not where it came from: these four composables are the dress of the
+ * "Go to symbol" sheet and of the language-server prompt, both of which open
+ * over the app rather than inside the buffer, so every colour below is an M3
+ * role solved for contrast (docs/VISUAL.md, "The hybrid" — raw Zed inks on a
+ * Material ground put Ayu Light's `text.muted` on screen at 2.79:1). The Zed
+ * provenance comments stay: they say what each piece IS, and a `border.variant`
+ * hairline is still what `outlineVariant` resolves to.
  */
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -45,7 +49,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,7 +66,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.rem
 
 /**
@@ -96,7 +98,6 @@ internal fun PickerModal(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Dialog(
         onDismissRequest = onDismiss,
         // A picker has to stay usable with the soft keyboard up — on a phone
@@ -121,14 +122,12 @@ internal fun PickerModal(
         ) {
             Surface(
                 shape = RoundedCornerShape(ModalRadius),
-                color = theme.color(
-                    "elevated_surface.background",
-                    MaterialTheme.colorScheme.surface,
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    theme.color("border.variant", MaterialTheme.colorScheme.outlineVariant),
-                ),
+                // `elevated_surface.background` and `border.variant` by their
+                // Material names. The modal floats over whatever screen opened
+                // it, so it takes the ladder rung M3 reserves for exactly that
+                // and gets the de-dupe nudge with it.
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = modifier
                     .widthIn(max = rem(34f))
                     .heightIn(max = rem(24f))
@@ -159,7 +158,6 @@ internal fun PickerQueryField(
     placeholder: String,
     focusRequester: FocusRequester,
 ) {
-    val theme = LocalZedTheme.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -172,8 +170,15 @@ internal fun PickerQueryField(
             value = query,
             onValueChange = onQueryChange,
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = theme.color("text")),
-            cursorBrush = SolidColor(theme.cursor),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+            ),
+            // The theme's `cursor` key is the BUFFER's caret and it is tuned to
+            // stand out against `editor.background`; on a modal it is a colour
+            // from another room. `primary` is the same seed, solved for this
+            // ground, and it is what every other field in the Material half
+            // already uses (FilesSheet.kt:147).
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester),
@@ -182,7 +187,7 @@ internal fun PickerQueryField(
             Text(
                 text = placeholder,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.placeholder"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
         }
@@ -191,7 +196,7 @@ internal fun PickerQueryField(
         modifier = Modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(theme.color("border.variant")),
+            .background(MaterialTheme.colorScheme.outlineVariant),
     )
 }
 
@@ -202,9 +207,14 @@ internal fun PickerQueryField(
  * row itself is `rounded_sm` with 6px inside (`px(Base06)`), 4px vertical
  * (`py_1`) and a 6px gap between slots (list_item.rs:363-368, 405-407, 429).
  * With the 14px label's φ line box that lands the row at ~31px, Zed's number.
- * Hover, press and selection are the ghost ramp — `ghost_element.hover` /
- * `.active` / `.selected` (list_item.rs:380-385) — swapped instantly, no
- * ripple, as everywhere in Zed.
+ *
+ * Zed's ghost ramp (`ghost_element.hover` / `.active` / `.selected`,
+ * list_item.rs:380-385) splits in two on this side of the seam. Hover and
+ * press are STATES, so they become the M3 state layer the indication draws —
+ * and with it the ripple, because a row in a modal that does not answer a
+ * finger is the loudest "not a real Android app" tell there is. Selection is a
+ * VALUE — which row Enter will take — so it stays a fill, and its fill is
+ * `secondaryContainer`, which the bridge derives from `element.selected`.
  */
 @Composable
 internal fun PickerListItem(
@@ -215,14 +225,6 @@ internal fun PickerListItem(
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
     content: @Composable RowScope.() -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    // Resolved once per row lifetime, not per recomposition: a picker list
-    // repaints every row on each keystroke, and `theme.color` is a map read.
-    val selectedFill = remember(theme) { theme.color("ghost_element.selected") }
-    val pressedFill = remember(theme) { theme.color("ghost_element.active") }
-    val hoverFill = remember(theme) { theme.color("ghost_element.hover") }
-    val hovered by interactionSource.collectIsHoveredAsState()
-    val pressed by interactionSource.collectIsPressedAsState()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -231,11 +233,10 @@ internal fun PickerListItem(
             .padding(horizontal = 4.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(
-                when {
-                    isSelected -> selectedFill
-                    pressed && enabled -> pressedFill
-                    hovered && enabled -> hoverFill
-                    else -> Color.Transparent
+                if (isSelected) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    Color.Transparent
                 }
             )
             .then(
@@ -244,7 +245,7 @@ internal fun PickerListItem(
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable(
                             interactionSource = interactionSource,
-                            indication = null,
+                            indication = LocalIndication.current,
                             onClick = onClick,
                         )
                 } else {
@@ -264,11 +265,10 @@ internal fun PickerListItem(
  */
 @Composable
 internal fun PickerEmptyState(text: String) {
-    val theme = LocalZedTheme.current
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
-        color = theme.color("text.muted"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
     )
 }

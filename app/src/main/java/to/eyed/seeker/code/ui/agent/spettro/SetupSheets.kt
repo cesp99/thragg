@@ -48,6 +48,7 @@ import to.eyed.seeker.code.core.LocalProbe
 import to.eyed.seeker.code.core.ProviderEntry
 import to.eyed.seeker.code.core.SpettroSetup
 import to.eyed.seeker.code.ui.components.SelectableCard
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
@@ -898,6 +899,7 @@ private fun SheetButton(
             onClick = onClick,
             enabled = enabled,
             shape = shape,
+            border = outlinedButtonEdge(enabled),
             modifier = Modifier.fillMaxWidth().height(ActionHeight),
             content = { text() },
         )

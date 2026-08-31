@@ -53,6 +53,14 @@ import org.junit.Test
  *    blocks, the build log's ANSI, the review pane's diff. Every one of them
  *    is a *snippet*, which means every one of them is a `ZedCodeBlock` waiting
  *    to happen; the chunks that own those files are converting them.
+ *
+ * A count is not the same thing as a *named exception*, and there are three of
+ * those: [SEAM], and the two the project tree keeps — see
+ * [the project tree's only Zed read is its git status] and
+ * [the Zed theme is not smuggled into the Material half through a parameter]. Each
+ * has a test that pins what the exception is FOR, so it cannot quietly widen
+ * into cover for the next unconverted surface. That is the difference between
+ * a debt that is allowed to sit and a decision that was made.
  */
 class SeamTest {
 
@@ -76,12 +84,32 @@ class SeamTest {
         "ui/tasks",
     )
 
-    /** Packages that are the app: real Material 3, solved inks, ripple on. */
+    /**
+     * Packages that are the app: real Material 3, solved inks, ripple on.
+     *
+     * `ui/workspace` is in this list and it was the uncomfortable one. The
+     * demolition pass deleted 31 of its files and left the rest behind
+     * *without moving them*, so the package straddled nothing: every survivor
+     * with a live caller is drawn INSIDE a Material surface — `ProjectPanel`
+     * inside the Files sheet, `ContextMenu` under the Code and Build overflow
+     * buttons, `NotificationHost` over the whole app, `AboutDialog`,
+     * `GoToLine`, `OutlinePicker` and `PickerModal` from the shell. It was in
+     * neither list when this test was first written, which meant forty Zed
+     * reads on the Material side of the seam were invisible to the ratchet;
+     * the file tree drawing its own darker `panel.background` and a full-bleed
+     * `element.selected` band inside a `surfaceContainer` sheet is what that
+     * blind spot looked like on a phone, and it shipped.
+     *
+     * All forty are gone. What is left in the map below for this package is
+     * two reads in one file, and they are an exception rather than a debt: see
+     * [the project tree's only Zed read is its git status].
+     */
     private val MATERIAL_HALF = listOf(
         "ui/shell",
         "ui/agent",
         "ui/common",
         "ui/components",
+        "ui/workspace",
     )
 
     /**
@@ -110,6 +138,52 @@ class SeamTest {
         "ui/agent/spettro/OrchBits.kt" to 2,
         "ui/shell/agent/AgentTranscript.kt" to 2,
         "ui/shell/build/BuildLogView.kt" to 5,
+        // The import and the one `LocalZedTheme.current` that feeds
+        // [GitStatusColours.forProjectPanel]. NOT debt — the tree's git inks
+        // are the theme's on purpose — and a count alone would not say so,
+        // which is why the test below pins what those two reads may be for.
+        // The other ten ui/workspace entries that stood here are gone: the
+        // panel, both menus, the picker chrome, the toasts, the two inline
+        // panels, the LSP prompt and log and the About dialog now take the M3
+        // roles. A ported file leaves this map; it does not sit at zero.
+        "ui/workspace/ProjectPanel.kt" to 2,
+    )
+
+    /**
+     * Material-half files that take a [ZedTheme] as a PARAMETER.
+     *
+     * The second hiding place, and the reason the first audit of `ui/workspace`
+     * undercounted. `LocalZedTheme` is a composition local and greps cleanly;
+     * a helper that takes `theme: ZedTheme` and reads eight keys off it does
+     * not, and its caller shows up as one read rather than eight. That is
+     * exactly the shape of `GitStatusColours`, and it is exactly the shape the
+     * next unconverted surface will take if it is extracted before it is
+     * converted — a `fun panelColours(theme: ZedTheme, …)` is one refactor
+     * away from being invisible again.
+     *
+     * NOW THE WHOLE MATERIAL HALF, not just the package the blind spot was
+     * found in. Scoping it to `ui/workspace` was right while four chunks were
+     * converting in parallel and a widened check could have failed a build for
+     * a helper its owner had not baselined yet; that is over, the rest of the
+     * half was audited, and it turned out to hold exactly one other match.
+     * Leaving the check narrow would have meant the next `ui/agent` helper
+     * could hide the same way the tree's did.
+     */
+    private val zedThemeParameters: Map<String, Int> = mapOf(
+        // `from`, `forProjectPanel`, `resolve`, `lookup`. The version-control
+        // hues MEAN something and stay Zed's; only their lightness is solved,
+        // by `solvedOn`, for the Material ground they are now drawn on.
+        "ui/workspace/GitStatusColours.kt" to 4,
+        // NOT COLOURS. Both are `ZedTheme.Meta` — a theme's name and whether
+        // it is dark — which is what a list OF themes is necessarily made of;
+        // the rows draw their three swatches from an already-resolved
+        // `ThemeEntry`, not from a theme handed in. The grep cannot tell
+        // `: ZedTheme.Meta` from `: ZedTheme` and it is not made cleverer on
+        // purpose: a regex that excluded `.Meta` would also excuse a
+        // `: ZedTheme.Meta` that had quietly grown a colour accessor, and an
+        // entry with a written reason is worth more than one the pattern
+        // silently skips.
+        "ui/shell/settings/ThemeList.kt" to 2,
     )
 
     @Test
@@ -137,6 +211,85 @@ class SeamTest {
                 "text.muted is 2.79:1 and its created is 2.11:1.\n" +
                 "A code snippet inside a sheet is the one exception, and it is a component:\n" +
                 "ui/components/ZedCodeBlock.kt.",
+        )
+    }
+
+    /**
+     * The Zed theme does not get into `ui/workspace` through a parameter.
+     *
+     * The companion to the rule above, and the one that would have caught this
+     * package the first time. `LocalZedTheme` is a composition local, so a
+     * grep for it finds every *composable* that reads the theme — but a plain
+     * function that takes `theme: ZedTheme` and pulls eight keys off it is
+     * invisible to that grep, and its caller reads as one hit rather than
+     * eight. `GitStatusColours` is exactly that shape and is exactly why this
+     * exists: it is legitimate, so it is baselined; the next one will not be,
+     * and it now has to argue for itself before it lands.
+     */
+    @Test
+    fun `the Zed theme is not smuggled into the Material half through a parameter`() {
+        val found = count(MATERIAL_HALF, ": ZedTheme")
+        assertNoneGrew(
+            found = found,
+            allowed = zedThemeParameters,
+            rule = "A Material-half helper that takes `theme: ZedTheme` reads the Zed theme\n" +
+                "without reading LocalZedTheme, so the seam rule above cannot see it. That is\n" +
+                "how forty raw Zed colours were drawn inside a Material sheet for a release.\n" +
+                "Take the colours themselves — MaterialTheme.colorScheme roles, or\n" +
+                "LocalSeekerColors for what M3 has no role for — not the theme they came\n" +
+                "from. GitStatusColours is the one exception and it is baselined:\n" +
+                "version-control HUES carry meaning across the editor, the diff and the tree,\n" +
+                "so they stay Zed's and only their lightness is solved.",
+        )
+    }
+
+    /**
+     * The project tree's two Zed reads are the git ones, and nothing else.
+     *
+     * `ProjectPanel.kt` is 2,800 lines and its baseline is 2, which under the
+     * upper-bound rule would let a *different* pair of reads move in
+     * unnoticed — a new `theme.color("panel.background")` would keep the count
+     * at two and pass. That is precisely the failure this package already had
+     * once, so the exception is pinned by what it is FOR rather than by how
+     * many reads it costs: the panel may hold the theme to hand it to
+     * [GitStatusColours], and may not paint with it.
+     *
+     * `solvedOn` is asserted too, because it is the whole argument. Keeping a
+     * Zed hue is right — the tree's amber has to be the diff's amber — and
+     * drawing it raw on a Material sheet is not: Ayu Light's `created` is
+     * 2.11:1 there. Drop the solve and the exception stops being defensible,
+     * so dropping it should fail here rather than in a screenshot.
+     */
+    @Test
+    fun `the project tree's only Zed read is its git status`() {
+        val name = "ui/workspace/ProjectPanel.kt"
+        val file = File(sourceRoot(), name)
+        assertTrue("$name is the file tree and it is not there.", file.isFile)
+        val code = file.readLines().filterNot {
+            val trimmed = it.trimStart()
+            trimmed.startsWith("*") || trimmed.startsWith("//") || trimmed.startsWith("/*")
+        }
+        val painting = code.filter { "theme.color(" in it }
+        assertTrue(
+            "$name is the app half: it is drawn inside the Files sheet, which is a\n" +
+                "surfaceContainer. It may hold LocalZedTheme for ONE thing — handing it to\n" +
+                "GitStatusColours.forProjectPanel, whose hues mean the same as the diff's —\n" +
+                "and must paint everything else from MaterialTheme.colorScheme and\n" +
+                "LocalSeekerColors. These lines paint with it:\n" +
+                painting.joinToString("\n") { "  " + it.trim() },
+            painting.isEmpty(),
+        )
+        assertTrue(
+            "$name must pass its theme to GitStatusColours.forProjectPanel — that call is\n" +
+                "the only reason it is allowed to read LocalZedTheme at all.",
+            code.any { "GitStatusColours" in it } &&
+                code.any { "forProjectPanel(theme" in it },
+        )
+        assertTrue(
+            "$name must solve the git inks for the ground it draws them on:\n" +
+                "`.solvedOn(...)`. The hue is Zed's because it carries meaning; the\n" +
+                "LIGHTNESS is not, because Ayu Light's created is 2.11:1 on a sheet.",
+            code.any { ".solvedOn(" in it },
         )
     }
 

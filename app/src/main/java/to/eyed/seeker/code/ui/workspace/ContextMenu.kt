@@ -1,14 +1,14 @@
 package to.eyed.seeker.code.ui.workspace
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,7 +23,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -34,7 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.ZedRadius
 import to.eyed.seeker.code.ui.theme.rem
 
@@ -62,6 +61,19 @@ internal object MenuMetrics {
     /** The leading check slot a toggleable entry reserves, checked or not. */
     const val CHECK_SLOT = 0.875f
 }
+
+/**
+ * What a disabled label keeps of its enabled colour.
+ *
+ * Material's own figure, and the reason it is a figure rather than a key: on
+ * this side of the seam a disabled row is `onSurface` faded, so it stays the
+ * same hue as the row above it and reads as the same row switched off. Zed's
+ * `text.disabled` is a separate ink and in nine of the eleven bundled themes
+ * it is within a hair of `text.muted`, which the chord column already uses —
+ * so a menu drawn with it had disabled rows and shortcut labels the same
+ * colour, and nothing said which was which.
+ */
+internal const val DISABLED_ALPHA = 0.38f
 
 /** One row of a context menu: what it does, and the chord that also does it. */
 internal data class ContextMenuItem(
@@ -107,19 +119,21 @@ internal fun ContextMenu(
     offset: DpOffset = DpOffset.Zero,
     minWidth: Dp = rem(MenuMetrics.MIN_WIDTH),
 ) {
-    val theme = LocalZedTheme.current
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
         offset = offset,
         // Zed's `elevation_2`: an elevated surface, `rounded_lg` 8px, and a
-        // 1px border in `border.variant` (styled_ext.rs:6-12).
+        // 1px border in `border.variant` (styled_ext.rs:6-12) — which is
+        // `surfaceContainer` and `outlineVariant`, the same two colours by
+        // their Material names. This menu hangs under the Code, Build and
+        // Changes overflow buttons, so it is chrome and takes the M3 roles;
+        // the bridge maps `surfaceContainer` FROM `elevated_surface.background`
+        // and nudges it when a theme collides two ladder rungs, so it is the
+        // same ink with the menu-over-a-sheet case fixed.
         shape = RoundedCornerShape(rem(ZedRadius.LG)),
-        border = BorderStroke(1.dp, theme.color("border.variant")),
-        containerColor = theme.color(
-            "elevated_surface.background",
-            MaterialTheme.colorScheme.surface,
-        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         // Entries are inset ListItems: 4px of surface around each row, the
         // row itself `rounded_sm` with 6px inside (list_item.rs:309, 364, 405).
@@ -133,7 +147,7 @@ internal fun ContextMenu(
                     // Zed's separator: a 1px `border.variant` rule with 4px of
                     // surface above and below (context_menu.rs's Divider row).
                     HorizontalDivider(
-                        color = theme.color("border.variant"),
+                        color = MaterialTheme.colorScheme.outlineVariant,
                         modifier = Modifier.padding(vertical = rem(MenuMetrics.INSET)),
                     )
                 }
@@ -145,28 +159,35 @@ internal fun ContextMenu(
 
 @Composable
 private fun ContextMenuRow(item: ContextMenuItem, onChosen: () -> Unit) {
-    val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(rem(MenuMetrics.LABEL_TO_CHORD)),
         modifier = Modifier
             .fillMaxWidth()
+            // No hand-drawn `ghost_element.hover` fill any more. Under M3 that
+            // key has no colour answer at all — hover is a STATE LAYER, and the
+            // indication below draws it (docs/VISUAL.md, "Foundations": the 51
+            // `ghost_element.hover` sites delete their background rather than
+            // remap it). The clip stays, because it is what keeps that layer
+            // and the ripple inside the row's corners.
             .clip(RoundedCornerShape(rem(ZedRadius.SM)))
-            .background(
-                if (hovered && item.enabled) {
-                    theme.color("ghost_element.hover", Color.Transparent)
-                } else {
-                    Color.Transparent
-                }
-            )
             .then(
                 if (item.enabled) {
                     Modifier
                         .pointerHoverIcon(PointerIcon.Hand)
-                        // Instant colour swap, no ripple, as everywhere in Zed.
-                        .clickable(interactionSource = interaction, indication = null) {
+                        // NO `indication = null` any more. This row is drawn on
+                        // BOTH sides of the hybrid — the terminal's long-press
+                        // menu and the Material half's ⋮ menus — and each side
+                        // already provides the right indication: `ZedSurface`
+                        // installs `NoIndication`, so Zed's instant colour swap
+                        // survives there, while the Material half gets its
+                        // ripple. Hard-coding null gave a phone menu no press
+                        // feedback at all outside the editor.
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = LocalIndication.current,
+                        ) {
                             onChosen()
                             item.onClick()
                         }
@@ -174,6 +195,13 @@ private fun ContextMenuRow(item: ContextMenuItem, onChosen: () -> Unit) {
                     Modifier
                 }
             )
+            // MEASURED ON DEVICE: the rows were 22dp apart. `ROW_PAD_Y` is
+            // 0.125rem — 2dp — because this menu is a faithful port of Zed's
+            // DESKTOP context menu, where the target is a mouse cursor. On a
+            // phone the target is a fingertip, so the row takes the app's
+            // [MD.rowMin] floor; the rem paddings still set the rhythm inside
+            // it, and a row whose label wraps still grows past the floor.
+            .heightIn(min = MD.rowMin)
             .padding(
                 horizontal = rem(MenuMetrics.ROW_PAD_X),
                 vertical = rem(MenuMetrics.ROW_PAD_Y),
@@ -186,7 +214,7 @@ private fun ContextMenuRow(item: ContextMenuItem, onChosen: () -> Unit) {
             Text(
                 text = if (item.checked) "✓" else "",
                 style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.widthIn(min = rem(MenuMetrics.CHECK_SLOT)),
             )
         }
@@ -194,10 +222,14 @@ private fun ContextMenuRow(item: ContextMenuItem, onChosen: () -> Unit) {
             Text(
                 text = item.label,
                 style = MaterialTheme.typography.bodyMedium,
+                // Disabled is M3's 38% of the enabled ink, not Zed's
+                // `text.disabled` key: `onSurfaceVariant` is a live secondary
+                // colour here — the chord on the right wears it — so a
+                // disabled row painted with it would read as merely quiet.
                 color = if (item.enabled) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
-                    theme.color("text.disabled", MaterialTheme.colorScheme.onSurfaceVariant)
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = DISABLED_ALPHA)
                 },
             )
             if (item.aside != null) {

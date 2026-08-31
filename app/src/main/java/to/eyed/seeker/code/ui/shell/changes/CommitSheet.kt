@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import to.eyed.seeker.code.core.GitSession
 import to.eyed.seeker.code.core.ProjectSession
+import to.eyed.seeker.code.ui.components.outlinedButtonEdge
 import to.eyed.seeker.code.ui.git.GitOps
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
@@ -107,6 +108,7 @@ fun CommitSheet(
                 OutlinedButton(
                     onClick = { commit(false) },
                     enabled = canCommit,
+                    border = outlinedButtonEdge(canCommit),
                     modifier = Modifier.weight(1f),
                 ) { Text("Commit") }
                 Button(

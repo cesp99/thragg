@@ -76,7 +76,7 @@ import to.eyed.seeker.code.core.rememberAgentSession
 import to.eyed.seeker.code.core.rememberAgentSessionList
 import to.eyed.seeker.code.core.rememberSpettroQuestions
 import to.eyed.seeker.code.solana.agents.SpettroInstall
-import to.eyed.seeker.code.ui.agent.spettro.ConfigSummaryRow
+import to.eyed.seeker.code.ui.agent.spettro.ConfigChip
 import to.eyed.seeker.code.ui.agent.spettro.ContextNotice
 import to.eyed.seeker.code.ui.agent.spettro.ContextSheet
 import to.eyed.seeker.code.ui.agent.spettro.LiveRunPeek
@@ -100,7 +100,6 @@ import to.eyed.seeker.code.ui.agent.spettro.contextBlocksComposer
 import to.eyed.seeker.code.ui.agent.spettro.sessionOpenMode
 import to.eyed.seeker.code.ui.components.EmptyState
 import to.eyed.seeker.code.ui.components.HairlineDivider
-import to.eyed.seeker.code.ui.components.ModeChip
 import to.eyed.seeker.code.ui.components.NoticeCard
 import to.eyed.seeker.code.ui.components.RunTicker
 import to.eyed.seeker.code.ui.components.SeekerTopBar
@@ -184,21 +183,51 @@ internal fun agentDisplayName(connected: String?, chosen: String?): String =
         ?: "Agent"
 
 /**
- * `Spettro · coding` — the top bar's second line.
+ * `Fix the resume crash` — the top bar's first line.
  *
- * The bar's TITLE is the project, because that is what the whole window is
- * about and it is the thing the user switches; the identity of the agent and
- * the hat it is wearing are the subtitle, which is exactly the slot Material's
- * two-line app bar exists for. This used to be a caret-suffixed text button in
- * the middle of a hand-rolled 48 dp `Row`, competing with the project name for
- * the same horizontal space (docs/VISUAL.md, "Agent — the screen at rest").
+ * THE BAR NAMES THE CONVERSATION, not the window it is in. One project is
+ * open at a time and its name is already on the Projects control beside this
+ * text, so a title reading `seeker-ide` spent the widest, boldest slot on the
+ * screen telling the user the one thing they could not have got wrong. The
+ * thread's own name is the thing that differs between the threads `+` makes
+ * and that the picker lists, and it is the only line on this screen that says
+ * *what you are working on*.
  *
- * The mode is dropped rather than printed as a placeholder when the agent has
- * not published one: a generic ACP agent has no modes, and "Agent · —" is a
- * dash where a fact should be.
+ * An untitled thread falls back to the project. The fallback is not
+ * `listTitle`'s `Thread 3` on purpose: an ordinal is the picker's way of
+ * telling two rows apart in a list, and as a page title it is a label with no
+ * content. A thread is titled from its first prompt
+ * ([AgentSessions.provisionalTitle]) and by the agent after that, so the
+ * fallback lasts exactly as long as the empty state does.
  */
-internal fun barSubtitle(agentName: String, mode: String?): String =
-    if (mode.isNullOrBlank()) agentName else "$agentName · $mode"
+internal fun barTitle(threadTitle: String?, projectName: String?): String =
+    threadTitle?.takeIf { it.isNotBlank() }
+        ?: projectName?.takeIf { it.isNotBlank() }
+        ?: "No project"
+
+/**
+ * `Spettro · seeker-ide` — the top bar's second line.
+ *
+ * THE MODE IS GONE FROM HERE, and that is the fix rather than an omission.
+ * It was being said three times at once — this line, the status strip's
+ * `ModeChip` and the first value of the composer's config summary — and none
+ * of the three could act on it. The mode is now a control and not a readout:
+ * it is in the config sheet, one tap behind the composer's `ConfigChip`,
+ * which is the only place it can be *changed*. What belongs here instead is
+ * the context the title gave up when it took the thread's name — the agent
+ * you are talking to, and the project it is in.
+ *
+ * The project is dropped when [barTitle] is showing it, because a bar that
+ * prints the same word twice is the bug this is fixing in a smaller frame.
+ */
+internal fun barSubtitle(agentName: String, projectName: String?, threadTitle: String?): String {
+    val project = projectName?.takeIf { it.isNotBlank() }
+    return if (project != null && !threadTitle.isNullOrBlank()) {
+        "$agentName · $project"
+    } else {
+        agentName
+    }
+}
 
 /**
  * `Spettro is waiting on you — 2 requests`, or null when it is not.
@@ -245,6 +274,26 @@ internal fun followsTail(previous: Boolean, dragging: Boolean, atTail: Boolean):
     atTail -> true
     else -> previous
 }
+
+/**
+ * Whether the 36 dp status strip has anything to report.
+ *
+ * THE MODE IS NOT STATUS, and leaving it out of this test is the whole
+ * change. A strip that stayed up for the mode alone was up from the first
+ * frame of every thread and, until the first turn produced a plan or a token
+ * count, carried one pill across a 400 dp band. A band that is always there
+ * and almost always empty is worse than either extreme: it costs the
+ * transcript 37 dp for ever and teaches the eye to stop looking at the one
+ * line that is supposed to be the screen's live readout.
+ *
+ * So the strip reports RUN STATE and nothing else: a turn in flight, a plan
+ * to work through, a context window with a number in it. Any one of the three
+ * and it is a line worth reading; none of them and it is not there at all
+ * (docs/VISUAL.md, "Agent — the screen at rest"). The mode is not in the left
+ * slot either any more — see [AgentStatusStrip].
+ */
+internal fun stripReports(busy: Boolean, hasPlan: Boolean, hasUsage: Boolean): Boolean =
+    busy || hasPlan || hasUsage
 
 /** `2 files changed`, or null when there is nothing waiting to be reviewed. */
 internal fun reviewLabel(editedFiles: Int): String? = when {
@@ -621,8 +670,8 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.background),
     ) {
         SeekerTopBar(
-            title = project?.rootName ?: "No project",
-            subtitle = barSubtitle(agentName, session.toolbar.mode?.currentLabel),
+            title = barTitle(thread?.title, project?.rootName),
+            subtitle = barSubtitle(agentName, project?.rootName, thread?.title),
             actions = {
                 SeekerIconButton(
                     icon = R.drawable.ic_ui_chevron_down,
@@ -823,22 +872,22 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 state = session,
                 thread = thread,
                 agentName = agentName,
-                projectName = project?.rootName,
                 enabled = session.canPrompt && sessionId != null,
                 focus = composerFocus,
                 onOpenMentions = { sheet = AgentSheet.Mentions },
                 onStop = { AgentSessions.cancelTurn() },
                 onSteered = {},
-                // The five selectors, as one ~20dp line directly over the input
-                // row. This slot is the ONLY reason the 36dp chip band could be
+                // The five selectors, as one chip inside the control row.
+                // This slot is the ONLY reason the 36dp chip band could be
                 // deleted: without something drawn here, the thinking slider
                 // and the model list are reachable only from the overflow, and
                 // the two controls the agent screen exists to expose would be
-                // two taps behind a glyph. `ConfigSummaryRow` returns Unit when
+                // two taps behind a glyph. `ConfigChip` returns Unit when
                 // there is nothing on the wire yet, so a session that has not
-                // reported its selectors costs no height at all.
-                configSummary = {
-                    ConfigSummaryRow(
+                // reported its selectors leaves the slot empty rather than
+                // drawing a pill with nothing in it.
+                config = {
+                    ConfigChip(
                         toolbar = session.toolbar,
                         onOpen = { sheet = AgentSheet.Config },
                     )
@@ -939,7 +988,7 @@ private fun AgentSheets(
             items = listOf(
                 // First, and it is new here: the selectors used to be a 36 dp
                 // band of horizontally-scrolling chips. They are the
-                // composer's `ConfigSummaryRow` now, and this is the second
+                // composer's `ConfigChip` now, and this is the second
                 // way in, for the same reason every sheet has one.
                 OverflowItem("Configure", session.toolbar.mode?.currentLabel) {
                     onSheet(AgentSheet.Config)
@@ -1234,8 +1283,17 @@ private fun SessionsSheet(
  * it. Nothing on this line is a control that changes the conversation — two of
  * the three open something, and the third is a label.
  *
- * The busy/idle swap is a swap and not two rows: while a turn runs the mode is
- * on the app bar's subtitle anyway, and what the eye wants there is the clock.
+ * THE MODE PILL IS GONE FROM THE LEFT SLOT. It used to fill it whenever the
+ * strip was up and no turn was running — the plan-only and usage-only cases —
+ * so a band raised to report a plan spent its widest slot on a word that is
+ * not status and cannot be tapped. The mode is a control now, in the config
+ * sheet behind the composer's `ConfigChip`; when nothing is running, the left
+ * slot simply belongs to the plan. The strip is one thing again: what the run
+ * is doing.
+ *
+ * The strip is drawn at all only when [stripReports] says there is something
+ * on it; neither the mode nor anything else holds it open, so a fresh thread
+ * has no band under its app bar at all.
  *
  * [Modifier.animateSize] because the plan unfolds INTO this strip. A strip that
  * jumped from 36 dp to 250 dp would take the transcript's scroll position with
@@ -1251,12 +1309,13 @@ private fun AgentStatusStrip(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSeekerColors.current
-    val mode = state.toolbar.mode
     val hasUsage = (state.usage?.size ?: 0L) > 0L
     val busy = state.isBusy && startedAt > 0L
     // Nothing to report is a strip that is not there, rather than an empty
-    // rule across the screen.
-    if (!busy && mode == null && state.plan.isEmpty() && !hasUsage) return
+    // rule across the screen — and the mode alone is not something to report,
+    // because it is a control on the composer a thumb's width away rather
+    // than a reading.
+    if (!stripReports(busy, state.plan.isNotEmpty(), hasUsage)) return
 
     Column(
         modifier = modifier
@@ -1277,14 +1336,6 @@ private fun AgentStatusStrip(
                     startedAt = startedAt,
                     tokens = state.turnUsage?.totalTokens?.takeIf { it > 0L },
                     tint = colors.accentMark,
-                )
-            } else if (mode != null) {
-                ModeChip(
-                    name = mode.currentLabel,
-                    // The caller keeps the `category != "mode"` guard; the
-                    // component decides what a name means, not whether it is
-                    // a mode's (docs/VISUAL.md, THE HYBRID, band C).
-                    colorName = mode.currentValue?.takeIf { mode.category == "mode" },
                 )
             }
             PlanProgress(plan = state.plan, expanded = planOpen, onToggle = onTogglePlan)
