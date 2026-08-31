@@ -5,6 +5,28 @@ project docs (vendor, not git-deps). Licenses: each crate directory
 carries its upstream LICENSE file (GPL-3.0-or-later or Apache-2.0);
 upstream copyright headers are preserved.
 
+Copyright in these crates is Zed Industries, Inc.'s. This table is the
+per-crate record; `docs/THIRD_PARTY.md` is the project-wide register and
+`docs/LICENSING.md` is the obligation analysis.
+
+Two exceptions to "each directory carries its LICENSE file", recorded here
+so a per-directory scan has an answer:
+
+- `assets/` has no LICENSE file. It holds Zed's repo-root
+  `assets/settings/default.json` and is **GPL-3.0-or-later with Zed**, like
+  the rest of Zed's assets. Do not fix this by dropping a `LICENSE-GPL` into
+  the directory: the `settings` crate embeds it whole with
+  `#[folder = "../assets"]`, so the licence text would be compiled into
+  `libseekercore.so`. This paragraph is the record.
+- `gpui_shared_string`, `gpui_util`, `grammars` and `language_core` have
+  their LICENSE files but declare no `license` field in `Cargo.toml`, so an
+  SPDX scanner reports them as unlicensed packages inside the shipped
+  binary. Upstream Zed has the same gap. The values are
+  `Apache-2.0`, `Apache-2.0`, `GPL-3.0-or-later`, `GPL-3.0-or-later`
+  respectively; adding them is on the release checklist in
+  `docs/LICENSING.md` and each should be marked `SEEKER PATCH` so the next
+  sync does not revert it.
+
 ## Upstream
 
 - Source: https://github.com/zed-industries/zed

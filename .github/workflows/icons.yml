@@ -1,0 +1,69 @@
+# The icon set, checked the three ways it can go wrong.
+#
+# 1. Provenance drift. `tools/import-lucide-icons.py` converts from the
+#    snapshot vendored at `tools/lucide/`, whose digests are recorded in
+#    SHA256SUMS. Re-running it offline must reproduce every drawable byte for
+#    byte; if it does not, either a drawable was hand-edited or the snapshot
+#    was, and both make the attribution in docs/THIRD_PARTY.md untrue.
+#
+# 2. Brand marks coming back. Two icons were removed because they are other
+#    companies' trademarks and no licence in this repository grants a
+#    trademark: Zed's `ai_zed.svg` and GitHub's Octocat via Zed's
+#    `github.svg`. A re-import or a well-meaning revert could restore either,
+#    and nobody would notice in review.
+#
+# 3. Icons that draw nothing. An SVG-to-VectorDrawable conversion can emit a
+#    path with correct-looking `pathData` and no paint at all. It compiles, it
+#    inflates, and it is invisible — the one defect that reading the XML does
+#    not catch. So the drawables are rasterised and the pixels are counted.
+
+name: Icons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/src/main/res/drawable/**"
+      - "app/src/main/assets/icons/**"
+      - "tools/import-lucide-icons.py"
+      - "tools/import-zed-icons.py"
+      - "tools/lucide/**"
+      - ".github/workflows/icons.yml"
+  pull_request:
+    paths:
+      - "app/src/main/res/drawable/**"
+      - "app/src/main/assets/icons/**"
+      - "tools/import-lucide-icons.py"
+      - "tools/import-zed-icons.py"
+      - "tools/lucide/**"
+      - ".github/workflows/icons.yml"
+
+jobs:
+  icons:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the rasteriser
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends librsvg2-bin imagemagick
+
+      - name: The Lucide import reproduces exactly
+        # No --fetch: this runs from the vendored snapshot, which the script
+        # verifies against SHA256SUMS before it converts anything.
+        run: |
+          python3 tools/import-lucide-icons.py
+          git diff --exit-code -- app/src/main/res/drawable app/src/main/assets/icons
+
+      - name: No third-party brand mark has come back
+        run: python3 tools/check-icon-provenance.py
+
+      - name: Every icon puts ink on the canvas
+        run: python3 tools/render-icon-sheet.py -o /tmp/icon-sheet.png
+
+      - name: Keep the contact sheet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: icon-sheet
+          path: /tmp/icon-sheet.png
+          if-no-files-found: ignore

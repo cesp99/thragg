@@ -36,8 +36,12 @@ the repository `README.md`.
 
 ### Local patches
 
-Everything under `src/` is **verbatim upstream**. Any future change must be
-marked with a `// SEEKER PATCH:` comment and listed here.
+Everything under `src/` is verbatim upstream **except** for the one hunk set
+below. Any future change must be marked with a `// SEEKER PATCH:` comment,
+listed here, and reflected in the module's own `LICENSE.md` — GPLv3 s5(a)
+asks that a modified file say it was modified, and a `LICENSE.md` claiming
+the source is untouched when it is not is the kind of thing an OEM
+compliance review finds.
 
 - `terminal-view/src/main/java/com/termux/view/TerminalView.java` — a
   passive highlight (`setHighlight`, `clearHighlight`, the `mHighlight`
@@ -70,8 +74,9 @@ diff -r vendor/terminal-emulator/src /path/to/termux-app/terminal-emulator/src
 diff -r vendor/terminal-view/src     /path/to/termux-app/terminal-view/src
 ```
 
-With no local patches, a sync is a re-copy of `src/` plus a test run
-(`./gradlew :terminal-emulator:testDebugUnitTest`).
+A sync is a re-copy of `src/`, re-applying the `terminal-view` patch above,
+plus a test run (`./gradlew :terminal-emulator:testDebugUnitTest`).
+`terminal-emulator` has no patches and is a straight re-copy.
 
 ### Known risks to watch on device
 

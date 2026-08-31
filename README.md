@@ -158,33 +158,94 @@ See [docs/BUILDING.md](docs/BUILDING.md) for the details and
 See [CONTRIBUTING.md](CONTRIBUTING.md). Testing on a real Seeker is
 especially valuable — that is the device this is designed around.
 
-## License & credits
+## Licence & credits
 
-Seeker IDE is licensed under **GPL-3.0-or-later** (see
-[LICENSE](LICENSE)). It is a fork of **Conquest Code** (GPL-3.0-or-later), which supplies the
-editor, the Debian userland, the terminal, the LSP client, git and the ACP
-agent panel; Seeker IDE adds the Solana layer on top.
+**Copyright (C) 2026 Eyed** (Carlo Esposito, carlo@aploi.de).
+
+Seeker IDE is free software. Eyed's own code — the Kotlin app and the Rust
+engine — is licensed **GPL-3.0-or-later**; see [LICENSE](LICENSE) for the
+text and [NOTICE](NOTICE) for the copyright statement.
+
+The application **as distributed is GPL-3.0-only**. It links Termux's
+`terminal-emulator` and `terminal-view`, which are GPL-3.0-*only*, so no
+recipient of the APK may take the "or later" option over that code. Take
+Eyed's code on its own and the "or later" is yours again. If you
+redistribute a build of this repository, say GPL-3.0.
+[docs/LICENSING.md](docs/LICENSING.md) explains why, with the full
+compatibility matrix.
+
+This program comes with ABSOLUTELY NO WARRANTY. It is free software, and you
+are welcome to redistribute it under the terms of the GNU General Public
+License.
+
+### Lineage
+
+Seeker IDE is a fork of **Conquest Code** (GPL-3.0-or-later), which supplies
+the editor, the Debian userland, the terminal, the LSP client, git and the
+ACP agent panel. Conquest Code in turn reuses Zed's engine crates and
+vendors Termux's terminal libraries. Seeker IDE adds the Solana layer and
+rebuilds the shell for the Seeker's screen.
+
+Those notices are kept deliberately. A fork that quietly drops the notices
+of the work it stands on is the most common GPL violation there is.
 
 It stands on the shoulders of:
 
-- **[Zed](https://github.com/zed-industries/zed)** (GPL-3.0 /
-  Apache-2.0) — the engine crates this project reuses, and the design
-  north star.
-- **[Termux](https://github.com/termux/termux-app)** (GPLv3, with an
-  Apache-2.0 heritage from
-  [Android Terminal Emulator](https://github.com/jackpal/Android-Terminal-Emulator))
-  — its `terminal-emulator` and `terminal-view` libraries are vendored
-  here under `vendor/`, and its work is the reference for running a real
-  userland on Android.
-- **[proot](https://github.com/termux/proot)** (GPL-2.0) — the userspace
-  chroot that lets a Linux distribution run without root.
+- **[Zed](https://github.com/zed-industries/zed)** (GPL-3.0-or-later and
+  Apache-2.0, © Zed Industries, Inc.) — the engine crates this project
+  reuses, and the design north star.
+- **[Termux](https://github.com/termux/termux-app)** (GPL-3.0-only, ©
+  Fredrik Fornwall and the Termux contributors, with an Apache-2.0 heritage
+  from [Android Terminal Emulator](https://github.com/jackpal/Android-Terminal-Emulator),
+  © Jack Palevich) — its `terminal-emulator` and `terminal-view` libraries
+  are vendored here under `vendor/`, and its work is the reference for
+  running a real userland on Android.
+- **[proot](https://github.com/termux/proot)** (GPL-2.0-or-later) — the
+  userspace chroot that lets a Linux distribution run without root — and
+  **[talloc](https://download.samba.org/pub/talloc/)** (LGPL-3.0-or-later),
+  linked into it.
 - **[Debian](https://www.debian.org)** — the userland itself, and the
   package archive behind it.
-- **[VSCodium](https://github.com/VSCodium/vscodium)** (MIT) — proof
-  that a community can keep an IDE honest.
+- **[IBM Plex Sans](https://github.com/IBM/plex)** and
+  **[Lilex](https://github.com/mishamyrt/Lilex)** (SIL OFL 1.1) — the two
+  faces the app draws in.
+- **[Lucide](https://lucide.dev)** (ISC) and **Feather** (MIT, © Cole
+  Bemis) — the heritage of Zed's interface icons.
+- **[VSCodium](https://github.com/VSCodium/vscodium)** (MIT) — proof that a
+  community can keep an IDE honest.
 
-Full provenance, licences and the source offer for the binaries we ship
-are in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+Full provenance is in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md); the
+obligations, the compatibility matrix and the shipping checklist are in
+[docs/LICENSING.md](docs/LICENSING.md).
 
-This project is not affiliated with or endorsed by Zed Industries,
-Termux, Debian, or VSCodium.
+### Source offer
+
+For a period of three years from the date you received this software, and
+for as long as Eyed offers spare parts or customer support for the product
+model it came on, Eyed will give any third party who possesses the object
+code a complete machine-readable copy of the corresponding source for every
+GPL- and LGPL-licensed component in it, on a durable physical medium, for a
+charge no greater than the cost of the medium and of physically performing
+the distribution. Write to Eyed, ⟨postal address — to be filled in before
+the first public release⟩, or carlo@aploi.de.
+
+You do not need the offer to get the source: it is in this repository, and
+a complete `corresponding-source` archive is attached to every release. The
+offer exists because someone who received the app preinstalled on a phone
+never visited this repository, and GPLv3 s6(d) does not reach them.
+
+### Trademarks
+
+The GPL grants no trademark rights. Product names and logos shown beside
+file types in the interface are the trademarks of their respective owners
+and are used only to identify a file's type. A GPL fork may take this code;
+it may not take the Seeker IDE name or Eyed's marks. See
+[docs/TRADEMARKS.md](docs/TRADEMARKS.md).
+
+This project is not affiliated with or endorsed by Zed Industries, Termux,
+Debian, GitHub, Google, Solana Labs, Solana Mobile, or VSCodium.
+
+### Security
+
+Found a vulnerability? Do not open a public issue —
+[SECURITY.md](SECURITY.md) has the private routes and the timelines.

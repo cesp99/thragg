@@ -11,10 +11,21 @@ table from the same source.
     tools/import-zed-icons.py [--zed /path/to/zed]
 
 Both outputs are generated, never hand-edited: re-run this after a Zed sync and
-the icons and the mapping move together. The SVGs it handles are exactly the
-shape Zed's icon set uses — paths with `fill`, `stroke`, `stroke-width`,
-`stroke-linecap`, `stroke-linejoin`, `fill-rule` and `opacity`; anything else
-it refuses loudly rather than silently dropping.
+the icons and the mapping move together.
+
+**File icons only.** This used to import the chrome's glyphs too, out of Zed's
+top-level `assets/icons/` — including `ai_zed.svg`, which is Zed Industries'
+own brand mark and had no business in a fork's navigation. Those now come from
+Lucide directly, at a pinned version, through `tools/import-lucide-icons.py`;
+the two provenances no longer share a tool, and nothing here can resurrect a
+Zed logo. What is left is `assets/icons/file_icons/`, which is Zed's own
+artwork and has no equivalent anywhere else: Lucide's Brand Logos Statement
+says it does not carry brand icons and does not plan to.
+
+The SVGs it handles are exactly the shape Zed's file icons use — paths with
+`fill`, `stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`,
+`fill-rule` and `opacity`; anything else it refuses loudly rather than silently
+dropping.
 """
 
 from __future__ import annotations
@@ -40,6 +51,40 @@ def attr(node: ET.Element, name: str, default: str | None = None) -> str | None:
     return node.attrib.get(name, default)
 
 
+# Presentation attributes an element inherits, and which a `style=""` may set
+# instead of spelling out as an attribute. Zed's `vyper.svg` does both: a
+# `<g style="fill:#000">` wrapping a `<path style="fill:#000;...">`, with no
+# `fill` attribute anywhere. Reading `fill` off the node alone found nothing,
+# so the icon came out as a path with no paint — which compiles, inflates, and
+# draws nothing at all. `tools/render-icon-sheet.py` is how that was caught.
+PAINT = (
+    "fill",
+    "stroke",
+    "stroke-width",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "fill-rule",
+    "fill-opacity",
+    "stroke-opacity",
+    "opacity",
+)
+
+
+def paint(node: ET.Element, outer: dict[str, str]) -> dict[str, str]:
+    """The paint in effect for `node`: inherited, then attributes, then style."""
+    merged = dict(outer)
+    for name in PAINT:
+        if name in node.attrib:
+            merged[name] = node.attrib[name]
+    # A `style` declaration beats the matching presentation attribute, which is
+    # the order CSS specifies and the order these files rely on.
+    for declaration in node.attrib.get("style", "").split(";"):
+        name, separator, value = declaration.partition(":")
+        if separator and name.strip() in PAINT:
+            merged[name.strip()] = value.strip()
+    return merged
+
+
 def convert(svg_path: Path) -> str:
     """One SVG to one VectorDrawable, or raise with the reason it cannot."""
     tree = ET.parse(svg_path)
@@ -54,22 +99,23 @@ def convert(svg_path: Path) -> str:
     # the C, C++, Odin and Helm icons were solid white blocks, because a clip
     # rectangle is a full-viewport rectangle. Walk the tree by hand instead,
     # and do not descend into a container whose children are definitions.
-    def visit(parent: ET.Element) -> None:
+    def visit(parent: ET.Element, outer: dict[str, str]) -> None:
         for node in parent:
             tag = node.tag.replace(SVG_NS, "")
             if tag in ("defs", "mask", "clipPath", "title", "desc", "style"):
                 # Definitions, not drawings: something has to reference them.
                 continue
+            inherited = paint(node, outer)
             if tag in ("svg", "g"):
                 # A `g` carrying a transform would move its children, and none
                 # of Zed's file icons use one; refuse rather than draw it wrong.
                 if tag == "g" and "transform" in node.attrib:
                     raise ValueError(f"{svg_path.name}: <g transform> is not handled")
-                visit(node)
+                visit(node, inherited)
                 continue
-            emit(node, tag)
+            emit(node, tag, inherited)
 
-    def emit(node: ET.Element, tag: str) -> None:
+    def emit(node: ET.Element, tag: str, attrs: dict[str, str]) -> None:
         nonlocal paths
         # VectorDrawable can carry a transform only on a <group>, so a
         # transformed shape becomes its own group. Four of Zed's icons need
@@ -114,30 +160,34 @@ def convert(svg_path: Path) -> str:
         data = attr(node, "d")
         if not data:
             return
-        fill = attr(node, "fill", "none")
-        stroke = attr(node, "stroke", "none")
-        opacity = attr(node, "opacity")
+        fill = attrs.get("fill", "none")
+        stroke = attrs.get("stroke", "none")
+        opacity = attrs.get("opacity")
 
         lines = [f'    <path\n        android:pathData="{data.strip()}"']
         if fill and fill != "none":
             lines.append(f'        android:fillColor="{TINT}"')
-            if attr(node, "fill-rule") == "evenodd":
+            if attrs.get("fill-rule") == "evenodd":
                 lines.append('        android:fillType="evenOdd"')
-            alpha = attr(node, "fill-opacity") or opacity
+            alpha = attrs.get("fill-opacity") or opacity
             if alpha:
                 lines.append(f'        android:fillAlpha="{alpha}"')
         if stroke and stroke != "none":
             lines.append(f'        android:strokeColor="{TINT}"')
-            lines.append(f'        android:strokeWidth="{attr(node, "stroke-width", "1")}"')
-            cap = CAPS.get(attr(node, "stroke-linecap", ""), None)
+            lines.append(f'        android:strokeWidth="{attrs.get("stroke-width", "1")}"')
+            cap = CAPS.get(attrs.get("stroke-linecap", ""), None)
             if cap:
                 lines.append(f'        android:strokeLineCap="{cap}"')
-            join = JOINS.get(attr(node, "stroke-linejoin", ""), None)
+            join = JOINS.get(attrs.get("stroke-linejoin", ""), None)
             if join:
                 lines.append(f'        android:strokeLineJoin="{join}"')
-            alpha = attr(node, "stroke-opacity") or opacity
+            alpha = attrs.get("stroke-opacity") or opacity
             if alpha:
                 lines.append(f'        android:strokeAlpha="{alpha}"')
+        if (not fill or fill == "none") and (not stroke or stroke == "none"):
+            # Refuse loudly. An unpainted path is the one conversion defect
+            # that survives review, because the XML looks entirely correct.
+            raise ValueError(f"{svg_path.name}: <{tag}> would draw nothing (no fill, no stroke)")
         drawn = "\n".join(lines) + " />"
         if translate != (0.0, 0.0) or scale != (1.0, 1.0):
             drawn = (
@@ -150,7 +200,7 @@ def convert(svg_path: Path) -> str:
             )
         paths.append(drawn)
 
-    visit(root)
+    visit(root, paint(root, {}))
 
     if not paths:
         raise ValueError(f"{svg_path.name}: no drawable paths")
@@ -188,11 +238,6 @@ def parse_transform(value: str | None, name: str) -> tuple[tuple[float, float], 
     if leftover:
         raise ValueError(f"{name}: transform {leftover!r} is not handled")
     return translate, scale
-
-
-def ui_drawable_name(svg_path: Path) -> str:
-    """`eye.svg` -> `ic_ui_eye`, for the icons the chrome uses directly."""
-    return "ic_ui_" + re.sub(r"[^a-z0-9_]", "_", svg_path.stem.lower())
 
 
 def drawable_name(icon_file: str) -> str:
@@ -268,36 +313,6 @@ internal val ZED_ICON_DRAWABLE: Map<String, String> = mapOf(
 '''
 
 
-UI_ICONS = (
-    "ai_zed.svg",
-    "arrow_circle.svg",
-    "arrow_down.svg",
-    "arrow_up.svg",
-    "check.svg",
-    "chevron_down.svg",
-    "chevron_up.svg",
-    "close.svg",
-    "cursor_i_beam.svg",
-    "envelope.svg",
-    "expand_up.svg",
-    "eye.svg",
-    "eye_off.svg",
-    "file_tree.svg",
-    "filter.svg",
-    "git_branch.svg",
-    "git_branch_plus.svg",
-    "git_commit.svg",
-    "git_graph.svg",
-    "github.svg",
-    "hash.svg",
-    "load_circle.svg",
-    "magnifying_glass.svg",
-    "plus.svg",
-    "server.svg",
-    "terminal.svg",
-    "trash.svg",
-    "undo.svg",
-)
 
 
 def main() -> int:
@@ -337,16 +352,6 @@ def main() -> int:
             return 1
         xml = convert(svg)
         (out_drawables / f"{drawable_name(reference)}.xml").write_text(xml)
-        written += 1
-
-    # The handful of Zed glyphs the chrome draws itself. Not in any table —
-    # they belong to a toolbar, not to a file type — so they are named here.
-    for name in sorted(UI_ICONS):
-        svg = zed / "assets/icons" / name
-        if not svg.is_file():
-            print(f"missing: {svg}", file=sys.stderr)
-            return 1
-        (out_drawables / f"{ui_drawable_name(svg)}.xml").write_text(convert(svg))
         written += 1
 
     out_kotlin.write_text(kotlin(suffixes, stems, icon_files))

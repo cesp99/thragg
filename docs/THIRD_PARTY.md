@@ -1,21 +1,80 @@
 # Third-party code and binaries
 
-Seeker IDE is GPL-3.0-or-later. This file records everything that comes
-from somewhere else, where it came from, and under what licence — including
-the components shipped as **compiled binaries**, which carry a source
-obligation we intend to meet properly.
+This file is the register: everything in Seeker IDE that came from somewhere
+else, where it came from, and under what licence — including the components
+shipped as **compiled binaries**, which carry a source obligation we intend
+to meet properly.
+
+It is written for two readers who want different things. Someone auditing
+the repository wants to know where each file came from; someone auditing the
+**package** — an OEM reviewer, a lawyer — wants to know what obligations
+travel with the APK a user holds. This file answers the first question.
+[docs/LICENSING.md](LICENSING.md) answers the second: the compatibility
+matrix, the source offer, the shipping checklist, and the spec for the
+in-app licences screen. Read both.
+
+## The outbound licence, precisely
+
+Eyed's own code is **GPL-3.0-or-later**. So is the Rust workspace
+(`core/Cargo.toml` says so, and it is right about the workspace).
+
+The application **as built and distributed is GPL-3.0-only**, because it
+links Termux's `terminal-emulator` and `terminal-view`, which are
+GPL-3.0-*only*. That is a perfectly ordinary inbound combination — GPL-3.0
+into GPL-3.0-or-later is fine — but it caps the outbound version: no
+recipient of the APK may exercise the "or later" option over Termux's code.
+Anyone redistributing the app must say GPL-3.0. Anyone taking Eyed's code
+on its own gets the "or later" back.
+
+Copyright (C) 2026 Eyed. See [NOTICE](../NOTICE) for the full statement and
+[LICENSE](../LICENSE) for the licence text.
+
+## Lineage
+
+Seeker IDE is a fork of **Conquest Code** (GPL-3.0-or-later), which reuses
+**Zed**'s engine crates and vendors **Termux**'s terminal libraries, which
+themselves derive from **Android Terminal Emulator** (Apache-2.0). Every one
+of those notices is preserved here, in `core/vendor/VENDOR.md`, in
+`vendor/VENDOR.md`, in the module `LICENSE.md` files and in `README.md`.
 
 ## Source vendored into this repository
 
 | Component | Upstream | Version / commit | Licence | Where |
 |---|---|---|---|---|
-| Zed engine crates | [zed-industries/zed](https://github.com/zed-industries/zed) | `bc538de` | GPL-3.0-or-later, some Apache-2.0 | `core/vendor/` — see `core/vendor/VENDOR.md` |
-| Termux `terminal-emulator`, `terminal-view` | [termux/termux-app](https://github.com/termux/termux-app) | `3df69d1` (v0.118.0) | GPL-3.0-only, with an Apache-2.0 heritage from [Android Terminal Emulator](https://github.com/jackpal/Android-Terminal-Emulator) | `vendor/` — see `vendor/VENDOR.md` |
-| Zed themes (One, Ayu, Gruvbox — 11 themes in 3 family files) | zed-industries/zed | `bc538de` | The theme *files* are GPL-3.0-or-later with Zed; the palettes they carry are the upstream authors' — Ayu is MIT (© Ike Ku), Gruvbox is MIT (© Pavel Pertsev). Both licence texts travel with them. | `app/src/main/assets/themes/`, licences at `app/src/main/assets/themes/LICENSES.txt` |
-| IBM Plex Sans (Zed's UI face) | [IBM/plex](https://github.com/IBM/plex), via Zed's `assets/fonts/` | `bc538de` | SIL Open Font License 1.1 | `app/src/main/res/font/ibm_plex_sans_*.ttf`; licence at `app/src/main/assets/fonts/IBMPlexSans-LICENSE.txt` |
-| Zed's file-type icons (79, converted to Android vector drawables by `tools/import-zed-icons.py`) | zed-industries/zed | `bc538de` | GPL-3.0-or-later with Zed; the set derives from [Lucide](https://lucide.dev) (ISC, © Lucide Contributors) and Feather (MIT, © Cole Bemis), whose licence text is at `app/src/main/assets/icons/LICENSES.txt` | `app/src/main/res/drawable/ic_file_*.xml` |
-| Lilex (Zed's editor face) | [mishamyrt/Lilex](https://github.com/mishamyrt/Lilex), via Zed's `assets/fonts/` | `bc538de` | SIL Open Font License 1.1 | `app/src/main/res/font/lilex_*.ttf`; licence at `app/src/main/assets/fonts/Lilex-LICENSE.txt` |
+| Zed engine crates (51 directories) | [zed-industries/zed](https://github.com/zed-industries/zed) | `bc538def45` — see the caveat below | GPL-3.0-or-later, some Apache-2.0; per-crate in `core/vendor/VENDOR.md` | `core/vendor/`, each directory carrying its own `LICENSE-GPL` or `LICENSE-APACHE` |
+| Termux `terminal-emulator`, `terminal-view` | [termux/termux-app](https://github.com/termux/termux-app) | `3df69d1d` (v0.118.0) | GPL-3.0-only, with an Apache-2.0 heritage from [Android Terminal Emulator](https://github.com/jackpal/Android-Terminal-Emulator) | `vendor/` — see `vendor/VENDOR.md` |
+| Zed themes (One, Ayu, Gruvbox — 11 themes in 3 family files) | zed-industries/zed | `bc538def45` | The theme *files* are GPL-3.0-or-later with Zed; the palettes are the upstream authors' — Ayu MIT (© 2016 Ike Ku), Gruvbox MIT (© Pavel Pertsev), One Dark and One Light MIT (© 2014 GitHub Inc., via [atom/atom](https://github.com/atom/atom)). All four licence texts travel with them. | `app/src/main/assets/themes/`, licences at `app/src/main/assets/themes/LICENSES.txt` |
+| IBM Plex Sans (Zed's UI face) | [IBM/plex](https://github.com/IBM/plex), via Zed's `assets/fonts/` | `bc538def45` | SIL Open Font License 1.1 | `app/src/main/res/font/ibm_plex_sans_*.ttf`; licence at `app/src/main/assets/fonts/IBMPlexSans-LICENSE.txt` |
+| Lilex (Zed's editor face) | [mishamyrt/Lilex](https://github.com/mishamyrt/Lilex), via Zed's `assets/fonts/` | `bc538def45` | SIL Open Font License 1.1 | `app/src/main/res/font/lilex_*.ttf`; licence at `app/src/main/assets/fonts/Lilex-LICENSE.txt` |
 | Dockerfile tree-sitter grammar (generated `parser.c` / `scanner.c`) | [camdencheek/tree-sitter-dockerfile](https://github.com/camdencheek/tree-sitter-dockerfile) | v0.2.0 | MIT (© Camden Cheek) | `core/crates/tree-sitter-dockerfile/grammar/`; licence beside it at `core/crates/tree-sitter-dockerfile/LICENSE` |
+| Gradle wrapper | [gradle/gradle](https://github.com/gradle/gradle) | matches `gradle/wrapper/gradle-wrapper.properties` | Apache-2.0 | `gradle/wrapper/gradle-wrapper.jar` — build tooling, **not** in the APK. Listed because it is the one committed binary that is not build output, and source scanners flag committed jars by default. |
+
+**Two gaps in the vendored tree**, both recorded rather than quietly left:
+
+- `core/vendor/gpui_shared_string`, `gpui_util`, `grammars` and
+  `language_core` declare no `license` field in their `Cargo.toml`, so an
+  SPDX scanner reports four unlicensed packages inside `libseekercore.so`.
+  The information is on disk — the first two carry `LICENSE-APACHE`, the
+  last two `LICENSE-GPL`, and `core/vendor/VENDOR.md` is correct about all
+  four. Upstream Zed has the same gap; it does not bite there because Zed
+  ships the repository and we ship a binary. Fix is four one-line additions,
+  each marked `SEEKER PATCH` so the next vendor sync does not revert it.
+- `core/vendor/assets/` is the only one of the 51 vendored directories with
+  no licence file. It holds Zed's repo-root `assets/settings/default.json`,
+  GPL-3.0-or-later with Zed. Note before "fixing" it the obvious way: the
+  `settings` crate embeds that directory with `#[folder = "../assets"]`, so
+  dropping a `LICENSE-GPL` in there would compile the whole GPLv3 text into
+  `libseekercore.so`. Record it in `core/vendor/VENDOR.md` instead, or put
+  the file somewhere rust-embed does not walk.
+
+**On the Zed commit.** `core/vendor/VENDOR.md` records `bc538def45 (local
+checkout, 2026-08-15)`, and `app/build.gradle.kts` parses that line at
+configuration time so the About screen cannot drift from it. But "local
+checkout" means the hash was taken from a working copy: every GPL claim
+about the vendored Rust rests on that identifier being resolvable by a third
+party, and it has not been confirmed against the public repository. Same
+caveat for Termux's `3df69d1da197dd9bd71a3bafd902dffd720576b4`. Both are on
+the release checklist in [LICENSING.md](LICENSING.md).
 
 ### Tree-sitter queries
 
@@ -24,8 +83,14 @@ Zed's own grammars carry Zed's `highlights.scm`, `indents.scm`,
 are GPL-3.0-or-later with Zed and vendored at the commit above. The grammars
 this project added on top of Zed's built-in set — Zed reaches them through
 extensions, which this app has no runtime for — have no Zed source in the
-checkout, so their queries come from elsewhere. Every file names its own
-provenance in a comment at the top; this is the summary.
+checkout, so their queries come from elsewhere.
+
+Most files with third-party content name their provenance in a comment at
+the top. **Two do not, and both need one:** `src/sql/highlights.scm`, which
+came from DerekStride's grammar, and the whole `src/html/*` set, copied
+verbatim from Zed. The other header-less files (`brackets`, `indents`,
+`outline`, `overrides`, `injections` across several languages) were written
+here against the grammar's node names. This table is the summary either way.
 
 | Language | Query sources | Licence |
 |---|---|---|
@@ -41,59 +106,336 @@ provenance in a comment at the top; this is the summary.
 | Svelte | Zed's `html/highlights.scm` plus [tree-sitter-grammars/tree-sitter-svelte](https://github.com/tree-sitter-grammars/tree-sitter-svelte) v1.0.2 block-tag keywords and `queries/injections.scm` | GPL-3.0-or-later / MIT (© Amaan Qureshi) |
 
 The grammars themselves are ordinary crates.io dependencies, pinned in
-`core/Cargo.toml`; they are compiled into `libseekercore.so` and their
-licences (all MIT) travel in the crate sources cargo fetches.
+`core/Cargo.toml`; they are compiled into `libseekercore.so` and are covered
+by the crate section below.
+
+## Icons
+
+The app has 117 drawables. They come from three different places under
+three different arrangements, and an earlier version of this file collapsed
+them into one row that attributed the wrong 79 files to Lucide. Split
+properly:
+
+| Set | Count | Where from | Licence and attribution |
+|---|---|---|---|
+| `ic_file_*.xml` | 79 | Zed's `assets/icons/file_icons/`, converted by `tools/import-zed-icons.py` | **Zed Industries' own artwork**, GPL-3.0-or-later with Zed. Roughly 15 are neutral pictograms (file, folder, code, terminal, database, lock…); the rest are language and tool **brand marks** — Docker's whale, GitLab's tanuki, the Rust gear, Python's snakes, Java's cup, Swift's bird, React's atom, and so on — redrawn by Zed's design team. Those marks belong to their owners; see [TRADEMARKS.md](TRADEMARKS.md). |
+| `ic_ui_*.xml`, `ic_agent_*.xml` | 33 | [Lucide](https://lucide.dev) **1.37.0** (tag `1.37.0`, commit `796dad298f8d78c5da204c3e62a5ed93c2bfcd1e`), converted by `tools/import-lucide-icons.py` | **ISC**, © 2026 Lucide Icons and Contributors. Lucide's own LICENSE names the subset it derives from **Feather** (MIT, © 2013-present Cole Bemis) — most of what this app uses — and each generated drawable's header says whether it is on that list. Both texts ship verbatim at `app/src/main/assets/icons/lucide-LICENSE.txt`, with the aggregate notice at `app/src/main/assets/icons/LICENSES.txt`. The exact source SVGs are vendored at `tools/lucide/` with a `SHA256SUMS` the importer checks on every run, so the conversion is reproducible offline and a silent upstream edit cannot slip in. |
+| `ic_ui_agent.xml`, `ic_stat_terminal.xml` | 2 | drawn for this project | Original work, Copyright (C) 2026 Eyed, GPL-3.0-or-later. |
+| `ic_ui_ai_zed.xml` | 1 | a stub | Original work, Copyright (C) 2026 Eyed, GPL-3.0-or-later — it draws the same sparkle `ic_ui_agent.xml` does. The name is all that is left of Zed's AI brand mark, which this file used to hold; it survives only until `ui/workspace/Docks.kt` is removed. See below. |
+| `ic_launcher_*`, `mipmap-*/ic_launcher*` | 2 + 10 | **the unmodified Android Studio new-project template** | ⚠ **Must not ship.** See below. |
+
+**Why the old attribution was wrong**, since it will be asked: Lucide and
+Feather are generic UI glyph sets. Lucide's published Brand Logos Statement
+says it does not accept brand logos and does not plan to, and points people
+at Simple Icons instead. So Lucide contains no Docker whale and never will,
+and "the file-icon set derives from Lucide and Feather" cannot be true of
+the 79 `ic_file_*`. It *was* true, loosely, of the 33 `ic_ui_*` /
+`ic_agent_*`, which the old text did not mention at all — the attribution
+was pointed at exactly the wrong files.
+
+**Those 33 no longer go through Zed at all.** Zed's own
+`crates/icons/README.md` says its icons are "mostly" sourced from Lucide,
+"sometimes" from Phosphor, and that many are drawn from scratch, so the most
+honest thing that could be said of an imported Zed glyph was "Lucide,
+probably". For an app whose notice file is the compliance artefact,
+"probably" is not an answer. They are now imported straight from Lucide at a
+pinned version, so the claim a reviewer has to check is "Lucide 1.37.0,
+commit 796dad29, `icons/check.svg`" — verifiable in ten seconds against the
+vendored SVG and its digest. Drawable names were kept byte-identical through
+the move, so no Kotlin changed.
+
+`app/src/main/assets/icons/LICENSES.txt` used to be a stale copy of Zed's
+`assets/icons/LICENSES` — Lucide's ISC text only, which *references* Feather
+without reproducing Feather's MIT permission text, while this file cited it
+as the home of both. It is now generated by `tools/import-lucide-icons.py`:
+an aggregate notice naming both icon sets, the trademark position on the
+file icons, and Lucide's current LICENSE verbatim beside it in
+`lucide-LICENSE.txt`, Feather list and MIT text included.
+
+One thing this does **not** fix: nothing in the app reads either file. ISC
+and MIT both require the notice to appear in all copies, and bytes sitting
+in an APK that no screen can reach satisfy that only technically. The
+licences screen is where these become notices we have actually shipped.
+
+### Checking the icons, rather than reading them
+
+An SVG-to-VectorDrawable conversion has one defect that review cannot catch:
+a `<path>` with correct-looking `pathData` and no paint. It compiles, it
+inflates, and it is invisible. `tools/render-icon-sheet.py` rasterises every
+drawable, tiles it into one labelled PNG, and fails if any of them came back
+fully transparent — so the set is verified by looking at pixels rather than
+at XML. `tools/check-icon-provenance.py` is the companion guard against a
+removed brand mark returning through an importer. Both run on every pull
+request that touches the icons, via `.github/workflows/icons.yml`, which
+also re-runs the Lucide import and fails if the drawables do not come back
+byte-identical.
+
+That check earned its place immediately. It found **`ic_file_vyper` drawing
+nothing at all** in the shipped set, and `ic_file_helm` silently missing
+four of its strokes. Both were the same bug in `tools/import-zed-icons.py`:
+those two SVGs carry their paint in a `style="fill:#000"` declaration and on
+an enclosing `<g>`, and the converter read `fill` off the node alone, found
+nothing, and emitted an unpainted path. The converter now resolves inherited
+and `style`-declared paint, and refuses outright to emit a path that would
+draw nothing. Re-running it changes exactly those two files and leaves the
+other 77 byte-identical.
+
+### The launcher icon still cannot ship
+
+`ic_launcher_background.xml` is a
+`#3DDC84` fill (Android's brand green) under the template's guide grid, and
+`ic_launcher_foreground.xml` is the Android robot head, wired through
+`mipmap-anydpi/ic_launcher.xml` as background, foreground *and* monochrome,
+with the stock robot `.webp` in all five density buckets. Two problems at
+once: the robot artwork is offered under CC BY 3.0 and we ship no
+attribution for it, and the robot is Google's trademark, which Google's
+brand guidelines do not permit as a third-party product's own identity. For
+an app preinstalled on a Seeker this reads as Google endorsement. It is also
+a plain product defect — the flagship IDE would ship with a placeholder.
+Replace both vectors and all ten webps with original Eyed artwork, and give
+the monochrome layer its own single-colour drawing rather than reusing the
+foreground.
+
+### Two brand marks, now dealt with
+
+**`ic_ui_github.xml` was a modified GitHub mark.** It came from Zed's
+`github.svg`, the Octocat silhouette redrawn as strokes. GitHub's brand
+toolkit permits the *unmodified* logo in a narrow set of uses and states
+that no adaptation of its marks is allowed without written permission; a
+stroke-outline redraw is exactly the modification that is prohibited, and
+GPLv3 s7(e) confirms the licence conveys no trademark rights. Substituting
+the official Invertocat would not have been a fix — it trades a modification
+problem for a permission-scope problem on a preinstalled app.
+
+It is now Lucide's `cloud`, under the same drawable name so no Kotlin moved.
+Both call sites (`BranchPicker.kt`, `GitGraphPane.kt`) already print the
+remote's name in text, so "GitHub" carries the meaning nominatively and no
+mark is needed. The stale filename is worth renaming to `ic_ui_remote` when
+something else is touching those two files anyway; it is a two-line change
+and not urgent.
+
+**`ic_ui_ai_zed.xml` held Zed's AI brand mark.** The artwork is gone: the
+file now draws the same hand-drawn sparkle as `ic_ui_agent.xml`, and its
+header explains why the name outlived the mark. It could not simply be
+deleted because `ui/workspace/Docks.kt:37` still names
+`R.drawable.ic_ui_ai_zed`, and deleting a drawable ahead of its last caller
+breaks the build. `Docks.kt` belongs to the panel switcher being removed;
+when it goes, delete `ic_ui_ai_zed.xml` with it and leave the Kotlin
+pointing at `ic_ui_agent`. Two drawables lose their last caller in that
+change and nothing else does:
+
+- `ic_ui_ai_zed` — delete it.
+- `ic_ui_file_tree` — the project panel's dock button. Re-sourced from
+  Lucide `folder-tree` because it is still referenced today; delete it too
+  unless a panel switcher returns.
+
+Nothing else in `res/drawable` is unreferenced. All 117 are reachable: 41
+named directly from Kotlin, 77 `ic_file_*` resolved at runtime by name
+through `ZedFileIcons.kt` and `IconThemes.bundled`, and the launcher pair
+through `mipmap-anydpi/ic_launcher.xml`. The pruning that a smaller UI
+suggests is worth two files, not eighty, because the project panel survived
+and it drives the whole file-icon table.
+
+`ai_zed.svg` has also come out of `tools/import-zed-icons.py`, which no
+longer imports chrome glyphs at all — its `UI_ICONS` tuple is gone and it is
+now scoped to `file_icons/` alone. The two provenances no longer share a
+tool, and no re-import can resurrect a Zed logo.
+
+## Rust crates compiled into `libseekercore.so`
+
+`core/Cargo.lock` has 834 entries. The number that matters is the closure
+that actually links, which is smaller and which is what the notices bundle
+must cover:
+
+```
+cd core && cargo tree --offline -p jni-bridge \
+    --target aarch64-linux-android -e normal,build \
+    --prefix none --no-dedupe | awk '{print $1" "$2}' | sort -u | wc -l
+```
+
+**471** packages at the time of writing (`jni-bridge` is the only package
+`cargo-ndk` builds, per `app/build.gradle.kts`). By licence family: MIT and
+MIT-OR-Apache-2.0 dominate, then Apache-2.0, then the GPL-3.0-or-later and
+Apache-2.0 Zed crates, then a permissive tail of BSD-2/3-Clause, ISC, Zlib,
+BSL-1.0, Unicode-3.0, CC0-1.0, 0BSD and Apache-2.0-WITH-LLVM-exception.
+Every one is GPL-3.0 compatible. There is no CC-BY-NC, no "free for personal
+use", no proprietary crate and no crate whose licence could not be
+determined.
+
+**Do not maintain that list by hand.** A hand-curated list of 471 crates is
+a list that is wrong within one sprint. It is generated; see
+[LICENSING.md](LICENSING.md), "The notices bundle".
+
+### Weak copyleft: three MPL-2.0 crates
+
+| Crate | Version | Reached through |
+|---|---|---|
+| `nucleo` | 0.5.0 | `core/vendor/fuzzy_nucleo` |
+| `nucleo-matcher` | 0.3.1 | `nucleo` |
+| `option-ext` | 0.2.0 | `dirs-sys` |
+
+These are the only weak-copyleft crates in the linked closure and they were
+undeclared. MPL-2.0 s3.3 permits combining MPL files into a GPL-3.0 work
+*unless* a file is marked "Incompatible With Secondary Licenses". All three
+`LICENSE` files were opened and read: that string appears only inside the
+MPL's own Exhibit B boilerplate and is never applied to a source file, so
+the combination is permitted. Recorded so the next reviewer does not have to
+repeat the check. MPL-2.0 s3.2 still requires that recipients be told and be
+able to get the Source Code Form of those files, which is what the notices
+bundle and the crates.io links are for.
+
+### Three crates that look alarming in the lock file and are not linked
+
+`resvg` 0.46.0 and `usvg` 0.46.0 are MPL-2.0, and `freetype-sys` 0.20.1
+carries the FreeType Licence / GPL-2.0 dual whose FTL arm requires a
+specific credit line. All three resolve in `core/Cargo.lock`, which is why a
+lock-file scanner will report them. None is in the linked closure: `gpui` is
+depended on with `default-features = false` and `resvg`/`usvg`/`ttf-parser`
+sit behind its off-by-default `images` feature, which no build of this app
+enables. Verified, not assumed —
+
+```
+cd core && cargo tree --offline -p jni-bridge --target aarch64-linux-android \
+    -e normal | grep -E 'resvg|usvg|freetype|ttf-parser'
+```
+
+returns nothing. This is the difference between a lock file and a bill of
+materials, and it is why the generator must be run against the release
+target and feature set rather than over `Cargo.lock`.
+
+## Android and Java dependencies
+
+Every one of these ships in the APK and none was previously declared. All
+are Apache-2.0 except `checker-qual`, which is MIT. Apache-2.0 flows into
+GPL-3 cleanly — which is precisely why this app targets GPL-3 and not GPL-2
+— but all of them require attribution the package does not currently carry.
+
+| Component | Coordinate | Licence |
+|---|---|---|
+| Jetpack Compose (ui, ui-graphics, foundation, animation, runtime, material3) | `androidx.compose.*`, BOM `2026.02.01` | Apache-2.0, © The Android Open Source Project |
+| Activity Compose | `androidx.activity:activity-compose` | Apache-2.0 |
+| Core KTX, annotation, collection | `androidx.core`, `androidx.annotation`, `androidx.collection` | Apache-2.0 |
+| Lifecycle runtime KTX / Compose | `androidx.lifecycle:*` | Apache-2.0 |
+| ProfileInstaller | `androidx.profileinstaller:profileinstaller` | Apache-2.0 |
+| media3 ExoPlayer | `androidx.media3:media3-exoplayer` 1.9.0 | Apache-2.0 |
+| Graphics Path (contributes `lib/*/libandroidx.graphics.path.so`) | `androidx.graphics:graphics-path`, transitive | Apache-2.0 |
+| Kotlin stdlib, kotlinx-coroutines | `org.jetbrains.kotlin:*` | Apache-2.0, © JetBrains s.r.o. |
+| JSpecify | `org.jspecify:jspecify`, transitive | Apache-2.0 |
+| Checker Framework qualifiers | `org.checkerframework:checker-qual`, transitive | MIT |
+
+**Not in the APK, and therefore not a distribution obligation:** the Android
+Gradle Plugin, JAXB, Bouncy Castle, and the EPL-2.0 / GPL-2.0-with-Classpath
+/ LGPL-2.1 artifacts that appear in the Gradle module cache. They are build
+tooling. `org.json:json` 20250107 is `testImplementation`-only and its POM
+declares Public Domain, **not** the old GPL-incompatible "JSON License" —
+checked specifically, because that one is a classic trap.
+
+Also generated rather than hand-maintained. See [LICENSING.md](LICENSING.md).
 
 ## Binaries shipped in the APK
 
-These are **compiled by us** from published sources, by
-`tools/build-proot.sh`, which fetches each tarball and verifies its SHA-256
-before building. They appear in the `full` edition only.
+`app/src/full/jniLibs/*/libproot_exec.so` is **committed to this repository**
+(`.gitignore` covers `/app/src/main/jniLibs/`, which is the cargo-ndk output,
+not this one). It is compiled by `tools/build-proot.sh`, which fetches each
+tarball and verifies its SHA-256 before building. It appears in the `full`
+edition only.
 
 | Binary | Source | Version | Licence |
 |---|---|---|---|
 | `libproot_exec.so` | [termux/proot](https://github.com/termux/proot) | v5.1.107.91 | GPL-2.0-or-later |
-| (linked into the above) talloc | [samba.org](https://download.samba.org/pub/talloc/) | 2.4.2 | LGPL-3.0-or-later |
+| (statically linked into the above) talloc | [samba.org](https://download.samba.org/pub/talloc/) | 2.4.2 | LGPL-3.0-or-later |
 
-We use Termux's fork of proot rather than
+proot is GPL-2.0-**or-later**, not GPL-2.0-only: the Termux fork inherits
+proot-me/proot's "version 2 or (at your option) any later version". That
+matters, because talloc's LGPL-3.0-or-later is compatible with GPL-2 only by
+way of the "or later". The combination resolves at GPL-3.0-or-later. proot
+is exec'd as a standalone program rather than linked into the app, so as far
+as the rest of the APK is concerned it is mere aggregation and keeps its own
+terms.
+
+We use Termux's fork rather than
 [proot-me/proot](https://github.com/proot-me/proot) because upstream's
 guests are killed with `SIGSYS` on current Android; the fork carries the
 fixes.
 
-**Local modifications**, applied by the build script and marked in the
-source with `SEEKER PATCH`:
+`lib/*/libtermux.so` is built from the vendored Termux `terminal-emulator`
+module's JNI sources and is GPL-3.0-only with it.
 
-- `src/extension/ashmem_memfd/ashmem_memfd.c` — add `#include <string.h>`.
-  It uses `strcmp` and `memset` without declaring them, which clang 18 and
-  later reject.
+**Local modifications to proot**, applied by the build script and marked in
+the source with `SEEKER PATCH`. There are **two**, and an earlier version of
+this file listed one:
+
+1. `src/extension/ashmem_memfd/ashmem_memfd.c` — add `#include <string.h>`.
+   It uses `strcmp` and `memset` without declaring them, which clang 18 and
+   later reject. Applied inline by `sed` in `tools/build-proot.sh`.
+2. `src/tracee/event.c` — `tools/proot-thread-execve.patch`, ~90 lines
+   adding `adopt_thread_exec_state()`. `execve(2)` from a non-leader thread
+   makes the kernel replace the thread group leader; without this proot
+   loses track of the tracee and the guest dies. Applied with `patch -p1`.
+
+`tools/build-proot.sh` should assert that every patch it applies has an
+entry here, so the two cannot drift again.
 
 talloc is built from a hand-written `config.h` rather than its own `waf`
 build system, which does not cross-compile comfortably; the values are in
 `tools/build-proot.sh` and every one of them is true on Android's bionic.
+That `config.h` is part of the corresponding source and is in the release
+archive.
 
 ### Source offer
 
-The GPL requires that anyone receiving these binaries can get their exact
-source. Running `tools/build-proot.sh` reproduces them from the upstream
-tarballs named above, at the pinned versions, with the single patch listed
-here. Anyone who wants the corresponding source can therefore obtain it
-from those upstreams plus this repository; if you would rather receive a
-tarball, open an issue and we will provide one.
+**Running `tools/build-proot.sh` is not, on its own, a GPL source offer.**
+It reproduces the binaries from the upstream tarballs at the pinned versions
+with both patches above, which is the *recipe*; the obligation is to hand a
+recipient the ingredients. GPLv2 s3(b) and GPLv3 s6(b) both require a
+written offer, valid for at least three years, made to any third party, at
+no more than the cost of physically performing the distribution. "Open an
+issue and we will provide one" is not that.
+
+The real offer is in [NOTICE](../NOTICE) and in
+[LICENSING.md](LICENSING.md), "The source obligation", which also describes
+the per-release `corresponding-source` archive that satisfies GPLv3 s6(a)
+so the offer is belt-and-braces rather than load-bearing.
 
 ## Downloaded at runtime
 
-The `full` edition downloads a Debian base filesystem the first time you
-ask for the Linux userland. It is **not** part of this project and is not
-redistributed by us:
+`app/src/main/assets/solana/toolchain/manifest.json` ships in the APK and
+drives Setup. It fetches **eight** components, not one. None of them is
+redistributed by Eyed: each is fetched by the user's own device from that
+component's own upstream, and we host nothing and mirror nothing — so no
+source obligation attaches to Eyed for any of them. That reasoning is worth
+stating explicitly, because an OEM reviewer looking at a 505 MB download
+will ask.
 
-- **Debian** `stable-slim`, pulled from Debian's official container image
-  and verified against the digest the registry publishes. Debian is a
-  collection of works under many licences; see
-  `/usr/share/doc/*/copyright` inside the installed rootfs.
-- Anything you then install with `apt` comes from Debian's own
-  repositories, under its own terms.
+| Component | Upstream | Version | Licence |
+|---|---|---|---|
+| Debian userland | Debian's official `stable-slim` container image, verified against the registry digest | rolling | A collection of works under many licences; see `/usr/share/doc/*/copyright` inside the installed rootfs |
+| rustup | `static.rust-lang.org` | 1.29.0 | MIT OR Apache-2.0 |
+| SBF platform-tools (an LLVM with the SBF backend, and a Rust) | [anza-xyz/platform-tools](https://github.com/anza-xyz/platform-tools) | v1.57 | Apache-2.0; the bundled LLVM is Apache-2.0-WITH-LLVM-exception |
+| rust-analyzer | [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer) | 2026-08-24 | MIT OR Apache-2.0 |
+| Spettro (ACP agent) | [aploide/spettro](https://github.com/aploide/spettro) | v2.7.3 | **Not yet stated.** See below. |
+| Build tools | Debian's own archives, via `apt` | — | Each package under its own terms |
+| cargo-build-sbf | crates.io, built on device | 4.2.0 | Apache-2.0 |
+| anchor-cli | crates.io, built on device | 1.1.2 | Apache-2.0 |
+
+**Spettro needs a decision, not a lookup.** It is Eyed's own release
+artifact, it is fetched by default as part of the shipped setup flow of an
+app Eyed also ships, and its licence is recorded nowhere in this repository.
+Legally the arrangement is fine — a separate program, downloaded on the
+user's initiative, not linked — but a proprietary agent auto-installed by a
+GPL app reads as a bait-and-switch in an open-source preinstall. Decide
+deliberately and then say so here.
+
+## Written here, but shaped like something else
+
+- **Solana project scaffolds.** `solana/templates/SolanaTemplates.kt`
+  generates `Anchor.toml`, the crate manifest, `lib.rs` and a test in the
+  shape `anchor init` produces, and uses Anchor's own placeholder program
+  id. The code is written here, and scaffold files of this kind are largely
+  factual, but the resemblance is deliberate and the file's own comments say
+  so. [Anchor](https://github.com/coral-xyz/anchor) is Apache-2.0.
 
 ## Not used
 
-- `termux-shared` — MIT with GPL subtrees, 26.7k lines, and unnecessary:
-  the two terminal modules are self-contained.
+- `termux-shared` — MIT with GPL subtrees, 26.7k lines, and unnecessary: the
+  two terminal modules are self-contained.

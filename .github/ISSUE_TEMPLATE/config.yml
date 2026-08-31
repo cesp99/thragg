@@ -3,6 +3,11 @@
 
 blank_issues_enabled: false
 contact_links:
+  # Security reports must never become public issues. This link is first on
+  # purpose — see SECURITY.md for the scope and the response timelines.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/cesp99/seeker-code/security/advisories/new
+    about: Private disclosure. Do NOT open a public issue for a security problem.
   - name: 💬 Discussions
     url: https://github.com/cesp99/seeker-code/discussions
     about: For questions, ideas, and general discussion that isn't a bug or feature request.
