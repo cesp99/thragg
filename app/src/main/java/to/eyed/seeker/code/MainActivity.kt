@@ -18,6 +18,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import to.eyed.seeker.code.core.AgentNotifier
+import to.eyed.seeker.code.ui.shell.agent.AgentSeams
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.CoreBridge
@@ -71,6 +72,13 @@ class MainActivity : ComponentActivity() {
         // notification visible. Cheap, and idempotent.
         TerminalService.ensureChannel(this)
         AgentNotifier.ensureChannel(this)
+        // The Agent destination's seams — `[ Fix with agent ]` on a failed
+        // build and New program's "open a thread afterwards". Both are checked
+        // by *other* screens before they navigate to Agent, so registering
+        // them from Agent's own composition would make the first use of each
+        // on a fresh install fall back to the clipboard and to a toast that
+        // says no agent is set up. One call, no I/O (AgentSeams.install).
+        AgentSeams.install()
         // Only on a fresh start: after process death the system re-delivers
         // the launching intent, and a file the user already imported and
         // maybe deleted would come back as a second copy.

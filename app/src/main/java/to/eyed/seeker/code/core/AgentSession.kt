@@ -112,6 +112,22 @@ data class PermissionOption(
     val name: String,
     /** `allow_once`, `allow_always`, `reject_once`, `reject_always`. */
     val kind: String,
+    /**
+     * The agent's own pick — `_meta["spettro.app/isRecommended"]`.
+     *
+     * Badged, never preselected. Spettro walks an ask-user form through the
+     * permission channel when the client did not advertise the question
+     * extension, and its recommendation is editorial: choosing it for the
+     * user would put words in their mouth that the model then treats as
+     * theirs.
+     */
+    val isRecommended: Boolean = false,
+    /**
+     * `_meta["spettro.app/isCustomInput"]` — the "let me type my own answer"
+     * option, whose id is `"custom"`. Picking it means the reply carries the
+     * user's text in `_meta["spettro.app/questionAnswer"]`, not just an id.
+     */
+    val isCustomInput: Boolean = false,
 ) {
     val isAllow: Boolean get() = kind.startsWith("allow")
 
@@ -122,6 +138,13 @@ data class PermissionOption(
             id = json.optString("optionId"),
             name = json.optString("name"),
             kind = json.optString("kind"),
+            // `_meta` was being dropped wholesale, which is what reduced a
+            // Spettro question walked over permissions to five identical
+            // grey buttons (SPETTRO.md W-10).
+            isRecommended = json.optJSONObject("_meta")
+                ?.optBoolean("spettro.app/isRecommended") == true,
+            isCustomInput = json.optJSONObject("_meta")
+                ?.optBoolean("spettro.app/isCustomInput") == true,
         )
     }
 }
@@ -721,11 +744,90 @@ sealed interface AgentEntry {
          * A permission prompt asks the user to approve a *call*, and "Edit
          * notes.md" does not say what the edit is. Folded away by default —
          * it is JSON, and most calls do not need reading.
+         *
+         * Last-write-wins: an update that carries `rawInput` replaces this.
+         * For a long-running call that is what you want (the newest arguments
+         * are the live ones) and for a workflow run it is exactly what you do
+         * not — see [rawInputOpen].
          */
         val rawInput: String?,
+        /**
+         * The **opening** arguments, set once and never overwritten
+         * (SPETTRO.md W-09).
+         *
+         * Spettro rewrites a workflow run's `rawInput` on its finish update,
+         * replacing the declared `phases`, `description` and `origin` with a
+         * summary — so by the time a run is worth reading, the plan it
+         * announced at t=0 is gone from `rawInput` and survives only here.
+         * Every classification in [SpettroOrchestration] reads this, never
+         * the title and never the latest args.
+         */
+        val rawInputOpen: String? = null,
+        /**
+         * The raw `_meta` of the `session/request_permission` that stopped
+         * this call, as JSON text (SPETTRO.md W-10).
+         *
+         * A call whose meta carries `spettro.app/question` is not a
+         * permission prompt at all — it is one page of an ask-user form being
+         * walked through the permission channel — and "Allow / Deny" is the
+         * wrong thing to draw over it.
+         */
+        val permissionMeta: String? = null,
+        /**
+         * Which turn raised it (SPETTRO.md W-17).
+         *
+         * Spettro builds a fresh tool-call table per `session/prompt`, so
+         * `call-1`, `wf-1` and `ask-1` recur in *every* turn. The ordinal is
+         * what keeps a second turn's `call-1` from being drawn as an update
+         * to the first turn's card; [key] is the identity to key state on.
+         */
+        val turn: Long = 0,
         override val reverted: Boolean = false,
     ) : AgentEntry {
         val diffs: List<FileDiff> get() = content.filterIsInstance<ToolContent.Diff>().map { it.file }
+
+        /** The identity that is actually unique: `"3:call-1"`. */
+        val key: String get() = "$turn:$id"
+
+        /**
+         * The latest arguments, parsed. Null when the agent sent none, and
+         * null when what it sent will not parse — a tool call whose args are
+         * malformed is still a tool call worth drawing.
+         */
+        val args: JSONObject? by lazy {
+            rawInput?.let { runCatching { JSONObject(it) }.getOrNull() }
+        }
+
+        /** The opening arguments, parsed; falls back to [args]. */
+        val openArgs: JSONObject? by lazy {
+            rawInputOpen?.let { runCatching { JSONObject(it) }.getOrNull() } ?: args
+        }
+
+        /**
+         * The tool's own name: the first token of the title, with any
+         * `[review#2] ` orchestration prefix taken off first.
+         *
+         * The title is the only place the tool name travels — ACP has no
+         * field for it — but it is *not* a place to read arguments from:
+         * Spettro truncates the inline JSON at 120 characters, so a title's
+         * `{"path":"/very/long/…` is routinely invalid JSON.
+         */
+        val toolName: String
+            get() = title.removePrefix(agentPrefix?.let { "[$it] " } ?: "")
+                .trimStart()
+                .substringBefore(' ')
+
+        /**
+         * The `review#2` out of a `[review#2] bash go vet ./...` title, when
+         * the call was made by a sub-agent rather than by the model itself.
+         */
+        val agentPrefix: String?
+            get() {
+                if (!title.startsWith("[")) return null
+                val close = title.indexOf(']')
+                if (close <= 1) return null
+                return title.substring(1, close).takeIf { it.isNotBlank() }
+            }
     }
 
     /**
@@ -769,12 +871,7 @@ sealed interface AgentEntry {
                 val entries = json.optJSONArray("entries") ?: JSONArray()
                 CompletedPlan(
                     List(entries.length()) { index ->
-                        val entry = entries.getJSONObject(index)
-                        AgentPlanEntry(
-                            content = entry.optString("content"),
-                            priority = entry.optString("priority"),
-                            status = entry.optString("status"),
-                        )
+                        AgentPlanEntry.parse(entries.getJSONObject(index))
                     },
                     reverted = json.optBoolean("reverted"),
                 )
@@ -849,6 +946,15 @@ sealed interface AgentEntry {
                         }
                     },
                     rawInput = json.stringOrNull("rawInput"),
+                    // W-09/W-10/W-17. All three are absent on an engine that
+                    // predates them, and all three degrade to the old
+                    // behaviour rather than to a crash: no opening args means
+                    // `openArgs` falls back to `rawInput`, no permission meta
+                    // means an ordinary permission prompt, turn 0 means every
+                    // call keys as it always did.
+                    rawInputOpen = json.stringOrNull("rawInputOpen"),
+                    permissionMeta = json.optJSONObject("permissionMeta")?.toString(),
+                    turn = json.optLong("turn"),
                     locations = List(locations.length()) { index ->
                         val location = locations.getJSONObject(index)
                         AgentLocation(
@@ -865,10 +971,28 @@ sealed interface AgentEntry {
     }
 }
 
-/** Context-window usage, when the agent reports it. */
-data class AgentUsage(val used: Long, val size: Long, val cost: AgentCost? = null) {
-    /** 0..1, or null when the agent gave a nonsensical window. */
-    val fraction: Float? get() = if (size > 0) (used.toFloat() / size).coerceIn(0f, 1f) else null
+/**
+ * Context-window usage, when the agent reports it.
+ *
+ * Two numbers that look alike and are not. [used] is **occupancy** — the
+ * largest single request so far — and it *falls* when the agent compacts, so
+ * it is a gauge and never a counter. [tokensUsed] is the monotonic spend, and
+ * it is the only one of the two that may be added up.
+ */
+data class AgentUsage(
+    val used: Long,
+    /** The window. The agent falls back to 128000 when it does not know. */
+    val size: Long,
+    /** `_meta["spettro.app/tokensUsed"]` (SPETTRO.md W-08); null elsewhere. */
+    val tokensUsed: Long? = null,
+    /** Spettro never sends this; other agents do. */
+    val cost: AgentCost? = null,
+) {
+    /** 0..1. A nonsensical window reads as empty rather than dividing by zero. */
+    val fraction: Float get() = if (size > 0) (used.toFloat() / size).coerceIn(0f, 1f) else 0f
+
+    /** Worth colouring: the gauge turns amber here. */
+    val isWarm: Boolean get() = fraction >= 0.75f
 
     /**
      * Whether the window is close enough to full to be worth saying so.
@@ -876,8 +1000,59 @@ data class AgentUsage(val used: Long, val size: Long, val cost: AgentCost? = nul
      * Zed warns rather than only drawing a bar, because a thread that hits
      * the limit mid-turn loses the reply and the user had no notice.
      */
-    val isNearlyFull: Boolean get() = (fraction ?: 0f) >= 0.85f
+    val isNearlyFull: Boolean get() = fraction >= 0.90f
 }
+
+/**
+ * What the turn that just ended actually cost — `prompt`'s own `usage`
+ * (SPETTRO.md W-08b), cleared at the start of every turn.
+ *
+ * Separate from [AgentUsage] because it answers a different question: not
+ * "how full is the context" but "what did that one answer spend", which is
+ * the number a cache-miss regression shows up in first.
+ */
+data class AgentTurnUsage(
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val totalTokens: Long,
+    val cachedReadTokens: Long,
+    val cachedWriteTokens: Long,
+    /** `_meta["spettro.app/tokensUsed"]` for this turn alone. */
+    val tokensUsed: Long? = null,
+) {
+    /**
+     * How much of the prompt came out of the cache, 0..1, or null when there
+     * was no prompt to speak of.
+     *
+     * The denominator is everything that had to be *presented* to the model
+     * — fresh input plus both halves of the cache — because a rate that
+     * ignored the cache writes would read as 100 % on the very turn that paid
+     * to fill it.
+     */
+    val cacheHitRate: Float?
+        get() {
+            val presented = inputTokens + cachedReadTokens + cachedWriteTokens
+            return if (presented > 0) cachedReadTokens.toFloat() / presented else null
+        }
+
+    internal companion object {
+        fun parse(json: JSONObject?): AgentTurnUsage? {
+            val root = json ?: return null
+            return AgentTurnUsage(
+                inputTokens = root.optLong("inputTokens"),
+                outputTokens = root.optLong("outputTokens"),
+                totalTokens = root.optLong("totalTokens"),
+                cachedReadTokens = root.optLong("cachedReadTokens"),
+                cachedWriteTokens = root.optLong("cachedWriteTokens"),
+                tokensUsed = root.longOrNull("tokensUsed"),
+            )
+        }
+    }
+}
+
+/** `optLong` cannot tell a missing key from a zero, and here they differ. */
+private fun JSONObject.longOrNull(name: String): Long? =
+    if (!has(name) || isNull(name)) null else optLong(name)
 
 /**
  * A prompt typed while the agent was busy, waiting its turn.
@@ -894,7 +1069,49 @@ data class AgentPlanEntry(
     val priority: String,
     /** `pending`, `in_progress`, `completed`. */
     val status: String,
-)
+    /**
+     * Its dependencies are not met yet (SPETTRO.md W-12).
+     *
+     * ACP has no blocked status, so Spettro appends a literal `" (blocked)"`
+     * to the task's text; the engine lifts the suffix into this flag so the
+     * strip can draw a task that *cannot* start differently from one that
+     * merely has not, without the word turning up inside the sentence.
+     */
+    val blocked: Boolean = false,
+) {
+    /** Ranked so a plan sheet can order by urgency without string compares. */
+    enum class Priority { High, Medium, Low }
+
+    enum class Status { Pending, InProgress, Completed }
+
+    val priorityOf: Priority
+        get() = when (priority) {
+            "high" -> Priority.High
+            "low" -> Priority.Low
+            else -> Priority.Medium
+        }
+
+    val statusOf: Status
+        get() = when (status) {
+            "in_progress" -> Status.InProgress
+            "completed" -> Status.Completed
+            else -> Status.Pending
+        }
+
+    val isDone: Boolean get() = statusOf == Status.Completed
+
+    /** Blocked only says anything about work that has not started. */
+    val isBlocked: Boolean get() = blocked && statusOf == Status.Pending
+
+    internal companion object {
+        fun parse(json: JSONObject) = AgentPlanEntry(
+            content = json.optString("content"),
+            priority = json.optString("priority"),
+            status = json.optString("status"),
+            blocked = json.optBoolean("blocked"),
+        )
+    }
+}
 
 /** A mode the agent can work in — Claude Code's "Always Ask", "Accept Edits". */
 data class AgentMode(val id: String, val name: String, val description: String?)
@@ -907,38 +1124,197 @@ data class AgentModes(val currentId: String, val available: List<AgentMode>) {
 /** A slash command the agent advertised — `/plan`, `/init`, whatever it has. */
 data class AgentCommand(val name: String, val description: String, val inputHint: String?)
 
-/** One value a select config option can take. */
+/**
+ * One value a select config option can take.
+ *
+ * The legacy flat shape, kept because the old panel's chip menu is built from
+ * it. New code wants [AgentConfigOption.Choice], which carries the group it
+ * came from rather than pretending the list was never grouped.
+ */
 data class AgentConfigValue(val id: String, val name: String, val description: String?)
 
 /**
- * One of the agent's session configuration options — model, effort, thinking:
- * whatever it advertises. ACP's `SessionConfigOption`, flattened for the
- * panel: a `select` carries its values (grouped options are flattened — a
- * phone popup has no room for group headers), a `boolean` carries a flag.
+ * One of the agent's session configuration options — for Spettro exactly
+ * five: `mode`, `model`, `permission`, `thinking` and `ultra`.
+ *
+ * ACP's `SessionConfigOption`, read whole rather than flattened (SPETTRO.md
+ * W-13). Two things used to be thrown away here and both are load-bearing on
+ * a phone:
+ *
+ *  - **the groups.** A model list arrives as `Anthropic` / `OpenAI` /
+ *    `Local`, thirty-odd entries deep. Spliced into one flat list it is an
+ *    unnavigable column; a full-height sheet has all the room the old popup
+ *    did not.
+ *  - **`category`.** `mode`, `model` and `thought_level` are what tell a chip
+ *    which icon to wear and which tint the composer takes; `permission` and
+ *    `ultra` deliberately carry none.
+ *
+ * The list is grouped exactly when its FIRST element itself carries an
+ * `options` array — the same test Spettro's own desktop client makes — and
+ * never per-element: a half-grouped list is not a shape the agent produces,
+ * and guessing per element would silently reorder the other half.
  */
 data class AgentConfigOption(
     val id: String,
     val name: String,
     val description: String?,
-    /** `"select"` or `"boolean"` — ACP's `type` field. */
+    /** `mode`, `model`, `thought_level`, or null. Never invented here. */
+    val category: String?,
+    /**
+     * ACP's `type` discriminator: `"select"` or `"boolean"`.
+     *
+     * Deliberately still a string rather than a sealed type: this property is
+     * switched on by name in the shipping panel, and the payload is reachable
+     * through [currentValue] / [currentBool] / [groups] / [flat] without
+     * making every existing caller a compile error.
+     */
     val kind: String,
-    /** The current value id (select) — [current]'s id. */
-    val currentValueId: String?,
-    /** The current flag (boolean). */
+    /** Select only: the value the agent says is current. */
+    val currentValue: String?,
+    /** Boolean only: the flag the agent says is current. */
     val currentBool: Boolean?,
-    val values: List<AgentConfigValue>,
+    /** Grouped children in wire order; empty when the list is flat. */
+    val groups: List<Group>,
+    /** Flat children in wire order; empty when the list is grouped. */
+    val flat: List<Choice>,
 ) {
-    val current: AgentConfigValue? get() = values.firstOrNull { it.id == currentValueId }
+    /** One selectable value. `value` is what goes back on the wire. */
+    data class Choice(val value: String, val name: String, val description: String? = null)
 
-    /** What the selector chip prints: the value's name, or On/Off. */
+    /** A named run of [Choice]s — one provider, one family. */
+    data class Group(val id: String, val name: String, val options: List<Choice>)
+
+    val isSelect: Boolean get() = kind == "select"
+
+    val isBool: Boolean get() = kind == "boolean"
+
+    val isGrouped: Boolean get() = groups.isNotEmpty()
+
+    /** Every choice in display order, groups spliced. */
+    val choices: List<Choice>
+        get() = if (groups.isEmpty()) flat else groups.flatMap { it.options }
+
+    val current: Choice? get() = choices.firstOrNull { it.value == currentValue }
+
+    /** The group the current value sits in, for a sheet that opens on it. */
+    val currentGroup: Group?
+        get() = groups.firstOrNull { group -> group.options.any { it.value == currentValue } }
+
+    /**
+     * What the chip prints.
+     *
+     * Falls back to the raw value rather than to the option's own name: a
+     * value the agent offered and then did not list is a real state the user
+     * is in, and printing "Model" over it hides that.
+     */
     val currentLabel: String
         get() = current?.name
-            ?: currentValueId
+            ?: currentValue
             ?: when (currentBool) {
                 true -> "On"
                 false -> "Off"
-                null -> name
+                null -> "—"
             }
+
+    // --- the legacy flat view, for callers written before groups existed ---
+
+    /** [currentValue] under its old name. */
+    val currentValueId: String? get() = currentValue
+
+    val values: List<AgentConfigValue>
+        get() = choices.map { AgentConfigValue(it.value, it.name, it.description) }
+}
+
+/**
+ * The five chips, derived fresh from `configOptions` on every poll.
+ *
+ * Nothing is cached: `config_option_update` is a **full replacement** and
+ * Spettro pushes one after any handled slash command, so a toolbar that
+ * remembered what it last set would be wrong every time the user typed
+ * `/model` instead of tapping.
+ */
+data class SpettroToolbar(val options: List<AgentConfigOption>) {
+    val mode: AgentConfigOption? get() = options.firstOrNull { it.id == "mode" }
+    val model: AgentConfigOption? get() = options.firstOrNull { it.id == "model" }
+    val permission: AgentConfigOption? get() = options.firstOrNull { it.id == "permission" }
+    val thinking: AgentConfigOption? get() = options.firstOrNull { it.id == "thinking" }
+    val ultra: AgentConfigOption? get() = options.firstOrNull { it.id == "ultra" }
+
+    val permissionValue: String? get() = permission?.currentValue
+
+    /** What the agent stores, which is not the same as what it *does*. */
+    val ultraOn: Boolean get() = ultra?.currentBool == true
+
+    val askFirst: Boolean get() = permissionValue == "ask-first"
+
+    /**
+     * THE THREE-STATE RULE, and the reason a plain switch is wrong here.
+     *
+     * The agent publishes `cfg.Ultra` — the stored flag — not
+     * `UltraActive() = Ultra && Permission != ask-first`. Under `ask-first`
+     * with ultra stored true, a switch reads ON while the swarm is suspended
+     * and nothing fans out; and turning it on *from* ask-first is refused by
+     * the agent, which a switch renders as a toggle that flips back by itself
+     * with no explanation.
+     */
+    val ultraState: UltraState
+        get() = when {
+            ultraOn && askFirst -> UltraState.Suspended
+            ultraOn -> UltraState.On
+            askFirst -> UltraState.Locked
+            else -> UltraState.Off
+        }
+
+    /** Turning Ultra **off** is never locked; only turning it on is. */
+    val canToggleUltra: Boolean get() = ultraState != UltraState.Locked
+}
+
+/** Ultra's four states — see [SpettroToolbar.ultraState]. */
+enum class UltraState { Off, On, Suspended, Locked }
+
+const val ULTRA_LOCK_REASON =
+    "Ultra requires the Restricted or YOLO permission level — change Permission first"
+
+/**
+ * What the agent advertised in `initialize`'s `_meta` under
+ * `spettro.app/extensions` (SPETTRO.md W-02).
+ *
+ * Its **presence** is the gate: everything Spettro-specific in the UI asks
+ * whether this is non-null, never whether the agent is called "spettro". An
+ * agent that does not answer the handshake gets the generic ACP panel, which
+ * is correct and is also what a future Spettro that dropped the extension
+ * would deserve.
+ */
+data class SpettroSurface(
+    /** 4 on the shipping CLI. Trust the wire, not the docs. */
+    val version: Int,
+    /** The `_spettro` methods the agent serves, in full. */
+    val methods: Set<String>,
+    /** The ones it expects *us* to serve — `_spettro/question/ask`. */
+    val clientMethods: Set<String>,
+) {
+    /** Workflow authoring — the `_spettro/workflow` calls — landed in 4. */
+    val hasWorkflowAuthoring: Boolean get() = version >= 4
+
+    fun serves(method: String): Boolean = method in methods
+
+    internal companion object {
+        fun parse(json: JSONObject?): SpettroSurface? {
+            val root = json ?: return null
+            return SpettroSurface(
+                version = root.optInt("version"),
+                methods = stringSet(root.optJSONArray("methods")),
+                clientMethods = stringSet(root.optJSONArray("clientMethods")),
+            )
+        }
+
+        private fun stringSet(array: JSONArray?): Set<String> {
+            val items = array ?: return emptySet()
+            return (0 until items.length())
+                .mapNotNull { items.optString(it).takeIf(String::isNotEmpty) }
+                .toSet()
+        }
+    }
 }
 
 /** A way to sign in, as the agent advertised it. */
@@ -1084,6 +1460,239 @@ data class AgentSessionList(
     }
 }
 
+/**
+ * A whole ask-user form, parked by the engine until it is answered
+ * (SPETTRO.md W-04/§5).
+ *
+ * This is Spettro's `_spettro/question/ask`, and it exists because the
+ * standard has no shape for "ask the user several related things at once".
+ * Without the extension the same form is *walked* through the permission
+ * channel one question at a time, which on a phone is five sheets deep and
+ * loses the relationship between the answers — so the transport this arrived
+ * on is kept on the value: it decides how the answer goes back, and only
+ * that.
+ *
+ * The payload is forwarded verbatim by the engine and parsed only here, so a
+ * field the CLI adds next release needs no engine change to reach the UI.
+ */
+data class SpettroQuestion(
+    /** The engine's own id — `question-1` — and what [CoreBridge.acpRespondQuestion] answers. */
+    val id: String,
+    /** The seeker session it belongs to, when the engine could resolve one. */
+    val session: Long?,
+    /** 1 = the flat single question, 2 = `questions[]`. */
+    val version: Int,
+    /** The agent's own session id, as it sent it. */
+    val sessionId: String?,
+    /** Why it is asking — shown once, above the questions. */
+    val context: String?,
+    val questions: List<Q>,
+    val transport: Transport,
+) {
+    /**
+     * How it reached us, which is how the answer must go back.
+     *
+     * [Ask] answers the parked request with `{"answers":[…]}`; [Permission]
+     * selects an option id on the stopped tool call and tags the reply's
+     * `_meta`; [Elicitation] is the pre-extension fallback and answers the
+     * elicitation. Nothing else about the form differs.
+     */
+    enum class Transport { Ask, Permission, Elicitation }
+
+    /** One question of the form. */
+    data class Q(
+        /** `q-0`. Stable within this form; the answer quotes it back. */
+        val id: String,
+        /** The model's own heading. A label to read, never an identifier. */
+        val header: String,
+        val question: String,
+        val options: List<Opt>,
+        val multiSelect: Boolean,
+        /**
+         * Whether a typed answer is allowed. A question with no options at
+         * all is custom input by definition, whatever the flag says — the
+         * alternative is a form with nothing to answer it with.
+         */
+        val allowCustomInput: Boolean,
+    ) {
+        /**
+         * What [draft] amounts to, or null when it amounts to nothing.
+         *
+         * Null is a real answer and is *not* the recommended option: a
+         * question left alone is omitted from the reply, and the model is
+         * then told plainly that nobody answered it. Defaulting to the
+         * recommendation would put a decision in the user's mouth.
+         *
+         * Selections come out in OPTION order rather than tick order, so two
+         * users who chose the same two boxes send the same thing.
+         */
+        fun answer(draft: QuestionDraft): QuestionAnswer? {
+            val notes = draft.note.trim().takeIf { it.isNotEmpty() }
+            val custom = draft.custom.trim()
+            if (allowCustomInput && custom.isNotEmpty() && draft.selected.isEmpty()) {
+                return QuestionAnswer.Custom(id, custom, notes)
+            }
+            val picked = options.map { it.id }.filter { it in draft.selected }
+            if (picked.isEmpty()) {
+                // Custom text alongside a selection is a note about the
+                // choice, not a replacement for it.
+                return if (custom.isNotEmpty()) QuestionAnswer.Custom(id, custom, notes) else null
+            }
+            return QuestionAnswer.Option(id, picked, notes)
+        }
+    }
+
+    /** One offered answer. */
+    data class Opt(
+        val id: String,
+        val label: String,
+        val description: String?,
+        /** A snippet the option would produce — a diff, a command, a name. */
+        val preview: String?,
+        /** Badged, never preselected. */
+        val isRecommended: Boolean,
+    )
+
+    /** A v1 payload is exactly one question; v2 may be several. */
+    val isSingle: Boolean get() = questions.size <= 1
+
+    companion object {
+        /** Parses `[{"id","session","payload"}]` — the engine's question view. */
+        fun parseAll(array: JSONArray?): List<SpettroQuestion> {
+            val items = array ?: return emptyList()
+            return (0 until items.length()).mapNotNull { index ->
+                val row = items.optJSONObject(index) ?: return@mapNotNull null
+                val id = row.optString("id").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                parsePayload(
+                    id = id,
+                    session = if (row.isNull("session")) null else row.optLong("session"),
+                    payload = row.optJSONObject("payload") ?: JSONObject(),
+                    transport = Transport.Ask,
+                )
+            }
+        }
+
+        /**
+         * The same form when it arrived as a permission request's `_meta`
+         * (SPETTRO.md W-10) — `spettro.app/question`.
+         *
+         * [id] is the tool call's [AgentEntry.ToolCall.key], because that is
+         * what the answer is addressed to in this transport.
+         */
+        fun fromPermissionMeta(id: String, meta: JSONObject?): SpettroQuestion? {
+            val payload = meta?.optJSONObject("spettro.app/question") ?: return null
+            return parsePayload(id, session = null, payload = payload, transport = Transport.Permission)
+        }
+
+        private fun parsePayload(
+            id: String,
+            session: Long?,
+            payload: JSONObject,
+            transport: Transport,
+        ): SpettroQuestion {
+            // Absent means 1: the extension shipped before `questions[]` did,
+            // and a payload with neither field is a single flat question.
+            val version = payload.optInt("version", 1)
+            val nested = payload.optJSONArray("questions")
+            val questions = if (nested != null && nested.length() > 0) {
+                (0 until nested.length()).mapNotNull { index ->
+                    nested.optJSONObject(index)?.let { parseQuestion(it, index) }
+                }
+            } else {
+                listOf(parseQuestion(payload, 0))
+            }
+            return SpettroQuestion(
+                id = id,
+                session = session,
+                version = version,
+                sessionId = payload.stringOrNull("sessionId"),
+                context = payload.stringOrNull("context"),
+                questions = questions,
+                transport = transport,
+            )
+        }
+
+        private fun parseQuestion(json: JSONObject, index: Int): SpettroQuestion.Q {
+            val options = parseOptions(json.optJSONArray("options"))
+            return SpettroQuestion.Q(
+                id = json.stringOrNull("id") ?: "q-$index",
+                header = json.stringOrNull("header").orEmpty(),
+                question = json.stringOrNull("question")
+                    ?: json.stringOrNull("text").orEmpty(),
+                options = options,
+                multiSelect = json.optBoolean("multiSelect"),
+                // A question with nothing to pick can only be typed into,
+                // whatever the flag says.
+                allowCustomInput = json.optBoolean("allowCustomInput") || options.isEmpty(),
+            )
+        }
+
+        private fun parseOptions(array: JSONArray?): List<SpettroQuestion.Opt> {
+            val items = array ?: return emptyList()
+            return (0 until items.length()).mapNotNull { index ->
+                val row = items.optJSONObject(index)
+                    // A bare string list is legal and is its own label.
+                    ?: return@mapNotNull items.optString(index)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { SpettroQuestion.Opt(it, it, null, null, false) }
+                val id = row.stringOrNull("id")
+                    ?: row.stringOrNull("optionId")
+                    ?: row.stringOrNull("value")
+                    ?: "opt-$index"
+                SpettroQuestion.Opt(
+                    id = id,
+                    label = row.stringOrNull("label")
+                        ?: row.stringOrNull("name")
+                        ?: id,
+                    description = row.stringOrNull("description"),
+                    preview = row.stringOrNull("preview"),
+                    isRecommended = row.optBoolean("isRecommended"),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One question's working state, held by the sheet.
+ *
+ * Nothing starts selected. [note] is the optional "why", which the model gets
+ * alongside the choice and which is the difference between "Postgres" and
+ * "Postgres, because the ops team already runs one".
+ */
+data class QuestionDraft(
+    val selected: List<String> = emptyList(),
+    val custom: String = "",
+    val note: String = "",
+) {
+    /** Tick, or untick; [multi] false makes it a radio group. */
+    fun toggle(optionId: String, multi: Boolean): QuestionDraft = when {
+        !multi -> copy(selected = if (selected == listOf(optionId)) emptyList() else listOf(optionId))
+        optionId in selected -> copy(selected = selected - optionId)
+        else -> copy(selected = selected + optionId)
+    }
+
+    val isEmpty: Boolean get() = selected.isEmpty() && custom.isBlank()
+}
+
+/** One answered question. A question with no answer is omitted, never faked. */
+sealed interface QuestionAnswer {
+    val questionId: String
+
+    data class Option(
+        override val questionId: String,
+        /** In OPTION order, never tick order. */
+        val optionIds: List<String>,
+        val notes: String?,
+    ) : QuestionAnswer
+
+    data class Custom(
+        override val questionId: String,
+        val text: String,
+        val notes: String?,
+    ) : QuestionAnswer
+}
+
 /** Everything about a session except its rows. */
 data class AgentSessionState(
     val version: Long,
@@ -1131,14 +1740,41 @@ data class AgentSessionState(
     val editedFiles: Int = 0,
     /** How many tool calls are stopped on a permission prompt. */
     val waitingCount: Int = 0,
+    /** What the last finished turn spent (SPETTRO.md W-08b). */
+    val turnUsage: AgentTurnUsage? = null,
+    /**
+     * Ask-user forms parked on this session — `_spettro/question/ask`.
+     *
+     * Folded into the session state by the engine so the panel's ordinary
+     * poll finds them; [rememberSpettroQuestions] exists only for one raised
+     * before any session did.
+     */
+    val questions: List<SpettroQuestion> = emptyList(),
+    /**
+     * Present exactly when the agent is Spettro (SPETTRO.md W-02).
+     *
+     * Every superset surface — workflows, Ultra, the four selectors, the
+     * question sheet, steering — gates on this being non-null. `null` is not
+     * an error: it is a generic ACP agent, and it gets the generic panel.
+     */
+    val spettro: SpettroSurface? = null,
 ) {
     val isBusy: Boolean get() = phase == AgentPhase.Running
 
+    /** The five chips, derived. Cheap enough to build on every read. */
+    val toolbar: SpettroToolbar get() = SpettroToolbar(configOptions)
+
     /**
-     * Everything the agent is blocked on: permission prompts and unanswered
-     * questions. What the background watcher notifies about.
+     * Everything the agent is blocked on: permission prompts, unanswered
+     * questions and parked ask-user forms. What the background watcher
+     * notifies about.
+     *
+     * A walked question is already counted in [waitingCount] — it *is* a
+     * stopped tool call — so only the extension's own forms are added here,
+     * or a single ask would be announced twice.
      */
-    val needsUser: Int get() = waitingCount + elicitations.count { !it.accepted }
+    val needsUser: Int
+        get() = waitingCount + elicitations.count { !it.accepted } + questions.size
 
     /** Whether a prompt would be accepted at all. */
     val canPrompt: Boolean get() = phase != AgentPhase.Unavailable
@@ -1166,6 +1802,9 @@ data class AgentSessionState(
             updatedAt = null,
             queue = emptyList(),
             agent = null,
+            turnUsage = null,
+            questions = emptyList(),
+            spettro = null,
         )
 
         /** Parses [CoreBridge.acpSessionState]; [NONE] for `"null"` or rubbish. */
@@ -1184,23 +1823,23 @@ data class AgentSessionState(
                 stopReason = root.stringOrNull("stop_reason"),
                 entryCount = root.optInt("entry_count"),
                 plan = List(plan.length()) { index ->
-                    val entry = plan.getJSONObject(index)
-                    AgentPlanEntry(
-                        content = entry.optString("content"),
-                        priority = entry.optString("priority"),
-                        status = entry.optString("status"),
-                    )
+                    AgentPlanEntry.parse(plan.getJSONObject(index))
                 },
+                // A window of zero divides every gauge by zero, and the
+                // engine drops such an update — but a stale one can still be
+                // on the entry, so the read is defensive as well.
                 usage = usage?.let {
                     val cost = it.optJSONObject("cost")
                     AgentUsage(
                         used = it.optLong("used"),
                         size = it.optLong("size"),
+                        tokensUsed = it.longOrNull("tokensUsed"),
                         cost = cost?.let { money ->
                             AgentCost(money.optDouble("amount"), money.optString("currency"))
                         },
                     )
                 },
+                turnUsage = AgentTurnUsage.parse(root.optJSONObject("turnUsage")),
                 modes = modes?.let {
                     val available = it.optJSONArray("availableModes") ?: JSONArray()
                     AgentModes(
@@ -1266,6 +1905,13 @@ data class AgentSessionState(
                 },
                 editedFiles = root.optInt("editedFiles"),
                 waitingCount = root.optInt("waitingCount"),
+                questions = SpettroQuestion.parseAll(root.optJSONArray("questions")),
+                // The gate, and it lives on the *agent* rather than on the
+                // session because it is a property of the handshake: it is
+                // there from `initialize` and survives every new thread.
+                spettro = SpettroSurface.parse(
+                    agent?.optJSONObject("spettroExtensions"),
+                ),
             )
         }.getOrDefault(NONE)
 
@@ -1284,50 +1930,52 @@ data class AgentSessionState(
             }.filterNotNull()
         }
 
+        /**
+         * The five options, groups intact (SPETTRO.md W-13).
+         *
+         * A `select` whose FIRST element carries its own `options` array is a
+         * grouped list, and every element is then read as a group; anything
+         * else is flat. Testing only the first element is the same rule
+         * Spettro's desktop client applies, and it is what stops a flat list
+         * with one oddly-shaped entry from being read as half a tree.
+         */
         private fun parseConfigOptions(json: JSONArray?): List<AgentConfigOption> {
             if (json == null) return emptyList()
             return List(json.length()) { index ->
                 val option = json.optJSONObject(index) ?: return@List null
                 val id = option.optString("id").takeIf { it.isNotEmpty() } ?: return@List null
-                val kind = option.optString("type")
-                when (kind) {
+                val name = option.optString("name")
+                val description = option.stringOrNull("description")
+                val category = option.stringOrNull("category")
+                when (option.optString("type")) {
                     "select" -> {
-                        // Options come flat or grouped; a group is flattened,
-                        // because the popup has no room for headers and the
-                        // ids are what matter.
                         val raw = option.optJSONArray("options") ?: JSONArray()
-                        val values = mutableListOf<AgentConfigValue>()
-                        for (i in 0 until raw.length()) {
-                            val entry = raw.optJSONObject(i) ?: continue
-                            val grouped = entry.optJSONArray("options")
-                            if (grouped != null) {
-                                for (j in 0 until grouped.length()) {
-                                    val value = grouped.optJSONObject(j) ?: continue
-                                    parseConfigValue(value)?.let(values::add)
-                                }
-                            } else {
-                                parseConfigValue(entry)?.let(values::add)
-                            }
-                        }
+                        val grouped = raw.optJSONObject(0)?.optJSONArray("options") != null
                         AgentConfigOption(
                             id = id,
-                            name = option.optString("name"),
-                            description = option.stringOrNull("description"),
+                            name = name,
+                            description = description,
+                            category = category,
                             kind = "select",
-                            currentValueId = option.stringOrNull("currentValue"),
+                            currentValue = option.stringOrNull("currentValue"),
                             currentBool = null,
-                            values = values,
+                            groups = if (grouped) parseConfigGroups(raw) else emptyList(),
+                            flat = if (grouped) emptyList() else parseConfigChoices(raw),
                         )
                     }
+
                     "boolean" -> AgentConfigOption(
                         id = id,
-                        name = option.optString("name"),
-                        description = option.stringOrNull("description"),
+                        name = name,
+                        description = description,
+                        category = category,
                         kind = "boolean",
-                        currentValueId = null,
+                        currentValue = null,
                         currentBool = option.optBoolean("currentValue"),
-                        values = emptyList(),
+                        groups = emptyList(),
+                        flat = emptyList(),
                     )
+
                     // A kind this build cannot render is left out rather than
                     // drawn as a chip that cannot work.
                     else -> null
@@ -1335,14 +1983,35 @@ data class AgentSessionState(
             }.filterNotNull()
         }
 
-        private fun parseConfigValue(json: JSONObject): AgentConfigValue? {
-            val id = json.optString("value").takeIf { it.isNotEmpty() } ?: return null
-            return AgentConfigValue(
-                id = id,
-                name = json.optString("name").ifEmpty { id },
-                description = json.stringOrNull("description"),
-            )
-        }
+        private fun parseConfigGroups(array: JSONArray): List<AgentConfigOption.Group> =
+            (0 until array.length()).mapNotNull { index ->
+                val entry = array.optJSONObject(index) ?: return@mapNotNull null
+                val children = parseConfigChoices(entry.optJSONArray("options") ?: JSONArray())
+                // A group with nothing in it is a header with no rows under
+                // it — a provider that is configured but has no models yet.
+                if (children.isEmpty()) return@mapNotNull null
+                val name = entry.optString("name")
+                    .ifEmpty { entry.optString("group") }
+                AgentConfigOption.Group(
+                    // `group` is the stable key; `name` is what is drawn, and
+                    // the two are the same string more often than not.
+                    id = entry.optString("group").ifEmpty { name },
+                    name = name.ifEmpty { entry.optString("group") },
+                    options = children,
+                )
+            }
+
+        private fun parseConfigChoices(array: JSONArray): List<AgentConfigOption.Choice> =
+            (0 until array.length()).mapNotNull { index ->
+                val entry = array.optJSONObject(index) ?: return@mapNotNull null
+                val value = entry.optString("value").takeIf { it.isNotEmpty() }
+                    ?: return@mapNotNull null
+                AgentConfigOption.Choice(
+                    value = value,
+                    name = entry.optString("name").ifEmpty { value },
+                    description = entry.stringOrNull("description"),
+                )
+            }
     }
 }
 
@@ -1524,6 +2193,42 @@ fun rememberPendingElicitations(enabled: Boolean): List<AgentElicitation> {
             read = {
                 parseElicitations(
                     runCatching { JSONArray(CoreBridge.acpPendingElicitations()) }.getOrNull(),
+                )
+            },
+            apply = { questions = it },
+        )
+    }
+    return questions
+}
+
+/**
+ * Poll the Spettro questions that belong to no session.
+ *
+ * The twin of [rememberPendingElicitations] and for the same reason: an
+ * ask-user form can be raised while the agent is starting or authenticating,
+ * before any conversation exists, and one left unanswered blocks the agent
+ * for ever. A question that *does* name a session is already in
+ * [AgentSessionState.questions] and needs no second loop — this list may
+ * therefore repeat one the panel is already showing, and the caller filters
+ * by [SpettroQuestion.session].
+ *
+ * Costs one JNI counter read per tick on every agent, Spettro or not: a
+ * non-Spettro agent never serves the extension, so the counter never moves.
+ */
+@Composable
+fun rememberSpettroQuestions(enabled: Boolean): List<SpettroQuestion> {
+    var questions by remember { mutableStateOf(emptyList<SpettroQuestion>()) }
+    ResumedEffect(enabled) {
+        if (!enabled) {
+            questions = emptyList()
+            return@ResumedEffect
+        }
+        pollVersion(
+            intervalMs = POLL_MS,
+            version = { CoreBridge.acpQuestionsVersion() },
+            read = {
+                SpettroQuestion.parseAll(
+                    runCatching { JSONArray(CoreBridge.acpPendingQuestions()) }.getOrNull(),
                 )
             },
             apply = { questions = it },

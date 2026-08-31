@@ -59,7 +59,8 @@ import to.eyed.seeker.code.ui.theme.touchTarget
  *     close the topmost sheet without knowing what it is (step 2 of the
  *     ordered handler), because every sheet is on the stack this scaffold
  *     keeps.
- *  3. **It opens at [OPEN_FRACTION] of the height and drags to full.** The
+ *  3. **It opens at [OPEN_FRACTION] of the height and drags to full.** Pass
+ *     [openFraction] for the rare sheet that is a form rather than a menu. The
  *     drag lives on the handle rather than on Material's own detents: its only
  *     intermediate anchor is exactly half the window, and the sheets this app
  *     has — a file tree with a filter, a deploy summary — want the two thirds
@@ -85,6 +86,18 @@ fun SheetScaffold(
     field: (@Composable () -> Unit)? = null,
     /** Actions pinned under the field — Commit, Deploy, "＋ New file". */
     actions: (@Composable () -> Unit)? = null,
+    /**
+     * How much of the window the sheet takes when it opens, as a fraction.
+     *
+     * [OPEN_FRACTION] is the house default and almost every sheet wants it.
+     * The exception is a sheet that is not a menu over the screen but a *form*
+     * standing in for it — the question sheet Spettro raises, where the agent
+     * has stopped and the answer is the only thing on the phone worth doing.
+     * Opening that at two thirds hides its own review page behind a drag the
+     * user has no reason to guess at. The handle still resizes from wherever
+     * this puts it, so this changes the opening pose and nothing else.
+     */
+    openFraction: Float = OPEN_FRACTION,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val theme = LocalZedTheme.current
@@ -109,7 +122,13 @@ fun SheetScaffold(
     val windowHeight = with(LocalDensity.current) {
         LocalWindowInfo.current.containerSize.height.toDp()
     }
-    var fraction by remember { mutableFloatStateOf(OPEN_FRACTION) }
+    // Keyed on the requested pose so a caller that computes it (rather than
+    // passing a constant) is not stuck with the first frame's value, and
+    // clamped because a fraction at or below the dismiss threshold would open
+    // a sheet that is already asking to be closed.
+    var fraction by remember(openFraction) {
+        mutableFloatStateOf(openFraction.coerceIn(DISMISS_FRACTION, 1f))
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

@@ -112,9 +112,14 @@ class AgentSessionTest {
         assertEquals(listOf("model", "verbose"), state.configOptions.map { it.id })
         val model = state.configOptions[0]
         assertEquals("select", model.kind)
-        // Grouped options flatten; the current value resolves through them.
-        assertEquals(listOf("one", "two"), model.values.map { it.id })
-        assertEquals("Two", model.currentLabel)
+        // Grouped-ness is decided by the FIRST element alone (SPETTRO.md
+        // W-13), which this list's is not — so the list is flat, the
+        // group-shaped element carries no `value` and is dropped, and the
+        // current value prints as itself rather than as a name we cannot
+        // resolve. Splicing a half-grouped list would silently reorder it.
+        assertFalse(model.isGrouped)
+        assertEquals(listOf("one"), model.values.map { it.id })
+        assertEquals("two", model.currentLabel)
         val verbose = state.configOptions[1]
         assertEquals("boolean", verbose.kind)
         assertEquals(true, verbose.currentBool)

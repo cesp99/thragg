@@ -36,7 +36,6 @@ import androidx.compose.ui.input.key.onPreInterceptKeyBeforeSoftKeyboard
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
@@ -59,12 +58,12 @@ import to.eyed.seeker.code.ui.shell.build.BuildBootstrap
 import to.eyed.seeker.code.ui.shell.build.BuildScreen
 import to.eyed.seeker.code.ui.shell.projects.CloneScreen
 import to.eyed.seeker.code.ui.shell.projects.NewProgramScreen
-import to.eyed.seeker.code.ui.shell.projects.ProjectsEntryPoint
 import to.eyed.seeker.code.ui.shell.projects.openProjectInShell
 import to.eyed.seeker.code.ui.shell.settings.SettingsScreen
 import to.eyed.seeker.code.ui.shell.setup.SetupScreen
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.workspace.NotificationHost
+import to.eyed.seeker.code.ui.shell.agent.AgentScreen
 import to.eyed.seeker.code.ui.shell.code.CodeScreen
 import to.eyed.seeker.code.ui.workspace.Notifications
 
@@ -217,11 +216,12 @@ fun SeekerShell(
             ) {
                 val route = state.currentStack.top
                 if (route == null) {
-                    // The three destinations. P2, P3 and P4 land by replacing
-                    // exactly one of these lines each.
+                    // The three destinations, all real: P2's editor, P3's
+                    // conversation and P4's build runner. There is no
+                    // placeholder left in this file.
                     when (state.destination) {
                         Destination.Code -> CodeScreen(state, settings, settingsPath, onSettingsChanged)
-                        Destination.Agent -> AgentDestination(state)
+                        Destination.Agent -> AgentScreen(state)
                         Destination.Build -> BuildScreen(state)
                     }
                 } else {
@@ -450,63 +450,6 @@ internal fun takesBeforeIme(isKeyDown: Boolean, ctrl: Boolean, alt: Boolean): Bo
  */
 internal class PreImeKey {
     var event: AndroidKeyEvent? = null
-}
-
-// ---- Placeholder destinations -------------------------------------------------
-//
-// P1 ships the host, not the screens. These three exist so that P2, P3 and P4
-// can land in parallel against a shell that already navigates, already handles
-// back, already hides its bar for the keyboard and already has somewhere to
-// put a toast — each of them replaces one line in the `when` above and deletes
-// one function here.
-
-@Composable
-private fun AgentDestination(state: ShellState) {
-    Placeholder(
-        title = "Agent",
-        detail = "The ACP conversation lands here (P3).",
-        state = state,
-    )
-}
-
-/**
- * What a destination that does not exist yet says, and the one thing it does:
- * pushing a route, so that the back handler's step 5 is reachable by hand on a
- * device before any real route exists.
- */
-@Composable
-private fun Placeholder(title: String, detail: String, state: ShellState) {
-    val theme = LocalZedTheme.current
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-        )
-        Text(
-            text = detail,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            text = "Open Settings",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            modifier = Modifier
-                .padding(top = 16.dp)
-                .clickable { state.push(Route.Settings) },
-        )
-        // P8's Projects & tools sheet. It belongs behind the project chip in
-        // Code's header (P2); this is the only door to it until that lands,
-        // and it goes when these placeholders do.
-        ProjectsEntryPoint(state)
-    }
 }
 
 /**

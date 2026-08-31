@@ -71,6 +71,35 @@ def read_message():
             log("skipping unparseable line: " + line[:120])
 
 
+def describe_answer(item):
+    """One answer as `question=value`, in either spelling of the shape.
+
+    docs/SPETTRO.md W-10 is the real wire: `questionId`, plus `optionIds`
+    (always) and `optionId` (for a single pick), or `text` for a custom
+    answer, with an optional `notes`. The older `{"id","value"}` pair is what
+    the engine's own round-trip test hands back
+    (acp.rs::a_python_conformance_agent_survives_the_whole_flow), and it is
+    kept working rather than replaced — this file is a conformance *stand-in*,
+    so a shape it refuses is a shape nobody can prove, and refusing the test's
+    own fixture would make a red test out of an unrelated change.
+    """
+    name = item.get("questionId") or item.get("id")
+    if "value" in item:
+        value = item.get("value")
+    elif item.get("text"):
+        value = item.get("text")
+    else:
+        picked = item.get("optionIds")
+        if picked is None:
+            single = item.get("optionId")
+            picked = [single] if single is not None else []
+        value = "+".join(str(one) for one in picked)
+    notes = item.get("notes")
+    if notes:
+        value = "%s (%s)" % (value, notes) if value else "(%s)" % notes
+    return "%s=%s" % (name, value)
+
+
 class Cancelled(Exception):
     """The client cancelled the turn; unwind to the prompt handler, which
     answers with stopReason "cancelled" as the spec requires."""
@@ -682,10 +711,7 @@ class Agent:
             self.chunk(session_id, "agent_message_chunk",
                        "Fair enough — %s." % answer.get("kind"))
             return "end_turn"
-        described = ", ".join(
-            "%s=%s" % (item.get("id"), item.get("value"))
-            for item in answer.get("answers") or []
-        )
+        described = ", ".join(describe_answer(item) for item in answer.get("answers") or [])
         self.chunk(session_id, "agent_message_chunk", "Question answered: %s" % described)
         return "end_turn"
 

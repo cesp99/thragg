@@ -41,10 +41,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import to.eyed.seeker.code.core.AgentMention
 import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.BufferSession
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.core.FormatterSpec
+import to.eyed.seeker.code.core.LOCAL_SETTINGS_PATH
 import to.eyed.seeker.code.core.LanguageSettings
 import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.core.ResumedEffect
@@ -73,6 +75,8 @@ import to.eyed.seeker.code.ui.shell.BuildState
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.shell.agent.AgentSeams
+import to.eyed.seeker.code.ui.shell.agent.agentFixPrompt
 import to.eyed.seeker.code.ui.shell.build.CodeJump
 import to.eyed.seeker.code.ui.shell.projects.ProjectsSheet
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
@@ -997,60 +1001,46 @@ object CodeBuildSeam {
 /**
  * `[ Fix ▸ ]` — hand a diagnostic to the agent.
  *
- * **This is the function P3 fills in.** Everything on this side of it is done:
- * the gutter's ✕ is a touch target, the card is drawn, the button is wired,
- * and the destination switch below is the half of the handoff that needs no
- * agent. What is missing is the other half — seeding the composer with the
- * error, the file and the line — and it needs AgentScreen's composer state,
- * which is P3's and does not exist yet.
+ * The signature is EditorPane's and does not change; what changed is the
+ * second half of the handoff. The error, its file, its line and the compiler's
+ * own words go into the Agent composer through [AgentSeams], and the file goes
+ * with them as a mention so the agent *reads* it rather than guessing at it
+ * from a path in a sentence.
  *
- * It is deliberately *not* a no-op in the meantime: taking the user to Agent
- * with the error copied is a worse handoff than a pre-seeded thread and a
- * better one than a button that does nothing.
+ * **Seeded, not sent.** A diagnostic is a fact, not yet a request: the user
+ * finishes the sentence ("…without changing the account layout") and presses
+ * Send. The switch happens first so the composer is on screen when the text
+ * lands in it.
  */
 internal fun fixWithAgent(state: ShellState, path: String, diagnostic: Diagnostic) {
     state.show(Destination.Agent)
-    Notifications.info(
-        "Fix requested: ${path.substringAfterLast('/')}:${diagnostic.row + 1} — " +
-            diagnostic.message.lineSequence().first().trim(),
-        key = "fix-with-agent",
-    )
+    AgentSeams.offer(agentFixPrompt(path, diagnostic), listOf(AgentMention.File(path)))
 }
 
 /**
- * Soft wrap, on.
+ * How often an open buffer is re-checked against the disk.
  *
- * Zed's default is `none` and it is right for a 1200dp window; here the
- * viewport is 400dp wide and a line of Rust is not, so horizontal scrolling
- * would be the primary way of reading code. The mode and its Fenwick tree
- * already exist (DisplayMap.kt) with their own test suite, so this is a
- * default, not a feature.
- *
- * Applied here rather than only in settings.json because it must be true of a
- * fresh install with no settings file at all, and because the value the engine
- * resolves per buffer stacks the language's own entry on top of the user's.
+ * The engine's own status is a version compare, so the loop is cheap; what it
+ * catches is a file moved, deleted or rewritten under a buffer by a git
+ * command, a build script or the agent — carried across from
+ * WorkspaceScreen.kt:249 with its interval intact.
  */
-private fun LanguageSettings.wrappedForAPhone(): LanguageSettings =
-    if (softWrap == SoftWrapMode.None) copy(softWrap = SoftWrapMode.EditorWidth) else this
+private const val STATUS_POLL_MS = 250L
+
+/** The toast key the project-settings complaint is keyed on, so it replaces. */
+private const val LOCAL_SETTINGS_NOTIFICATION = "project-settings"
+
+/** docs/UI.md's 44dp header — the same height Code's file bar is. */
+private val HeaderHeight = 44.dp
 
 /**
- * A path the shell handed in, as a path the project can open.
+ * Whether the project's own settings file parsed, said once.
  *
- * Callers outside Code speak in absolute paths — a shared file lands at
- * `File(root, relative).absolutePath`, a build error names a real file on
- * disk — and [ProjectSession.absolutePathOf] takes the project-relative
- * spelling. Anything already relative, or outside the root, is passed through
- * untouched so the failure is "could not be opened" rather than a silently
- * mangled path.
+ * Keyed, because it is asked twice — by the save that wrote the file and by
+ * the poller that noticed it move — and because the answer changing to "it
+ * parses now" has to take the toast away rather than leave a stale complaint
+ * on screen.
  */
-private fun relativeTo(project: ProjectSession, path: String): String {
-    if (!path.startsWith('/')) return path
-    val root = project.rootPath.trimEnd('/')
-    if (!path.startsWith("$root/")) return path
-    return path.removePrefix("$root/")
-}
-
-/** Whether the project's own settings file parsed, said once. */
 private fun reportLocalSettings(error: String?) {
     if (error == null) {
         Notifications.dismissKey(LOCAL_SETTINGS_NOTIFICATION)
@@ -1062,17 +1052,48 @@ private fun reportLocalSettings(error: String?) {
     }
 }
 
-/** Share the open file out — the ⋮ sheet's row, and ShareOut's one caller here. */
-internal fun shareFile(context: android.content.Context, file: OpenFile) {
-    val path = file.absolutePath ?: return
-    ShareOut.share(context, File(path))
+/**
+ * [path] as this project spells it, or unchanged when it is not inside the
+ * project at all.
+ *
+ * Every opener in this file takes a *project-relative* path — that is the only
+ * name the engine's buffers have — while the compiler, the language server and
+ * the terminal all answer in absolute ones. Returning the input unchanged for
+ * an outside path is what lets the callers drop it: a definition in the
+ * standard library or in a registry crate has no relative name, and opening it
+ * at a path that does not resolve is worse than not opening it.
+ */
+internal fun relativeTo(project: ProjectSession, path: String): String {
+    if (!path.startsWith('/')) return path
+    val root = project.rootPath
+    if (path == root) return path
+    val prefix = "$root/"
+    return if (path.startsWith(prefix)) path.removePrefix(prefix) else path
 }
 
-/** How often every open buffer's status is re-read. Zed polls; so do we. */
-private const val STATUS_POLL_MS = 250L
+/**
+ * The buffer's settings with wrapping forced on.
+ *
+ * Not a preference on this device: the column is 400dp wide and a line that
+ * runs off the right edge is a line that has to be scrolled horizontally to be
+ * read, one line at a time. A file whose settings already wrap keeps the mode
+ * it asked for — `bounded` at 80 columns is still narrower than the screen.
+ */
+private fun LanguageSettings.wrappedForAPhone(): LanguageSettings =
+    if (softWrap.wraps) this else copy(softWrap = SoftWrapMode.EditorWidth)
 
-private const val LOCAL_SETTINGS_PATH = ".zed/settings.json"
-private const val LOCAL_SETTINGS_NOTIFICATION = "project-settings"
-
-/** The header, the file bar and the action row are all the same height. */
-internal val HeaderHeight = 44.dp
+/**
+ * Hand [file] to whatever else is on the phone — the share sheet.
+ *
+ * The one caller of [ShareOut] on this side of the app, and the only way a
+ * file leaves a sandboxed IDE at all: there is no file manager on this device
+ * that can reach the app's private projects directory. A tab with no file
+ * behind it (a picture that failed to stage, a buffer never written) is
+ * skipped rather than shared as a path that does not exist.
+ */
+internal fun shareFile(context: android.content.Context, file: OpenFile) {
+    val absolute = file.absolutePath ?: return
+    val onDisk = File(absolute)
+    if (!ShareOut.canShare(onDisk)) return
+    ShareOut.share(context, onDisk)
+}

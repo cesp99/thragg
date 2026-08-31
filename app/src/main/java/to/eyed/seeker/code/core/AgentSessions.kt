@@ -13,7 +13,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 import to.eyed.seeker.code.terminal.Userland
+import to.eyed.seeker.code.ui.shell.ShellState
 
 /**
  * One conversation with the agent — Zed's thread. The engine session behind
@@ -35,6 +39,19 @@ class AgentThread internal constructor(
      * panel cannot show.
      */
     val isReopened: Boolean = false,
+    /**
+     * Whether the agent is expected to *replay* this conversation rather than
+     * merely continue it — `session/load` against an agent that advertises it,
+     * where Spettro streams every `user_message_chunk`, `agent_thought_chunk`
+     * and `agent_message_chunk` back **before** the response returns.
+     *
+     * The panel needs it as a hint and not as a fact: it decides whether to
+     * show a replay skeleton and whether to clear the view first. A loaded
+     * conversation legitimately has no tool-call cards, no plan and no usage —
+     * the agent's on-disk store keeps the flat transcript and nothing else —
+     * so a screen that waited for those would wait for ever.
+     */
+    val expectsReplay: Boolean = false,
 ) {
     /**
      * The agent's own name for the conversation, once it sends one
@@ -250,10 +267,41 @@ object AgentSessions {
      * there; the panel gates the view on that.
      */
     fun resumeThread(project: Long, projectName: String, rootPath: String, pastSessionId: String) {
-        startThread(project, projectName, rootPath, pastSessionId)
+        startThread(project, projectName, rootPath, pastSessionId, replay = false)
     }
 
-    private fun startThread(project: Long, projectName: String, rootPath: String, resume: String?) {
+    /**
+     * Open one of the agent's own past conversations *with* its transcript —
+     * `session/load`, the picker's ordinary tap on a session the phone holds
+     * no rows for.
+     *
+     * The engine chooses the method (`create_session` prefers `session/load`
+     * when the agent advertises `loadSession`, and falls back to
+     * `session/resume`), so the difference between this and [resumeSession] is
+     * what the *panel* should expect: a replay streams the whole conversation
+     * back as updates before the call returns, which is worth a skeleton and
+     * worth clearing the view for.
+     */
+    fun loadSession(project: Long, projectName: String, rootPath: String, pastSessionId: String) {
+        startThread(project, projectName, rootPath, pastSessionId, replay = true)
+    }
+
+    /**
+     * Re-attach to a conversation that is already on screen — `session/resume`,
+     * no replay. Used when the transcript is already held and re-streaming it
+     * would duplicate every row.
+     */
+    fun resumeSession(project: Long, projectName: String, rootPath: String, pastSessionId: String) {
+        startThread(project, projectName, rootPath, pastSessionId, replay = false)
+    }
+
+    private fun startThread(
+        project: Long,
+        projectName: String,
+        rootPath: String,
+        resume: String?,
+        replay: Boolean = false,
+    ) {
         val agent = agent ?: return
         // A start already in flight is **superseded, never ignored**. It used
         // to `return` here without bumping the generation, so a project
@@ -273,7 +321,12 @@ object AgentSessions {
 
         isStarting = true
         startError = null
-        val spec = agent.toSpecJson()
+        // The launch spec is built here and only here, so the one substitution
+        // the bundled entry depends on cannot be forgotten: `--cwd
+        // $PROJECT_ROOT` in settings.json becomes this thread's absolute root
+        // (AgentDefinition.forProjectRoot). An unresolved token would reach
+        // Spettro as a relative path and `session/new` would answer -32602.
+        val spec = agent.forProjectRoot(rootPath).toSpecJson()
         val mine = ++generation
         job = scope.launch {
             // Blocking: it spawns proot and the agent behind it. Anything that
@@ -301,12 +354,55 @@ object AgentSessions {
                 isStarting = false
                 return@launch
             }
-            val thread = AgentThread(id, project, projectName, rootPath, nextOrdinal++, resume != null)
+            val thread = AgentThread(
+                sessionId = id,
+                projectId = project,
+                projectName = projectName,
+                rootPath = rootPath,
+                ordinal = nextOrdinal++,
+                isReopened = resume != null,
+                expectsReplay = replay,
+            )
             threads.add(thread)
             active = thread
             isStarting = false
+            // Both `session/load` and `session/resume` hand the conversation
+            // back at the agent's *manifest default* mode — usually `plan` —
+            // whatever it was when it was saved. Nothing on the wire carries
+            // the old one, so the remembered value is re-applied here, once,
+            // right after the session lands (docs/SPETTRO.md, W-15).
+            if (resume != null) reapplyRememberedMode(id)
         }
     }
+
+    /**
+     * The mode the user last chose, re-sent after a load or a resume.
+     *
+     * Session-scoped state on the agent's side, and the only one of the five
+     * selectors that is: model, permission, thinking and Ultra live in
+     * `~/.spettro/config.json` and survive on their own. Kept here rather than
+     * in settings because it is a *conversation* preference — the panel's, for
+     * as long as the app is running.
+     */
+    private var rememberedMode: String? = null
+
+    private suspend fun reapplyRememberedMode(session: Long) {
+        val mode = rememberedMode ?: return
+        // Best effort and deliberately quiet: a failure here is a chip showing
+        // `plan` when the user wanted `code`, which the chip itself will show
+        // correctly at the next poll. Raising a refusal for it would put an
+        // error on screen for something nobody asked for in this moment.
+        runCatching {
+            CoreBridge.acpSetConfigOption(session, MODE_CONFIG_ID, JSONObject.quote(mode))
+        }
+    }
+
+    /**
+     * Spettro's mode lives in `configOptions`, not in ACP's `session/set_mode`
+     * — it advertises no modes at all, so `acpSetMode` would answer false
+     * (docs/SPETTRO.md, W-18).
+     */
+    private const val MODE_CONFIG_ID = "mode"
 
     /** Whether [project] has any thread at all — the panel's empty state. */
     fun hasThreadFor(project: Long): Boolean = threads.any { it.projectId == project }
@@ -617,6 +713,11 @@ object AgentSessions {
         var seenVersion = -1L
         var wasBusy = false
         var needed = 0
+        // Carried across ticks because the blocked-run notification below is
+        // re-evaluated on every one of them, not only when the version moves,
+        // and it has no session state in hand to read the name out of.
+        var lastName = "Agent"
+        var raised = false
         while (true) {
             val thread = active
             val session = thread?.sessionId ?: -1L
@@ -638,8 +739,9 @@ object AgentSessions {
                     val wanting = state.needsUser > needed
                     wasBusy = state.isBusy
                     needed = state.needsUser
+                    lastName = state.agent?.agentName ?: agent?.name ?: "Agent"
                     if (!first) {
-                        val agentName = state.agent?.agentName ?: agent?.name ?: "Agent"
+                        val agentName = lastName
                         val message = when {
                             wanting -> "Waiting for you"
                             finished && state.error != null -> "The turn failed"
@@ -647,6 +749,19 @@ object AgentSessions {
                             else -> null
                         }
                         if (message != null) announce(app, agentName, message)
+                        // The nav bar's dot. It says the same thing as the
+                        // notification for the one case a notification cannot
+                        // reach: the app in the foreground on Code or Build,
+                        // where nothing is covering the screen to be pulled
+                        // back from. `panelVisible` is the whole condition —
+                        // if the destination is on screen the user is already
+                        // looking at what the dot would point them at, and
+                        // `ShellState.show` clears it on arrival anyway.
+                        if (message != null && !panelVisible) {
+                            withContext(Dispatchers.Main) {
+                                ShellState.current.agentAttention = true
+                            }
+                        }
                         // A turn that failed is a failure like any other, and
                         // it belongs in the toast stack whether or not the
                         // notify setting is on — `announce` is about pulling
@@ -656,6 +771,26 @@ object AgentSessions {
                             onProblem?.invoke("$agentName: ${state.error}")
                         }
                     }
+                }
+            }
+            // The high-priority, haptic, un-swipeable notification for a run
+            // that has stopped and will not restart on its own. The Agent
+            // destination owns this while it is composed (it also knows about
+            // forms raised with no session at all); this is the half it cannot
+            // own, because leaving the destination disposes its effect while
+            // the request stays parked.
+            //
+            // Outside the version gate on purpose: backgrounding the app is
+            // not a session event, so a permission raised while the phone was
+            // in the hand and then pocketed would otherwise never be spoken.
+            // `raised` keeps it to one call per edge rather than two a second.
+            val wants = !panelVisible && needed > 0 && !appInForeground
+            if (wants != raised) {
+                raised = wants
+                if (wants) {
+                    AgentNotifier.waiting(app, lastName, AgentNotifier.waitingMessage(needed))
+                } else {
+                    AgentNotifier.clearWaiting(app)
                 }
             }
             delay(WATCH_MS)
@@ -714,12 +849,82 @@ object AgentSessions {
         scope.launch { runCatching { CoreBridge.acpRemoveQueuedPrompt(session, queuedId) } }
     }
 
-    /** Change one of the agent's config options — model, effort, a toggle. */
+    /**
+     * Change one of the agent's config options — model, permission, thinking,
+     * Ultra, mode.
+     *
+     * Two failures live behind one boolean and they want opposite handling:
+     *
+     *  * **A refusal.** The agent got the request and said no — an Ultra that
+     *    the permission level does not allow, a model the provider dropped.
+     *    The change is *dropped*: the chip rolls back to whatever the next
+     *    poll reports, and the user is told why. Re-sending it would be
+     *    arguing with the agent.
+     *  * **No transport.** There is no session, or the call threw on the way
+     *    to it. The user's intent is still good, so it is **queued** and
+     *    re-sent the next time a session attaches. This is the case that
+     *    matters during onboarding, where a chip is tapped while the agent is
+     *    still starting.
+     *
+     * [MODE_CONFIG_ID] is also remembered here, because a load or a resume
+     * resets it agent-side and only this side knows what it was.
+     */
     fun setConfigOption(configId: String, valueJson: String) {
-        val session = sessionId.takeIf { it >= 0 } ?: return
+        if (configId == MODE_CONFIG_ID) {
+            // Parsed rather than string-trimmed: `valueJson` is a JSON *value*
+            // (`"plan"`, quotes included), and an id with a quote or a
+            // backslash in it would survive a trim as the wrong id.
+            rememberedMode = runCatching { JSONTokener(valueJson).nextValue() as? String }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: rememberedMode
+        }
+        val session = sessionId.takeIf { it >= 0 }
+        if (session == null) {
+            queuedConfig[configId] = valueJson
+            return
+        }
         lastRefusal = null
         scope.launch {
-            runCatching { CoreBridge.acpSetConfigOption(session, configId, valueJson) }
+            val accepted = runCatching { CoreBridge.acpSetConfigOption(session, configId, valueJson) }
+                .getOrElse {
+                    // Never reached the wire: keep it for the next attach.
+                    queuedConfig[configId] = valueJson
+                    return@launch
+                }
+            if (accepted) {
+                queuedConfig.remove(configId)
+            } else {
+                // The agent answered, and the answer was no. The engine puts
+                // its own sentence in `notice`; this is the fallback for a
+                // session the engine has simply forgotten.
+                queuedConfig.remove(configId)
+                lastRefusal = "The agent would not take that setting."
+            }
+        }
+    }
+
+    /**
+     * Config changes made with no session to send them to, by option id.
+     *
+     * A map rather than a list so the last value for an option wins: tapping
+     * three models while the agent starts must send one, not three.
+     */
+    private val queuedConfig = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * Re-send what was queued while there was nowhere to send it. Called by
+     * the panel once a session reports `ready`.
+     */
+    fun flushQueuedConfig() {
+        if (queuedConfig.isEmpty()) return
+        val session = sessionId.takeIf { it >= 0 } ?: return
+        val pending = queuedConfig.toMap()
+        queuedConfig.clear()
+        scope.launch {
+            for ((configId, valueJson) in pending) {
+                runCatching { CoreBridge.acpSetConfigOption(session, configId, valueJson) }
+            }
         }
     }
 
@@ -728,12 +933,24 @@ object AgentSessions {
         scope.launch { runCatching { CoreBridge.acpCancel(session) } }
     }
 
-    fun respondToPermission(toolCallId: String, optionId: String) {
+    /**
+     * Answer a permission request with one of the options it offered.
+     *
+     * [answerMetaJson] is empty for the ordinary Allow / Always / Deny, and
+     * carries `{"spettro.app/questionAnswer":…}` when the request is really a
+     * *question* walked through the permission channel — Spettro's fallback
+     * when the client did not advertise `_spettro/question/ask`, and still the
+     * transport for a form the agent chose to walk. The option id says which
+     * choice was taken; the `_meta` says what that choice *was*, which is the
+     * only part free text can travel in (docs/SPETTRO.md, W-10). Build it with
+     * [SpettroAnswers.optionMeta] or [SpettroAnswers.DECLINED_META].
+     */
+    fun respondToPermission(toolCallId: String, optionId: String, answerMetaJson: String = "") {
         val session = sessionId.takeIf { it >= 0 } ?: return
         lastRefusal = null
         scope.launch {
             val answered = runCatching {
-                CoreBridge.acpRespondPermission(session, toolCallId, optionId)
+                CoreBridge.acpRespondPermission(session, toolCallId, optionId, answerMetaJson)
             }.getOrDefault(false)
             if (!answered) {
                 lastRefusal = "That request is no longer waiting for an answer."
@@ -760,9 +977,320 @@ object AgentSessions {
         }
     }
 
+    // --- Spettro's superset ---------------------------------------------------
+    //
+    // Everything below gates on `agent.spettroExtensions` being present in the
+    // session state — absent means a generic ACP agent, for which steering is
+    // two concurrent turns, a question has no transport, and `_spettro/*` is
+    // nineteen methods that answer -32601. The gate itself is the panel's
+    // (K1's `SpettroSurface`); these calls are safe to make either way, and
+    // each says what it does when the agent is not Spettro.
+
+    /**
+     * Send a message *into* the turn that is already running — **steering**.
+     *
+     * Not a new turn and not a cancel. Spettro queues the text into the step
+     * it is on, answers this prompt within milliseconds with `end_turn`, and
+     * keeps working; the original turn stays the one the panel is busy on. Use
+     * [prompt] to queue a whole new turn behind the current one, and
+     * [cancelTurn] to stop it.
+     *
+     * Refused — with a sentence — when no turn is running or the agent is not
+     * Spettro, because a second concurrent `session/prompt` to a generic agent
+     * is two turns at once and the protocol says nothing about that.
+     */
+    fun steer(
+        text: String,
+        mentions: List<AgentMention>,
+        images: List<PromptAttachment> = emptyList(),
+        onRefused: () -> Unit = {},
+    ) {
+        val session = sessionId
+        if (session < 0 || active == null) {
+            onRefused()
+            lastRefusal = "There is no agent session to steer."
+            return
+        }
+        lastRefusal = null
+        val mentionsJson = AgentMention.toJson(mentions)
+        val imagesJson = PromptImages.toJson(images)
+        scope.launch {
+            val sent = runCatching { CoreBridge.acpSteer(session, text, mentionsJson, imagesJson) }
+                .getOrDefault(false)
+            if (!sent) {
+                onRefused()
+                lastRefusal = "There is nothing running to steer; send it as a message instead."
+            }
+        }
+    }
+
+    /**
+     * Answer one of Spettro's question forms — `_spettro/question/ask`, which
+     * carries the whole form in one request instead of walking it one
+     * permission prompt at a time.
+     *
+     * [answers] in **option order** (the order the question listed its
+     * choices), never tick order; a question the user did not touch is simply
+     * absent from the list, which tells the model nobody answered it and is
+     * not the same as defaulting to its recommendation. A null [answers]
+     * declines the *whole* form — declining is all-or-nothing.
+     *
+     * [version] is the question payload's own `version`: 1 has no `questions`
+     * array and takes the bare shape of the first answer.
+     */
+    fun answerQuestion(questionId: String, answers: List<SpettroAnswer>?, version: Int = 2) {
+        lastRefusal = null
+        val answerJson = SpettroAnswers.encode(answers, version)
+        scope.launch {
+            val answered = runCatching { CoreBridge.acpRespondQuestion(questionId, answerJson) }
+                .getOrDefault(false)
+            if (!answered) {
+                lastRefusal = "That question is no longer waiting for an answer."
+            }
+        }
+    }
+
+    /**
+     * Call one of the agent's `_spettro/…` methods and decode the envelope.
+     *
+     * **Suspends on `Dispatchers.IO`** because the bridge blocks for up to 45
+     * seconds: `_spettro/providers/connect` verifies the key against the
+     * provider's own API before it persists anything, and
+     * `_spettro/account/status` blocks for up to fifteen. Nothing here retries
+     * — a caller that wants a second attempt has to want it out loud, since
+     * one of these calls charges a provider round trip.
+     *
+     * [projectId] defaults to the active thread's project, which is the one
+     * the agent process is bound to.
+     */
+    suspend fun callExtension(
+        method: String,
+        paramsJson: String = "{}",
+        projectId: Long = this.projectId,
+    ): ExtResult = withContext(Dispatchers.IO) {
+        if (projectId < 0) return@withContext ExtResult.Offline("The agent is not running.")
+        val envelope = runCatching { CoreBridge.acpCallExtension(projectId, method, paramsJson) }
+            .getOrElse { error ->
+                Log.w(TAG, "$method could not be called", error)
+                return@withContext ExtResult.Offline("The agent could not be reached.")
+            }
+        ExtResult.parse(envelope)
+    }
+
+    /**
+     * Bumped whenever the agent's own session list should be re-fetched, and
+     * read by `rememberAgentSessionList(enabled, refreshToken)`.
+     *
+     * A token rather than a call because the list lives in the engine's cache
+     * and the composable owns the poll. Spettro saves after **every** prompt
+     * turn, so a list that is not refreshed is stale within one message — the
+     * picker bumps this when it opens, and the panel bumps it when a turn
+     * settles.
+     */
+    var sessionListToken by mutableStateOf(0)
+        private set
+
+    /** Ask for a fresh `session/list` — a round trip to the agent. */
+    fun refreshSessionList() {
+        sessionListToken++
+    }
+
     /** Forget the chosen agent as well — back to the picker. */
     fun reset() {
         close()
         agent = null
+        rememberedMode = null
+        queuedConfig.clear()
+    }
+}
+
+/**
+ * The answer to one question of a Spettro form, before it is encoded.
+ *
+ * Two shapes because the agent distinguishes them: picking from the list it
+ * offered, and typing something it did not think of. A note is the free text
+ * that travels *beside* a pick ("vet is slow"), and is dropped when blank.
+ */
+sealed interface SpettroAnswer {
+
+    /** Which question of the form this answers — the payload's `questions[].id`. */
+    val questionId: String
+
+    data class Option(
+        override val questionId: String,
+        /** In OPTION order, never tick order. Empty means the question was skipped. */
+        val optionIds: List<String>,
+        val notes: String? = null,
+    ) : SpettroAnswer
+
+    data class Custom(
+        override val questionId: String,
+        val text: String,
+        val notes: String? = null,
+    ) : SpettroAnswer
+}
+
+/**
+ * The wire shapes of a question answer, in one place so the encoder can be
+ * tested without an agent.
+ *
+ * Two transports carry the same decision and neither can be derived from the
+ * other, which is why both live here: the extension answers with a JSON-RPC
+ * *result* ([encode]), while a form walked through the permission channel
+ * answers by selecting an option id and attaching the same decision as `_meta`
+ * ([optionMeta], [DECLINED_META]) — docs/SPETTRO.md, §5 and W-10.
+ */
+object SpettroAnswers {
+
+    /** The `_meta` key both transports agree on. */
+    private const val ANSWER_KEY = "spettro.app/questionAnswer"
+
+    /**
+     * The JSON-RPC result for `_spettro/question/ask`.
+     *
+     * Rules, all of them load-bearing:
+     *  * a null [answers] is a decline of the whole form, at the TOP level;
+     *  * an answer with nothing in it — no option, no text, no note — is
+     *    **omitted**, so the model is told nobody answered that question
+     *    rather than being told the recommendation was chosen;
+     *  * `optionIds` always travels, and `optionId` travels *as well* for a
+     *    single pick, because the agent reads whichever it knows about;
+     *  * version 1 has no `questions[]` and therefore no envelope: it takes
+     *    the first answer's own object, and a version-1 form with nothing
+     *    answered can only be declined.
+     */
+    fun encode(answers: List<SpettroAnswer>?, version: Int = 2): String {
+        if (answers == null) return declined()
+        val objects = answers.mapNotNull(::encodeOne)
+        if (version < 2) {
+            return objects.firstOrNull()?.toString() ?: declined()
+        }
+        return JSONObject().put("answers", JSONArray(objects)).toString()
+    }
+
+    /** `{"kind":"declined"}` — the whole form, refused. */
+    fun declined(): String = JSONObject().put("kind", "declined").toString()
+
+    /**
+     * The `_meta` that goes back with a permission-channel answer, naming the
+     * option that was chosen. The option id is on the outcome as well; this is
+     * what tells Spettro the outcome was an *answer* and not an approval.
+     */
+    fun optionMeta(optionId: String): String = JSONObject()
+        .put(ANSWER_KEY, JSONObject().put("kind", "option").put("optionId", optionId))
+        .toString()
+
+    /**
+     * Free text typed into the walked form's custom-input option, whose id is
+     * `"custom"` by convention (`spettro.app/isCustomInput` on the option's
+     * own `_meta` is what identifies it).
+     */
+    fun customMeta(text: String): String = JSONObject()
+        .put(ANSWER_KEY, JSONObject().put("kind", "custom").put("text", text))
+        .toString()
+
+    /** Declining a walked form: paired with the `cancelled` outcome. */
+    val DECLINED_META: String = JSONObject()
+        .put(ANSWER_KEY, JSONObject().put("kind", "declined"))
+        .toString()
+
+    private fun encodeOne(answer: SpettroAnswer): JSONObject? = when (answer) {
+        is SpettroAnswer.Option -> {
+            val notes = answer.notes?.takeIf { it.isNotBlank() }
+            if (answer.optionIds.isEmpty() && notes == null) {
+                null
+            } else {
+                JSONObject().apply {
+                    put("questionId", answer.questionId)
+                    put("kind", "option")
+                    put("optionIds", JSONArray(answer.optionIds))
+                    // Both, deliberately: `optionId` is what the single-select
+                    // half of the CLI reads and `optionIds` is what the
+                    // multi-select half reads, and one build has been seen to
+                    // read each.
+                    if (answer.optionIds.size == 1) put("optionId", answer.optionIds.single())
+                    if (notes != null) put("notes", notes)
+                }
+            }
+        }
+        is SpettroAnswer.Custom -> {
+            val text = answer.text.trim()
+            val notes = answer.notes?.takeIf { it.isNotBlank() }
+            if (text.isEmpty() && notes == null) {
+                null
+            } else {
+                JSONObject().apply {
+                    put("questionId", answer.questionId)
+                    put("kind", "custom")
+                    put("text", text)
+                    if (notes != null) put("notes", notes)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * What one `_spettro/…` call came back with.
+ *
+ * The bridge answers with an envelope rather than throwing — JNI has no
+ * exception channel here — and this is the one place it is decoded. Four
+ * outcomes because the UI has four different things to say, and collapsing any
+ * two of them costs a user an accurate sentence:
+ *
+ *  * [Ok] — the method's own result object.
+ *  * [Rpc] — the agent answered with an error, and [Rpc.message] is *its*
+ *    words ("key rejected (401)"), written to be read by the person who typed
+ *    the key. Show it verbatim; do not wrap it in a sentence of ours.
+ *  * [Unsupported] — `-32601`, which on this protocol means an older CLI
+ *    rather than a failure. "Update Spettro", never "that did not work".
+ *  * [Offline] — the call never reached the wire.
+ */
+sealed interface ExtResult {
+
+    data class Ok(val result: JSONObject) : ExtResult
+
+    data class Rpc(val code: Int, val message: String, val data: JSONObject?) : ExtResult
+
+    data object Unsupported : ExtResult
+
+    data class Offline(val message: String) : ExtResult
+
+    /** The result object, or null for anything that was not an [Ok]. */
+    val objectOrNull: JSONObject? get() = (this as? Ok)?.result
+
+    companion object {
+
+        /** `-32601`: the method is not there, which is a version, not a fault. */
+        const val METHOD_NOT_FOUND = -32601
+
+        /** The engine's own code for "this never left the phone". */
+        const val NO_TRANSPORT = 0
+
+        /**
+         * Decode the bridge's envelope. Never throws: an envelope that is not
+         * JSON at all is [Offline], because something is wrong on this side of
+         * the wire and telling the user their key was rejected would be a lie.
+         *
+         * A result that is not an object — no `_spettro/…` method returns one
+         * today, but the extension is versioned and may — is wrapped under
+         * `result`, so decoders always have an object to read from.
+         */
+        fun parse(envelope: String): ExtResult {
+            val root = runCatching { JSONObject(envelope) }.getOrNull()
+                ?: return Offline("The agent's answer could not be read.")
+            if (root.optBoolean("ok", false)) {
+                val result = root.opt("result")
+                return Ok(result as? JSONObject ?: JSONObject().put("result", result ?: JSONObject.NULL))
+            }
+            val code = root.optInt("code", NO_TRANSPORT)
+            val message = root.optString("message").takeIf { it.isNotBlank() }
+                ?: "The agent did not say what went wrong."
+            return when (code) {
+                METHOD_NOT_FOUND -> Unsupported
+                NO_TRANSPORT -> Offline(message)
+                else -> Rpc(code, message, root.optJSONObject("data"))
+            }
+        }
     }
 }

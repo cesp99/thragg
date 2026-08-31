@@ -41,3 +41,7 @@ core/**/target
 
 # local experiment scratch (rootfs, toolchain tarballs, zig)
 .lab/
+
+# Python bytecode from tools/
+__pycache__/
+*.pyc
