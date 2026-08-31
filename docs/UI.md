@@ -322,7 +322,7 @@ The screen the app exists for. Which cluster, which wallet, how much SOL, which 
 **Reuses:**
 
 - app/src/main/java/to/eyed/seeker/code/ui/tasks/TaskRunner.kt — runTask() already builds the shell line through ShellEnvironment.taskCommand, spawns it into a terminal session, registers Activities.begin for progress, and posts a failure notification with a 'Show output' action. Build/Test/Deploy become three fixed TaskSpecs through this existing runner. The picker, tasks.json, the $ZED_* variables and the gutter runnables are deleted; the runner is not.
-- app/src/main/java/to/eyed/seeker/code/terminal/TerminalPanelState.kt, TerminalSessionHost.kt, TerminalService.kt, ShellEnvironment.kt, Userland.kt, ../full/.../DebianUserland.kt — the proot session layer and the foreground service that lets a 1m11s build survive the screen turning off.
+- app/src/main/java/to/eyed/seeker/code/terminal/TerminalPanelState.kt, TerminalSessionHost.kt, TerminalService.kt, ShellEnvironment.kt, Userland.kt, DebianUserland.kt — the proot session layer and the foreground service that lets a 1m11s build survive the screen turning off.
 - app/src/main/java/to/eyed/seeker/code/ui/terminal/TerminalLinks.kt and TerminalPathTarget.kt — PathWithPosition(path, row, column) detection, which is what makes the `path:line:col →` row a one-tap jump into Code at the caret.
 - app/src/main/java/to/eyed/seeker/code/ui/workspace/ActivityIndicator.kt, Notifications.kt, NotificationHost.kt — progress and the error channel.
 - app/src/main/java/to/eyed/seeker/code/solana/templates/SolanaTemplates.kt — SolanaFramework decides which command each button runs.
@@ -623,7 +623,7 @@ The one full-screen takeover. It is the honest cost of a phone that compiles Sol
 **Reuses:**
 
 - app/src/main/java/to/eyed/seeker/code/terminal/UserlandInstaller.kt — already owns an install outside the composition, already reports (step, fraction), already survives the panel going away, already resumes and cancels cleanly, and already guarantees the completion callback lands on the main thread. The Solana installer is modelled on it and reuses its scope discipline.
-- app/src/main/java/to/eyed/seeker/code/terminal/Userland.kt and ../full/.../DebianUserland.kt — the first row of the list.
+- app/src/main/java/to/eyed/seeker/code/terminal/Userland.kt and terminal/DebianUserland.kt — the first row of the list.
 - app/src/main/java/to/eyed/seeker/code/terminal/TerminalService.kt — the foreground service that keeps a download and an on-device compile alive when the screen locks.
 - app/src/main/java/to/eyed/seeker/code/solana/agents/AgentCatalog.kt — Spettro's ReleaseTarball install.
 

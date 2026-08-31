@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Builds proot for the `full` flavour's Debian userland.
+# Builds proot for the Debian userland.
 #
 # proot fakes a filesystem root for its children using ptrace, which is what
 # lets a Linux distribution's own binaries run on Android without root. The
 # output is a single self-contained executable per ABI, with talloc linked in
-# statically, dropped into app/src/full/jniLibs/<abi>/libproot_exec.so.
+# statically, dropped into app/src/main/jniLibs/<abi>/libproot_exec.so.
 #
 # Sources, both GPL-2.0-or-later, both fetched with their checksum verified:
 #
@@ -28,7 +28,7 @@ TALLOC_SHA256="85ecf9e465e20f98f9950a52e9a411e14320bc555fa257d87697b7e7a9b1d8a6"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$repo_root/build/proot"
-out_root="$repo_root/app/src/full/jniLibs"
+out_root="$repo_root/app/src/main/jniLibs"
 
 # The NDK pin is shared with cargo-ndk and the terminal modules.
 ndk_version="$(sed -n 's/^seeker\.ndkVersion=//p' "$repo_root/gradle.properties")"
@@ -165,5 +165,5 @@ build_abi arm64-v8a aarch64-linux-android
 build_abi x86_64 x86_64-linux-android
 
 echo
-echo "proot $PROOT_VERSION built for both ABIs into app/src/full/jniLibs/."
+echo "proot $PROOT_VERSION built for both ABIs into app/src/main/jniLibs/."
 echo "Both are GPL-2.0-or-later; see docs/THIRD_PARTY.md for the source offer."

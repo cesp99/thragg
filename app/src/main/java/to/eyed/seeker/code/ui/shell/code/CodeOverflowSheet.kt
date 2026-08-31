@@ -11,11 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.OpenFile
 
@@ -88,22 +87,25 @@ fun CodeOverflowSheet(
 
 @Composable
 private fun OverflowRow(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .touchTarget()
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = MD.space4, vertical = MD.space3),
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
+            // 38% is Material's disabled-content alpha, and a disabled row
+            // drawn in `onSurfaceVariant` — which is what `text.disabled`
+            // resolved to here — is indistinguishable from an enabled
+            // secondary one.
             color = if (enabled) {
-                theme.color("text", MaterialTheme.colorScheme.onSurface)
+                MaterialTheme.colorScheme.onSurface
             } else {
-                theme.color("text.disabled", MaterialTheme.colorScheme.onSurfaceVariant)
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
             },
             // Every row in every sheet wraps rather than truncating at 1.3x
             // font scale; only paths and base58 addresses may be cut, and this

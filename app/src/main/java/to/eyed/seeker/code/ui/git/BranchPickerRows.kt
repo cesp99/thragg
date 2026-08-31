@@ -1,7 +1,7 @@
 package to.eyed.seeker.code.ui.git
 
 import to.eyed.seeker.code.core.GitBranchEntry
-import to.eyed.seeker.code.ui.workspace.fuzzyMatch
+import to.eyed.seeker.code.ui.common.fuzzyMatch
 
 /**
  * The branch picker's list, computed away from the composable so ordering,

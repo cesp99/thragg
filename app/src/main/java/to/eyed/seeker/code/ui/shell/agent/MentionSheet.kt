@@ -1,15 +1,14 @@
 package to.eyed.seeker.code.ui.shell.agent
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,12 +17,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -34,14 +32,16 @@ import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.ui.agent.AgentWorkspaceAccess
 import to.eyed.seeker.code.ui.agent.MentionChoice
 import to.eyed.seeker.code.ui.agent.MentionSection
-import to.eyed.seeker.code.ui.agent.MentionSectionStrip
 import to.eyed.seeker.code.ui.agent.OpenBufferRef
 import to.eyed.seeker.code.ui.agent.defaultSection
 import to.eyed.seeker.code.ui.agent.mentionChoices
+import to.eyed.seeker.code.ui.components.SeekerChip
+import to.eyed.seeker.code.ui.components.SeekerSearchField
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.code.CodeState
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 
 /**
  * How long a keystroke waits before the picker's files are matched.
@@ -76,7 +76,7 @@ fun MentionSheet(
     onPick: (AgentMention) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     var query by remember { mutableStateOf("") }
     var section by remember { mutableStateOf(MentionSection.Files) }
     var rows by remember { mutableStateOf(emptyList<MentionChoice>()) }
@@ -111,46 +111,25 @@ fun MentionSheet(
         state = shell,
         onDismiss = onDismiss,
         title = "Add context",
+        // The same pill the composer has, in the same place the composer's is:
+        // a user who has typed a message knows what this is before reading it
+        // (docs/VISUAL.md, "The component library", SeekerSearchField).
         field = {
-            BasicTextField(
+            SeekerSearchField(
                 value = query,
                 onValueChange = { query = it },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                ),
-                cursorBrush = SolidColor(
-                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(theme.color("editor.background", Color.Transparent))
-                    .padding(horizontal = 10.dp, vertical = 10.dp)
-                    .focusRequester(focus),
-                decorationBox = { inner ->
-                    if (query.isEmpty()) {
-                        Text(
-                            text = "Search " + section.title.lowercase(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = theme.color(
-                                "text.muted",
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
-                    inner()
-                },
+                placeholder = "Search " + section.title.lowercase(),
+                focusRequester = focus,
             )
         },
     ) {
-        MentionSectionStrip(selected = section, onSelect = { section = it })
+        SectionStrip(selected = section, onSelect = { section = it })
         if (rows.isEmpty()) {
             Text(
                 text = emptySectionLine(section, project != null, searching),
-                style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space3),
             )
         }
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -159,33 +138,72 @@ fun MentionSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(RowHeight)
                         .clickable(onClickLabel = choice.primary) {
                             onPick(choice.mention)
                             onDismiss()
                         }
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = MD.space4),
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(
                         text = choice.primary,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                        color = scheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.MiddleEllipsis,
                     )
+                    // The second line is a path, a range or a count — figures
+                    // and separators that want the buffer face and its tabular
+                    // figures, which is exactly what [MonoSmall] is for.
                     Text(
                         text = choice.secondary,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color(
-                            "text.muted",
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
+                        style = MonoSmall,
+                        color = scheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.MiddleEllipsis,
                     )
                 }
             }
+        }
+    }
+}
+
+/** Two lines of row, with room for the descenders on both. */
+private val RowHeight = 60.dp
+
+/**
+ * Zed's eight context-picker modes, as a scrolling strip of chips.
+ *
+ * It replaces `MentionSectionStrip` (ContextPicker.kt), which drew each mode
+ * as a 3dp-padded `Text` on `element.selected` — a Zed read, in a sheet that
+ * is Material on both sides of it, at a target well under 48dp. These are
+ * [SeekerChip]s: the same pill the rest of the app filters with, tinted at 14%
+ * when they are the mode showing, and each one announcing its own selected
+ * state rather than relying on a colour a screen reader cannot see.
+ */
+@Composable
+private fun SectionStrip(
+    selected: MentionSection,
+    onSelect: (MentionSection) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = MD.space4, vertical = MD.space2),
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items(MentionSection.entries.size, key = { MentionSection.entries[it].name }) { index ->
+            val entry = MentionSection.entries[index]
+            val on = entry == selected
+            SeekerChip(
+                label = entry.title,
+                onClick = { onSelect(entry) },
+                tint = if (on) scheme.primary else null,
+                modifier = Modifier.semantics { this.selected = on },
+            )
         }
     }
 }

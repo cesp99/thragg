@@ -1,19 +1,13 @@
 package to.eyed.seeker.code.ui.common
 
 import android.os.SystemClock
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,8 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -40,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -48,12 +43,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import to.eyed.seeker.code.ui.theme.BufferFontFamily
-import to.eyed.seeker.code.ui.theme.LocalAppSettings
-import to.eyed.seeker.code.ui.theme.LocalUiFontSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import to.eyed.seeker.code.ui.theme.UiFontFamily
-import to.eyed.seeker.code.ui.theme.ZedTheme
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.ZedCodeBlock
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoBody
 
 /**
  * Markdown as an *agent* writes it: prose, code, links and lists.
@@ -221,9 +215,19 @@ private const val MAX_INLINE_CHARS = 32 * 1024
  * scroll-syncs to a buffer, and an agent's message has no buffer behind it.
  */
 internal fun parseMarkdownText(source: String): List<MarkdownNode> {
-    val lines = source.replace("\r\n", "\n").replace('\r', '\n').split('\n')
+    val lines = markdownLines(source)
     return parseBlocks(lines, collectLinkDefinitions(lines), depth = 0)
 }
+
+/**
+ * A document's lines, with every line ending normalised first.
+ *
+ * Its own function because the streaming chunker ([settledPrefix]) hands out
+ * character offsets into the normalised string, and two places splitting lines
+ * two slightly different ways is how an offset ends up one character out.
+ */
+internal fun markdownLines(source: String): List<String> =
+    source.replace("\r\n", "\n").replace('\r', '\n').split('\n')
 
 private fun parseBlocks(
     lines: List<String>,
@@ -1105,62 +1109,91 @@ private fun String.isHtmlTag(): Boolean {
 /**
  * Everything the renderer draws with, resolved once per composition.
  *
- * The numbers are Zed's `MarkdownStyle::themed(MarkdownFont::Preview, …)`
- * (crates/markdown/src/markdown.rs:174-296): the body is the UI font at 1rem
- * with a 1.75 line height, code is the buffer font at the buffer font size,
- * inline code sits on `editor.foreground` at 8% and a link is `text.accent`
- * underlined at half strength.
+ * **Material inks, the buffer face for code.** This used to read `ZedTheme`
+ * for every colour and scale the whole document off `ui_font_size`, which is
+ * the editor's setting — so an agent's reply resized when somebody changed
+ * their buffer font, and its prose was drawn in the editor's `text` rather
+ * than in the ink solved for the surface it sits on. An agent's reply is app
+ * chrome, so it takes `MaterialTheme` (docs/VISUAL.md, "THE BOUNDARY,
+ * EXACTLY": all of `ui/common` is Material-painted).
+ *
+ * The one thing that stays Zed's is CODE, and it stays Zed's twice over: an
+ * inline code span takes [MonoBody]'s buffer family and feature settings, and
+ * a fenced block goes into a [ZedCodeBlock] island with the editor's own
+ * ground and ink. That is the seam, drawn where it belongs.
+ *
+ * `body` is [Typography.bodyMedium] — 14/20, the transcript's workhorse. The
+ * old scale bottomed out around 10sp off the Zed chrome ratios, which is most
+ * of why a reply read as cramped rather than composed.
  */
 internal class MarkdownTextStyle(
-    val theme: ZedTheme,
     val body: TextStyle,
     val code: TextStyle,
+    /** The body size in sp, which every heading is a multiple of. */
     val rem: Float,
     val linkStyles: TextLinkStyles,
     val inlineCodeBackground: Color,
-)
+    val muted: Color,
+    val divider: Color,
+    val info: Color,
+    val success: Color,
+    val warning: Color,
+    val danger: Color,
+) {
+    /**
+     * The bar and the label a GitHub alert takes, by its kind.
+     *
+     * Solved inks rather than the raw theme keys: on Ayu Light the raw
+     * `warning` measures 1.64:1 and `created` 2.11:1, and an alert nobody can
+     * read is worse than no alert (docs/VISUAL.md, "THE HYBRID").
+     */
+    fun alertAccent(kind: String?): Color = when (kind) {
+        "NOTE", "IMPORTANT" -> info
+        "TIP" -> success
+        "WARNING" -> warning
+        "CAUTION" -> danger
+        else -> divider
+    }
+}
 
 @Composable
 private fun markdownTextStyle(): MarkdownTextStyle {
-    val theme = LocalZedTheme.current
-    val rem = LocalUiFontSize.current
-    val settings = LocalAppSettings.current
-    val accent = theme.color("text.accent")
-    val uiFont = UiFontFamily
-    val bufferFont = BufferFontFamily
-    return remember(theme, rem, settings.bufferFontSize, uiFont, bufferFont) {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val body = MaterialTheme.typography.bodyMedium
+    val code = MonoBody
+    val link = scheme.primary
+    return remember(scheme, colors, body, code) {
         MarkdownTextStyle(
-            theme = theme,
-            body = TextStyle(
-                fontFamily = uiFont,
-                fontSize = rem.sp,
-                lineHeight = (rem * 1.75f).sp,
-                color = theme.color("text"),
-            ),
-            code = TextStyle(
-                fontFamily = bufferFont,
-                fontSize = settings.bufferFontSize.sp,
-                lineHeight = (settings.bufferFontSize * 1.4f).sp,
-                color = theme.color("editor.foreground"),
-            ),
-            rem = rem,
+            body = body.copy(color = scheme.onSurface),
+            code = code,
+            rem = body.fontSize.value,
             linkStyles = TextLinkStyles(
                 style = SpanStyle(
-                    color = accent,
+                    color = link,
                     textDecoration = TextDecoration.Underline,
                 ),
                 hoveredStyle = SpanStyle(
-                    color = accent,
-                    background = accent.copy(alpha = 0.12f),
+                    color = link,
+                    background = link.copy(alpha = 0.12f),
                     textDecoration = TextDecoration.Underline,
                 ),
                 pressedStyle = SpanStyle(
-                    color = accent,
-                    background = accent.copy(alpha = 0.24f),
+                    color = link,
+                    background = link.copy(alpha = 0.24f),
                     textDecoration = TextDecoration.Underline,
                 ),
             ),
-            inlineCodeBackground = theme.color("editor.foreground").copy(alpha = 0.08f),
+            // A state layer's weight, not a second surface: an inline span is
+            // a few characters inside a sentence and a full container fill
+            // behind it turns a paragraph into a row of chips.
+            inlineCodeBackground = scheme.onSurface.copy(alpha = 0.08f),
+            muted = scheme.onSurfaceVariant,
+            divider = scheme.outlineVariant,
+            info = scheme.primary,
+            success = colors.addedInk,
+            warning = colors.warnInk,
+            danger = colors.dangerInk,
         )
     }
 }
@@ -1178,8 +1211,24 @@ internal const val MARKDOWN_REPARSE_MS = 180L
  * A markdown *string*, rendered.
  *
  * [source] may change on every frame of a streaming reply, and parsing it is
- * not free, so the work is throttled and done off the main thread, and the
- * last good render stays on screen meanwhile.
+ * not free, so the work is bounded twice over and the last good render stays
+ * on screen meanwhile.
+ *
+ * TWO MECHANISMS, AND THEY ARE ORTHOGONAL. [markdownParseDelay] bounds how
+ * OFTEN a parse happens; [settledPrefix] bounds how MUCH each one costs. A
+ * throttle alone still re-reads a 6 KB reply from character zero five times a
+ * second, and that cost grows with the answer while the amount of NEW text
+ * stays a line or two — so a long reply gets slower to stream the longer it
+ * gets, which is exactly backwards. Together, a growing reply re-parses only
+ * its growing tail.
+ *
+ * The cache is dropped whole in three cases, each of which is a case where a
+ * prefix stopped being settled: the text no longer starts with what was
+ * settled (Spettro's stream has draft-reset semantics ACP cannot express, so
+ * a reply can be replaced wholesale); the settled point moved BACKWARDS (a
+ * blank line that used to end a paragraph now separates two items of one
+ * loose list); or a link reference definition arrived, since a `[ref]:` line
+ * at the end of a message defines a link used at the start of it.
  */
 @Composable
 internal fun MarkdownText(
@@ -1190,6 +1239,7 @@ internal fun MarkdownText(
     val style = markdownTextStyle()
     var blocks by remember { mutableStateOf(emptyList<MarkdownNode>()) }
     var lastParsed by remember { mutableLongStateOf(0L) }
+    val stream = remember { MarkdownStream() }
     LaunchedEffect(source) {
         // Throttled, **not** debounced, and the difference is the whole
         // feature. A plain `delay(…)` at the top of an effect keyed on the
@@ -1208,7 +1258,7 @@ internal fun MarkdownText(
             // reply that changed again while the throttle was waiting does not
             // *begin* a parse of the text before it.
             yield()
-            parseMarkdownText(source)
+            stream.advance(source)
         }
         lastParsed = SystemClock.uptimeMillis()
     }
@@ -1216,6 +1266,138 @@ internal fun MarkdownText(
         for (block in blocks) NodeView(block, style, onLink)
     }
 }
+
+/**
+ * The settled head of a streaming reply, and the blocks it parsed to.
+ *
+ * A plain mutable holder rather than Compose state: it is written and read
+ * only inside the parse coroutine, and making it observable would invalidate
+ * the composable a second time for a value nothing draws.
+ */
+private class MarkdownStream {
+    private var settled: String = ""
+    private var settledBlocks: List<MarkdownNode> = emptyList()
+    private var linkCount: Int = 0
+
+    /** [source] parsed, re-reading as little of it as is provably safe. */
+    fun advance(source: String): List<MarkdownNode> {
+        // Normalised here rather than at the call site: the offsets
+        // [settledPrefix] returns index into THIS string, and a `\r\n` that
+        // survived would put every one of them one character out.
+        val text = source.replace("\r\n", "\n").replace('\r', '\n')
+        val links = collectMarkdownLinks(text)
+        val cut = settledPrefix(text)
+        if (!text.startsWith(settled) || cut < settled.length || links.size != linkCount) {
+            settled = ""
+            settledBlocks = emptyList()
+        }
+        linkCount = links.size
+        if (cut > settled.length) {
+            settledBlocks = settledBlocks + parseMarkdownChunk(text.substring(settled.length, cut), links)
+            settled = text.substring(0, cut)
+        }
+        return settledBlocks + parseMarkdownChunk(text.substring(settled.length), links)
+    }
+}
+
+/**
+ * Below this, chunking costs more than the parse it saves.
+ *
+ * Two kilobytes is about a screen and a half of prose at 14/20 on a 400 dp
+ * column. Under it the whole reply parses in well under a frame and the
+ * bookkeeping — a line scan, a substring, a list concatenation — is the
+ * larger half of the work.
+ */
+internal const val MARKDOWN_CHUNK_MIN = 2048
+
+/**
+ * How much of [source] will never be read differently, however much more
+ * arrives.
+ *
+ * Returns a character offset: everything before it can be parsed once and
+ * kept. The rule is deliberately narrow, because a cut in the wrong place is
+ * not a slow render but a WRONG one, and every condition below names a way
+ * that could happen:
+ *
+ *  - **The line before it is blank.** A blank line is the only thing that ends
+ *    a paragraph, so without one the head's last block could still grow.
+ *  - **It is not inside a fence.** An unclosed ``` swallows everything after
+ *    it, including blank lines, and a fence that closes later would turn the
+ *    head's "paragraphs" into code.
+ *  - **The line is complete** — there is a newline after it. A final,
+ *    still-arriving line is the one place a cut could later become invalid,
+ *    because `-` is not a list marker and `- x` is. Requiring the newline is
+ *    what makes the answer monotone, which is what lets the caller keep a
+ *    cache at all.
+ *  - **It starts at column zero.** An indented line is a list continuation, a
+ *    lazy paragraph continuation or an indented code block, and all three
+ *    belong to whatever came before the blank line.
+ *  - **It is not a list marker and not a quote.** This is the list-run rule:
+ *    `- a\n\n- b` is ONE loose list, and cutting between the items would draw
+ *    two tight ones and restart an ordered list's numbering at 1.
+ *
+ * Pure, and tested in `MarkdownChunkTest`.
+ */
+internal fun settledPrefix(source: String, min: Int = MARKDOWN_CHUNK_MIN): Int {
+    if (source.length < min) return 0
+    var index = 0
+    var cut = 0
+    var previousBlank = false
+    var inFence = false
+    var fenceChar = ' '
+    var fenceRun = 0
+    while (true) {
+        val newline = source.indexOf('\n', index)
+        if (newline < 0) break
+        val line = source.substring(index, newline)
+        if (inFence) {
+            val trimmed = line.trim()
+            // The closer readFencedCode looks for: same character, at least as
+            // long, and nothing else on the line.
+            if (line.indentWidth() < CODE_INDENT &&
+                trimmed.isNotEmpty() &&
+                trimmed.all { it == fenceChar } &&
+                trimmed.length >= fenceRun
+            ) {
+                inFence = false
+            }
+        } else {
+            if (previousBlank && startsASettledBlock(line)) cut = index
+            fenceAt(line)?.let { (char, run) ->
+                inFence = true
+                fenceChar = char
+                fenceRun = run
+            }
+        }
+        previousBlank = line.isBlank()
+        index = newline + 1
+    }
+    return cut
+}
+
+/** See [settledPrefix]: the four things a cut's first line may not be. */
+private fun startsASettledBlock(line: String): Boolean {
+    if (line.isBlank()) return false
+    if (line.indentWidth() > 0) return false
+    if (line.trimStart().startsWith('>')) return false
+    return markerAt(line) == null
+}
+
+/** The link reference definitions of a whole document, for a chunked parse. */
+internal fun collectMarkdownLinks(source: String): Map<String, String> =
+    collectLinkDefinitions(markdownLines(source))
+
+/**
+ * One chunk of a document, with the WHOLE document's [links].
+ *
+ * The definitions cannot be collected per chunk: `[text][ref]` in the first
+ * paragraph may name a `[ref]:` line in the last one, and a chunk that
+ * collected only its own would render the reference as literal text.
+ */
+internal fun parseMarkdownChunk(
+    chunk: String,
+    links: Map<String, String>,
+): List<MarkdownNode> = parseBlocks(markdownLines(chunk), links, depth = 0)
 
 /**
  * How long to wait before re-parsing, given how long ago the last parse was.
@@ -1263,12 +1445,12 @@ private fun NodeView(
             style = style.body,
             modifier = Modifier.padding(bottom = 8.dp),
         )
-        is MarkdownNode.Code -> CodeView(block, style)
+        is MarkdownNode.Code -> CodeView(block)
         is MarkdownNode.Quote -> QuoteView(block, style, onLink)
         is MarkdownNode.Bullets -> BulletsView(block, style, onLink)
-        MarkdownNode.Rule -> HorizontalDivider(
-            color = style.theme.color("border"),
-            modifier = Modifier.padding(vertical = 12.dp),
+        MarkdownNode.Rule -> HairlineDivider(
+            color = style.divider,
+            modifier = Modifier.padding(vertical = MD.space3),
         )
     }
 }
@@ -1296,36 +1478,38 @@ private fun HeadingView(
             ),
             modifier = Modifier.padding(bottom = if (underlined) 4.dp else 0.dp),
         )
-        if (underlined) HorizontalDivider(color = style.theme.color("border.variant"))
+        if (underlined) HairlineDivider(color = style.divider)
     }
 }
 
 /**
- * A fence, in the buffer font, on the editor's background.
+ * A fence, as a Zed island.
  *
  * **Not syntax-highlighted, and that is the extraction's one real loss.** The
  * preview colours a fence through `CodeFenceHighlighter`, which is a
  * tree-sitter parse per fence behind the engine's buffer mutex — engine work,
  * done off the main thread, for a *file*. It stays in `ui/preview` with the
- * rest of that machinery and goes when that package goes. A reply's fences are
- * short, and monospace on a panel of its own is what makes them read as code.
+ * rest of that machinery.
+ *
+ * What is fixed here is the face and the ground. This drew the fence in the
+ * *style object's* code font over a hand-rolled `editor.background` box with
+ * its own border and its own radius — one of eleven places in the app that
+ * each re-derived a code block slightly differently. [ZedCodeBlock] is that
+ * decision made once: the editor's ground and ink, the user's buffer family
+ * with its feature settings, no soft wrap, horizontal scroll, a selection
+ * container, a copy control, and a Material `outlineVariant` edge so the
+ * island's border belongs to the surface it is sitting on rather than to the
+ * editor (docs/VISUAL.md, "THE SEAM").
  */
 @Composable
-private fun CodeView(block: MarkdownNode.Code, style: MarkdownTextStyle) {
-    Box(
+private fun CodeView(block: MarkdownNode.Code) {
+    ZedCodeBlock(
+        text = block.code,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 12.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(style.theme.color("editor.background"))
-            .border(1.dp, style.theme.color("border.variant"), RoundedCornerShape(4.dp))
-            // Zed sets `code_block_overflow_x_scroll`: code is not prose and
-            // wrapping it silently changes what it says.
-            .horizontalScroll(rememberScrollState())
-            .padding(8.dp)
-    ) {
-        Text(text = AnnotatedString(block.code), style = style.code, softWrap = false)
-    }
+            .padding(top = MD.space2, bottom = MD.space3),
+        language = block.language,
+    )
 }
 
 @Composable
@@ -1334,14 +1518,7 @@ private fun QuoteView(
     style: MarkdownTextStyle,
     onLink: (String) -> Unit,
 ) {
-    val fallback = style.theme.color("border")
-    val accent = when (quote.kind) {
-        "NOTE", "IMPORTANT" -> style.theme.color("info", fallback)
-        "TIP" -> style.theme.color("success", fallback)
-        "WARNING" -> style.theme.color("warning", fallback)
-        "CAUTION" -> style.theme.color("error", fallback)
-        else -> fallback
-    }
+    val accent = style.alertAccent(quote.kind)
     // The bar is painted behind the column rather than laid out beside it: a
     // sibling would need `fillMaxHeight` inside a wrap-content Row, and the
     // intrinsic measurement that makes that legal is not something every child
@@ -1351,7 +1528,17 @@ private fun QuoteView(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .drawBehind { drawRect(accent, size = Size(3.dp.toPx(), size.height)) }
+            .drawBehind {
+                // `padding(start = ...)` below mirrors under an RTL locale but
+                // a raw draw does not, so the rail has to be told which edge
+                // "start" is. Theme.kt used to pin the whole app to LTR, which
+                // hid this; that pin now lives in ZedSurface and covers only
+                // the editor half, so the Material half honours the locale and
+                // this rect would otherwise sit on the wrong side of the text.
+                val w = 3.dp.toPx()
+                val x = if (layoutDirection == LayoutDirection.Rtl) size.width - w else 0f
+                drawRect(accent, topLeft = Offset(x, 0f), size = Size(w, size.height))
+            }
             .padding(start = 15.dp)
     ) {
         if (quote.kind != null) {
@@ -1385,7 +1572,7 @@ private fun BulletsView(
                         null -> item.marker
                     },
                     style = style.body,
-                    color = style.theme.color("text.muted"),
+                    color = style.muted,
                     textAlign = if (list.ordered) TextAlign.End else TextAlign.Start,
                     // One line: a marker that wrapped would push its own item's
                     // first line down.
@@ -1462,7 +1649,7 @@ private fun buildInline(
                 MarkdownStyle.Code in span.styles -> style.inlineCodeBackground
                 else -> Color.Unspecified
             },
-            color = if (span.isImage) style.theme.color("text.muted") else Color.Unspecified,
+            color = if (span.isImage) style.muted else Color.Unspecified,
         )
         val destination = span.link
         if (destination == null) {

@@ -32,8 +32,8 @@ case-sensitive. The commands you ran most recently come first.
 
 A command that cannot run right now — saving with no file open, opening a
 terminal with no project — is listed greyed rather than hidden, so the
-palette is also the honest list of what exists. Commands this edition does
-not have at all (cloning, without a userland) are not listed.
+palette is also the honest list of what exists. A command this build cannot
+run at all is not listed rather than greyed.
 
 The palette is a touch surface as much as a keyboard one: tap a row to run
 it, and the list stays above the soft keyboard while you type.
@@ -287,10 +287,10 @@ project list.
 
 **Clone** has no chord: `Ctrl` `Shift` `G` is the git panel in Zed and is the
 git panel here, and cloning is something one does once per repository. It is in
-the command palette, the `☰` menu and the project picker's own footer. It also
-exists only in the `full` edition — cloning runs the git inside the Linux
-userland, so the edition with no userland leaves the command and its menu entry
-out entirely rather than showing them greyed — see [USERLAND.md](USERLAND.md).
+the command palette, the `☰` menu and the project picker's own footer. Cloning
+runs the git inside the Linux userland, so a build with no userland would leave
+the command and its menu entry out entirely rather than showing them greyed —
+see [USERLAND.md](USERLAND.md).
 
 **Install a language server** has no chord either, and for the same reason: it
 is done once per language. The two ways in are the command palette and the
@@ -299,9 +299,9 @@ the userland has not got — click that. In the prompt, `Enter` installs (and,
 once it has, closes), `Esc` closes without stopping an install that is already
 running, and `↑` `↓` `Tab` `Shift` `Tab` move through the list of languages.
 Nothing is ever installed without being asked for, and the question says what
-the download will cost. Like cloning, it exists only in the `full` edition —
-apt lives inside the Linux userland — so the edition without one leaves the
-command out entirely rather than showing it greyed.
+the download will cost. Like cloning it needs the Linux userland, because that
+is where apt lives, and it follows the same rule: absent rather than greyed
+where there is nowhere to install into.
 
 **Select toolchain** has no chord either, and neither does Zed: `ctrl-k ctrl-m`
 there is `toolchain::AddToolchain`, a different action, so inventing a chord

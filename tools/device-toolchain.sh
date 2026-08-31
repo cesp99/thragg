@@ -62,7 +62,7 @@ step_rootfs() {
   say "Debian rootfs + proot"
   adbsh "mkdir -p $LAB/rootfs $LAB/tmp $LAB/projects"
   # proot comes from the APK's own jniLibs; it is the same binary the app uses.
-  adb push "$HERE/../app/src/full/jniLibs/arm64-v8a/libproot_exec.so" "$LAB/proot" >/dev/null
+  adb push "$HERE/../app/src/main/jniLibs/arm64-v8a/libproot_exec.so" "$LAB/proot" >/dev/null
   adbsh "chmod 755 $LAB/proot"
 
   [ -f "$WORK/debian-arm64-rootfs.tar.gz" ] || "$HERE/fetch-rootfs.sh" stable-slim arm64 "$WORK/debian-arm64-rootfs.tar.gz"

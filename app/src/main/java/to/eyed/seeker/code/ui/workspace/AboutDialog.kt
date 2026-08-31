@@ -32,7 +32,7 @@ import to.eyed.seeker.code.ui.theme.RowChevron
  * offers to copy the system specs.
  *
  * The list is [SystemSpecs]: everything an issue needs to be reproducible,
- * including the three facts only Android has (the edition, the ABI and the
+ * including the three facts only Android has (the userland, the ABI and the
  * kernel's page size). Copy puts the same lines on the clipboard as plain
  * `Label: value` text, which is what pastes into an issue body unchanged.
  *

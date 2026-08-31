@@ -153,6 +153,15 @@ class ZedTheme(
                 to "editor.document_highlight.read_background",
             "editor.debugger_active_line.background" to "editor.highlighted_line.background",
             "debugger.accent" to "text.accent",
+            // Zed's own themes write both, and every bundled family does — but
+            // the five double-fallback idioms that read them
+            // (ShellNavBar.kt:259, GitGraphPane.kt:1000/1095, OrchBits.kt:134)
+            // exist because a *user's* theme need not, and each one spells the
+            // borrowing out again at the call site. One entry each, here, is
+            // the same answer written once: a success is a created line, and an
+            // informational mark is the accent.
+            "success" to "created",
+            "info" to "text.accent",
             "terminal.ansi.background" to "terminal.background",
             "panel.overlay_background" to "elevated_surface.background",
             "panel.overlay_hover" to "element.hover",

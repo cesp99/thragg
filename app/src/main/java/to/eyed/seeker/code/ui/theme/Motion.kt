@@ -5,6 +5,12 @@ import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
@@ -16,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import to.eyed.seeker.code.core.AppSettings
 
 /**
@@ -119,4 +127,185 @@ suspend fun LazyListState.revealItem(index: Int) {
 /** [revealItem]'s sibling for a scroll by a distance rather than to a row. */
 suspend fun LazyListState.revealBy(delta: Float) {
     if (Motion.isReduced) scrollBy(delta) else animateScrollBy(delta)
+}
+
+/**
+ * The one spring: every expand, every collapse, every chevron, every
+ * `animateContentSize`.
+ *
+ * There is one so that two cards opening beside each other cannot arrive at
+ * different times, which is the single most common way a Compose screen stops
+ * looking designed. `StiffnessMediumLow` is Compose's own default for
+ * `animateContentSize`, and it is the right damping for a box changing size
+ * under a finger that is not touching it.
+ *
+ * Reduce-motion answers [snap], not a shorter duration: the *destination* is
+ * the information and the travel is the decoration, so decoration is what goes
+ * (see [LocalReduceMotion]).
+ */
+@Composable
+fun <T> seekerSpring(): FiniteAnimationSpec<T> =
+    if (LocalReduceMotion.current) snap() else spring(stiffness = Spring.StiffnessMediumLow)
+
+/**
+ * Colour and alpha — a tint arriving, a label fading in, a fill changing.
+ *
+ * These are Material 3's **expressive** default-effects numbers, spelled here
+ * rather than read off `MaterialTheme.motionScheme`. That read is not
+ * available: in material3 1.4.0 the `MotionScheme` interface,
+ * `MotionScheme.expressive()`, `MaterialTheme.motionScheme` and
+ * `MaterialExpressiveTheme` are all Kotlin-`internal`. Their *JVM* methods are
+ * public and, being top-level or `@Composable`, several are not even
+ * name-mangled — which is what an earlier `javap` pass read as "public" — but
+ * Kotlin resolves visibility from the `@Metadata` annotation, and the compiler
+ * refuses the call. Verified by compiling it: `Cannot access
+ * 'val motionScheme: MotionScheme': it is internal in
+ * 'androidx/compose/material3/MaterialTheme'`.
+ *
+ * So the values are copied instead, from
+ * `androidx.compose.material3.tokens.ExpressiveMotionTokens`:
+ * `SpringDefaultEffectsDamping = 1.0`, `SpringDefaultEffectsStiffness = 1600`.
+ * Critically damped and stiff — an opacity has no momentum, so any overshoot
+ * in it reads as a flicker rather than as weight.
+ */
+@Composable
+fun <T> effectSpec(): FiniteAnimationSpec<T> =
+    if (LocalReduceMotion.current) {
+        snap()
+    } else {
+        spring(dampingRatio = EFFECTS_DAMPING, stiffness = EFFECTS_STIFFNESS)
+    }
+
+/**
+ * Size and position — something moving, under or near a finger.
+ *
+ * `ExpressiveMotionTokens.SpringFastSpatial*`: damping 0.6, stiffness 800.
+ * Underdamped on purpose. A thing that overshoots slightly and settles has
+ * mass, and mass is what makes a drag feel attached to the finger that made
+ * it; the same overshoot applied to a colour ([effectSpec]) would be a bug.
+ */
+@Composable
+fun <T> spatialSpec(): FiniteAnimationSpec<T> =
+    if (LocalReduceMotion.current) {
+        snap()
+    } else {
+        spring(dampingRatio = SPATIAL_DAMPING, stiffness = SPATIAL_STIFFNESS)
+    }
+
+/** `ExpressiveMotionTokens.SpringDefaultEffectsDamping`. */
+private const val EFFECTS_DAMPING = 1.0f
+
+/** `ExpressiveMotionTokens.SpringDefaultEffectsStiffness`. */
+private const val EFFECTS_STIFFNESS = 1600f
+
+/** `ExpressiveMotionTokens.SpringFastSpatialDamping`. */
+private const val SPATIAL_DAMPING = 0.6f
+
+/** `ExpressiveMotionTokens.SpringFastSpatialStiffness`. */
+private const val SPATIAL_STIFFNESS = 800f
+
+/**
+ * The size spring, with the threshold that stops it running on invisibly.
+ *
+ * [seekerSpring] leaves `visibilityThreshold` null, which resolves to 0.01 —
+ * a hundredth of a pixel, so a box "finishes" arriving long after it has
+ * stopped moving on screen and holds a frame callback while it does.
+ * `IntSize.VisibilityThreshold` is one pixel on each axis, which is the
+ * smallest difference a size can actually have. Hoisted out of the composable
+ * because it depends on nothing.
+ */
+private val SizeSpring = spring(
+    stiffness = Spring.StiffnessMediumLow,
+    visibilityThreshold = IntSize.VisibilityThreshold,
+)
+
+/**
+ * Animate this composable's size changes on [seekerSpring].
+ *
+ * Reach for this rather than `animateContentSize()` — the bare call takes
+ * Compose's default spring and, more to the point, reads no reduce-motion
+ * signal, so a card that expands is exactly the kind of motion the setting
+ * exists to switch off and the bare call keeps it.
+ */
+@Composable
+fun Modifier.animateSize(): Modifier =
+    animateContentSize(if (LocalReduceMotion.current) snap() else SizeSpring)
+
+/**
+ * The durations that are a duration rather than a spring, each with its
+ * reason.
+ *
+ * Anything that answers "how long" and is not [seekerSpring], [effectSpec] or
+ * [spatialSpec] is here, so the same event has the same length everywhere it
+ * is drawn. A number that appears in two files eventually appears as two
+ * numbers.
+ *
+ * Every one of these still routes through [LocalReduceMotion] at the call
+ * site: reduce-motion removes the *travel*, not the [RUN_HOLD] or the
+ * [COPY_CONFIRM], which are how long a piece of information stays readable and
+ * are not motion at all.
+ */
+object Durations {
+    /**
+     * 180ms — a band appearing: the live-run strip, a notice, a status row.
+     * `fadeIn + expandVertically`.
+     */
+    const val BAND_IN = 180
+
+    /**
+     * 240ms — the same band leaving. **Slower out than in, deliberately.** A
+     * run that has just finished is the thing the user is most likely to be
+     * reading, and a strip that blinks out at the speed it came in reads as a
+     * glitch rather than as a completion.
+     */
+    const val BAND_OUT = 240
+
+    /**
+     * 4000ms — how long a finished run stays on screen before its strip
+     * collapses, so its FINAL counts can be read. The strip is the only place
+     * they are shown; without the hold the last thing it says is whatever it
+     * said one frame before it ended.
+     */
+    const val RUN_HOLD = 4000L
+
+    /**
+     * 120ms — an assistant markdown block fading in as it streams. Existing
+     * behaviour, kept: the agent's stream has draft-reset semantics ACP cannot
+     * express, so a block can be replaced wholesale and a longer fade would
+     * make the replacement look like a second block.
+     */
+    const val BLOCK_FADE = 120
+
+    /**
+     * 200ms — every colour and alpha tween that is written as a duration
+     * rather than as [effectSpec]. The band is 150-250ms and nothing sits
+     * outside it: under 150 a colour change is a flash, over 250 the eye has
+     * moved on before it lands.
+     */
+    const val TINT = 200
+
+    /** 8 — quantised frames in the braille spinner's cycle. */
+    const val SPINNER_FRAMES = 8
+
+    /**
+     * 50ms per frame, so [SPINNER_FRAMES] make a 400ms cycle. Quantised rather
+     * than continuous: a braille cell has eight positions and interpolating
+     * between two of them draws neither.
+     */
+    const val SPINNER_FRAME = 50L
+
+    /**
+     * 1000ms — the run ticker's step. The spinner beside it carries the
+     * motion; re-laying out a text run at 60fps to advance a seconds counter
+     * is work with no viewer.
+     */
+    const val TICKER = 1000L
+
+    /**
+     * 1600ms — how long a copy control says "Copied" before reverting. This
+     * replaces a snackbar rather than accompanying one: a snackbar for a copy
+     * covers content to report something that happened where the user was
+     * already looking.
+     */
+    const val COPY_CONFIRM = 1600L
 }

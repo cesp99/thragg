@@ -1,8 +1,12 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -22,8 +25,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -35,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -50,16 +57,20 @@ import to.eyed.seeker.code.core.QuestionDraft
 import to.eyed.seeker.code.core.SpettroAnswer
 import to.eyed.seeker.code.core.SpettroAnswers
 import to.eyed.seeker.code.core.SpettroQuestion
+import to.eyed.seeker.code.ui.components.SeekerChip
+import to.eyed.seeker.code.ui.components.SelectableCard
+import to.eyed.seeker.code.ui.components.ZedCodeBlock
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.theme.BufferFontFamily
-import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
-import to.eyed.seeker.code.ui.theme.SelectionMark
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.animateSize
+import to.eyed.seeker.code.ui.theme.mutedIcon
+import to.eyed.seeker.code.ui.theme.effectSpec
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -275,14 +286,18 @@ fun QuestionSheet(
     queuePosition: Int = 1,
     queueDepth: Int = 1,
 ) {
-    val theme = LocalZedTheme.current
+    val colors = LocalSeekerColors.current
     val scope = rememberCoroutineScope()
 
     // Keyed on the request id so the queue's next form starts blank: two forms
     // in a row asking "which database?" must not inherit the first answer.
     val drafts = remember(request.id) { mutableStateMapOf<String, QuestionDraft>() }
     val notesOpen = remember(request.id) { mutableStateMapOf<String, Boolean>() }
-    var preview by remember(request.id) { mutableStateOf<SpettroQuestion.Opt?>(null) }
+    // Which options have their preview open. A SET rather than a nested
+    // sheet: the preview is what the option would DO, so it belongs inside
+    // the option's own card where the two can be read together — and a sheet
+    // over a sheet at 400dp is two scrims and an ambiguous back gesture.
+    val previews = remember(request.id) { mutableStateMapOf<String, Boolean>() }
 
     // The `doneRef` of the wireframe. Not keyed on the request: its whole job
     // is to remember, across the recomposition that answering causes, that
@@ -334,6 +349,10 @@ fun QuestionSheet(
         // options and its review page do not fit at once, and the sheet's own
         // pager would be the thing that had to be dragged into view.
         openFraction = 1f,
+        // The body is CARDS, so the sheet drops to `background` and the cards
+        // read as objects on it. A `surfaceContainer` card on a
+        // `surfaceContainer` sheet is an outline with nothing inside it.
+        containerColor = MaterialTheme.colorScheme.background,
         field = {
             val q = current
             if (q != null) {
@@ -345,9 +364,9 @@ fun QuestionSheet(
                             } else {
                                 "Or answer in your own words"
                             },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                            modifier = Modifier.padding(bottom = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = MD.space1),
                         )
                         FormField(
                             value = draftOf(q).custom,
@@ -365,7 +384,7 @@ fun QuestionSheet(
                         )
                     }
                     if (notesOpen[q.id] == true) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(MD.iconGap))
                         FormField(
                             value = draftOf(q).note,
                             placeholder = "Why — the agent gets this too",
@@ -383,22 +402,26 @@ fun QuestionSheet(
                     // exactly the case it warns about.
                     Text(
                         text = QuestionForm.UNANSWERED_WARNING,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = MD.space2),
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Decline",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = theme.color("error", MaterialTheme.colorScheme.error),
-                        modifier = Modifier
-                            .touchTarget()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClickLabel = "Decline the whole form") { decline() }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                    )
+                    // A TextButton, not a filled one and not a hand-rolled
+                    // Box: declining is a real answer the agent is waiting
+                    // for, but it is not the one this sheet is asking for, so
+                    // it gets the quietest button Material has — in
+                    // `removedInk`, which is the solved red rather than the
+                    // raw `error` hue this drew before.
+                    TextButton(
+                        onClick = { decline() },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = colors.removedInk,
+                        ),
+                    ) {
+                        Text(text = "Decline", style = MaterialTheme.typography.labelLarge)
+                    }
                     Spacer(Modifier.weight(1f))
                     val last = page == pageCount - 1
                     PrimaryButton(
@@ -416,10 +439,10 @@ fun QuestionSheet(
             }
         },
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = MD.space4)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
                 // Was `⍰` (U+2370, an APL symbol) at titleMedium — the most
                 // obscure codepoint left in the app, on the *headline* of the
@@ -431,41 +454,41 @@ fun QuestionSheet(
                 SeekerIcon(
                     icon = R.drawable.ic_ui_agent,
                     contentDescription = null,
-                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                    size = IconSize.Inline,
+                    tint = colors.accentMark,
+                    size = IconSize.Action,
                 )
                 Text(
                     text = headline(request),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(MD.iconGap))
             request.context?.takeIf { it.isNotBlank() }?.let { context ->
                 Text(
                     text = context,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(MD.space2))
             }
             if (pageCount > 1) {
-                StepDots(
+                StepTabs(
                     pageCount = pageCount,
                     current = page,
-                    // Filled = answered. The review dot is filled once
-                    // anything at all has been said.
+                    hasReview = hasReview,
+                    // Marked = answered. The review tab counts as answered
+                    // once anything at all has been said.
                     answered = { index ->
                         val q = request.questions.getOrNull(index)
                         if (q == null) answers.isNotEmpty() else QuestionForm.isAnswered(q, draftOf(q))
                     },
-                    label = current?.header?.takeIf { it.isNotBlank() } ?: "Review",
                     onGoTo = { index -> scope.launch { pager.animateScrollToPage(index) } },
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(MD.space2))
             }
         }
         HorizontalPager(
@@ -492,7 +515,8 @@ fun QuestionSheet(
                     draft = draftOf(q),
                     noteOpen = notesOpen[q.id] == true,
                     onToggleNote = { notesOpen[q.id] = notesOpen[q.id] != true },
-                    onPreview = { preview = it },
+                    previewOpen = { previews[it.id] == true },
+                    onTogglePreview = { previews[it.id] = previews[it.id] != true },
                     onPick = { option ->
                         val was = draftOf(q)
                         // Picking clears typed words on a single-select for
@@ -511,9 +535,6 @@ fun QuestionSheet(
         }
     }
 
-    preview?.let { option ->
-        PreviewSheet(state = state, option = option, onDismiss = { preview = null })
-    }
 }
 
 /** `Spettro has 2 questions` — the form's size, said once, at the top. */
@@ -523,49 +544,51 @@ private fun headline(request: SpettroQuestion): String {
 }
 
 /**
- * The step strip: one dot per page, filled when that page has an answer, and
+ * The step strip: one tab per page, marked when that page has an answer, and
  * tappable so the review page's rows are not the only way back.
+ *
+ * Tabs rather than the dots this drew before, for one reason: a dot says
+ * "there are four of these" and nothing else, and on a form the two facts that
+ * matter are WHICH one you are on and which ones are still blank. A chip
+ * carries both — the number, and a check when it has been answered — in the
+ * same 28dp band, and it is a real target rather than a 10dp dot inside an
+ * invisible one.
  */
 @Composable
-private fun StepDots(
+private fun StepTabs(
     pageCount: Int,
     current: Int,
+    hasReview: Boolean,
     answered: (Int) -> Boolean,
-    label: String,
     onGoTo: (Int) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    val colors = LocalSeekerColors.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    ) {
         for (index in 0 until pageCount) {
-            val filled = answered(index)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .touchTarget()
-                    .clickable(onClickLabel = "Question ${index + 1}") { onGoTo(index) },
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (index == current) 10.dp else 8.dp)
-                        .clip(CircleShape)
-                        .background(
-                            when {
-                                filled -> theme.color("text.accent", MaterialTheme.colorScheme.primary)
-                                index == current -> theme.color("text", MaterialTheme.colorScheme.onSurface)
-                                else -> theme.color("border", MaterialTheme.colorScheme.outline)
-                            },
-                        ),
-                )
-            }
+            val isReview = hasReview && index == pageCount - 1
+            val done = answered(index)
+            SeekerChip(
+                label = if (isReview) "Review" else "${index + 1}",
+                onClick = { onGoTo(index) },
+                leading = when {
+                    isReview -> R.drawable.ic_ui_arrow_right
+                    done -> R.drawable.ic_ui_check
+                    else -> R.drawable.ic_ui_circle
+                },
+                // The page you are on is the accent; a page already answered
+                // is the added-line green, which is the app's one "this is
+                // settled" colour. Everything else is the neutral chip.
+                tint = when {
+                    index == current -> colors.accentInk
+                    done -> colors.addedInk
+                    else -> null
+                },
+            )
         }
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -576,176 +599,188 @@ private fun QuestionPage(
     draft: QuestionDraft,
     noteOpen: Boolean,
     onToggleNote: () -> Unit,
-    onPreview: (SpettroQuestion.Opt) -> Unit,
+    previewOpen: (SpettroQuestion.Opt) -> Boolean,
+    onTogglePreview: (SpettroQuestion.Opt) -> Unit,
     onPick: (SpettroQuestion.Opt) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val colors = LocalSeekerColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = MD.space4),
+        verticalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
         Text(
             text = q.question.ifBlank { q.header },
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+            color = MaterialTheme.colorScheme.onSurface,
         )
         if (q.multiSelect && q.options.isNotEmpty()) {
             Text(
                 text = "Choose as many as apply",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(8.dp))
         for (option in q.options) {
-            OptionRow(
+            OptionCard(
                 option = option,
                 checked = option.id in draft.selected,
                 multi = q.multiSelect,
+                previewOpen = previewOpen(option),
                 onClick = { onPick(option) },
-                onPreview = { onPreview(option) },
+                onTogglePreview = { onTogglePreview(option) },
             )
         }
-        Spacer(Modifier.height(4.dp))
         val noteLabel = if (noteOpen) "Hide note" else "Add a note"
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier
                 .touchTarget()
                 .clickable(onClickLabel = noteLabel) { onToggleNote() }
-                .padding(vertical = 4.dp),
+                .padding(vertical = MD.space1),
         ) {
             SeekerIcon(
                 icon = R.drawable.ic_ui_pencil,
                 contentDescription = null,
-                tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                tint = colors.accentMark,
                 size = IconSize.Marker,
             )
             Text(
                 text = noteLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.accentInk,
             )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(MD.space3))
     }
 }
 
 /**
- * One option: the tick, the label, the muted description, the recommendation
- * badge and — only on the extension transport, which is the only one that
- * carries them — the `◱` that opens the preview.
+ * One option, as a card whose SELECTION IS ITS BORDER.
+ *
+ * A selected option used to be a tinted mark on a transparent row; now the
+ * whole card is the target and picking it swaps a 1dp `outlineVariant` for a
+ * 1.5dp `primary` at 70% — a border change, never a fill change, because a
+ * filled selected card becomes the loudest thing on a form whose loudest thing
+ * should be the question. [SelectableCard] owns that pair for the whole app.
+ *
+ * The mark is a stock 20dp `RadioButton`/`Checkbox`: radio for one, checkbox
+ * for many, because the mark is the only thing that says whether a second tap
+ * adds to the answer or replaces it. Both are drawn with their click handler
+ * null — the CARD is the control, the mark is its readout, and two nested
+ * targets is two things for TalkBack to announce.
  */
 @Composable
-private fun OptionRow(
+private fun OptionCard(
     option: SpettroQuestion.Opt,
     checked: Boolean,
     multi: Boolean,
+    previewOpen: Boolean,
     onClick: () -> Unit,
-    onPreview: () -> Unit,
+    onTogglePreview: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = OptionRowHeight)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClickLabel = option.label, onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+    SelectableCard(
+        selected = checked,
+        onSelect = onClick,
+        modifier = Modifier.fillMaxWidth().animateSize(),
     ) {
-        // Radio for one, checkbox for many: the mark is the only thing that
-        // says whether a second tap adds to the answer or replaces it.
-        Box(
-            modifier = Modifier.width(TickWidth),
-            contentAlignment = Alignment.CenterStart,
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = OptionRowHeight)
+                .padding(horizontal = MD.space3, vertical = MD.rowPadY),
         ) {
-            SelectionMark(
-                selected = checked,
-                multi = multi,
-                tint = if (checked) {
-                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
+            Box(modifier = Modifier.width(TickWidth), contentAlignment = Alignment.CenterStart) {
+                if (multi) {
+                    Checkbox(checked = checked, onCheckedChange = null)
                 } else {
-                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-                },
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = option.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (option.isRecommended) {
-                    Spacer(Modifier.width(8.dp))
+                    RadioButton(selected = checked, onClick = null)
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        // A badge and nothing else. The row is not selected,
-                        // not highlighted and not first — the agent's guess
-                        // is information, not a decision.
-                        text = "Recommended",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("created", MaterialTheme.colorScheme.primary),
-                        maxLines = 1,
+                        text = option.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (option.isRecommended) {
+                        Spacer(Modifier.width(MD.space2))
+                        RecommendedTag()
+                    }
+                }
+                option.description?.takeIf { it.isNotBlank() }?.let { description ->
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = MD.space05),
+                    )
+                }
+                if (previewOpen) {
+                    // What the option would produce — a diff, a command, a
+                    // generated name — as a Zed island inside the Material
+                    // card, which is the app's one rule for code in a sheet.
+                    ZedCodeBlock(
+                        text = option.preview.orEmpty(),
+                        modifier = Modifier.fillMaxWidth().padding(top = MD.space2),
                     )
                 }
             }
-            option.description?.takeIf { it.isNotBlank() }?.let { description ->
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            if (option.preview != null) {
+                // A disclosure, not an eye and not a second sheet: the preview
+                // opens in place, under the option it belongs to.
+                SeekerIconButton(
+                    icon = if (previewOpen) {
+                        R.drawable.ic_ui_chevron_up
+                    } else {
+                        R.drawable.ic_ui_chevron_down
+                    },
+                    description = if (previewOpen) {
+                        "Hide the preview of ${option.label}"
+                    } else {
+                        "Preview ${option.label}"
+                    },
+                    onClick = onTogglePreview,
+                    tint = mutedIcon,
+                    size = IconSize.Inline,
                 )
             }
-        }
-        if (option.preview != null) {
-            // An icon-only button whose entire affordance was `◱` (U+25F1).
-            // An eye says "look at this" with no vocabulary to learn, and it
-            // is the mark the askpass and API-key reveals already use.
-            SeekerIconButton(
-                icon = R.drawable.ic_ui_eye,
-                description = "Preview ${option.label}",
-                onClick = onPreview,
-                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                size = IconSize.Inline,
-            )
         }
     }
 }
 
 /**
- * What the option would produce — a diff, a command, a generated name.
+ * The agent's preferred option, badged — accent, never green.
  *
- * A nested sheet rather than Desktop's side-by-side pane: at 400 dp there is
- * no second column, and the preview is read once and then dismissed. Mono,
- * because everything that arrives here is code or a path.
+ * `theme.color("created")` before this, and that is a real defect rather than
+ * a style preference: on a form that decides what the agent does to your
+ * working tree, a GREEN recommendation reads as "this is the safe one", which
+ * is a claim the agent did not make. An accent-washed capsule reads as "this
+ * is the suggested one", which is what it means. It is a TAG and NEVER a
+ * preselection — nothing on this form is preselected.
  */
 @Composable
-private fun PreviewSheet(state: ShellState, option: SpettroQuestion.Opt, onDismiss: () -> Unit) {
-    val theme = LocalZedTheme.current
-    val settings = LocalAppSettings.current
-    SheetScaffold(state = state, onDismiss = onDismiss, title = option.label) {
-        Text(
-            text = option.preview.orEmpty(),
-            style = TextStyle(
-                fontFamily = BufferFontFamily,
-                fontSize = (settings.bufferFontSize * 0.85f).sp,
-                lineHeight = (settings.bufferFontSize * 1.35f).sp,
-            ),
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            softWrap = false,
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-        )
-    }
+private fun RecommendedTag() {
+    val colors = LocalSeekerColors.current
+    Text(
+        text = "Recommended",
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+        fontWeight = FontWeight.SemiBold,
+        color = colors.accentInk,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+            .padding(horizontal = MD.tagPadX, vertical = MD.tagPadY),
+    )
 }
 
 /**
@@ -754,7 +789,9 @@ private fun PreviewSheet(state: ShellState, option: SpettroQuestion.Opt, onDismi
  *
  * The warning is verbatim from the spec because the distinction it draws is
  * the whole reason the form is worth building: "unanswered" is a fact the
- * model is told, not an absence it has to guess at.
+ * model is told, not an absence it has to guess at. It prints in `warnInk`
+ * rather than in the muted ink, because reporting a default as a preference
+ * would be a lie to the agent and this is the sentence that stops it.
  */
 @Composable
 private fun ReviewPage(
@@ -762,37 +799,37 @@ private fun ReviewPage(
     draftOf: (SpettroQuestion.Q) -> QuestionDraft,
     onGoTo: (Int) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val colors = LocalSeekerColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = MD.space4),
     ) {
         Text(
             text = "Review your answers",
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+            color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(MD.space1))
         request.questions.forEachIndexed { index, q ->
             val summary = QuestionForm.summary(q, draftOf(q))
             val empty = summary == QuestionForm.NOT_ANSWERED
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(MD.space3),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = OptionRowHeight)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(MD.radiusSm))
                     .clickable(onClickLabel = "Edit ${q.header}") { onGoTo(index) }
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                    .padding(horizontal = MD.space1, vertical = MD.space2),
             ) {
                 Text(
                     text = q.header.ifBlank { "Question ${index + 1}" },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.width(ReviewLabelWidth),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -800,11 +837,7 @@ private fun ReviewPage(
                 Text(
                     text = summary,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (empty) {
-                        theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        theme.color("text", MaterialTheme.colorScheme.onSurface)
-                    },
+                    color = if (empty) colors.warnInk else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -812,90 +845,124 @@ private fun ReviewPage(
                 RowChevron()
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(MD.space2))
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         ) {
             SeekerIcon(
                 icon = R.drawable.ic_ui_warning,
                 contentDescription = null,
-                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                tint = colors.warnMark,
                 size = IconSize.Marker,
             )
             Text(
                 text = QuestionForm.UNANSWERED_WARNING,
                 style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(MD.space3))
     }
 }
 
 /** The sheet's one text-field shape, shared by the custom answer and the note. */
 @Composable
 private fun FormField(value: String, placeholder: String, onValueChange: (String) -> Unit) {
-    val theme = LocalZedTheme.current
+    SheetTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = placeholder,
+        // Not single-line: an answer in your own words is a sentence, and the
+        // IME's enter key should give a second line rather than dismiss a form
+        // the agent is blocked on.
+        maxLines = 4,
+        capitalize = true,
+    )
+}
+
+/**
+ * The pill every sheet's bottom-pinned field takes, at the composer's metrics.
+ *
+ * One shape for the question sheet's two fields and the permission sheet's
+ * custom answer, because they are the same control in the same place. A field
+ * with no focus state at all is the loudest "this is not a real Android app"
+ * tell a text input can carry, so the hairline warms to the accent while it
+ * holds the caret and the caret itself is the accent.
+ */
+@Composable
+internal fun SheetTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    maxLines: Int = 4,
+    capitalize: Boolean = false,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val border by animateColorAsState(
+        targetValue = if (focused) scheme.primary.copy(alpha = 0.5f) else scheme.outlineVariant,
+        animationSpec = effectSpec(),
+        label = "sheet-field-border",
+    )
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                theme.color("editor.background", MaterialTheme.colorScheme.surface),
-                RoundedCornerShape(8.dp),
-            )
-            .heightIn(min = 44.dp)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(MD.pill))
+            .background(scheme.surfaceContainerHigh)
+            .border(MD.hairline, border, RoundedCornerShape(MD.pill))
+            .heightIn(min = FieldHeight)
+            .padding(horizontal = MD.space3, vertical = MD.composerPadY),
+        contentAlignment = Alignment.CenterStart,
     ) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            // Not single-line: an answer in your own words is a sentence, and
-            // the IME's enter key should give a second line rather than
-            // dismiss a form the agent is blocked on.
-            maxLines = 4,
+            maxLines = maxLines,
             keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Sentences,
+                capitalization = if (capitalize) {
+                    KeyboardCapitalization.Sentences
+                } else {
+                    KeyboardCapitalization.None
+                },
                 imeAction = ImeAction.Default,
             ),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            ),
-            cursorBrush = SolidColor(
-                theme.color("editor.foreground", MaterialTheme.colorScheme.onSurface),
-            ),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+            cursorBrush = SolidColor(scheme.primary),
+            interactionSource = interaction,
             modifier = Modifier.fillMaxWidth(),
         )
         if (value.isEmpty()) {
             Text(
                 text = placeholder,
-                style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                style = MaterialTheme.typography.bodyLarge,
+                color = scheme.onSurfaceVariant,
             )
         }
     }
 }
 
-/** The right-thumb button both sheets end with. */
+/**
+ * The right-thumb button both sheets end with.
+ *
+ * A stock `Button`, which is what buys the state layer, the real disabled
+ * appearance and TalkBack's "button, disabled" — the hand-rolled `Box` this
+ * replaces drew its disabled state as a 40% alpha on the fill and a 50% alpha
+ * on the label, which is a guess at what Material already knows.
+ */
 @Composable
 internal fun PrimaryButton(label: String, enabled: Boolean, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    val background = theme.color("element.background", MaterialTheme.colorScheme.primary)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .heightIn(min = ButtonHeight)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (enabled) background else background.copy(alpha = 0.4f))
-            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(MD.radiusSm),
+        modifier = Modifier.heightIn(min = ButtonHeight),
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface)
-                .copy(alpha = if (enabled) 1f else 0.5f),
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
@@ -908,4 +975,7 @@ private val TickWidth = 32.dp
 
 private val ReviewLabelWidth = 96.dp
 
-internal val ButtonHeight = 48.dp
+internal val ButtonHeight = MD.rowMin
+
+/** A field one line tall still clears the touch floor. */
+private val FieldHeight = 44.dp

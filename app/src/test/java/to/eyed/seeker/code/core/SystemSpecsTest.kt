@@ -12,9 +12,8 @@ import org.junit.Test
 class SystemSpecsTest {
 
     private val specs = SystemSpecs(
-        appVersion = "0.0.4-full",
+        appVersion = "0.0.4",
         versionCode = 4,
-        flavour = "full",
         hasUserland = true,
         engineVersion = "seeker-engine 0.1.0",
         zedCommit = "bc538def45",
@@ -28,8 +27,8 @@ class SystemSpecsTest {
     fun theReportIsPlainLabelValueLines() {
         assertEquals(
             """
-            App: 0.0.4-full (4)
-            Edition: full — Linux userland
+            App: 0.0.4 (4)
+            Userland: Linux userland
             Engine: seeker-engine 0.1.0
             Zed: bc538def45
             Device: Google Pixel 9 Pro
@@ -42,13 +41,13 @@ class SystemSpecsTest {
     }
 
     @Test
-    fun theEditionSaysWhetherThereIsAUserland() {
+    fun theReportSaysWhetherThereIsAUserland() {
         // Half the reports about git or a language server are really about
-        // this one line, so it says it in words rather than naming a flavour.
-        assertTrue(specs.report().contains("full — Linux userland"))
+        // this one line, so it says it in words rather than naming a build
+        // flavour — there was one that meant this, and it is gone.
+        assertTrue(specs.report().contains("Userland: Linux userland"))
         assertTrue(
-            specs.copy(flavour = "play", hasUserland = false).report()
-                .contains("play — no userland")
+            specs.copy(hasUserland = false).report().contains("Userland: no userland")
         )
     }
 

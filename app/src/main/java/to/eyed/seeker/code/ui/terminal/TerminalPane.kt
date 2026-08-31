@@ -93,10 +93,7 @@ import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.theme.FontCatalog
 import to.eyed.seeker.code.ui.workspace.ContextMenu
 import to.eyed.seeker.code.ui.workspace.ContextMenuItem
-import to.eyed.seeker.code.ui.workspace.Focus
 import to.eyed.seeker.code.ui.workspace.onSecondaryClick
-import to.eyed.seeker.code.ui.workspace.shortcutLabel
-import to.eyed.seeker.code.ui.workspace.WorkspaceCommand
 
 /** How long the dock stays lit after a bell. Long enough to catch, short enough to ignore. */
 private const val BELL_FLASH_MS = 220L
@@ -126,33 +123,34 @@ private class StickyModifiers {
 /**
  * Everything the dock can do to the session in front of it.
  *
- * One table behind the keyboard, the overflow menu and the right-click menu,
- * so the three can't drift: the shortcut a menu prints is the one the keymap
- * matches, read from the keymap in force. Names are Zed's `terminal::`
- * actions (terminal_view.rs, `actions!(terminal, …)`), which is what
- * keymap.json binds them by; [Close] is the workspace's own `terminal::Close`
- * command, so it is one action from both the palette and here.
+ * One table behind the overflow menu and the long-press menu, so the two
+ * can't drift. Names are Zed's `terminal::` actions (terminal_view.rs,
+ * `actions!(terminal, …)`) and stay Zed's even though nothing binds them to a
+ * chord any more: [byId] dispatches by id, and an id that means the same
+ * thing in the upstream editor is worth more than a private one.
+ *
+ * There is no `shortcut` column now. The keymap subsystem it read — the
+ * WorkspaceCommand table, DefaultKeymap and shortcutLabel in
+ * ui/workspace/Keybindings.kt — is gone (docs/UI.md, "What is removed"), and
+ * a menu on a phone that prints "Ctrl+Shift+F" beside a row you reached with
+ * your thumb was chrome for a keyboard nobody attached.
  */
 internal enum class TerminalAction(val id: String, val label: String) {
     Copy("terminal::Copy", "Copy"),
     Paste("terminal::Paste", "Paste"),
     /**
      * Zed's `buffer_search::Deploy` in the Terminal context
-     * (default-linux.json:1281-1282: `find` and `ctrl-shift-f`). The same
-     * action is the workspace's [WorkspaceCommand.FindInFile], which opens
-     * this bar while the shell has focus, so the palette, the keymap and
-     * this row see one binding; this row is the finger's route.
+     * (default-linux.json:1281-1282: `find` and `ctrl-shift-f`). The id is
+     * spelled out here rather than read from the command table, which no
+     * longer exists; it is the same string that table carried.
      */
-    Search(WorkspaceCommand.FindInFile.id, "Find…"),
+    Search("buffer_search::Deploy", "Find…"),
     Clear("terminal::Clear", "Clear"),
     ScrollToTop("terminal::ScrollToTop", "Scroll to top"),
     ScrollToBottom("terminal::ScrollToBottom", "Scroll to bottom"),
     Rename("terminal::RenameTerminal", "Rename…"),
     Restart("terminal::Restart", "Restart"),
-    Close(WorkspaceCommand.CloseTerminal.id, "Close");
-
-    /** The chord to print beside the row: whatever the keymap in force says. */
-    val shortcut: String? get() = shortcutLabel(id, Focus.Terminal)
+    Close("terminal::Close", "Close");
 
     companion object {
         fun byId(id: String): TerminalAction? = entries.firstOrNull { it.id == id }
@@ -735,11 +733,11 @@ private fun SessionChip(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
             items = listOf(
-                ContextMenuItem(TerminalAction.Rename.label, TerminalAction.Rename.shortcut) {
+                ContextMenuItem(TerminalAction.Rename.label) {
                     onRename()
                 },
                 ContextMenuItem(TerminalAction.Restart.label) { onRestart() },
-                ContextMenuItem(TerminalAction.Close.label, TerminalAction.Close.shortcut) {
+                ContextMenuItem(TerminalAction.Close.label) {
                     onClose()
                 },
             ),
@@ -752,7 +750,7 @@ private fun menuItems(
     actions: List<TerminalAction>,
     onPick: (TerminalAction) -> Unit,
 ): List<ContextMenuItem> =
-    actions.map { action -> ContextMenuItem(action.label, action.shortcut) { onPick(action) } }
+    actions.map { action -> ContextMenuItem(action.label) { onPick(action) } }
 
 /** Says what happened to the shell, and offers the two things worth doing next. */
 @Composable

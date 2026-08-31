@@ -1,11 +1,7 @@
 package to.eyed.seeker.code.ui.shell.projects
 
 import android.content.Context
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,11 +11,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,8 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,10 +38,14 @@ import to.eyed.seeker.code.solana.templates.SolanaFramework
 import to.eyed.seeker.code.solana.templates.SolanaNames
 import to.eyed.seeker.code.solana.templates.SolanaProgram
 import to.eyed.seeker.code.solana.templates.SolanaScaffold
+import to.eyed.seeker.code.ui.components.Choice
+import to.eyed.seeker.code.ui.components.SectionHeader
+import to.eyed.seeker.code.ui.components.SeekerCard
+import to.eyed.seeker.code.ui.components.SegmentedSelect
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import to.eyed.seeker.code.ui.theme.SelectionMark
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.workspace.Notifications
 
 /**
@@ -60,12 +64,19 @@ import to.eyed.seeker.code.ui.workspace.Notifications
  * (docs/UI.md, "New program"). Nobody waits on a gigabyte before seeing their
  * code.
  *
+ * THE FRAMEWORK PICKER IS `SegmentedSelect`, and it is the first non-agent use
+ * of it — which is the whole argument for that component living in
+ * `ui/components/` rather than inside the agent's config sheet. Three flat
+ * choices with the active one's sentence printed underneath is the same
+ * problem here as it is there, and three cards each carrying a radio and a
+ * blurb was 60dp of screen per option to say what one line says
+ * (docs/VISUAL.md, "New program / Clone").
+ *
  * The route's ← and title come from the shell's RouteHost, so this composable
  * is the body: fields that scroll, actions pinned at the bottom.
  */
 @Composable
 fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
 
     var name by remember { mutableStateOf("") }
@@ -75,6 +86,17 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
     // (docs/UI.md, "New program"), and it is on by default.
     var openThread by remember { mutableStateOf(true) }
     var creating by remember { mutableStateOf(false) }
+
+    // Where the folder will land. `ProjectsRoot.directory` does an `mkdirs`,
+    // so it is a filesystem write and cannot be called from a composition —
+    // it is read once, off the main thread, and the row draws nothing until
+    // it answers.
+    var projectsDir by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        projectsDir = withContext(Dispatchers.IO) {
+            runCatching { ProjectsRoot.directory(context).absolutePath }.getOrNull()
+        }
+    }
 
     val trimmed = name.trim()
     // Two validators, in the order the two failures happen: the directory
@@ -89,41 +111,60 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
     val program = remember(trimmed) { SolanaProgram.of(trimmed.ifEmpty { "program" }) }
     val canCreate = trimmed.isNotEmpty() && error == null && !creating
 
+    val frameworks = SolanaFramework.entries.map { option ->
+        Choice(
+            value = option.name,
+            name = stringResource(option.labelRes),
+            // Language first, then the sentence: on one line under the row
+            // the language is the fastest discriminator between the three,
+            // and the blurb is what is read second.
+            description = stringResource(option.languageRes) + " · " +
+                stringResource(option.blurbRes),
+        )
+    }
+    val clusters = SolanaProgram.CLUSTERS.map { Choice(value = it, name = it) }
+
     Column(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = ScreenPadding),
+                .padding(horizontal = MD.space4),
         ) {
-            FieldLabel("Name")
+            SectionHeader("Name", modifier = Modifier.padding(top = MD.space4))
             SheetTextField(
                 value = name,
                 onValueChange = { name = it },
                 placeholder = "escrow",
+                // The rule and the refusal share one slot. `supportingText`
+                // is announced as the field's error when `isError` is set and
+                // as its help when it is not, which is what a separately drawn
+                // line under a field could never be.
                 error = error,
                 autoFocus = true,
             )
             // The derivation, live and always visible — the line that makes
             // "My Project" becoming `my_project` a decision the user watched
-            // rather than one they find in Cargo.toml later.
+            // rather than one they find in Cargo.toml later. Set in the buffer
+            // face, because all three of them are identifiers that will appear
+            // in a buffer.
             Text(
                 text = "crate ${program.crateName} · mod ${program.moduleName} · " +
                     "type ${program.typeName}",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(top = 6.dp),
+                style = MonoSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = MD.space2),
             )
 
-            FieldLabel("Framework")
-            for (option in SolanaFramework.entries) {
-                FrameworkCard(
-                    framework = option,
-                    isSelected = option == framework,
-                    onClick = { framework = option },
-                )
-            }
+            SectionHeader("Framework", modifier = Modifier.padding(top = MD.space6))
+            SegmentedSelect(
+                options = frameworks,
+                selectedValue = framework.name,
+                onSelect = { value ->
+                    framework = SolanaFramework.entries.first { it.name == value }
+                },
+            )
             if (framework == SolanaFramework.Seahorse) {
                 // Seahorse honesty, in as many words: a framework you can
                 // create but cannot build is worse than one never offered
@@ -131,22 +172,22 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
                 Text(
                     text = "Seahorse compiles to Rust and builds through anchor build. " +
                         "It needs Python in the Linux guest — Build installs it the first time.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MD.space2),
                 )
             }
 
-            FieldLabel("Cluster")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (option in SolanaProgram.CLUSTERS) {
-                    Chip(
-                        label = option,
-                        isSelected = option == cluster,
-                        onClick = { cluster = option },
-                    )
-                }
-            }
+            SectionHeader("Cluster", modifier = Modifier.padding(top = MD.space6))
+            SegmentedSelect(
+                options = clusters,
+                selectedValue = cluster,
+                onSelect = { cluster = it },
+                // The four cluster names say everything a description would;
+                // the sentence below is about where the choice is *written*,
+                // which is a property of the form and not of the choice.
+                showActiveDescription = false,
+            )
             Text(
                 // Native has no Anchor.toml to put it in, and saying so beats
                 // a chip that silently does nothing.
@@ -155,33 +196,77 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
                 } else {
                     "Written into Anchor.toml as [provider] cluster. Changeable later."
                 },
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(top = 6.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = MD.space2),
             )
 
-            CheckRow(
-                checked = openThread,
-                label = "Open a thread and describe it to the agent afterwards",
-                onToggle = { openThread = !openThread },
-            )
+            SectionHeader("Location", modifier = Modifier.padding(top = MD.space6))
+            // A card and not a drill row: there is one project root on this
+            // device and it is app-private storage by design
+            // (core/ProjectsRoot.kt), so a chevron here would promise a picker
+            // that cannot exist. It is here to be *read* — the one question
+            // "where did my program go" needs an answer on the screen that
+            // made it.
+            SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = projectsDir?.let { "$it/${trimmed.ifEmpty { "escrow" }}" } ?: "",
+                    style = MonoSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = MD.rowMin)
+                        .padding(horizontal = MD.space3, vertical = MD.rowPadY),
+                )
+            }
+
+            // The row is the target and the checkbox is the mark, so the
+            // toggle semantics live on the row rather than on the box —
+            // otherwise the announced control is 18dp wide and the sentence
+            // beside it is unreachable.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = MD.space6)
+                    .toggleable(
+                        value = openThread,
+                        role = Role.Checkbox,
+                        onValueChange = { openThread = it },
+                    )
+                    .heightIn(min = MD.rowMin),
+            ) {
+                Checkbox(checked = openThread, onCheckedChange = null)
+                Text(
+                    text = "Open a thread and describe it to the agent afterwards",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
 
         // Actions at the bottom of the screen, above the IME — the rule every
-        // surface in this app follows (docs/UI.md).
-        Column(
+        // surface in this app follows (docs/UI.md). Create is DISABLED rather
+        // than hidden while the name is bad, so the reason for its state can
+        // be read off the field above it (docs/VISUAL.md).
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MD.space3, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = ScreenPadding, vertical = 8.dp),
+                .padding(horizontal = MD.space4, vertical = MD.space2),
         ) {
-            SheetButtons(
-                cancelLabel = "Cancel",
-                onCancel = { state.pop() },
-                confirmLabel = if (creating) "Creating…" else "Create",
-                confirmEnabled = canCreate,
-                onConfirm = {
+            TextButton(onClick = { state.pop() }) {
+                Text("Cancel", style = MaterialTheme.typography.labelLarge)
+            }
+            Button(
+                onClick = {
                     creating = true
                     // [ProjectWork], not a composition scope: creating ends
                     // by opening the project, which pops this very route.
@@ -198,7 +283,13 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
                         if (created) state.pop()
                     }
                 },
-            )
+                enabled = canCreate,
+            ) {
+                Text(
+                    text = if (creating) "Creating…" else "Create",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
         }
     }
 }
@@ -348,140 +439,3 @@ object AgentThreadSeed {
         pending = null
     }
 }
-
-@Composable
-private fun FieldLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.Medium,
-        color = LocalZedTheme.current.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
-}
-
-/**
- * One framework, as a card: a radio, the name, the language and one line on
- * why you would pick it.
- *
- * A card rather than a row of chips because the blurb is the point — the
- * three are not three flavours of the same thing, and someone arriving from a
- * tutorial needs to know which one the tutorial was written for.
- */
-@Composable
-private fun FrameworkCard(
-    framework: SolanaFramework,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-) {
-    val theme = LocalZedTheme.current
-    Row(
-        verticalAlignment = Alignment.Top,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .background(
-                if (isSelected) {
-                    theme.color("element.selected", MaterialTheme.colorScheme.surfaceVariant)
-                } else {
-                    theme.color("element.background", MaterialTheme.colorScheme.surface)
-                },
-                RoundedCornerShape(10.dp),
-            )
-            .border(
-                width = 1.dp,
-                color = if (isSelected) {
-                    theme.color("border.focused", MaterialTheme.colorScheme.primary)
-                } else {
-                    theme.color("border", MaterialTheme.colorScheme.outline)
-                },
-                shape = RoundedCornerShape(10.dp),
-            )
-            .clickable(onClick = onClick)
-            .heightIn(min = CardHeight)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        SelectionMark(
-            selected = isSelected,
-            multi = false,
-            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            modifier = Modifier.padding(end = 10.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(framework.labelRes),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                )
-                Text(
-                    text = stringResource(framework.languageRes),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-            Text(
-                text = stringResource(framework.blurbRes),
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun Chip(label: String, isSelected: Boolean, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = if (isSelected) {
-            theme.color("text", MaterialTheme.colorScheme.onSurface)
-        } else {
-            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-        },
-        modifier = Modifier
-            .background(
-                if (isSelected) {
-                    theme.color("element.selected", MaterialTheme.colorScheme.surfaceVariant)
-                } else {
-                    theme.color("element.background", MaterialTheme.colorScheme.surface)
-                },
-                RoundedCornerShape(8.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    )
-}
-
-@Composable
-private fun CheckRow(checked: Boolean, label: String, onToggle: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 20.dp)
-            .clickable(onClick = onToggle)
-            .heightIn(min = CardHeight),
-    ) {
-        SelectionMark(
-            selected = checked,
-            multi = true,
-            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            modifier = Modifier.padding(end = 10.dp),
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-private val ScreenPadding = 16.dp
-private val CardHeight = 44.dp

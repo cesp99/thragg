@@ -1,6 +1,5 @@
 package to.eyed.seeker.code.ui.shell.changes
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,23 +7,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.core.GitSession
 import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.ui.git.GitOps
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.shell.build.FlatButton
 import to.eyed.seeker.code.ui.shell.build.askAgent
 import to.eyed.seeker.code.ui.shell.projects.SheetTextField
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.workspace.Notifications
 
 /**
@@ -54,7 +54,6 @@ fun CommitSheet(
     onPush: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
     val ops = GitOps.of(project.id)
     val staged = model.stagedPaths
@@ -98,36 +97,40 @@ fun CommitSheet(
         },
         actions = {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = MD.space2),
+                horizontalArrangement = Arrangement.spacedBy(MD.space3),
             ) {
-                FlatButton(label = "Commit", modifier = Modifier.weight(1f)) { commit(false) }
-                FlatButton(
-                    label = "Commit & Push",
-                    emphasis = true,
+                // Disabled rather than silently refusing: `commit()` already
+                // returns early without a message or a staged file, and a
+                // button that does nothing when pressed is the version of that
+                // rule the user cannot see.
+                OutlinedButton(
+                    onClick = { commit(false) },
+                    enabled = canCommit,
                     modifier = Modifier.weight(1f),
-                ) { commit(true) }
+                ) { Text("Commit") }
+                Button(
+                    onClick = { commit(true) },
+                    enabled = canCommit,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Commit & Push") }
             }
         },
     ) {
-        Text(
-            text = "Ask the agent for a message",
-            style = MaterialTheme.typography.labelLarge,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = model.stagedCount > 0) {
-                    onDismiss()
-                    askAgent(state, context, commitMessagePrompt(staged))
-                }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        TextButton(
+            onClick = {
+                onDismiss()
+                askAgent(state, context, commitMessagePrompt(staged))
+            },
+            enabled = model.stagedCount > 0,
+            modifier = Modifier.padding(horizontal = MD.space2),
+        ) { Text("Ask the agent for a message") }
         if (model.stagedCount == 0) {
             Text(
                 text = "Stage something first — the checkbox on a row, or Stage all.",
-                style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
             )
         }
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -135,14 +138,17 @@ fun CommitSheet(
                 Column {
                     Text(
                         text = path,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        // The buffer face, not the system mono: a path is the
+                        // one thing in this sheet that is not prose, and
+                        // `FontFamily.Monospace` beside IBM Plex was a third
+                        // face nobody chose (docs/VISUAL.md, "THE SEAM").
+                        style = MonoSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.MiddleEllipsis,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = MD.space4, vertical = MD.iconGap),
                     )
                 }
             }

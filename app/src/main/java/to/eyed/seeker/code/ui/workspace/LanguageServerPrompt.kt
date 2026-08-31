@@ -94,10 +94,10 @@ fun LanguageServerPrompt(
     grammar: String?,
     onDismiss: () -> Unit,
 ) {
-    // The `play` flavour has no guest to install into. The command that opens
-    // this is absent there (WorkspaceCommand.isOffered) and the status bar has
-    // no server to report unavailable, so this is a backstop rather than a
-    // path: draw nothing rather than a dialog whose every button fails.
+    // A build with no guest has nothing to install into. Every build that
+    // ships has one, so this is a backstop rather than a path: draw nothing
+    // rather than a dialog whose every button fails. (The command that used to
+    // grey itself out here went with ui/workspace/Commands.kt.)
     if (!LanguageServerInstaller.isSupported) return
 
     val context = LocalContext.current

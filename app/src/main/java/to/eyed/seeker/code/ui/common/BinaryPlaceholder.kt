@@ -3,7 +3,6 @@ package to.eyed.seeker.code.ui.common
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -23,14 +23,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.core.ShareOut
 import to.eyed.seeker.code.ui.media.MediaInfo
 import to.eyed.seeker.code.ui.media.MediaKind
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import to.eyed.seeker.code.ui.theme.touchTarget
+import to.eyed.seeker.code.ui.theme.MD
 import java.io.File
 
 /**
@@ -65,12 +63,15 @@ fun BinaryPlaceholder(
     kind: MediaKind?,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
     val file = remember(absolutePath) { File(absolutePath) }
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(theme.color("editor.background")),
+            // `background`, which the bridge takes from `editor.background`:
+            // this pane stands *where the buffer would be* but it is chrome,
+            // not a rendering of text, so it lives on the Material side of the
+            // seam and reads the scheme (docs/VISUAL.md, "THE BOUNDARY").
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center,
     ) {
         if (kind == MediaKind.Image) ImageOrLine(file) else HandOver(file)
@@ -109,7 +110,7 @@ private fun ImageOrLine(file: File) {
             // machinery had that anybody actually used (Zed's own first layout,
             // image_viewer.rs:424-432).
             contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize().padding(8.dp),
+            modifier = Modifier.fillMaxSize().padding(MD.space2),
         )
     }
 }
@@ -124,12 +125,12 @@ private fun HandOver(file: File) {
     val detail = remember(file.path) { binaryDetail(file) }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = Modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(MD.space4),
+        modifier = Modifier.padding(MD.space4),
     ) {
         Line(file.name, detail)
         if (ShareOut.canShare(file)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(MD.space2)) {
                 Action("Open with…") { ShareOut.openWith(context, file) }
                 Action("Share…") { ShareOut.share(context, file) }
             }
@@ -139,42 +140,36 @@ private fun HandOver(file: File) {
 
 @Composable
 private fun Line(title: String, detail: String) {
-    val theme = LocalZedTheme.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(MD.space1),
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text"),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         Text(
             text = detail,
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.muted"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
     }
 }
 
 /**
- * A text button in the pane's own colours; Material's would bring a filled
- * pill. [touchTarget] rather than the padding alone: this is a phone, and the
- * only two actions on the screen are the ones a finger has to be able to hit.
+ * A stock `TextButton`, which brings the 48dp target, the ripple and the
+ * disabled ink with it. It used to be a tinted `Text` with [touchTarget]
+ * stapled on, from the days when a Material button here would have arrived in
+ * a palette that fought the buffer beside it; the bridge is that palette now.
  */
 @Composable
 private fun Action(label: String, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .touchTarget()
-            .clickable(onClick = onClick)
-            .padding(8.dp),
-    )
+    TextButton(onClick = onClick) {
+        Text(text = label, style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 /**

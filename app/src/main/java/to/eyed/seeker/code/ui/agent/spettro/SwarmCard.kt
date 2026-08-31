@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -35,8 +38,11 @@ import to.eyed.seeker.code.core.OrchStatus
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.seekerSpring
 
 /**
  * An Ultra swarm (docs/SPETTRO.md, "Ultra swarm card").
@@ -63,10 +69,13 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  *
  * The container carries one amber identity and nothing else: every member is
  * already tinted by its spec, and a second colour per row makes the card
- * confetti.
+ * confetti. The amber is used twice and as two different values — the raw hue
+ * washes the card, and `warnInk` writes the words, because the raw one
+ * measures 1.64:1 on Ayu Light (docs/VISUAL.md, "INK AND WASH ARE SEPARATE
+ * VALUES").
  *
- * See [WorkflowCard] for the [state] parameter and the LazyColumn `key`
- * contract — both apply here unchanged.
+ * See [WorkflowCard] for the [state] parameter, the LazyColumn `key` contract
+ * and the header rule — all three apply here unchanged.
  */
 @Composable
 fun SwarmCard(
@@ -74,13 +83,17 @@ fun SwarmCard(
     state: ShellState,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val amber = ultraAmber()
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val muted = scheme.onSurfaceVariant
+    val amberWash = colors.ultraAmber
+    val amberInk = colors.warnInk
     val live = run.status.isMoving
 
-    var open by rememberSaveable(run.tool.key) { mutableStateOf(live) }
+    // Collapsed by default, expanded when it failed — see [WorkflowCard].
+    var open by rememberSaveable(run.tool.key) {
+        mutableStateOf(run.status == OrchStatus.Failed)
+    }
     var showAll by rememberSaveable(run.tool.key) { mutableStateOf(false) }
     var showDone by rememberSaveable(run.tool.key) { mutableStateOf(false) }
     var showQueued by rememberSaveable(run.tool.key) { mutableStateOf(false) }
@@ -89,16 +102,19 @@ fun SwarmCard(
 
     val split = splitMembers(run.members, live = live, cap = SwarmRowCap, showAll = showAll)
     val ghosts = if (showQueued) run.pending else run.pending.take(GhostCap)
+    val cells = remember(run.members, run.counts.total) {
+        cellStates(run.members, run.counts.total)
+    }
 
     RunCardFrame(
-        accent = amber,
+        wash = amberWash,
         failed = run.status == OrchStatus.Failed,
         modifier = modifier,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MD.iconGap)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 36.dp)
@@ -107,7 +123,7 @@ fun SwarmCard(
                 SeekerIcon(
                     icon = R.drawable.ic_ui_zap,
                     contentDescription = null,
-                    tint = amber,
+                    tint = amberInk,
                     size = IconSize.Marker,
                 )
                 Text(
@@ -115,35 +131,46 @@ fun SwarmCard(
                         ?.let { " · $it" }.orEmpty(),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
-                    color = text,
+                    color = scheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.weight(1f))
                 if (run.isolation.contains("worktree", ignoreCase = true)) {
-                    WorktreePill(amber) { worktreeSheet = true }
+                    WorktreePill(amberInk) { worktreeSheet = true }
                 }
-                if (!open) {
+                Chevron(open)
+            }
+
+            // The meter, the ratio and the counts are HEADER, not body: a
+            // collapsed swarm must still say how much of it broke.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                ProgressMeter(
+                    run.counts,
+                    modifier = Modifier.width(if (open) 96.dp else 72.dp),
+                )
+                Text(
+                    text = run.counts.ratio,
+                    style = MaterialTheme.typography.labelMedium
+                        .copy(fontFeatureSettings = TabularNums),
+                    color = muted,
+                )
+                CountsLabel(run.counts, modifier = Modifier.weight(1f))
+                if (run.pending.isNotEmpty()) {
                     Text(
-                        text = run.counts.ratio,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (run.counts.failed > 0) failColor() else muted,
-                        maxLines = 1,
+                        text = "${run.pending.size} queued",
+                        style = MaterialTheme.typography.labelMedium
+                            .copy(fontFeatureSettings = TabularNums),
+                        color = muted,
                     )
                 }
-                // Down open, up tucked away — the state, not the gesture,
-                // which is the vocabulary every other card in this app uses.
-                SeekerIcon(
-                    icon = if (open) {
-                        R.drawable.ic_ui_chevron_down
-                    } else {
-                        R.drawable.ic_ui_chevron_up
-                    },
-                    contentDescription = null,
-                    tint = muted,
-                    size = IconSize.Marker,
-                )
             }
+
+            CellStrip(cells)
 
             if (!open) return@RunCardFrame
 
@@ -157,35 +184,7 @@ fun SwarmCard(
                 )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                ProgressMeter(run.counts, modifier = Modifier.weight(1f))
-                Text(
-                    text = run.counts.ratio,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                CountsLabel(run.counts)
-                if (run.pending.isNotEmpty()) {
-                    Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
-                    Text(
-                        text = "${run.pending.size} queued",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = muted,
-                    )
-                }
-            }
-
-            CardRule(Modifier.padding(vertical = 2.dp))
+            CardRule(Modifier.padding(vertical = MD.space05))
 
             for (member in split.rows) {
                 MemberRow(
@@ -239,17 +238,35 @@ fun SwarmCard(
     }
 }
 
+/** See [WorkflowCard]'s own chevron: one drawable, rotated on [seekerSpring]. */
+@Composable
+private fun Chevron(open: Boolean) {
+    val angle by animateFloatAsState(
+        targetValue = if (open) 180f else 0f,
+        animationSpec = seekerSpring(),
+        label = "swarm-card-chevron",
+    )
+    SeekerIcon(
+        icon = R.drawable.ic_ui_chevron_down,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        size = IconSize.Marker,
+        modifier = Modifier.rotate(angle),
+    )
+}
+
 /** The `worktree` pill: an explanation one tap away, never a tooltip. */
 @Composable
-private fun WorktreePill(amber: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun WorktreePill(amber: Color, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .border(1.dp, amber.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(MD.radiusXs))
+            .background(amber.copy(alpha = 0.12f))
+            .border(MD.hairline, amber.copy(alpha = 0.4f), RoundedCornerShape(MD.radiusXs))
             .clickable(onClickLabel = "What worktree isolation means") { onClick() }
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = MD.iconGap, vertical = MD.space05),
     ) {
         SeekerIcon(
             icon = R.drawable.ic_ui_git_fork,
@@ -279,7 +296,6 @@ private val WorktreeMarkSize = 11.dp
  */
 @Composable
 private fun WorktreeSheet(state: ShellState, onDismiss: () -> Unit) {
-    val theme = LocalZedTheme.current
     SheetScaffold(state = state, onDismiss = onDismiss, title = "Worktree isolation") {
         Text(
             text = "Each member works in its own git worktree on its own branch, under " +
@@ -287,8 +303,8 @@ private fun WorktreeSheet(state: ShellState, onDismiss: () -> Unit) {
                 "and deleted when the swarm finishes; a branch that conflicts is kept for " +
                 "you to resolve.",
             style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
         )
     }
 }

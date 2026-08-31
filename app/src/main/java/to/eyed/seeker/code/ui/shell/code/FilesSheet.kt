@@ -17,9 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -50,12 +50,16 @@ import to.eyed.seeker.code.core.ProjectSearchSession
 import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.core.SearchQuery
 import to.eyed.seeker.code.ui.search.matchLine
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.OpenFilesState
 import to.eyed.seeker.code.ui.workspace.ProjectPanel
@@ -98,9 +102,17 @@ fun FilesSheet(
     /** A hit in the "in files" results: the file, and the 1-based line to land on. */
     onOpenMatch: (path: String, line: Int) -> Unit,
     onOpenChanges: () -> Unit,
+    /**
+     * Projects & tools. It used to hang off the Code header's project chip,
+     * and a [to.eyed.seeker.code.ui.components.SeekerTopBar] has no slot for
+     * one — its leading position belongs to back. This sheet is where the
+     * question moved to, and it belongs here: this is the surface about
+     * *where the files are*, and switching project is the largest version of
+     * that question. The host owns the sheet slot, so it does the swap.
+     */
+    onOpenProjects: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     var mode by remember { mutableStateOf(initialMode) }
     var query by remember { mutableStateOf(TextFieldValue("")) }
     val focus = remember { FocusRequester() }
@@ -121,18 +133,18 @@ fun FilesSheet(
                 SeekerIcon(
                     icon = R.drawable.ic_ui_magnifying_glass,
                     contentDescription = null,
-                    tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    tint = mutedIcon,
                     size = IconSize.Inline,
-                    modifier = Modifier.padding(end = 8.dp),
+                    modifier = Modifier.padding(end = MD.space2),
                 )
                 BasicTextField(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
-                    cursorBrush = SolidColor(theme.color("text.accent", MaterialTheme.colorScheme.primary)),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     modifier = Modifier
                         .weight(1f, fill = true)
                         .focusRequester(focus)
@@ -144,8 +156,8 @@ fun FilesSheet(
         },
         actions = {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = MD.space2),
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
                 // "New file" wants a directory to create in and a name to ask
                 // for, which is ProjectPanelMenu's long-press sheet — the tree
@@ -153,15 +165,16 @@ fun FilesSheet(
                 // worse version of it. Changes is P7's route, pushed rather
                 // than opened here.
                 SheetAction(R.drawable.ic_ui_git_fork, "Changes", onOpenChanges)
+                SheetAction(R.drawable.ic_ui_folder_import, "Projects", onOpenProjects)
             }
         },
     ) {
         if (project == null) {
-            Box(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().padding(MD.space6)) {
                 Text(
                     text = "No project is open.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             return@SheetScaffold
@@ -189,13 +202,10 @@ private fun ColumnScope.BrowseBody(
     files: OpenFilesState,
     onOpenFile: (String) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     if (files.tabs.isNotEmpty()) {
-        Text(
-            text = "OPEN",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        SectionHeader(
+            text = "Open",
+            modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space1),
         )
         Column(
             // Capped so that a session with twenty files open still leaves the
@@ -209,32 +219,36 @@ private fun ColumnScope.BrowseBody(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenFile(file.path) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = MD.space4, vertical = MD.rowPadY),
                 ) {
                     SeekerIcon(
                         icon = if (file.isDirty) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
                         contentDescription = if (file.isDirty) "unsaved" else null,
                         tint = if (file.isDirty) {
-                            theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                            MaterialTheme.colorScheme.primary
                         } else {
-                            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         size = IconSize.Marker,
-                        modifier = Modifier.padding(end = 8.dp),
+                        modifier = Modifier.padding(end = MD.space2),
                     )
                     Text(
                         text = file.name,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                     )
                     Text(
                         text = file.path.substringBeforeLast('/', "./"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        // The buffer face, because it is a path: the eleven
+                        // `FontFamily.Monospace` sites this app had were the
+                        // *system* mono over Material ink, which matches
+                        // neither half (Type.kt, [MonoSmall]).
+                        style = MonoSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.MiddleEllipsis,
-                        modifier = Modifier.weight(1f, fill = true).padding(start = 8.dp),
+                        modifier = Modifier.weight(1f, fill = true).padding(start = MD.space2),
                     )
                     // Through the model, never `close` directly: a dirty
                     // buffer must raise the unsaved-changes dialog the host
@@ -243,13 +257,13 @@ private fun ColumnScope.BrowseBody(
                         icon = R.drawable.ic_ui_close,
                         description = "Close ${file.name}",
                         onClick = { files.requestClose(index) },
-                        tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        tint = mutedIcon,
                         size = IconSize.Inline,
                     )
                 }
             }
         }
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outline))
+        HairlineDivider()
     }
     // The tree: ProjectTreeState's lazy, gitignore-aware worktree and
     // ProjectPanel's rows, git status colours, file icons and long-press menu
@@ -269,7 +283,6 @@ private fun ColumnScope.NameResults(
     query: String,
     onOpenFile: (String) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     var matches by remember { mutableStateOf(emptyList<FileMatch>()) }
     LaunchedEffect(project, query) {
         // The match takes the engine's project mutex, so a keystroke waits
@@ -286,18 +299,18 @@ private fun ColumnScope.NameResults(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onOpenFile(path) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = MD.space4, vertical = MD.rowPadY),
             ) {
                 Text(
                     text = match.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
                 Text(
                     text = path,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    style = MonoSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.MiddleEllipsis,
                 )
@@ -323,7 +336,6 @@ private fun ColumnScope.InFileResults(
     query: String,
     onOpenMatch: (path: String, line: Int) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     var found by remember(project) { mutableStateOf(emptyList<ProjectSearchFile>()) }
     var session by remember(project) { mutableStateOf<ProjectSearchSession?>(null) }
 
@@ -355,19 +367,24 @@ private fun ColumnScope.InFileResults(
         onDispose { running?.cancel() }
     }
 
-    val highlight = theme.color("search.match_background", MaterialTheme.colorScheme.primaryContainer)
+    // The Material accent at the wash the design uses for a highlight, not
+    // Zed's `search.match_background`: these rows are a Material list in a
+    // Material sheet, and the buffer's own hits are painted by the editor
+    // (docs/VISUAL.md, "THE BOUNDARY, EXACTLY").
+    val highlight = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
     LazyColumn(modifier = Modifier.weight(1f, fill = true)) {
         for (file in found) {
             val path = file.projectPath.ifEmpty { file.path }
             item(key = "f/$path") {
                 Text(
                     text = path,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MonoSmall,
                     fontWeight = FontWeight.Medium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.MiddleEllipsis,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = MD.space4, vertical = MD.space1),
                 )
             }
             itemsIndexedKeyed(path, file) { match ->
@@ -376,18 +393,18 @@ private fun ColumnScope.InFileResults(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenMatch(path, match.line) }
-                        .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                        .padding(start = MD.space6, end = MD.space4, top = MD.space2, bottom = MD.space2),
                 ) {
                     Text(
                         text = "${match.line}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                        modifier = Modifier.padding(end = 10.dp),
+                        style = MonoSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = MD.rowPadY),
                     )
                     Text(
                         text = matchLine(match, highlight),
                         style = MaterialTheme.typography.bodySmall,
-                        color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -411,55 +428,56 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedKeyed(
     }
 }
 
+/**
+ * `names` / `in files` — which question the field is asking.
+ *
+ * Selection is a 16% wash of the accent rather than a fill step, which is the
+ * design's rule for a state (docs/VISUAL.md, "Foundations", ELEVATION): the
+ * two chips sit *inside* the field's own pill, and a rung of the container
+ * ladder there would read as a second field rather than as a choice.
+ */
 @Composable
 private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     Text(
         text = label,
-        style = MaterialTheme.typography.labelSmall,
+        style = MaterialTheme.typography.labelMedium,
         color = if (selected) {
-            theme.color("text", MaterialTheme.colorScheme.onSurface)
+            MaterialTheme.colorScheme.primary
         } else {
-            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+            MaterialTheme.colorScheme.onSurfaceVariant
         },
         maxLines = 1,
         modifier = Modifier
             .touchTarget()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(MD.pill))
             .background(
                 if (selected) {
-                    theme.color("element.selected", MaterialTheme.colorScheme.surfaceVariant)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                 } else {
                     androidx.compose.ui.graphics.Color.Transparent
                 }
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = MD.space2, vertical = MD.iconGap),
     )
 }
 
 @Composable
 private fun SheetAction(@DrawableRes icon: Int, label: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    val tint = theme.color("text.accent", MaterialTheme.colorScheme.primary)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .touchTarget()
-            .clip(RoundedCornerShape(4.dp))
-            .clickable(onClickLabel = label, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-    ) {
+    TextButton(onClick = onClick) {
         // The words carry the meaning here, so the icon is decoration and the
-        // row's own click label is what a screen reader reads.
+        // button's own label is what a screen reader reads.
         SeekerIcon(
             icon = icon,
             contentDescription = null,
-            tint = tint,
+            tint = MaterialTheme.colorScheme.primary,
             size = IconSize.Inline,
         )
-        Text(text = label, style = MaterialTheme.typography.labelLarge, color = tint)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(start = MD.iconGap),
+        )
     }
 }
 

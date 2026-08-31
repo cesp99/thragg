@@ -99,8 +99,8 @@ product for that screen and is being replaced rather than adapted.
 | Integrated terminal | ✅ shells in the project directory, tabs, theme colours, keyboard/mouse/touch, clickable paths and URLs (`src/main.rs:12:5` opens at the spot), search in the scrollback, `terminal` settings (working directory, env, scrollback) |
 | Tasks & runnables | ✅ Zed's `tasks.json` (user and `.zed/`), `$ZED_*` variables, `task::Spawn` picker with oneshots and history, `task::Rerun`, `reveal` / `hide` / `save` / `use_new_terminal` / `allow_concurrent_runs`; built-in cargo, python/pytest, go, npm-script and shell tasks; ▶ play buttons in the gutter from each grammar's `runnables.scm` — see [docs/TASKS.md](docs/TASKS.md) |
 | Terminal sessions survive backgrounding | ✅ foreground service, notification with **Stop all**, survives a swipe from Recents |
-| Debian userland (`apt`) | ✅ in the `full` edition — installs on demand, ~30 MB |
-| Clone a repository into a project | ✅ progress, cancel, credential prompts (`full` edition) |
+| Debian userland (`apt`) | ✅ installs on demand, ~30 MB |
+| Clone a repository into a project | ✅ progress, cancel, credential prompts |
 | Git status colours in the project panel | ✅ engine-side, from the theme's own colours |
 | Git panel | ✅ `Ctrl+Shift+G`, stage/unstage/discard/commit, keyboard and touch |
 | Diff bars in the gutter, inline blame | ✅ Zed's own widths and colours; blame while the file is clean |
@@ -128,7 +128,7 @@ product for that screen and is being replaced rather than adapted.
 | Editable multibuffers | ✅ Zed's own surface — excerpts of many files in one document, edits routed to each file, `Ctrl+S` saves them all |
 | Project diagnostics | ✅ a tab of every problem, grouped by file, and the same problems as an editable multibuffer |
 | Workspace persistence | ✅ one JSON document per project in the engine (Zed keeps the same shape in sqlite): the pane tree, every tab with its carets, scroll, pinned and preview state, the jump list, the docks and their widths; `restore_on_startup` (`last_session` / `last_workspace` / `none`), `close_on_file_delete`, `projects::OpenRecent` (`Ctrl+Alt+O`) with Remove from Recent Projects, and `workspace::CloseWindow`. Terminal tabs come back as fresh shells in the same directories — a shell dies with the app; multibuffers are not restored, being snapshots of a search that has moved on |
-| Language servers on-device | ✅ diagnostics, completions with `completionItem/resolve` documentation, hover, signature help, inlay hints (`inlay_hints`, off by default as in Zed), go to definition / type definition / implementation / declaration, find references (into a multibuffer), rename, code actions (edits and commands), formatting, project symbols (`Ctrl+T`); restart, stop and a log tab per server from the status bar; servers installed with `apt` (`full` edition) |
+| Language servers on-device | ✅ diagnostics, completions with `completionItem/resolve` documentation, hover, signature help, inlay hints (`inlay_hints`, off by default as in Zed), go to definition / type definition / implementation / declaration, find references (into a multibuffer), rename, code actions (edits and commands), formatting, project symbols (`Ctrl+T`); restart, stop and a log tab per server from the status bar; servers installed with `apt` |
 | Toolchain selector | ✅ Zed's `toolchain::Select` — the project's virtualenvs (`pyvenv.cfg` in the root or one directory down), `poetry env info`, `rustup toolchain list` and the guest's own `python3`/`cargo`; the choice is per project and per language, exports `VIRTUAL_ENV` and leads `PATH` for the language servers and for tasks, and shows in the status bar |
 | Interface size | ✅ `Ctrl+=` / `Ctrl+-` / `Ctrl+0`, and a settings row — all the chrome scales |
 | Which-key hint | ✅ press `Ctrl+K` and the ways to finish the chord are listed above the status bar — Zed's `which_key`, on the pending state the keymap already kept |
@@ -137,18 +137,17 @@ product for that screen and is being replaced rather than adapted.
 | Translations | ✅ the shell's strings — settings, the project picker, the dialogs, the ☰ menu, the welcome screen, About — are in `res/values/strings.xml`; adding a language is one file (see [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | Onboarding | ✅ a first-run welcome with the three things to try and the theme choice — Zed's `zed::OpenOnboarding`, reachable again from ☰ and the palette |
 | About | ✅ `zed::About` — app version and edition, engine version, the Zed commit the vendored crates come from, device, Android version, ABI and page size, with **Copy** for a bug report |
-| ACP agent panel | ✅ conversations with any ACP agent — permission-gated edits, plans, `@` mentions (files, directories, symbols, threads, fetched pages, rules files, diagnostics, the selection), per-message checkpoints with **Restore checkpoint**, a **Review changes** tab with Keep/Reject per file, MCP `context_servers` forwarded to the agent, notifications when it is waiting while the panel is hidden; agents are configured in `agent_servers` (settings.json or the Settings screen), none are bundled or named in code (`full` edition) |
+| ACP agent panel | ✅ conversations with any ACP agent — permission-gated edits, plans, `@` mentions (files, directories, symbols, threads, fetched pages, rules files, diagnostics, the selection), per-message checkpoints with **Restore checkpoint**, a **Review changes** tab with Keep/Reject per file, MCP `context_servers` forwarded to the agent, notifications when it is waiting while the panel is hidden; agents are configured in `agent_servers` (settings.json or the Settings screen), none are bundled or named in code |
 
-## Editions
+## Where it comes from
 
-Two builds come out of this repository, and the difference is worth
-knowing before you download one:
-
-- **`full`** — includes the Debian userland, so `apt` works. Android only
-  permits that at an older target SDK, which Google Play does not accept,
-  so this edition comes from F-Droid or a direct APK.
-- **`play`** — Play-compatible. Everything else is identical; the terminal
-  runs Android's own shell and there is no `apt`.
+One build comes out of this repository, and it includes the Debian
+userland, so `apt` works. Android only permits that at an older target SDK,
+which Google Play does not accept — so Seeker IDE comes from F-Droid or a
+direct APK, and not from Play. A Play-compatible edition without the
+userland used to exist beside this one; it could not clone, could not
+install a language server, could not build a Solana program and could not
+run an agent, so it is gone.
 
 See [docs/BUILDING.md](docs/BUILDING.md) for the details and
 [docs/USERLAND.md](docs/USERLAND.md) for what the userland can do.

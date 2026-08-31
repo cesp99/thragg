@@ -1,62 +1,83 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package to.eyed.seeker.code.ui.shell.build
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
-import to.eyed.seeker.code.solana.build.ArtifactFreshness
 import to.eyed.seeker.code.solana.build.AgentFix
+import to.eyed.seeker.code.solana.build.ArtifactFreshness
 import to.eyed.seeker.code.solana.build.BuildAction
 import to.eyed.seeker.code.solana.build.BuildDiagnostics
+import to.eyed.seeker.code.solana.build.BuildIssue
 import to.eyed.seeker.code.solana.build.BuildRunner
 import to.eyed.seeker.code.solana.build.BuildTasks
 import to.eyed.seeker.code.solana.build.ProjectFramework
 import to.eyed.seeker.code.solana.build.ProjectLayout
 import to.eyed.seeker.code.terminal.Userland
+import to.eyed.seeker.code.ui.components.EmptyState
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.NoticeCard
+import to.eyed.seeker.code.ui.components.RunTicker
+import to.eyed.seeker.code.ui.components.SeekerCard
+import to.eyed.seeker.code.ui.components.SeekerChip
+import to.eyed.seeker.code.ui.components.SeekerSpinner
+import to.eyed.seeker.code.ui.components.SeekerTopBar
+import to.eyed.seeker.code.ui.components.Severity
+import to.eyed.seeker.code.ui.components.StatusDot
 import to.eyed.seeker.code.ui.editor.DiagnosticSeverity
+import to.eyed.seeker.code.ui.shell.BuildState
 import to.eyed.seeker.code.ui.shell.Destination
-import to.eyed.seeker.code.ui.shell.code.CodeBuildSeam
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.shell.code.CodeBuildSeam
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
+import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.accentIcon
+import to.eyed.seeker.code.ui.theme.effectSpec
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.ContextMenu
 import to.eyed.seeker.code.ui.workspace.ContextMenuItem
@@ -65,30 +86,39 @@ import to.eyed.seeker.code.ui.workspace.Notifications
 /**
  * The Build destination — the screen the app exists for.
  *
- * Which program, what the compiler said, and three buttons, on one column,
- * with the primary action at the bottom right where the thumb rests. The
- * layout is upside down compared to every desktop IDE and that is the point:
- * "reachability inversion" was one of the three judged defects of the base
- * design (docs/UI.md, "Why"), and the fix is that every high-frequency control
- * lives in the bottom third. The 44dp header carries identity and the rare
- * exits; Test/Deploy/Build sit directly above the nav bar.
+ * FOUR BANDS, TOP TO BOTTOM (docs/VISUAL.md, "Every other screen" → Build): a
+ * 56dp [SeekerTopBar] carrying the target as its subtitle and the run control
+ * as a filled button; a 36dp [BuildStatusStrip] that *reports* and never acts;
+ * the problems as [SeekerCard]s you can tap into Code; and the log as a Zed
+ * island in the buffer's own face. Everything except that island is Material —
+ * `MaterialTheme.colorScheme` and `LocalSeekerColors`, no `theme.color(...)`
+ * read anywhere in this file — because the log is the only part of this screen
+ * that has to agree with tree-sitter, and the rest is an app.
  *
- * Two orderings inside the button row are deliberate. Build is the widest and
- * the rightmost because it is the one that gets hammered, and Deploy is
- * separated from it by Test because Deploy spends SOL — a mis-tap on the
- * button next to the one you press forty times a session should not be a
- * transaction.
+ * THE RUN CONTROL MOVED INTO THE BAR, and it swaps its GLYPH rather than its
+ * label. A build is a cancel-not-steer situation: while it runs there is
+ * exactly one thing to do to it, and a second control that says "Stop" beside
+ * a first that says "Build" is two answers to a question with one. That is the
+ * opposite of the agent composer, where the send button must not become a stop
+ * button, and the difference is that an agent turn can be *redirected*.
  *
- * The whole destination toggles in place to [ShellTerminal] via the `⌗ Shell`
- * header chip. Shell is not a fourth stop on the bar; see [ShellModes].
+ * WHAT THIS COSTS, SAID PLAINLY: the three-button bottom row is gone, and with
+ * it docs/UI.md's reachability inversion for this screen. Build is now one tap
+ * in the bar; Test and Deploy are in the overflow, which for Deploy is a
+ * feature — it spends SOL, and docs/UI.md's own argument was that it must not
+ * sit under the thumb that presses Build forty times a session. VISUAL.md is
+ * the authority here and its wireframe has no bottom row.
+ *
+ * The whole destination still toggles in place to [ShellTerminal]; see
+ * [ShellModes].
  */
 @Composable
 fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val theme = LocalZedTheme.current
     val root = state.project?.rootPath
     val layout = BuildRunner.layout
     val inShell = ShellModes.isShell(root)
+    var testSheet by remember { mutableStateOf(false) }
 
     // Detect, probe and stat — all three are blocking, and the probe starts a
     // proot. Keyed on the project and on the toolchain flag, so finishing
@@ -99,24 +129,58 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     LaunchedEffect(state) { BuildBootstrap.install(state, context) }
 
     Column(modifier = modifier.fillMaxSize()) {
-        BuildHeader(
+        BuildBar(
             state = state,
-            projectName = state.project?.rootName ?: "No project",
-            subtitle = if (inShell) "Shell" else layout?.label.orEmpty(),
+            context = context,
+            root = root,
+            layout = layout,
             inShell = inShell,
-            onToggleShell = { ShellModes.toggle(root) },
+            onTest = {
+                if (layout != null && BuildTasks.anchorTestNeedsNode(layout)) {
+                    testSheet = true
+                } else {
+                    BuildRunner.start(context, state, BuildAction.Test)
+                }
+            },
         )
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
+        // The seam under a flat bar. Nothing tints on scroll anywhere in this
+        // app, so a hairline is what separates a bar from its content.
+        HairlineDivider()
+
+        // No project means nothing to report, and a strip that says "Not
+        // built" about a project that does not exist is noise with a border.
+        if (!inShell && root != null) {
+            BuildStatusStrip(state, layout)
+            HairlineDivider()
+        }
 
         when {
-            root == null -> EmptyState(
-                "No project is open. Open one from Code to build it."
-            )
+            root == null -> Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                EmptyState(
+                    headline = "No project open",
+                    body = "Open one from Code and its builds, its problems and " +
+                        "its shell all land here.",
+                )
+            }
 
             inShell -> ShellTerminal(state, root, modifier = Modifier.weight(1f))
 
             else -> BuildBody(state, context, root, layout, modifier = Modifier.weight(1f))
         }
+    }
+
+    if (testSheet) {
+        AnchorTestSheet(
+            state = state,
+            onDismiss = { testSheet = false },
+            onCargoTest = {
+                testSheet = false
+                BuildRunner.start(context, state, BuildAction.Test, BuildTasks.cargoTestCommand())
+            },
+        )
     }
 }
 
@@ -145,88 +209,283 @@ object BuildBootstrap {
     }
 }
 
-/** `escrow ▾   Anchor          ⌗ Shell   ⋮` */
+/** `Build / escrow · Anchor        [terminal] [▶] [⋮]` */
 @Composable
-private fun BuildHeader(
+private fun BuildBar(
     state: ShellState,
-    projectName: String,
-    subtitle: String,
+    context: Context,
+    root: String?,
+    layout: ProjectLayout?,
     inShell: Boolean,
-    onToggleShell: () -> Unit,
+    onTest: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    val context = LocalContext.current
     var overflow by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = projectName,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-        )
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.weight(1f),
-        )
-        // The one control that switches modes. The terminal mark is this app's
-        // own glyph for a shell, and the label always names where the tap goes
-        // rather than where you are.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier
-                .clickable(
-                    onClickLabel = if (inShell) "Build" else "Shell",
-                    onClick = onToggleShell,
-                )
-                .touchTarget()
-                .padding(horizontal = 4.dp),
-        ) {
-            SeekerIcon(
+    val projectName = state.project?.rootName
+    val runnable = layout != null && unavailableReason(context, layout) == null
+
+    SeekerTopBar(
+        title = if (inShell) "Shell" else "Build",
+        subtitle = when {
+            projectName == null -> "No project open"
+            inShell -> "$projectName · terminal"
+            layout != null -> "$projectName · ${layout.label}"
+            else -> projectName
+        },
+        actions = {
+            // The mode switch, and the app's only route to a terminal. The
+            // label always names where the tap GOES rather than where you are,
+            // which is the rule the old `⌗ Shell` chip already followed.
+            SeekerIconButton(
                 icon = R.drawable.ic_ui_terminal,
-                contentDescription = null,
-                tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                size = IconSize.Marker,
+                description = if (inShell) "Leave the shell" else "Open the shell",
+                onClick = { ShellModes.toggle(root) },
+                tint = if (inShell) accentIcon else mutedIcon,
+                enabled = root != null,
+            )
+            if (!inShell) {
+                RunControl(
+                    running = BuildRunner.isRunning,
+                    enabled = runnable || BuildRunner.isRunning,
+                    onClick = {
+                        if (BuildRunner.isRunning) {
+                            BuildRunner.stop()
+                        } else {
+                            BuildRunner.start(context, state, BuildAction.Build)
+                        }
+                    },
+                )
+            }
+            Box {
+                SeekerIconButton(
+                    icon = R.drawable.ic_ui_more_vertical,
+                    description = "More",
+                    onClick = { overflow = true },
+                    tint = mutedIcon,
+                )
+                ContextMenu(
+                    expanded = overflow,
+                    onDismiss = { overflow = false },
+                    items = listOf(
+                        ContextMenuItem("Test", enabled = runnable, onClick = onTest),
+                        ContextMenuItem("Deploy", enabled = runnable) {
+                            BuildRunner.start(context, state, BuildAction.Deploy)
+                        },
+                        ContextMenuItem("Problems") { state.push(Route.Problems) },
+                        ContextMenuItem("Copy the log") {
+                            copyToClipboard(context, logText())
+                        },
+                        ContextMenuItem("Set up the toolchain") { state.push(Route.Setup) },
+                    ),
+                )
+            }
+        },
+    )
+}
+
+/**
+ * One filled 40dp control in 48dp of target, and the only thing on this screen
+ * that starts or stops work.
+ *
+ * Hand-rolled rather than a `FilledIconButton` for two small reasons that add
+ * up. The fill has to CROSS between three states — disabled, armed, running —
+ * and `IconButtonColors` is a static triple that swaps on recomposition, where
+ * this tweens on [effectSpec] so the change of meaning is a 200ms colour move
+ * rather than a frame swap. And the shape is [MD.radiusMd]: a 12dp square, not
+ * the circle 1.4.0's filled icon button draws, because every other filled
+ * thing on this screen is a rounded rectangle. [touchTarget] is applied
+ * explicitly so the 48dp hit box around the 40dp drawn square is readable at
+ * this call site rather than inherited from a default.
+ */
+@Composable
+private fun RunControl(running: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val fill by animateColorAsState(
+        targetValue = when {
+            !enabled -> scheme.surfaceContainerHigh
+            running -> scheme.errorContainer
+            else -> scheme.primary
+        },
+        animationSpec = effectSpec(),
+        label = "build-run-fill",
+    )
+    val ink = when {
+        !enabled -> scheme.onSurfaceVariant.copy(alpha = 0.38f)
+        running -> scheme.onErrorContainer
+        else -> scheme.onPrimary
+    }
+    val label = if (running) "Stop the build" else "Build"
+    Box(
+        modifier = Modifier
+            .touchTarget()
+            .size(40.dp)
+            .clip(RoundedCornerShape(MD.radiusMd))
+            .background(fill)
+            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        SeekerIcon(
+            icon = if (running) R.drawable.ic_ui_stop else R.drawable.ic_ui_play,
+            contentDescription = label,
+            tint = ink,
+            size = IconSize.Action,
+        )
+    }
+}
+
+/**
+ * `◐ 2m 08s   anchor build            3 warnings` — 36dp, and it reports.
+ *
+ * A bar that acts is 48dp and a bar that reports is [MD.stripHeight]; this one
+ * has no target in it at all, which is why it can be that short. Running, it
+ * is the app's shared [RunTicker] — the same spinner cadence, the same
+ * `TabularNums` clock and the same single spoken semantics node the Agent's
+ * status strip uses, so "how long has this been going" looks and sounds
+ * identical whichever thing is going.
+ *
+ * At rest it is a [StatusDot] and the artifact's freshness, which is the one
+ * fact this screen exists to keep honest: deploying a `.so` from before the
+ * edit you are trying to test is the failure the old ProgramRow was there to
+ * prevent (docs/UI.md — `stale — edited since the last build`), and it now
+ * lives here rather than in a band of its own.
+ */
+@Composable
+private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val running = BuildRunner.isRunning
+    val issues = BuildRunner.lastIssues
+    val errors = issues.count { it.severity == DiagnosticSeverity.Error }
+    val warnings = issues.size - errors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(MD.stripHeight)
+            .padding(horizontal = MD.space4),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+    ) {
+        if (running) {
+            val startedAt = (state.build as? BuildState.Running)?.startedAt
+            if (startedAt != null) {
+                RunTicker(startedAt = startedAt, tokens = null, tint = scheme.primary)
+            } else {
+                // A run the shell state has not caught up with yet: the
+                // spinner still says "going", which is the only claim the
+                // strip can honestly make without a start time.
+                SeekerSpinner(size = 12.dp)
+            }
+            Text(
+                text = BuildRunner.runningAction?.progressLabel ?: "Working",
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            val failed = state.build is BuildState.Failed
+            StatusDot(
+                color = when {
+                    failed -> colors.removedMark
+                    BuildRunner.freshness is ArtifactFreshness.Stale -> colors.warnMark
+                    state.build is BuildState.Succeeded -> colors.addedMark
+                    else -> scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                },
+                size = 8.dp,
             )
             Text(
-                text = if (inShell) "Build" else "Shell",
+                text = restLabel(state),
                 style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                color = scheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = layout?.primary?.artifactPath.orEmpty(),
+                // The buffer's face, because it is a path: the same figure in
+                // the same face as the editor's tab and the log's own rows.
+                style = MonoSmall.copy(color = scheme.onSurfaceVariant),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
+            IssueCounts(errors, warnings)
+        }
+    }
+}
+
+/** What the strip says when nothing is running. Never a duration: none is kept. */
+private fun restLabel(state: ShellState): String = when {
+    state.build is BuildState.Failed -> "Failed"
+    BuildRunner.freshness is ArtifactFreshness.Missing -> "Not built"
+    BuildRunner.freshness is ArtifactFreshness.Stale -> "Stale"
+    state.build is BuildState.Succeeded -> "Built"
+    else -> "Built"
+}
+
+/**
+ * `2 errors · 3 warnings`, in the solved inks and in tabular figures.
+ *
+ * Not `DiffStatLabel`: that component's job is an added/removed PAIR and it
+ * prints a signed `+24 −6`. This is two counts of two different things, and
+ * either can be absent — a build with three warnings and no errors says one
+ * word, not `0 errors`.
+ */
+@Composable
+private fun IssueCounts(errors: Int, warnings: Int) {
+    if (errors == 0 && warnings == 0) return
+    val colors = LocalSeekerColors.current
+    Row(horizontalArrangement = Arrangement.spacedBy(MD.space1)) {
+        if (errors > 0) {
+            Text(
+                text = "$errors ${plural(errors, "error")}",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = colors.removedInk,
             )
         }
-        Box {
-            SeekerIconButton(
-                icon = R.drawable.ic_ui_more_vertical,
-                description = "More",
-                onClick = { overflow = true },
-                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
-            ContextMenu(
-                expanded = overflow,
-                onDismiss = { overflow = false },
-                items = listOf(
-                    ContextMenuItem("Problems") { state.push(Route.Problems) },
-                    ContextMenuItem("Copy the log") {
-                        copyToClipboard(context, logText())
-                    },
-                    ContextMenuItem("Set up the toolchain") { state.push(Route.Setup) },
+        if (warnings > 0) {
+            Text(
+                text = "$warnings ${plural(warnings, "warning")}",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
                 ),
+                color = colors.warnInk,
             )
         }
     }
 }
 
-/** The program row, the log, the result card and the three buttons. */
+private fun plural(count: Int, word: String) = if (count == 1) word else "${word}s"
+
+/**
+ * The sentence on the failure notice: what ran, and what it found.
+ *
+ * The counts come from [BuildState.Failed] rather than from
+ * `BuildRunner.lastIssues`, because those two can disagree by design — a run
+ * that died on a linker error the parser did not recognise has a failure with
+ * no issues in it, and the notice has to say so rather than claim zero
+ * problems above an empty card list.
+ */
+private fun failureBody(failed: BuildState.Failed?): String {
+    val command = BuildRunner.lastCommand.ifBlank { "The last run" }
+    val counts = buildList {
+        val errors = failed?.errors ?: 0
+        val warnings = failed?.warnings ?: 0
+        if (errors > 0) add("$errors ${plural(errors, "error")}")
+        if (warnings > 0) add("$warnings ${plural(warnings, "warning")}")
+    }
+    return if (counts.isEmpty()) {
+        "$command stopped without finishing. The log has what it printed."
+    } else {
+        "$command reported ${counts.joinToString(" and ")}."
+    }
+}
+
+/** The notices, the problems, and the log. */
 @Composable
 private fun BuildBody(
     state: ShellState,
@@ -235,202 +494,167 @@ private fun BuildBody(
     layout: ProjectLayout?,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
+    val reason = unavailableReason(context, layout)
+    val issues = BuildRunner.lastIssues
+    val failed = !BuildRunner.isRunning && state.build is BuildState.Failed
+    val preview = if (BuildRunner.isRunning) emptyList() else issues.take(PREVIEW_ISSUES)
+    val header = reason != null || failed || preview.isNotEmpty()
+
     Column(modifier = modifier.fillMaxSize()) {
-        ProgramRow(layout)
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
+        if (header) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MD.space4, vertical = MD.space3),
+                verticalArrangement = Arrangement.spacedBy(MD.space2),
+            ) {
+                if (reason != null) {
+                    NoticeCard(
+                        severity = Severity.Warn,
+                        title = null,
+                        body = reason.message,
+                        actions = {
+                            if (reason.setup) {
+                                SeekerChip(
+                                    label = "Set up the toolchain",
+                                    onClick = { state.push(Route.Setup) },
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                    )
+                } else if (failed) {
+                    // The third tier of the error model: not a toast, not a
+                    // banner — a card that STAYS, in the place the thing went
+                    // wrong, with the ways out on it (docs/VISUAL.md, "What we
+                    // deliberately do not copy").
+                    NoticeCard(
+                        severity = Severity.Error,
+                        title = "The build failed",
+                        body = failureBody(state.build as? BuildState.Failed),
+                        actions = {
+                            SeekerChip(
+                                label = "Retry",
+                                onClick = {
+                                    BuildRunner.start(context, state, BuildAction.Build)
+                                },
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            SeekerChip(
+                                label = "Fix with agent",
+                                onClick = {
+                                    askAgent(
+                                        state,
+                                        context,
+                                        BuildDiagnostics.agentPrompt(
+                                            issues,
+                                            BuildRunner.lastCommand,
+                                        ),
+                                    )
+                                },
+                            )
+                            // Two, not three: NoticeCard's action row does not
+                            // wrap, and a third chip runs off a 400dp card.
+                            // Problems is reachable from the overflow and from
+                            // the "N more" chip under these cards.
+                        },
+                    )
+                }
+                for (issue in preview) {
+                    BuildIssueCard(
+                        issue = issue,
+                        onClick = { openIssue(state, issue, root) },
+                    )
+                }
+                if (issues.size > preview.size && preview.isNotEmpty()) {
+                    SeekerChip(
+                        label = "${issues.size - preview.size} more in Problems",
+                        onClick = { state.push(Route.Problems) },
+                    )
+                }
+            }
+            HairlineDivider(modifier = Modifier.padding(horizontal = MD.space4))
+        }
+
         BuildLogView(
             state = state,
             log = BuildRunner.log,
             projectRoot = root,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .padding(
+                    start = MD.space4,
+                    end = MD.space4,
+                    top = MD.space3,
+                    // 24dp so the last line of a log clears the nav bar rather
+                    // than dying against it — the rhythm rule for scrolling
+                    // content (docs/VISUAL.md, "Foundations", RHYTHM).
+                    bottom = MD.space6,
+                ),
         )
-        ResultCard(state, context)
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
-        Actions(state, context, layout)
     }
 }
 
 /**
- * `escrow  ·  target/deploy/escrow.so  ·  not deployed`.
+ * One problem, as a card you can tap into the file.
  *
- * Freshness rather than mere existence: deploying a `.so` from before the edit
- * you are trying to test is the failure this row is here to prevent
- * (docs/UI.md — `stale — edited since the last build`). The program *id* and
- * the deployed/not-deployed half belong to the wallet and cluster layer (P6)
- * and are not invented here.
- */
-@Composable
-private fun ProgramRow(layout: ProjectLayout?) {
-    val theme = LocalZedTheme.current
-    val program = layout?.primary
-    val freshness = BuildRunner.freshness
-    val text = when {
-        layout == null -> "Looking at the project…"
-        program == null -> layout.label
-        else -> program.artifactPath
-    }
-    val detail = when {
-        program == null -> null
-        freshness is ArtifactFreshness.Missing -> "not built"
-        freshness is ArtifactFreshness.Stale -> "stale — edited since the last build"
-        else -> "built"
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier.weight(1f),
-        )
-        if (detail != null) {
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (freshness is ArtifactFreshness.Stale) {
-                    theme.color("warning", MaterialTheme.colorScheme.tertiary)
-                } else {
-                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-                },
-            )
-        }
-    }
-}
-
-/**
- * `[ Fix with agent ]      [ Problems 2 → ]`, on a failed run and only then.
+ * The card is the *wrapped, unclipped* presentation of a diagnostic that the
+ * log used to carry: an E0609 clipped at 40 columns tells you nothing, so the
+ * message takes as many as three lines here and the location sits under it in
+ * the buffer's face. The glyph is `warnMark`/`removedMark` — SOLVED marks at
+ * 3:1 against a card's real ground — rather than the raw `theme.color("warning")`
+ * this screen used to draw, which measures 1.64:1 on Ayu Light.
  *
- * "Fix with agent" is the design's central claim made concrete: every error
- * carries a one-tap route to the thing that can fix it. It pushes the failing
- * diagnostics — message, code, `path:line:col` and rustc's own rendered
- * snippet — into the Agent composer and switches destination.
+ * [MD.radiusSm] rather than a card's 12dp: a selectable option row is 8dp by
+ * role, and a row that opens a file is that shape.
  */
 @Composable
-private fun ResultCard(state: ShellState, context: Context) {
-    val issues = BuildRunner.lastIssues
-    if (BuildRunner.isRunning || issues.isEmpty()) return
-    val theme = LocalZedTheme.current
-    val errors = issues.count { it.severity == DiagnosticSeverity.Error }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun BuildIssueCard(issue: BuildIssue, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val isError = issue.severity == DiagnosticSeverity.Error
+    SeekerCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(MD.radiusSm),
+        onClick = onClick,
     ) {
-        FlatButton(
-            label = "Fix with agent",
-            modifier = Modifier.weight(1f),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // A one-line message would otherwise draw a 40dp row, and this
+                // whole card is the target.
+                .defaultMinSize(minHeight = MD.rowMin)
+                .padding(horizontal = MD.space3, vertical = MD.rowPadY),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         ) {
-            askAgent(
-                state,
-                context,
-                BuildDiagnostics.agentPrompt(issues, BuildRunner.lastCommand),
+            SeekerIcon(
+                icon = if (isError) R.drawable.ic_ui_close else R.drawable.ic_ui_warning,
+                contentDescription = if (isError) "error" else "warning",
+                tint = if (isError) colors.removedMark else colors.warnMark,
+                size = IconSize.Inline,
             )
-        }
-        FlatButton(
-            label = "Problems ${errors.coerceAtLeast(issues.size)}",
-            trailingIcon = R.drawable.ic_ui_arrow_right,
-            modifier = Modifier.weight(1f),
-        ) {
-            state.push(Route.Problems)
-        }
-    }
-    HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
-}
-
-/**
- * Test, Deploy, Build — or one Stop row while something runs, or one card
- * when there is nothing here that can build.
- */
-@Composable
-private fun Actions(state: ShellState, context: Context, layout: ProjectLayout?) {
-    val theme = LocalZedTheme.current
-    var testSheet by remember { mutableStateOf(false) }
-
-    // The elapsed counter, ticking only while a run is going. A second is the
-    // right resolution for a build measured in minutes and costs one
-    // recomposition of one row.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(BuildRunner.isRunning) {
-        while (BuildRunner.isRunning) {
-            now = System.currentTimeMillis()
-            delay(1_000)
-        }
-    }
-
-    if (BuildRunner.isRunning) {
-        val started = (state.build as? to.eyed.seeker.code.ui.shell.BuildState.Running)?.startedAt
-        val label = BuildRunner.runningAction?.progressLabel ?: "Working"
-        Box(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            FlatButton(
-                label = "Stop · $label ${BuildRunner.clock(now - (started ?: now))}",
-                icon = R.drawable.ic_ui_stop,
-                emphasis = true,
-                modifier = Modifier.fillMaxWidth(),
-            ) { BuildRunner.stop() }
-        }
-        return
-    }
-
-    val reason = unavailableReason(context, layout)
-    if (reason != null) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(
-                text = reason.message,
-                style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            if (reason.setup) {
-                FlatButton(
-                    label = "Set up the toolchain",
-                    emphasis = true,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { state.push(Route.Setup) }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = issue.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurface,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val location = issue.location
+                val code = issue.code
+                if (location != null || code != null) {
+                    Text(
+                        text = listOfNotNull(location, code).joinToString("  "),
+                        style = MonoSmall.copy(color = scheme.onSurfaceVariant),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = MD.space05),
+                    )
+                }
             }
+            RowChevron(modifier = Modifier.padding(top = 2.dp))
         }
-        return
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        FlatButton(label = "Test", modifier = Modifier.weight(1f)) {
-            if (layout != null && BuildTasks.anchorTestNeedsNode(layout)) {
-                testSheet = true
-            } else {
-                BuildRunner.start(context, state, BuildAction.Test)
-            }
-        }
-        FlatButton(label = "Deploy", modifier = Modifier.weight(1f)) {
-            BuildRunner.start(context, state, BuildAction.Deploy)
-        }
-        FlatButton(
-            label = "Build",
-            icon = R.drawable.ic_ui_play,
-            emphasis = true,
-            modifier = Modifier.weight(1.6f),
-        ) {
-            BuildRunner.start(context, state, BuildAction.Build)
-        }
-    }
-
-    if (testSheet) {
-        AnchorTestSheet(
-            state = state,
-            onDismiss = { testSheet = false },
-            onCargoTest = {
-                testSheet = false
-                BuildRunner.start(context, state, BuildAction.Test, BuildTasks.cargoTestCommand())
-            },
-        )
     }
 }
 
@@ -446,13 +670,15 @@ private fun Actions(state: ShellState, context: Context, layout: ProjectLayout?)
  */
 @Composable
 private fun AnchorTestSheet(state: ShellState, onDismiss: () -> Unit, onCargoTest: () -> Unit) {
-    val theme = LocalZedTheme.current
     SheetScaffold(
         state = state,
         onDismiss = onDismiss,
         title = "Anchor tests need Node",
         actions = {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(MD.space2),
+            ) {
                 FlatButton(
                     label = "Run cargo test instead",
                     emphasis = true,
@@ -472,22 +698,22 @@ private fun AnchorTestSheet(state: ShellState, onDismiss: () -> Unit, onCargoTes
                 "has no Node — it is not part of the toolchain, and installing it is about " +
                 "90 MB in the Shell (`apt install nodejs npm`).\n\n" +
                 "`cargo test` runs the program's own Rust tests and works today.",
-            style = MaterialTheme.typography.bodySmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
         )
     }
 }
 
-/** Why the three buttons are not there, when they are not. */
+/** Why the run control is dead, when it is. */
 private data class Unavailable(val message: String, val setup: Boolean)
 
 private fun unavailableReason(context: Context, layout: ProjectLayout?): Unavailable? = when {
     !Userland.backend.isSupported -> Unavailable(
-        // The play flavour has no userland at all, and no userland means no
-        // compiler: Android will not execute a program that arrived after
-        // installation. Said plainly rather than shown as a disabled button.
-        "This edition has no Linux userland, so it cannot compile a Solana program. " +
+        // No userland means no compiler: Android will not execute a program
+        // that arrived after installation. Said plainly rather than shown as a
+        // disabled button with no explanation beside it.
+        "The Linux guest is not available, so it cannot compile a Solana program. " +
             "Everything else — the editor, git, the agent — works.",
         setup = false,
     )
@@ -508,23 +734,15 @@ private fun unavailableReason(context: Context, layout: ProjectLayout?): Unavail
     else -> null
 }
 
-@Composable
-private fun EmptyState(message: String) {
-    val theme = LocalZedTheme.current
-    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
-    }
-}
-
 /**
- * The one button shape this screen uses: a filled rectangle with a label, at
- * least 48dp of target, and no icon. [emphasis] is the accent fill the primary
- * action takes.
+ * The flat rectangular button the pre-Material screens were built from.
+ *
+ * KEPT ON PURPOSE, AND IT IS NOT USED BY THIS SCREEN ANY MORE. Four files in
+ * `ui/shell/changes/` import it — ChangesScreen, CommitSheet, DiffScreen and
+ * ProblemsScreen — and those are another chunk's to convert; deleting it here
+ * would break their build for a cosmetic gain. Its colours are Material now,
+ * so the sites that still call it stop being the only raised-looking things
+ * left in the app while they wait.
  */
 @Composable
 internal fun FlatButton(
@@ -537,17 +755,13 @@ internal fun FlatButton(
     @DrawableRes trailingIcon: Int? = null,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    val background = if (emphasis) {
-        theme.color("element.selected", MaterialTheme.colorScheme.primaryContainer)
-    } else {
-        theme.color("element.background", MaterialTheme.colorScheme.surfaceVariant)
-    }
-    val ink = theme.color("text", MaterialTheme.colorScheme.onSurface)
+    val scheme = MaterialTheme.colorScheme
+    val background: Color = if (emphasis) scheme.primary else scheme.surfaceContainerHigh
+    val ink: Color = if (emphasis) scheme.onPrimary else scheme.onSurface
     Box(
         modifier = modifier
-            .height(44.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .height(MD.rowMin)
+            .clip(RoundedCornerShape(MD.radiusMd))
             .background(background)
             .clickable(onClickLabel = label, onClick = onClick)
             .touchTarget(),
@@ -555,8 +769,8 @@ internal fun FlatButton(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
+            modifier = Modifier.padding(horizontal = MD.space2),
         ) {
             if (icon != null) {
                 SeekerIcon(
@@ -599,8 +813,8 @@ internal fun copyToClipboard(context: Context, text: String) {
  * it to.
  *
  * The fallback is not an apology. The Agent destination registers
- * [AgentFix.seed] when it composes (P3); before that — and on a device where
- * the user skipped the agent install entirely — the text of a build failure is
+ * [AgentFix.seed] when it composes; before that — and on a device where the
+ * user skipped the agent install entirely — the text of a build failure is
  * still the most useful thing on the screen, and putting it on the clipboard
  * with a word about why beats a button that does nothing.
  */
@@ -618,7 +832,13 @@ internal fun askAgent(state: ShellState, context: Context, text: String) {
     )
 }
 
-/** The whole log as text, for ⋮ → Copy the log. */
+/**
+ * The whole log as text, for ⋮ → Copy the log.
+ *
+ * ANSI-stripped: `rustc`'s rendered blocks arrive with SGR escapes in them
+ * (`BuildTasks` asks for `json-diagnostic-rendered-ansi`), and a clipboard
+ * full of raw control bytes is not a paste anybody wants — see AnsiText.kt.
+ */
 private fun logText(): String = BuildRunner.log.rows.joinToString("\n") { row ->
     when (row) {
         is to.eyed.seeker.code.solana.build.BuildLogRow.Command -> "$ ${row.text}"
@@ -626,7 +846,7 @@ private fun logText(): String = BuildRunner.log.rows.joinToString("\n") { row ->
         is to.eyed.seeker.code.solana.build.BuildLogRow.Note -> "# ${row.text}"
         is to.eyed.seeker.code.solana.build.BuildLogRow.Summary -> "-- ${row.text}"
         is to.eyed.seeker.code.solana.build.BuildLogRow.Issue ->
-            row.issue.rendered ?: buildString {
+            row.issue.rendered?.let(::stripAnsi) ?: buildString {
                 append(row.issue.severity.token)
                 append(": ")
                 append(row.issue.message)
@@ -634,3 +854,13 @@ private fun logText(): String = BuildRunner.log.rows.joinToString("\n") { row ->
             }
     }
 }
+
+/**
+ * Three problems on the screen, and the rest behind one chip.
+ *
+ * A failed build reports dozens; a column of dozens of cards above the log
+ * would push the compiler's own output — which is what a developer actually
+ * reads — off the bottom of a 890dp screen. Three is what the wireframe shows
+ * plus one, and Problems is one tap away and is the screen built for the list.
+ */
+private const val PREVIEW_ISSUES = 3

@@ -1,25 +1,21 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package to.eyed.seeker.code.ui.shell
 
 import android.content.Context
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -36,14 +32,12 @@ import androidx.compose.ui.input.key.onPreInterceptKeyBeforeSoftKeyboard
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
-import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.CoreBridge
@@ -67,8 +61,8 @@ import to.eyed.seeker.code.ui.shell.projects.NewProgramScreen
 import to.eyed.seeker.code.ui.shell.projects.openProjectInShell
 import to.eyed.seeker.code.ui.shell.settings.SettingsScreen
 import to.eyed.seeker.code.ui.shell.setup.SetupScreen
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.workspace.NotificationHost
 import to.eyed.seeker.code.ui.shell.agent.AgentScreen
 import to.eyed.seeker.code.ui.shell.code.CodeScreen
@@ -117,7 +111,6 @@ fun SeekerShell(
     state: ShellState = ShellState.current,
 ) {
     val context = LocalContext.current
-    val theme = LocalZedTheme.current
     /**
      * The shell's own focusable. Two jobs, both carried across from
      * WorkspaceScreen.kt: it is where the hardware-key pass hangs, and it is
@@ -173,7 +166,12 @@ fun SeekerShell(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(theme.color("editor.background", MaterialTheme.colorScheme.background))
+            // Bare, with no Zed read in front of it: the shell is the
+            // Material half, and `background` *is* `editor.background` — the
+            // bridge maps it there (MaterialBridge.kt, BAND A). A
+            // `theme.color("editor.background", …)` here was a Zed read with
+            // an M3 fallback that could never fire.
+            .background(MaterialTheme.colorScheme.background)
             .focusRequester(rootFocus)
             .focusable()
             // A modifier chord is taken here, before the soft keyboard sees the
@@ -211,7 +209,7 @@ fun SeekerShell(
                     .weight(1f)
                     .fillMaxWidth()
                     // The status bar and any cutout, once, above whatever the
-                    // destination draws as its 44dp header. The bottom is the
+                    // destination draws as its 56dp top bar. The bottom is the
                     // bar's (ShellNavBar), and the IME is the editor's — it
                     // lifts its own action row onto the keyboard and must not
                     // be padded off it from up here (EditorPane.kt:2709).
@@ -478,27 +476,21 @@ private fun RouteHost(
     settingsPath: String?,
     onSettingsChanged: (AppSettings) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // A back arrow with no `contentDescription` is a control TalkBack
-            // reads as "button", and this is the only way out of a pushed
-            // route other than the system gesture.
-            SeekerIconButton(
-                icon = R.drawable.ic_ui_arrow_left,
-                description = "Back",
-                onClick = { state.pop() },
-                tint = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            Text(
-                text = route.title,
-                style = MaterialTheme.typography.labelLarge,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            )
+        if (!route.ownsItsBar) {
+            // The shared bar, and it is a **transitional** one. A route's top
+            // bar is the route's own — Changes needs a branch chip in it,
+            // Problems a pair of counts under the title, Licences a subtitle —
+            // so the end state is that every screen draws its own
+            // [SeekerTopBar] and this frame draws none. Until the screens that
+            // are still being converted have theirs, they get this: the same
+            // component, with the title the route already carries and a back
+            // arrow, so no route is ever *unbarred* and no route is ever
+            // barred twice. A chunk lands its own bar and adds its route to
+            // [ownsItsBar]; when the list holds all of them, this branch and
+            // `Route.title` go with it.
+            SeekerTopBar(title = route.title, onBack = { state.pop() })
+            HairlineDivider()
         }
         Box(
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -536,7 +528,22 @@ private fun RouteHost(
     }
 }
 
-/** What a route's own top row prints. */
+/**
+ * Whether this route draws its own [SeekerTopBar] and must not be given the
+ * shared one.
+ *
+ * Three so far — the three this pass converted. Each of them needs something
+ * in the bar that a frame cannot know: Changes puts the branch chip and the
+ * remote counts there, Diff titles itself with the file and subtitles itself
+ * with the directory, Problems carries `2 errors · 5 warnings` under its
+ * title. Add a route here in the same commit that gives it a bar, never
+ * before: this list is the only thing keeping the two halves of the migration
+ * from drawing two bars or none.
+ */
+private val Route.ownsItsBar: Boolean
+    get() = this is Route.Changes || this is Route.Diff || this is Route.Problems
+
+/** What a route's own top row prints, for the ones still on the shared bar. */
 private val Route.title: String
     get() = when (this) {
         is Route.Changes -> "Changes"

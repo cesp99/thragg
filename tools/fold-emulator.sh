@@ -12,7 +12,7 @@
 #
 # Once it is up:
 #
-#   adb -s emulator-5554 install -r app/build/outputs/apk/full/debug/app-full-x86_64-debug.apk
+#   adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
 #   adb -s emulator-5554 shell cmd device_state state 0   # fold
 #   adb -s emulator-5554 shell cmd device_state state 3   # unfold
 #   adb -s emulator-5554 exec-out screencap -p > shot.png

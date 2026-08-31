@@ -21,20 +21,11 @@ embeds it. One Gradle command builds both.
   cargo install cargo-ndk
   ```
 
-## Editions (build flavours)
+## One edition, and `targetSdk 28`
 
-Seeker IDE builds in two editions from one source tree. They differ in
-**one setting**, `targetSdk`, and everything else follows from it:
-
-| | `full` | `play` |
-|---|---|---|
-| `targetSdk` | 28 | 37 |
-| Linux userland (Debian, `apt`) | ✅ | ❌ |
-| `INTERNET` permission | ✅ (to fetch the rootfs) | ❌ |
-| Terminal | Debian `bash`, or Android's `sh` before the rootfs is installed | Android's `sh` (mksh) + toybox |
-| Foreground service | `FOREGROUND_SERVICE` only (API 28 is exempt from service types) | also `foregroundServiceType="specialUse"` + `FOREGROUND_SERVICE_SPECIAL_USE` (API 34+ rule) |
-| `ACCESS_NETWORK_STATE` | ✅ (guest DNS follows the device) | ❌ |
-| Where it can ship | F-Droid, direct APK download | Google Play, and anywhere else |
+Seeker IDE has one build variant — no product flavours — and the single most
+consequential line in `app/build.gradle.kts` is `targetSdk = 28`. (It still
+splits into one APK per ABI; that is architecture, not edition. See below.)
 
 Android only executes programs that arrived through the package installer.
 At a modern `targetSdk` that means a downloaded program can never run — so
@@ -44,52 +35,59 @@ which is what makes the Debian userland possible, and is also why Google
 Play cannot accept such a build: Play requires a target SDK within about a
 year of the current release.
 
-The split is in `app/build.gradle.kts` (`productFlavors`), and the code that
-differs lives in exactly two files, one per flavour source set:
+**There used to be two editions.** A `play` product flavour targeted a
+modern SDK and shipped without a userland; a `full` flavour carried Debian.
+That split is gone. A build with no Debian cannot install `platform-tools`,
+cannot run `cargo-build-sbf`, cannot run `rust-analyzer` and cannot run any
+ACP agent — it cannot do the one thing this product exists to do, so it was
+not an edition of this app so much as a different, smaller one. Removing it
+forecloses Google Play distribution, deliberately; F-Droid and direct APK
+download are where this ships.
+
+The code the userland needs:
 
 ```
-app/src/full/java/…/terminal/DebianUserland.kt   downloads and runs Debian
-app/src/play/java/…/terminal/PlayUserland.kt     says "no userland here"
-app/src/main/java/…/terminal/Userland.kt         the interface both satisfy
-app/src/full/AndroidManifest.xml                 adds INTERNET
-app/src/full/jniLibs/<abi>/libproot_exec.so      proot, built by tools/build-proot.sh
+app/src/main/java/…/terminal/Userland.kt         the seam: what a session runs in
+app/src/main/java/…/terminal/DebianUserland.kt   downloads and runs Debian
+app/src/main/jniLibs/<abi>/libproot_exec.so      proot, built by tools/build-proot.sh
 ```
 
-Everything above that interface — the terminal, the session layer, the
-editor, the engine — is identical in both editions.
+`Userland.kt` is still an interface with one implementation. That is not a
+leftover: everything above it — the terminal, the session layer, the editor,
+the engine — asks for a command to run and gets one, and the not-installed
+state is genuinely reachable, because a rootfs is a download.
 
 ## Build
 
 ```sh
-./gradlew assembleFullDebug     # the edition with the Debian userland
-./gradlew assemblePlayDebug     # the Play-compatible edition
-./gradlew assembleDebug         # both
+./gradlew assembleDebug
 ```
 
-Release builds follow the same pattern (`assembleFullRelease`,
-`assemblePlayRelease`), and `installFullDebug` / `installPlayDebug` push to
-a connected device.
+Release builds are `assembleRelease`, and `installDebug` pushes to a
+connected device.
 
-**Installing the `full` edition on a modern device.** Android 14 and later
-refuse a sideload whose `targetSdk` is as old as this edition needs, and Play
-Protect shows *"Unsafe app blocked — built for an older version of Android"*.
-The install is not actually unsafe, it is the same trade the userland
-requires; `adb` needs to be told to allow it:
+**Installing on a modern device.** Android 14 and later refuse a sideload
+whose `targetSdk` is as old as this app needs, and Play Protect shows
+*"Unsafe app blocked — built for an older version of Android"*. The install
+is not actually unsafe, it is the same trade the userland requires; `adb`
+needs to be told to allow it:
 
 ```sh
-adb install -t -r --bypass-low-target-sdk-block app-full-arm64-v8a-debug.apk
+adb install -t -r --bypass-low-target-sdk-block app-arm64-v8a-debug.apk
 ```
 
 Verified on a Solana Seeker running Android 16 (SDK 36). A user installing
-the APK by hand taps through the same warning. Instrumented tests need the flavour too:
-`connectedFullDebugAndroidTest`.
+the APK by hand taps through the same warning. Instrumented tests are
+`connectedDebugAndroidTest`.
 
-### proot, for the `full` edition
+### proot
 
 The Debian userland needs `proot`, which is not in this repository as
 source: `tools/build-proot.sh` fetches it (and talloc) with checksums,
 cross-compiles both for `arm64-v8a` and `x86_64`, and writes the result to
-`app/src/full/jniLibs/<abi>/libproot_exec.so`. The binaries are committed,
+`app/src/main/jniLibs/<abi>/libproot_exec.so`. The binaries are committed
+(the `.gitignore` rule for the cargo-generated `jniLibs` has an exception
+for exactly these two files),
 so an ordinary build needs no extra steps; run the script only to update or
 rebuild them:
 
@@ -123,19 +121,19 @@ engine is by far the largest thing in the package and no device can use
 more than one architecture's copy:
 
 ```
-app/build/outputs/apk/full/debug/app-full-arm64-v8a-debug.apk    ← real devices
-app/build/outputs/apk/full/debug/app-full-x86_64-debug.apk       ← emulators
-app/build/outputs/apk/full/debug/app-full-universal-debug.apk    ← both
+app/build/outputs/apk/debug/app-arm64-v8a-debug.apk    ← real devices
+app/build/outputs/apk/debug/app-x86_64-debug.apk       ← emulators
+app/build/outputs/apk/debug/app-universal-debug.apk    ← both
 ```
 
-A release therefore ships six APKs — the two editions above, each in
-`arm64-v8a`, `x86_64` and `universal`. When publishing a release, tag it
-and the `.github/workflows/release.yml` workflow opens a **draft** GitHub
-release whose body explains which edition and architecture a user needs,
-and `app/build/outputs/apk/{full,play}/release/` is where the six signed
-APKs are attached to the draft before publishing. The body always carries
-the "Which APK" section (even with zero merged pull requests), so nobody
-installs the wrong file.
+A release therefore ships three APKs — `arm64-v8a`, `x86_64` and
+`universal`. When publishing a release, tag it and the
+`.github/workflows/release.yml` workflow opens a **draft** GitHub release
+whose body explains which architecture a user needs, and
+`app/build/outputs/apk/release/` is where the three signed APKs are
+attached to the draft before publishing. The body always carries the "Which
+APK" section (even with zero merged pull requests), so nobody installs the
+wrong file.
 
 Release builds additionally run R8 (code shrinking + obfuscation) and
 resource shrinking. **The JNI boundary must survive that**: a native
@@ -152,7 +150,7 @@ ahead of time — a recorded list of the methods a cold start actually runs —
 so first launch executes compiled code instead of waiting on the JIT. The
 profile lives at `app/src/main/generated/baselineProfiles/baseline-prof.txt`
 and is committed, so ordinary release builds need no emulator and nothing
-extra: both editions pick it up automatically.
+extra.
 
 Re-record it when the startup path changes in a big way (a new splash
 sequence, a different first screen — not routine edits):
@@ -161,7 +159,7 @@ sequence, a different first screen — not routine edits):
 ./gradlew :app:generateBaselineProfile
 ```
 
-That one command builds a non-minified release of each edition, boots a
+That one command builds a non-minified release, boots a
 Gradle-managed headless emulator (API 36 `google_apis` `x86_64`, the same
 system image `tools/fold-emulator.sh` uses), cold-starts the app a few times
 while recording, and writes the merged profile back into `src/main`. It
@@ -204,7 +202,7 @@ them, so there is a script for one that has a hinge:
 ```sh
 tools/fold-emulator.sh          # create it if needed, then boot
 adb -s emulator-5554 install -r \
-  app/build/outputs/apk/full/debug/app-full-x86_64-debug.apk
+  app/build/outputs/apk/debug/app-x86_64-debug.apk
 ```
 
 It is `x86_64`, so install the `x86_64` APK rather than the arm64 one. The

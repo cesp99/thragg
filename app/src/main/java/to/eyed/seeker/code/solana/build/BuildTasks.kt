@@ -130,7 +130,7 @@ data class GuestTools(
     val canCompile: Boolean get() = cargoBuildSbf || platformCargo
 
     companion object {
-        /** What we know before the probe has answered, and in the play flavour. */
+        /** What we know before the probe has answered, or without a guest. */
         val NONE = GuestTools()
     }
 }
@@ -391,8 +391,7 @@ object BuildTasks {
     /**
      * Which build programs the guest actually has. Blocking; call it off the
      * main thread. [GuestTools.NONE] when there is no userland at all, which
-     * is the play flavour's permanent answer and the full flavour's answer
-     * before Debian is installed.
+     * is the answer before Debian is installed.
      *
      * One `sh -c` rather than four `command -v` round trips: each one is a
      * whole proot start-up, and this runs every time the Build destination is

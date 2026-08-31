@@ -1,10 +1,11 @@
 package to.eyed.seeker.code.ui.shell.agent
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,8 +19,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,9 +28,10 @@ import to.eyed.seeker.code.solana.agents.AgentCatalog
 import to.eyed.seeker.code.solana.agents.SpettroInstall
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
+import to.eyed.seeker.code.ui.components.SelectRow
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
-import to.eyed.seeker.code.ui.theme.SelectionMark
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 
 /**
  * Which agent this project talks to — which on this device is very nearly a
@@ -63,7 +63,6 @@ fun AgentPickerSheet(
     onOpenSettings: () -> Unit,
     onOpenSetup: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
     val settings = LocalAppSettings.current
     val scope = rememberCoroutineScope()
@@ -72,7 +71,12 @@ fun AgentPickerSheet(
     var problem by remember { mutableStateOf<String?>(null) }
 
     SheetScaffold(state = shell, onDismiss = onDismiss, title = "Agent") {
-        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = MD.space4, vertical = MD.space2),
+        ) {
             val bundled = settings.agents.firstOrNull { it.name == SpettroInstall.NAME }
             if (bundled == null) {
                 AgentRow(
@@ -132,18 +136,19 @@ fun AgentPickerSheet(
                     // names the download; a rewrite of it names nothing.
                     text = message,
                     style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("error", MaterialTheme.colorScheme.error),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = LocalSeekerColors.current.dangerInk,
+                    modifier = Modifier.padding(vertical = MD.space2),
                 )
                 LinkRow("Set up the toolchain", onOpenSetup)
             }
             Text(
                 text = "Any other ACP agent is an agent_servers entry in settings.json.",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = MD.space2),
             )
             LinkRow("Edit settings.json", onOpenSettings)
+            Spacer(Modifier.height(MD.space6))
         }
     }
 }
@@ -164,6 +169,14 @@ private fun chooseAgent(shell: ShellState, agent: AgentDefinition) {
     AgentSessions.startWith(agent, project.id, project.rootName, project.rootPath)
 }
 
+/**
+ * One agent: the mark, its name, and what it actually runs.
+ *
+ * [SelectRow] rather than a hand-rolled row — the whole row is the target, the
+ * `selectable` semantics announce "selected, radio button", and the press gets
+ * the state layer back. The detail line is the argv, because two entries
+ * called "spettro" pointing at different binaries is a real settings.json.
+ */
 @Composable
 private fun AgentRow(
     name: String,
@@ -171,45 +184,25 @@ private fun AgentRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClickLabel = name, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        SelectionMark(
-            selected = selected,
-            multi = false,
-            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            )
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
-        }
-    }
+    SelectRow(
+        label = name,
+        description = detail,
+        selected = selected,
+        onSelect = onClick,
+    )
 }
 
+/** A way out of this sheet and into a screen that can fix the problem. */
 @Composable
 private fun LinkRow(label: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
-        color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+        color = LocalSeekerColors.current.accentInk,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClickLabel = label, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .heightIn(min = MD.rowMin)
+            .padding(vertical = MD.space3),
     )
 }

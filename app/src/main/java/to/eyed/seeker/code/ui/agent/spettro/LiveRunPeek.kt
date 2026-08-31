@@ -1,11 +1,11 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,10 +13,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -33,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,10 +39,17 @@ import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.Member
 import to.eyed.seeker.code.core.OrchRun
 import to.eyed.seeker.code.core.OrchStatus
-import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.StatusDot
+import to.eyed.seeker.code.ui.theme.Durations
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.accentIcon
+import to.eyed.seeker.code.ui.theme.mutedIcon
 
 /**
  * The live orchestration peek (docs/SPETTRO.md, "Live orchestration peek").
@@ -60,9 +64,10 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  * The interesting part is what happens when a run *ends*. A section that
  * vanishes mid-glance is worse than one that lingers, so:
  *
- *  - the last live snapshot is **held** for 1600 ms, unchanged;
+ *  - the last live snapshot is **held** for [Durations.RUN_HOLD], unchanged,
+ *    which is how long its FINAL counts stay readable;
  *  - it then collapses to a one-line settled summary;
- *  - and it is **released** at 7000 ms.
+ *  - and it is **released** at [PeekReleaseMs].
  *
  * A settled run keeps the slot the eye found it in — [PeekSlot.slot] is
  * assigned once per run key and never recomputed — so nothing below it jumps
@@ -77,8 +82,17 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
 // The settle choreography — pure
 // ---------------------------------------------------------------------------
 
-/** How long the full live snapshot survives the run that produced it. */
-internal const val PeekHoldMs = 1600L
+/**
+ * How long the full live snapshot survives the run that produced it.
+ *
+ * [Durations.RUN_HOLD] rather than a number of its own: this strip is the only
+ * place a run's final counts are shown, and "how long a finished thing stays
+ * readable" is one decision the whole app makes once (docs/VISUAL.md,
+ * "Foundations", MOTION). It was 1600 ms, which was the copy-confirmation's
+ * duration wearing a run's clothes — long enough to notice a change, too short
+ * to read four figures.
+ */
+internal const val PeekHoldMs = Durations.RUN_HOLD
 
 /** And how long the one-line summary survives after that. */
 internal const val PeekReleaseMs = 7000L
@@ -217,12 +231,26 @@ internal fun peekName(run: OrchRun): String = when (run) {
 private const val PeekTickMs = 250L
 
 /**
- * The peek: a 56 dp line, or a half-sheet's worth of live detail.
+ * The live-run strip: one line, or a half-sheet's worth of live detail.
  *
  * Draws nothing at all when no run is live and none is still settling, so the
  * caller can place it unconditionally and let it take zero height — which is
- * also what the IME rule needs (docs/SPETTRO.md, "Screen shell": the plan
- * strip and the peek collapse to zero when the keyboard is up).
+ * also what the IME rule needs (docs/SPETTRO.md, "Screen shell": the plan and
+ * the peek collapse to zero when the keyboard is up).
+ *
+ * IT ARRIVES AND LEAVES AT DIFFERENT SPEEDS, and that asymmetry is the whole
+ * point of the redesign (docs/VISUAL.md, "Foundations", MOTION):
+ * [Durations.BAND_IN] in, [Durations.BAND_OUT] out. A run that has just
+ * finished is the thing the reader is most likely to be looking at, so a strip
+ * that blinked away at the speed it came in would read as a glitch rather than
+ * as a completion. The [Durations.RUN_HOLD] before that is the same argument
+ * one level down: the full snapshot survives the run by four seconds so its
+ * FINAL counts can be read, because this strip is the only place they appear.
+ *
+ * The last non-empty snapshot is kept in [shown] so the exit transition has
+ * something to draw. Without it the strip would compose against an empty list
+ * for the whole 240 ms of its own departure, which is to say it would vanish
+ * instantly and animate nothing.
  */
 @Composable
 fun LiveRunPeek(
@@ -231,13 +259,12 @@ fun LiveRunPeek(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val accent = theme.color("text.accent", MaterialTheme.colorScheme.primary)
+    val scheme = MaterialTheme.colorScheme
+    val reduce = LocalReduceMotion.current
 
     val latest by rememberUpdatedState(runs)
     var slots by remember { mutableStateOf(emptyList<PeekSlot>()) }
+    var shown by remember { mutableStateOf(emptyList<PeekSlot>()) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     // One loop rather than "recompute on new traffic" plus "and also on a
     // timer": the hold and the release happen when *no* traffic is arriving,
@@ -247,164 +274,198 @@ fun LiveRunPeek(
             val stamp = System.currentTimeMillis()
             now = stamp
             slots = peekSlots(slots, latest, stamp)
+            if (slots.isNotEmpty()) shown = slots
             delay(if (slots.isEmpty() && latest.isEmpty()) PeekTickMs * 2 else PeekTickMs)
         }
     }
 
-    if (slots.isEmpty()) return
-    val liveCount = slots.count { it.settledAt == 0L }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface)),
+    AnimatedVisibility(
+        visible = slots.isNotEmpty(),
+        enter = fadeIn(tween(if (reduce) 0 else Durations.BAND_IN)) +
+            expandVertically(tween(if (reduce) 0 else Durations.BAND_IN)),
+        exit = fadeOut(tween(if (reduce) 0 else Durations.BAND_OUT)) +
+            shrinkVertically(tween(if (reduce) 0 else Durations.BAND_OUT)),
+        modifier = modifier,
     ) {
-        CardRule()
-        if (!expanded) {
-            // Collapsed: the run that is still moving, else the newest slot —
-            // never a silently different one from the first line of the
-            // expanded sheet.
-            val lead = slots.firstOrNull { it.settledAt == 0L } ?: slots.last()
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .clickable(onClickLabel = "Live runs") { onToggle() }
-                    .padding(horizontal = 12.dp),
-            ) {
-                StatusGlyph(peekStatus(lead.run, lead.vanished), runningTint = accent)
-                Text(
-                    text = "Live ·",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                )
-                Text(
-                    text = peekName(lead.run),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (slots.size > 1) {
-                    Text(
-                        text = "+${slots.size - 1}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = muted,
-                    )
+        if (shown.isEmpty()) return@AnimatedVisibility
+        val liveCount = shown.count { it.settledAt == 0L }
+        Column(modifier = Modifier.fillMaxWidth().background(scheme.surfaceContainer)) {
+            HairlineDivider()
+            if (!expanded) {
+                PeekCollapsed(shown, onToggle)
+            } else {
+                PeekExpandedHeader(liveCount, onToggle)
+                HairlineDivider()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = PeekMaxHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = MD.space4, vertical = MD.space2),
+                    verticalArrangement = Arrangement.spacedBy(MD.iconGap),
+                ) {
+                    for (slot in shown) {
+                        if (slot.isHeld(now)) PeekRun(slot) else PeekSettledLine(slot)
+                    }
                 }
-                Spacer(Modifier.weight(1f))
-                if (lead.settledAt == 0L) {
-                    Text(
-                        text = lead.run.counts.ratio,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = muted,
-                    )
-                    ProgressMeter(lead.run.counts, modifier = Modifier.width(72.dp))
-                } else {
-                    Text(
-                        text = peekNote(lead.run, lead.vanished),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                SeekerIcon(
-                    icon = R.drawable.ic_ui_chevron_up,
-                    contentDescription = null,
-                    tint = muted,
-                    size = IconSize.Marker,
-                )
             }
-            return@Column
         }
+    }
+}
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .clickable(onClickLabel = "Live runs") { onToggle() }
-                .padding(horizontal = 12.dp),
-        ) {
-            PulseDot(accent, live = liveCount > 0)
+/** Half a screen: past this the strip is a sheet pretending not to be one. */
+private val PeekMaxHeight = 420.dp
+
+/**
+ * The one-line form: the run that is still moving, else the newest slot.
+ *
+ * Never a silently different one from the first line of the expanded list —
+ * a collapsed strip naming a run the expanded strip puts third is a strip the
+ * reader stops trusting.
+ */
+@Composable
+private fun PeekCollapsed(slots: List<PeekSlot>, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val lead = slots.firstOrNull { it.settledAt == 0L } ?: slots.last()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MD.rowMin)
+            .clickable(onClickLabel = "Live runs") { onToggle() }
+            .padding(horizontal = MD.space4),
+    ) {
+        StatusGlyph(peekStatus(lead.run, lead.vanished), runningTint = colors.accentMark)
+        Text(
+            text = peekName(lead.run),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = scheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (slots.size > 1) {
             Text(
-                text = "Live",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                color = text,
-            )
-            Spacer(Modifier.weight(1f))
-            if (liveCount > 0) {
-                Text(
-                    text = "$liveCount",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                )
-            }
-            SeekerIcon(
-                icon = R.drawable.ic_ui_chevron_down,
-                contentDescription = null,
-                tint = muted,
-                size = IconSize.Marker,
+                text = "+${slots.size - 1}",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = scheme.onSurfaceVariant,
             )
         }
-        CardRule()
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 420.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            for (slot in slots) {
-                if (slot.isHeld(now)) PeekRun(slot) else PeekSettledLine(slot)
-            }
+        Spacer(Modifier.weight(1f))
+        if (lead.settledAt == 0L) {
+            Text(
+                text = lead.run.counts.ratio,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = scheme.onSurfaceVariant,
+            )
+            ProgressMeter(lead.run.counts, modifier = Modifier.width(PeekMeterWidth))
+        } else {
+            Text(
+                text = peekNote(lead.run, lead.vanished),
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+        SeekerIcon(
+            icon = R.drawable.ic_ui_chevron_up,
+            contentDescription = null,
+            tint = mutedIcon,
+            size = IconSize.Marker,
+        )
+    }
+}
+
+/** Wide enough for eight cells and narrow enough to leave the name its room. */
+private val PeekMeterWidth = 72.dp
+
+/** The expanded strip's own header — the toggle back, and the live count. */
+@Composable
+private fun PeekExpandedHeader(liveCount: Int, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MD.rowMin)
+            .clickable(onClickLabel = "Live runs") { onToggle() }
+            .padding(horizontal = MD.space4),
+    ) {
+        StatusDot(color = colors.accentMark, pulsing = liveCount > 0)
+        Text(
+            text = "Live",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = scheme.onSurface,
+        )
+        Spacer(Modifier.weight(1f))
+        if (liveCount > 0) {
+            Text(
+                text = "$liveCount",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = scheme.onSurfaceVariant,
+            )
+        }
+        SeekerIcon(
+            icon = R.drawable.ic_ui_chevron_down,
+            contentDescription = null,
+            tint = mutedIcon,
+            size = IconSize.Marker,
+        )
     }
 }
 
 /** One live run, in full: the head line, its meter, and what is moving in it. */
 @Composable
 private fun PeekRun(slot: PeekSlot) {
-    val theme = LocalZedTheme.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val accent = theme.color("text.accent", MaterialTheme.colorScheme.primary)
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
     val run = slot.run
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            StatusGlyph(peekStatus(run, slot.vanished), size = 10.dp, runningTint = accent)
+            StatusGlyph(
+                peekStatus(run, slot.vanished),
+                size = 10.dp,
+                runningTint = colors.accentMark,
+            )
             Text(
                 text = peekName(run),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
-                color = text,
+                color = scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.weight(1f))
             Text(
                 text = run.counts.ratio,
-                style = MaterialTheme.typography.labelSmall,
-                color = muted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = scheme.onSurfaceVariant,
             )
         }
         (run as? OrchRun.Workflow)?.description?.takeIf { it.isNotBlank() }?.let {
             Text(
                 text = it.trim(),
                 style = MaterialTheme.typography.labelSmall,
-                color = muted,
+                color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -423,7 +484,7 @@ private fun PeekRun(slot: PeekSlot) {
 }
 
 /**
- * A phase inside the peek.
+ * A phase inside the strip.
  *
  * A pending phase still draws its empty track. Without it, a phase that tints
  * in place pushes everything below it down at the exact moment the reader is
@@ -437,34 +498,28 @@ private fun PeekPhase(
     members: List<Member>,
     pending: Boolean,
 ) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
+    val scheme = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 8.dp, top = 4.dp)
+            .padding(start = MD.space2, top = MD.space1)
             .alpha(if (pending) 0.62f else 1f),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier.fillMaxWidth(),
         ) {
             SeekerIcon(
                 icon = if (pending) R.drawable.ic_ui_circle else R.drawable.ic_ui_dot,
                 contentDescription = if (pending) "queued" else null,
-                tint = if (pending) {
-                    muted
-                } else {
-                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
-                },
+                tint = if (pending) mutedIcon else accentIcon,
                 size = PhaseDotSize,
             )
             Text(
                 text = title.ifBlank { "unphased" },
                 style = MaterialTheme.typography.labelMedium,
-                color = text,
+                color = scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -472,7 +527,7 @@ private fun PeekPhase(
                 Text(
                     text = detail,
                     style = MaterialTheme.typography.labelSmall,
-                    color = muted,
+                    color = scheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -482,11 +537,13 @@ private fun PeekPhase(
             }
             Text(
                 text = if (pending) "pending" else counts.ratio,
-                style = MaterialTheme.typography.labelSmall,
-                color = muted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = scheme.onSurfaceVariant,
             )
         }
-        ProgressMeter(counts, modifier = Modifier.padding(vertical = 2.dp))
+        ProgressMeter(counts, modifier = Modifier.padding(vertical = MD.space05))
         PeekMembers(members, PeekPhaseCap)
     }
 }
@@ -494,19 +551,22 @@ private fun PeekPhase(
 /** Running members only, dots pulsing rather than spinning. */
 @Composable
 private fun PeekMembers(members: List<Member>, cap: Int) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val scheme = MaterialTheme.colorScheme
     for (member in peekMembers(members, cap)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 22.dp)
-                .padding(start = 10.dp),
+                .padding(start = MD.rowPadY),
         ) {
             val tint = memberTint(member.specId)
-            PulseDot(tint, live = true)
+            // Eight braille spinners in one column is noise — the eye reads
+            // the *motion* rather than the rows. One opacity cycle each, all
+            // at the same period so they beat together rather than shimmering.
+            // That argument now lives in `StatusDot`, which is the same dot.
+            StatusDot(color = tint, pulsing = true)
             Text(
                 text = truncateInstance(member.instance, PeekInstanceMax),
                 style = MaterialTheme.typography.labelSmall,
@@ -516,7 +576,7 @@ private fun PeekMembers(members: List<Member>, cap: Int) {
             Text(
                 text = member.liveDetail.replace('\n', '⏎'),
                 style = MaterialTheme.typography.labelSmall,
-                color = muted,
+                color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -528,8 +588,8 @@ private fun PeekMembers(members: List<Member>, cap: Int) {
         Text(
             text = "… $hidden more running",
             style = MaterialTheme.typography.labelSmall,
-            color = muted,
-            modifier = Modifier.padding(start = 26.dp, top = 2.dp),
+            color = scheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 26.dp, top = MD.space05),
         )
     }
 }
@@ -537,12 +597,11 @@ private fun PeekMembers(members: List<Member>, cap: Int) {
 /** The one-line settled summary a run collapses to before it is released. */
 @Composable
 private fun PeekSettledLine(slot: PeekSlot) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 28.dp),
@@ -551,7 +610,7 @@ private fun PeekSettledLine(slot: PeekSlot) {
         Text(
             text = peekName(slot.run),
             style = MaterialTheme.typography.labelMedium,
-            color = text,
+            color = scheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -559,33 +618,10 @@ private fun PeekSettledLine(slot: PeekSlot) {
         Text(
             text = peekNote(slot.run, slot.vanished),
             style = MaterialTheme.typography.labelSmall,
-            color = if (slot.run.counts.failed > 0) failColor() else muted,
+            color = if (slot.run.counts.failed > 0) colors.removedInk else scheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-/**
- * A member's dot, pulsing.
- *
- * Eight braille spinners in one column is noise — the eye reads the *motion*
- * rather than the rows. One opacity cycle each, all at the same period so they
- * beat together rather than shimmering.
- */
-@Composable
-private fun PulseDot(color: Color, live: Boolean, size: androidx.compose.ui.unit.Dp = 8.dp) {
-    val reduce = LocalReduceMotion.current
-    val transition = rememberInfiniteTransition(label = "peek.pulse")
-    val wave by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.4f,
-        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
-        label = "peek.dot",
-    )
-    val alpha = if (live && !reduce) wave else 1f
-    Canvas(Modifier.size(size)) {
-        drawCircle(color = color.copy(alpha = color.alpha * alpha), radius = this.size.minDimension / 4f)
     }
 }
 

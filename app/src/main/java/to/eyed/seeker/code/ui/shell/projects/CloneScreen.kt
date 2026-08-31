@@ -1,21 +1,21 @@
 package to.eyed.seeker.code.ui.shell.projects
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -35,9 +34,14 @@ import to.eyed.seeker.code.core.ProjectsRoot
 import to.eyed.seeker.code.terminal.CloneState
 import to.eyed.seeker.code.terminal.GitClone
 import to.eyed.seeker.code.terminal.GitCloneUrl
+import to.eyed.seeker.code.ui.components.NoticeCard
+import to.eyed.seeker.code.ui.components.SectionHeader
+import to.eyed.seeker.code.ui.components.Severity
+import to.eyed.seeker.code.ui.components.ZedCodeBlock
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.TabularNums
 
 /**
  * Clone from GitHub — the route, over [GitClone].
@@ -52,13 +56,19 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  *
  * git lives inside the Linux userland and nowhere else, so a build without
  * one cannot clone at all. `GitClone.isSupported` is false there and the
- * Projects sheet leaves the row out; this screen still says so rather than
+ * Projects sheet leaves the button out; this screen still says so rather than
  * showing a form that cannot submit, because a route can also be reached by a
  * restored back stack.
+ *
+ * A FAILURE IS A [NoticeCard], not a red paragraph (docs/VISUAL.md, "New
+ * program / Clone"). It has a title, a hue at 10% behind it, and the ways out
+ * on the card itself — and git's own words underneath go in a [ZedCodeBlock],
+ * because "fatal: could not read Username for 'https://github.com'" is
+ * terminal output and reading it in the buffer face beside a red sentence is
+ * the difference between a message and a diagnosis.
  */
 @Composable
 fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
 
     var url by remember { mutableStateOf("") }
@@ -107,13 +117,14 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = ScreenPadding),
+                .padding(horizontal = MD.space4),
         ) {
             if (!GitClone.isSupported) {
-                Message(
-                    "This build has no Linux userland, and git only exists inside it. " +
-                        "Cloning needs the full edition.",
-                    isError = true,
+                NoticeCard(
+                    severity = Severity.Error,
+                    title = "No Linux userland",
+                    body = "git only exists inside it, so this build cannot clone.",
+                    modifier = Modifier.padding(top = MD.space4),
                 )
                 return@Column
             }
@@ -129,32 +140,39 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                     fraction = null,
                 )
 
-                CloneState.NeedsGit -> Message(
+                CloneState.NeedsGit -> NoticeCard(
+                    severity = Severity.Info,
+                    title = "The guest needs git",
                     // Both halves of "can this userland clone": the binary and
                     // the CA bundle its https support needs. Naming only git
                     // would be a lie on a rootfs that has git alone.
-                    "The Linux guest still needs git and the CA certificates its " +
-                        "https support reads. Install them and carry on?"
+                    body = "The Linux guest still needs git and the CA certificates its " +
+                        "https support reads. Install them and carry on?",
+                    modifier = Modifier.padding(top = MD.space4),
                 )
 
                 is CloneState.Failed -> {
-                    Message(current.summary, isError = true)
+                    NoticeCard(
+                        severity = Severity.Error,
+                        title = "The clone did not finish",
+                        body = current.summary,
+                        modifier = Modifier.padding(top = MD.space4),
+                    )
                     // git's own words, verbatim: they are often the only thing
-                    // that says which host, branch or credential went wrong.
+                    // that says which host, branch or credential went wrong,
+                    // and they are terminal output, so they are drawn as the
+                    // island they are.
                     current.detail?.let { detail ->
-                        Text(
+                        ZedCodeBlock(
                             text = detail,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
                             maxLines = 8,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 8.dp),
+                            modifier = Modifier.padding(top = MD.space2),
                         )
                     }
                 }
 
                 else -> {
-                    FormLabel("Repository")
+                    SectionHeader("Repository", modifier = Modifier.padding(top = MD.space4))
                     SheetTextField(
                         value = url,
                         onValueChange = { value ->
@@ -164,31 +182,36 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                         placeholder = "https://github.com/owner/repo.git",
                         autoFocus = true,
                     )
-                    FormLabel("Project name")
+                    SectionHeader("Project name", modifier = Modifier.padding(top = MD.space6))
                     SheetTextField(
                         value = name,
                         onValueChange = { value -> name = value; nameEdited = true },
                         placeholder = "repo",
                         error = error,
                     )
-                    Message(
-                        "A private repository asks for credentials in a dialog; " +
-                            "the clone waits for it rather than hanging."
+                    Text(
+                        text = "A private repository asks for credentials in a dialog; " +
+                            "the clone waits for it rather than hanging.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = MD.space3),
                     )
                 }
             }
         }
 
         if (GitClone.isSupported) {
-            Column(
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MD.space3, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .imePadding()
                     .navigationBarsPadding()
-                    .padding(horizontal = ScreenPadding, vertical = 8.dp),
+                    .padding(horizontal = MD.space4, vertical = MD.space2),
             ) {
                 when (cloneState) {
-                    is CloneState.Working, is CloneState.InstallingGit -> SheetButtons(
+                    is CloneState.Working, is CloneState.InstallingGit -> CloneActions(
                         cancelLabel = "Leave it running",
                         onCancel = { state.pop() },
                         confirmLabel = "Cancel the clone",
@@ -200,7 +223,7 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                         onConfirm = { GitClone.cancel() },
                     )
 
-                    CloneState.NeedsGit -> SheetButtons(
+                    CloneState.NeedsGit -> CloneActions(
                         cancelLabel = "Back",
                         onCancel = { GitClone.reset() },
                         confirmLabel = "Install and clone",
@@ -208,7 +231,7 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                         onConfirm = { GitClone.installGitAndClone(context, url, name, onCloned) },
                     )
 
-                    is CloneState.Failed -> SheetButtons(
+                    is CloneState.Failed -> CloneActions(
                         cancelLabel = "Close",
                         onCancel = { GitClone.reset(); state.pop() },
                         confirmLabel = "Edit and retry",
@@ -216,7 +239,7 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                         onConfirm = { GitClone.reset() },
                     )
 
-                    else -> SheetButtons(
+                    else -> CloneActions(
                         cancelLabel = "Cancel",
                         onCancel = { state.pop() },
                         confirmLabel = "Clone",
@@ -230,19 +253,61 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
 }
 
 /**
- * Phase and a bar. With no percentage the bar is full and tinted rather than
- * animated: `git clone` spends whole phases with no number to report, and a
- * bar that crawls on nothing is a bar that lies about progress.
+ * The pinned pair, in this screen's four flavours.
+ *
+ * The same shape as [SheetButtons] and deliberately not a call to it: these
+ * live in a `Row` the caller already laid out (one row, four `when` branches),
+ * and nesting a second full-width row inside it to get the same two buttons
+ * would put the gap in twice.
+ */
+@Composable
+private fun CloneActions(
+    cancelLabel: String,
+    onCancel: () -> Unit,
+    confirmLabel: String,
+    confirmEnabled: Boolean,
+    onConfirm: () -> Unit,
+    isDestructive: Boolean = false,
+) {
+    TextButton(onClick = onCancel) {
+        Text(cancelLabel, style = MaterialTheme.typography.labelLarge)
+    }
+    Button(
+        onClick = onConfirm,
+        enabled = confirmEnabled,
+        colors = if (isDestructive) {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            )
+        } else {
+            ButtonDefaults.buttonColors()
+        },
+    ) {
+        Text(confirmLabel, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/**
+ * Phase and a bar.
+ *
+ * With no percentage the bar is full and tinted rather than animated: `git
+ * clone` spends whole phases with no number to report, and a bar that crawls
+ * on nothing is a bar that lies about progress. Material's own indeterminate
+ * indicator is exactly that lie, which is why the unknown case passes 1f to
+ * the determinate one instead — the phase line above it is what is carrying
+ * "still working", and it changes.
+ *
+ * The percentage is tabular, because it ticks.
  */
 @Composable
 private fun CloneProgress(phase: String, fraction: Float?) {
-    val theme = LocalZedTheme.current
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = MD.space6)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = phase,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -250,43 +315,19 @@ private fun CloneProgress(phase: String, fraction: Float?) {
             if (fraction != null) {
                 Text(
                     text = "${(fraction * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFeatureSettings = TabularNums,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        Box(
-            modifier = Modifier
-                .padding(top = 10.dp)
-                .fillMaxWidth()
-                .height(4.dp)
-                .background(
-                    theme.color("element.background", MaterialTheme.colorScheme.surfaceVariant),
-                    RoundedCornerShape(2.dp),
-                )
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction?.coerceIn(0f, 1f) ?: 1f)
-                    .fillMaxHeight()
-                    .background(
-                        theme.color("element.selected", MaterialTheme.colorScheme.primary),
-                        RoundedCornerShape(2.dp),
-                    )
-            )
-        }
+        LinearProgressIndicator(
+            progress = { fraction?.coerceIn(0f, 1f) ?: 1f },
+            modifier = Modifier.fillMaxWidth().padding(top = MD.rowPadY),
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            gapSize = 0.dp,
+            drawStopIndicator = {},
+        )
     }
 }
-
-@Composable
-private fun FormLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.Medium,
-        color = LocalZedTheme.current.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
-}
-
-private val ScreenPadding = 16.dp

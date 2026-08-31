@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
@@ -38,7 +37,8 @@ import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.projects.SheetTextField
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.workspace.Notifications
 
@@ -65,7 +65,6 @@ fun BranchSheet(
     status: GitPanelState,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     var listing by remember(project) { mutableStateOf(GitBranchList()) }
     var query by remember { mutableStateOf("") }
 
@@ -100,9 +99,12 @@ fun BranchSheet(
         listing.error?.let { error ->
             Text(
                 text = error,
-                style = MaterialTheme.typography.bodySmall,
-                color = theme.color("error", MaterialTheme.colorScheme.error),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                // The solved ink, not `error` raw: this is a sentence on a
+                // Material sheet and it has to clear 4.5:1 on it
+                // (docs/VISUAL.md, "THE HYBRID").
+                color = LocalSeekerColors.current.dangerInk,
+                modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
             )
         }
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -150,15 +152,14 @@ private fun BranchRow(
     @DrawableRes leading: Int?,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 44.dp)
+            .heightIn(min = MD.rowMin)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = MD.space4),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
         // A fixed slot, so every name in the list starts at the same x
         // whether or not its row has a mark. The old blank-string spacer held
@@ -175,7 +176,7 @@ private fun BranchRow(
                     // branch"); for the current branch the row below carries
                     // the word, so the tick is not the only thing saying it.
                     contentDescription = null,
-                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    tint = MaterialTheme.colorScheme.primary,
                     size = IconSize.Marker,
                 )
             }
@@ -184,15 +185,15 @@ private fun BranchRow(
             text = name,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.MiddleEllipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
         Text(
             text = if (isRemote) "remote" else subject,
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),

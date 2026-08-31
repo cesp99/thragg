@@ -53,7 +53,7 @@ data class LanguageServerPackage(
      *
      * [userland] is what to call the guest — `Userland.backend.displayName`,
      * passed in rather than read here so this stays a pure function the host
-     * tests can run without a flavour.
+     * tests can run without an Android context.
      */
     override fun detail(plan: AptPlan?, userland: String): String {
         val parts = mutableListOf<String>()

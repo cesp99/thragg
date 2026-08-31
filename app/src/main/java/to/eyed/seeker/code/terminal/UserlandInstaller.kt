@@ -89,7 +89,7 @@ object UserlandInstaller {
 
 /**
  * Marks a cancellation rather than a failure, so the UI offers "Install" again
- * instead of reporting an error the user caused deliberately. The flavour that
- * has a userland throws its own subclass of this.
+ * instead of reporting an error the user caused deliberately. DebianUserland
+ * throws its own subclass of this.
  */
 open class InstallCancelledMarker(message: String) : Exception(message)

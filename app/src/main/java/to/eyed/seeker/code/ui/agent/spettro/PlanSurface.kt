@@ -8,14 +8,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,32 +25,44 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentPlanEntry
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.Durations
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.mutedIcon
 
 // ---------------------------------------------------------------------------
 // What the strip says, as a pure function
 // ---------------------------------------------------------------------------
 
 /**
- * The one line the 32 dp strip has room for, plus the count.
+ * The one line the status strip has room for, plus the count.
  *
  * [headline] is the first `in_progress` task, falling back to the first
  * pending one. The fallback is the interesting half: between tasks — and for
  * the whole of a plan that has been published but not started — there is no
  * `in_progress` entry at all, and a strip that went blank in those gaps would
  * flicker several times a turn.
+ *
+ * The headline survives the move into [PlanProgress] even though the 36 dp
+ * strip no longer prints it: it is what the unfold opens *on*, and it is the
+ * sentence a screen reader is given for the collapsed control.
  */
 internal data class PlanSummary(
     val headline: AgentPlanEntry?,
@@ -105,80 +119,175 @@ internal fun statusIcon(status: AgentPlanEntry.Status): Pair<Int, String> = when
 }
 
 // ---------------------------------------------------------------------------
-// The strip
+// In the status strip
 // ---------------------------------------------------------------------------
 
 /**
- * The plan strip — 32 dp above the composer, and the only permanently visible
- * trace of the session's task graph.
+ * `2/4 ▬▬▭▭` — the plan, folded into the 36 dp status strip.
  *
- * The plan matters more on a phone than on a desktop for a simple reason: the
- * transcript shows perhaps four rows at a time, so the answer to "what is it
- * doing, and how much is left" is otherwise several scrolls away.
+ * THIS REPLACES THE 32 dp `PlanStrip` BAND, and the replacement is the point
+ * (docs/VISUAL.md, "Agent — the screen at rest"). The old strip spent a whole
+ * pinned row of an 890 dp column printing one task's sentence, which is the
+ * *least* durable thing the plan channel carries — the agent republishes the
+ * entire list in dependency order on every mutation, so that sentence changes
+ * several times a turn while the ratio barely moves. The ratio and the cells
+ * are what the eye actually reads at a glance, they cost no extra height at
+ * all beside the ticker and the usage readout, and the sentence is one tap
+ * away in [PlanUnfold] rather than gone.
  *
- * **Replace wholesale.** The agent republishes the entire list in dependency
- * order on every task mutation, so a task can move three positions between
- * updates without anything having "happened" to it. Animating that reordering
- * would draw a race between rows that are not racing; the only thing that
- * cross-fades is the status glyph, which is the only thing that changed.
+ * Draws nothing for an empty plan, so the strip closes up around it.
  *
- * Workflow phases never appear here. They belong to the run card — the plan
- * channel is the session task graph, and merging the two would have a
- * six-phase workflow overwrite a two-task plan.
+ * NO `touchTarget()` HERE, and it is deliberate: the spec pins the strip at
+ * 36 dp, and `minimumInteractiveComponentSize()` reserves 48 dp of *layout*,
+ * which would make the strip taller than the thing it is a strip of. This is
+ * not an icon-only control — it is a labelled target ~36 dp tall and ~80 dp
+ * wide, well clear of WCAG 2.5.8's 24 dp floor, which is the case that rule
+ * carves out.
  */
 @Composable
-fun PlanStrip(
+fun PlanProgress(
     plan: List<AgentPlanEntry>,
-    onExpand: () -> Unit,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val summary = planSummary(plan) ?: return
-    val theme = LocalZedTheme.current
-    val headline = summary.headline
+    val colors = LocalSeekerColors.current
+    val spoken = buildString {
+        append("Plan, ")
+        append(summary.done)
+        append(" of ")
+        append(summary.total)
+        append(" done")
+        summary.headline?.let {
+            append(", ")
+            append(it.content)
+        }
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         modifier = modifier
-            .fillMaxWidth()
-            .height(StripHeight)
-            .clickable(onClickLabel = "Plan, ${summary.counts}", onClick = onExpand)
-            .padding(horizontal = 12.dp),
-    ) {
-        if (headline != null) {
-            PlanGlyph(headline)
-            Text(
-                text = headline.content,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (summary.isComplete) {
-                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    theme.color("text", MaterialTheme.colorScheme.onSurface)
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+            .clip(RoundedCornerShape(MD.radiusXs))
+            .clickable(
+                onClickLabel = if (expanded) "Hide the plan" else "Show the plan",
+                onClick = onToggle,
             )
-            if (headline.isBlocked) BlockedPill()
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-        Text(
-            text = summary.counts,
-            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            maxLines = 1,
-        )
+            .padding(horizontal = MD.space1, vertical = MD.space05)
+            // One node for the three: read as three it announces a checkbox,
+            // a fraction and an unlabelled graphic, none of which is a plan.
+            // The action is re-declared inside the clear, because clearing is
+            // what it says and a control that lost its own click is not an
+            // improvement on one that announced itself badly.
+            .clearAndSetSemantics {
+                contentDescription = spoken
+                onClick(label = if (expanded) "Hide the plan" else "Show the plan") {
+                    onToggle()
+                    true
+                }
+            },
+    ) {
         SeekerIcon(
-            icon = R.drawable.ic_ui_chevron_up,
+            icon = if (summary.isComplete) {
+                R.drawable.ic_ui_checkbox_checked
+            } else {
+                R.drawable.ic_ui_checkbox
+            },
             contentDescription = null,
-            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            tint = if (summary.isComplete) colors.addedMark else mutedIcon,
             size = IconSize.Marker,
         )
+        Text(
+            text = summary.counts,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontFeatureSettings = TabularNums,
+            ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        PlanCells(done = summary.done, total = summary.total)
     }
 }
 
-/** docs/UI.md's vertical budget gives the strip exactly this much. */
-private val StripHeight = 32.dp
+/**
+ * `▬▬▭▭` — the plan as cells rather than as a bar.
+ *
+ * Cells and not a continuous meter because a plan is countable: four tasks
+ * with two done is two full cells, and a 50 %-wide bar would say the same
+ * thing about a plan of two and a plan of forty. Capped at [PlanCellMax], at
+ * which point the cells become proportional and the ratio beside them stays
+ * exact — the number is the truth here and the cells are the glance.
+ */
+@Composable
+private fun PlanCells(done: Int, total: Int, modifier: Modifier = Modifier) {
+    if (total <= 0) return
+    val cells = total.coerceAtMost(PlanCellMax)
+    val filled = if (total <= PlanCellMax) {
+        done.coerceIn(0, cells)
+    } else {
+        // Round *down*: a cell that lit before its task finished would be the
+        // one lie a progress readout must not tell.
+        ((done.toFloat() / total) * cells).toInt().coerceIn(0, cells)
+    }
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(PlanCellGap),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        repeat(cells) { index ->
+            Box(
+                modifier = Modifier
+                    .size(width = PlanCellWidth, height = PlanCellHeight)
+                    .clip(RoundedCornerShape(PlanCellHeight / 2))
+                    .background(
+                        if (index < filled) scheme.primary else scheme.outlineVariant,
+                    ),
+            )
+        }
+    }
+}
+
+/** Eight is where a row of cells stops being countable at a glance. */
+private const val PlanCellMax = 8
+private val PlanCellWidth = 6.dp
+private val PlanCellHeight = 3.dp
+private val PlanCellGap = 2.dp
+
+/**
+ * The plan, opened *inside* the status strip.
+ *
+ * The strip animates its own size around this ([Modifier.animateSize] on the
+ * strip), so the tasks push the transcript down rather than covering it, and
+ * the reader keeps the run ticker and the usage readout in view while they
+ * read what is left to do. That is the difference between this and the sheet:
+ * the sheet is for studying a thirty-task plan, this is for answering "what
+ * is it on" without losing the conversation.
+ *
+ * Capped and scrollable, because an autonomous run publishes plans long
+ * enough to swallow the screen.
+ */
+@Composable
+fun PlanUnfold(plan: List<AgentPlanEntry>, modifier: Modifier = Modifier) {
+    if (plan.isEmpty()) return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = PlanUnfoldMax)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = MD.space2),
+    ) {
+        // Keyed by position AND content, as the sheet is: content alone
+        // repeats ("run the tests" twice in one plan is ordinary) and two
+        // siblings under the same key is not a state Compose recovers from.
+        plan.forEachIndexed { index, entry ->
+            key(index, entry.content) { PlanRow(entry) }
+        }
+    }
+}
+
+/** Six 34 dp rows and a hint of a seventh — enough to read, not enough to hide. */
+private val PlanUnfoldMax = 220.dp
 
 // ---------------------------------------------------------------------------
 // The sheet
@@ -205,35 +314,33 @@ fun PlanSheet(
     agentName: String,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val summary = planSummary(plan)
     SheetScaffold(state = state, onDismiss = onDismiss, title = "Plan") {
         if (summary == null) {
             Text(
                 text = stringResource(R.string.agent_plan_empty, agentName),
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(MD.space4),
             )
             return@SheetScaffold
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = MD.space4, vertical = MD.space1),
         ) {
-            Text(
-                text = "In dependency order",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.weight(1f),
-            )
+            SectionHeader(text = "In dependency order", modifier = Modifier.weight(1f))
             Text(
                 text = "${summary.done} / ${summary.total}",
-                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
-        HorizontalDivider(color = theme.color("border.variant", Color.Transparent))
+        HairlineDivider()
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
             items(
                 count = plan.size,
@@ -255,14 +362,13 @@ fun PlanSheet(
  */
 @Composable
 fun PlanRow(entry: AgentPlanEntry, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val status = entry.statusOf
     Row(
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = MD.space4, vertical = MD.space2),
     ) {
         PlanGlyph(entry)
         Text(
@@ -274,12 +380,9 @@ fun PlanRow(entry: AgentPlanEntry, modifier: Modifier = Modifier) {
                 FontWeight.Normal
             },
             color = when (status) {
-                AgentPlanEntry.Status.InProgress ->
-                    theme.color("text", MaterialTheme.colorScheme.onSurface)
-                AgentPlanEntry.Status.Pending ->
-                    theme.color("text", MaterialTheme.colorScheme.onSurface)
-                AgentPlanEntry.Status.Completed ->
-                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                AgentPlanEntry.Status.InProgress -> MaterialTheme.colorScheme.onSurface
+                AgentPlanEntry.Status.Pending -> MaterialTheme.colorScheme.onSurface
+                AgentPlanEntry.Status.Completed -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.weight(1f),
         )
@@ -296,26 +399,31 @@ fun PlanRow(entry: AgentPlanEntry, modifier: Modifier = Modifier) {
  */
 @Composable
 private fun PlanGlyph(entry: AgentPlanEntry) {
-    val theme = LocalZedTheme.current
+    val colors = LocalSeekerColors.current
     val reduceMotion = LocalReduceMotion.current
     Box(modifier = Modifier.width(GlyphWidth), contentAlignment = Alignment.TopStart) {
         key(entry.content) {
             Crossfade(
                 targetState = entry.statusOf,
-                animationSpec = tween(durationMillis = if (reduceMotion) 0 else 180),
+                animationSpec = tween(
+                    durationMillis = if (reduceMotion) 0 else Durations.BAND_IN,
+                ),
                 label = "plan-status",
             ) { status ->
                 val (icon, said) = statusIcon(status)
                 SeekerIcon(
                     icon = icon,
                     contentDescription = said,
+                    // A completed task's tick is `created` solved to 3:1 on a
+                    // card, not the raw key: raw `created` measures 2.11:1 on
+                    // Ayu Light, which is a tick nobody sees. The old
+                    // `Color.Gray` third fallback is gone with it — a mark
+                    // that fell back to a hue no theme contains was the one
+                    // colour on this row that could not be themed.
                     tint = when (status) {
-                        AgentPlanEntry.Status.Completed ->
-                            theme.color("created", theme.color("text.muted", Color.Gray))
-                        AgentPlanEntry.Status.InProgress ->
-                            theme.color("text.accent", MaterialTheme.colorScheme.primary)
-                        AgentPlanEntry.Status.Pending ->
-                            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                        AgentPlanEntry.Status.Completed -> colors.addedMark
+                        AgentPlanEntry.Status.InProgress -> MaterialTheme.colorScheme.primary
+                        AgentPlanEntry.Status.Pending -> mutedIcon
                     },
                     size = IconSize.Marker,
                 )
@@ -336,15 +444,20 @@ private val GlyphWidth = 16.dp
  */
 @Composable
 private fun BlockedPill() {
-    val theme = LocalZedTheme.current
     Text(
         text = "BLOCKED",
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Medium,
-        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(theme.color("element.background", Color.Transparent))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
+            .height(BlockedPillHeight)
+            .clip(RoundedCornerShape(MD.radiusXs))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = MD.tagPadX, vertical = MD.tagPadY),
     )
 }
+
+/** Tall enough to hold 11sp with 2dp either side and not a pixel more. */
+private val BlockedPillHeight = 20.dp

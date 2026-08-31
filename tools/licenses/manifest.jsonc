@@ -30,7 +30,7 @@
     },
     "native": {
       "title": "Native binaries",
-      "note": "Programs shipped beside the app and executed as separate processes rather than linked into it. The full edition only."
+      "note": "Programs shipped beside the app and executed as separate processes rather than linked into it."
     },
     "rust": {
       "title": "Rust crates",
@@ -131,7 +131,7 @@
       "copyright": "Copyright (C) the PRoot authors; Termux fork",
       "url": "https://github.com/termux/proot",
       "licenseFiles": ["licenses/GPL-2.0.txt"],
-      "note": "Shipped as lib/*/libproot_exec.so in the full edition and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked SEEKER PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
+      "note": "Shipped as lib/*/libproot_exec.so and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked SEEKER PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
     },
     {
       "id": "native/talloc",

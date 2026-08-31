@@ -4,7 +4,7 @@ name: Release
 # of the form vX.Y.Z. Designed for a manual-signing flow: the build and the
 # APK signing happen on the maintainer's machine, so this workflow never
 # touches APKs — it writes the notes and opens a draft. The maintainer then
-# uploads the six signed APKs to the draft and clicks Publish.
+# uploads the three signed APKs to the draft and clicks Publish.
 
 # The release body is guaranteed to contain the "Which APK should I
 # install?" section regardless of how many pull requests (zero, one, many)

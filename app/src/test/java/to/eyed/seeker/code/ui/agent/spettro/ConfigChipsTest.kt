@@ -2,9 +2,9 @@ package to.eyed.seeker.code.ui.agent.spettro
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import to.eyed.seeker.code.core.AgentSessionState
+import to.eyed.seeker.code.core.SpettroToolbar
 import to.eyed.seeker.code.core.UltraState
 
 /**
@@ -128,26 +128,57 @@ class ConfigChipsTest {
         )
     }
 
-    // --- tint ----------------------------------------------------------------
+    // --- the summary line ----------------------------------------------------
 
+    /**
+     * The summary reads in the order the answer is wanted, which is NOT the
+     * sheet's order: `chipOrder` puts Ultra first because it is the charged
+     * control and must not need a scroll, and a sentence has neither a scroll
+     * nor an Ultra — the amber dot carries that.
+     */
     @Test
-    fun theThreeModeColoursAreExactAndNothingElseIsTinted() {
-        fun mode(value: String) = option(
-            """{"id":"mode","name":"Mode","type":"select","category":"mode",
-                "currentValue":"$value"}"""
-        )
-        assertEquals(0xFFBD93F9, modeTintArgb(mode("plan")))
-        assertEquals(0xFF34D399, modeTintArgb(mode("coding")))
-        assertEquals(0xFF60A5FA, modeTintArgb(mode("ask")))
-        // A repo whose spettro.agents.toml names its own mode gets no tint
-        // rather than a colour this build invented for it.
-        assertNull(modeTintArgb(mode("triage")))
-        assertNull(
-            modeTintArgb(
-                option("""{"id":"model","name":"Model","type":"select","category":"model",
-                          "currentValue":"plan"}""")
+    fun theSummaryReadsModeModelPermissionThinking() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"ultra","name":"Ultra","type":"boolean","currentValue":true},
+                    {"id":"thinking","name":"Thinking","type":"select",
+                     "category":"thought_level","currentValue":"high"},
+                    {"id":"permission","name":"Permission","type":"select",
+                     "currentValue":"ask-first",
+                     "options":[{"name":"Ask first","value":"ask-first"}]},
+                    {"id":"model","name":"Model","type":"select","category":"model",
+                     "currentValue":"sonnet-4-6"},
+                    {"id":"mode","name":"Mode","type":"select","category":"mode",
+                     "currentValue":"coding"}]}"""
             )
         )
+        assertEquals("coding · sonnet-4-6 · Ask first · high", configSummary(toolbar))
+    }
+
+    /**
+     * A selector the agent grows later appears at the end rather than
+     * disappearing, and booleans stay out: "Ultra Off" in the middle of the
+     * line spends three of its forty characters on the default state.
+     */
+    @Test
+    fun anUnknownSelectFollowsAndBooleansAreLeftOut() {
+        val toolbar = SpettroToolbar(
+            options(
+                """{"phase":"ready","configOptions":[
+                    {"id":"sandbox","name":"Sandbox","type":"select","currentValue":"strict"},
+                    {"id":"voice","name":"Voice","type":"boolean","currentValue":false},
+                    {"id":"mode","name":"Mode","type":"select","category":"mode",
+                     "currentValue":"plan"}]}"""
+            )
+        )
+        assertEquals("plan · strict", configSummary(toolbar))
+    }
+
+    /** Nothing advertised is an empty line, and the row draws nothing at all. */
+    @Test
+    fun anAgentThatHasSaidNothingHasNoSummary() {
+        assertEquals("", configSummary(SpettroToolbar(emptyList())))
     }
 
     // --- labels --------------------------------------------------------------

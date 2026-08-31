@@ -52,6 +52,13 @@ fun UnsavedChangesDialog(files: OpenFilesState) {
 
     AlertDialog(
         onDismissRequest = { files.cancelClose() },
+        // Elevation is zero everywhere in both halves: the scheme's
+        // `surfaceTint` is transparent, so a tonal elevation here would tint
+        // nothing and a shadow would make this the only floating thing in the
+        // app (docs/VISUAL.md, "Foundations", ELEVATION). The scrim and the
+        // container's own fill step are what separate a dialog from the screen
+        // behind it.
+        tonalElevation = 0.dp,
         title = { Text(stringResource(R.string.unsaved_title, file.name)) },
         text = {
             Text(

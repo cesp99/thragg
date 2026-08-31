@@ -229,7 +229,7 @@ object ToolchainInstaller {
     private fun run(app: Context, from: String?): Boolean {
         val manifest = ToolchainManifest.load(app)
         if (!Userland.backend.isSupported) {
-            error("this edition has no Linux userland, so it cannot install a Solana toolchain")
+            error("the Linux guest is not available, so it cannot install a Solana toolchain")
         }
 
         val startIndex = from

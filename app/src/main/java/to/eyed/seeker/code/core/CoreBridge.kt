@@ -318,15 +318,15 @@ object CoreBridge {
     // -----------------------------------------------------------------------
     // Git status. The engine has no git of its own: it runs the one inside the
     // Debian userland, through proot. We know where that lives and the engine
-    // must not guess, so [setUserland] is what turns the feature on — and the
-    // `play` flavour simply never calls it, leaving every query below
-    // answering "nothing to show".
+    // must not guess, so [setUserland] is what turns the feature on — and
+    // until it is called, every query below answers "nothing to show" rather
+    // than failing.
     // -----------------------------------------------------------------------
 
     /**
      * Tells the engine where proot and the Debian rootfs are. Call once the
-     * userland reports [to.eyed.seeker.code.terminal.UserlandState.Ready];
-     * never in the `play` flavour, which has no userland to point at.
+     * userland reports [to.eyed.seeker.code.terminal.UserlandState.Ready],
+     * and never before — there is nothing to point at until then.
      *
      * The engine binds [projectsDir] into the guest at its *own* path, so host
      * and guest agree on every path and nothing needs translating.
@@ -1191,7 +1191,7 @@ object CoreBridge {
     // whatever `apt` put in the Debian rootfs. Every call below therefore
     // degrades the way the git ones do: no userland, no server installed, or a
     // language nobody packages one for all report "nothing to show" rather than
-    // an error, and the `play` flavour never has one at all.
+    // an error.
     //
     // Two shapes, both already on this boundary:
     //
@@ -1571,9 +1571,9 @@ object CoreBridge {
     // and those are 1-based rows in the shape [gitPatch] already speaks — so
     // an agent's edit renders with the same view a commit does.
     //
-    // Absent, not failing, without a userland: the `play` flavour never has
-    // one, and a `full` build before Debian is installed gets a session that
-    // reports itself unavailable with that sentence.
+    // Absent, not failing, without a userland: before Debian is installed the
+    // session reports itself unavailable with that sentence rather than
+    // erroring.
     // -----------------------------------------------------------------------
 
     /**

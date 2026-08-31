@@ -27,11 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -45,24 +42,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.Member
 import to.eyed.seeker.code.core.OrchCounts
 import to.eyed.seeker.code.core.OrchStatus
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerSpinner
+import to.eyed.seeker.code.ui.components.ZedCodeBlock
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.DisclosureMark
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.animateSize
+import to.eyed.seeker.code.ui.theme.readable
 
 /**
  * The primitives every orchestration surface is drawn from — the run cards in
@@ -71,14 +72,22 @@ import kotlin.math.sin
  *
  * They live in one file for a reason that is not tidiness: the peek is a
  * *readout* of the same run the card is a *record* of, and the two must agree
- * glyph for glyph. A user who learns that ✗ means "this member failed" in the
- * card must not meet a second vocabulary forty dp lower down; a meter that
- * rounds one failure in fifty to zero pixels in one place and not the other
- * turns a struggling run into an argument about which surface is lying.
+ * glyph for glyph. A user who learns that a cross means "this member failed"
+ * in the card must not meet a second vocabulary forty dp lower down; a meter
+ * that rounds one failure in fifty to zero pixels in one place and not the
+ * other turns a struggling run into an argument about which surface is lying.
  *
  * Everything here that decides *what* to draw — how much meter to fill, which
  * rows survive a cap, how a name is shortened — is a plain function with no
  * Compose in it, tested in `OrchBitsTest`. Only the drawing needs a composer.
+ *
+ * **This file is in the MATERIAL half** (docs/VISUAL.md, "THE BOUNDARY,
+ * EXACTLY"). Its inks come from `MaterialTheme.colorScheme` and
+ * [LocalSeekerColors], not from `theme.color(...)`, because a run card is a
+ * card in an app rather than a pane in an editor. The one exception is
+ * [memberTint], which reads the theme's own `terminal.ansi.*` palette because
+ * that is what a sub-agent tint *is* — and it is solved for contrast before it
+ * is drawn, which the Zed half would not do.
  *
  * Motion policy (docs/SPETTRO.md, "Screen shell"): opacity and transform only.
  * The single exception in this file is the meter's fill width, which moves
@@ -92,7 +101,7 @@ import kotlin.math.sin
 // ---------------------------------------------------------------------------
 
 /** Run cards and the peek share one corner so they read as one family. */
-internal val RunCardRadius = 12.dp
+internal val RunCardRadius = MD.radiusMd
 
 /** Member rows are a touch target: they open. */
 internal val MemberRowHeight = 44.dp
@@ -114,47 +123,58 @@ internal const val GhostCap = 3
 // ---------------------------------------------------------------------------
 
 /**
- * Ultra's one identity colour.
+ * Ultra's one identity colour, as a WASH.
  *
- * The spec names `#f59e0b`, and this is the closest a themed app can honestly
- * get: the theme's own `warning` is the amber slot in every Zed theme, and it
- * is what the context gauge already turns at 75%. Amber doing double duty
- * (Ultra identity, context severity) is deliberate — see the swarm card in
- * docs/SPETTRO.md. The literal is a *fallback* for a theme that ships no
- * warning colour, not a hard-coded paint.
+ * The spec names `#f59e0b`; the bridge resolves it to the theme's own
+ * `warning`, which is the amber slot in every Zed theme and what the context
+ * gauge already turns at 75%. This is the raw hue and belongs behind things —
+ * a card fill, a border. Anything drawing amber as *text* wants
+ * `LocalSeekerColors.current.warnInk`, which is the same hue solved to 4.5:1:
+ * on Ayu Light the raw value measures 1.64:1 (docs/VISUAL.md, "THE HYBRID").
  */
 @Composable
-internal fun ultraAmber(): Color =
-    LocalZedTheme.current.color("warning", Color(0xFFF59E0B))
-
-/** The green a finished member and the done half of a meter share. */
-@Composable
-internal fun doneColor(): Color {
-    val theme = LocalZedTheme.current
-    return theme.color("success", theme.color("created", Color(0xFF4CAF50)))
-}
-
-@Composable
-internal fun failColor(): Color =
-    LocalZedTheme.current.color("error", MaterialTheme.colorScheme.error)
+internal fun ultraAmber(): Color = LocalSeekerColors.current.ultraAmber
 
 /**
- * The eight tints a sub-agent spec can take.
+ * The green a finished member and the done half of a meter share.
+ *
+ * Solved at TEXT_RATIO rather than MARK_RATIO even though most of its uses are
+ * marks: one value is cheaper to reason about than two, and an ink used where
+ * a mark would do is merely a little further from the raw hue. Raw `created`
+ * measures 2.11:1 on Ayu Light, which is neither.
+ */
+@Composable
+internal fun doneColor(): Color = LocalSeekerColors.current.addedInk
+
+/** Failure red, for a glyph, a meter segment or a count. See [doneColor]. */
+@Composable
+internal fun failColor(): Color = LocalSeekerColors.current.dangerInk
+
+/**
+ * The eight tints a sub-agent spec can take, as keys into the theme's own
+ * terminal palette.
  *
  * Keyed on the spec, never on the instance: twelve `review#N` members are
  * twelve of *one* thing and must read that way, while `review` and `code`
  * running side by side must not. Red is not in the list — a member tinted
  * with the failure colour would claim a failure it has not had.
+ *
+ * **There is no baked fallback table any more, and that was a bug rather than
+ * a style choice.** These eight keys used to carry One Dark's hexes as their
+ * fallbacks, so a user on Gruvbox got One Dark's cyan and magenta in the
+ * middle of a Gruvbox card. A theme that ships no `terminal.ansi.*` block
+ * falls back to [ZedTheme.playerColor] instead — Zed's own participant
+ * palette, which every theme has because it is derived from the cursor.
  */
-private val MEMBER_TINTS: List<Pair<String, Color>> = listOf(
-    "terminal.ansi.cyan" to Color(0xFF56B6C2),
-    "terminal.ansi.magenta" to Color(0xFFC678DD),
-    "terminal.ansi.blue" to Color(0xFF61AFEF),
-    "terminal.ansi.green" to Color(0xFF98C379),
-    "terminal.ansi.yellow" to Color(0xFFE5C07B),
-    "terminal.ansi.bright_cyan" to Color(0xFF7DD3D8),
-    "terminal.ansi.bright_magenta" to Color(0xFFD7A0EA),
-    "terminal.ansi.bright_blue" to Color(0xFF8AB4F8),
+private val MEMBER_TINT_KEYS: List<String> = listOf(
+    "terminal.ansi.cyan",
+    "terminal.ansi.magenta",
+    "terminal.ansi.blue",
+    "terminal.ansi.green",
+    "terminal.ansi.yellow",
+    "terminal.ansi.bright_cyan",
+    "terminal.ansi.bright_magenta",
+    "terminal.ansi.bright_blue",
 )
 
 /**
@@ -165,7 +185,7 @@ private val MEMBER_TINTS: List<Pair<String, Color>> = listOf(
  * different order on a resume would otherwise recolour itself, and the colour
  * is the only thing carrying "these two rows are the same kind of worker".
  */
-internal fun memberTintIndex(specId: String, count: Int = MEMBER_TINTS.size): Int {
+internal fun memberTintIndex(specId: String, count: Int = MEMBER_TINT_KEYS.size): Int {
     if (count <= 0 || specId.isEmpty()) return 0
     var hash = -2128831035 // FNV-1a 32-bit offset basis
     for (ch in specId) {
@@ -175,10 +195,23 @@ internal fun memberTintIndex(specId: String, count: Int = MEMBER_TINTS.size): In
     return ((hash % count) + count) % count
 }
 
+/**
+ * A member's tint, drawn on a card and therefore solved against one.
+ *
+ * The hue is the theme's; the lightness is whatever clears 4.5:1 on
+ * [SeekerColors.cardGround]. A terminal palette is authored for a terminal —
+ * full-strength ink on the terminal's own background — and a run card is a
+ * washed surface two steps up the ladder, so `terminal.ansi.yellow` on a light
+ * theme arrives at about 1.9:1 if it is drawn raw. It is drawn as the member's
+ * NAME at 12sp, which is exactly the case the solver exists for.
+ */
 @Composable
 internal fun memberTint(specId: String): Color {
-    val (key, fallback) = MEMBER_TINTS[memberTintIndex(specId)]
-    return LocalZedTheme.current.color(key, fallback)
+    val theme = LocalZedTheme.current
+    val ground = LocalSeekerColors.current.cardGround
+    val index = memberTintIndex(specId)
+    val raw = theme.color(MEMBER_TINT_KEYS[index], theme.playerColor(index))
+    return readable(raw, ground)
 }
 
 /** A tint laid over a surface at [amount], for borders and card fills. */
@@ -239,13 +272,15 @@ internal fun ProgressMeter(
     modifier: Modifier = Modifier,
     height: Dp = 4.dp,
 ) {
-    val theme = LocalZedTheme.current
     val reduce = LocalReduceMotion.current
     val fill = meterFill(counts)
     val spec = if (reduce) snap() else tween<Float>(durationMillis = 240)
     val done by animateFloatAsState(fill.done, spec, label = "meter.done")
     val failed by animateFloatAsState(fill.failed, spec, label = "meter.failed")
-    val track = theme.color("element.background", Color.Transparent)
+    // The groove is a rung of the surface ladder rather than a wash of the
+    // ink: a meter with nothing in it should read as an empty channel, and an
+    // 8%-of-the-text track reads as a very faint fill.
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
     val doneTint = doneColor()
     val failTint = failColor()
 
@@ -280,24 +315,109 @@ internal fun ProgressMeter(
 }
 
 // ---------------------------------------------------------------------------
+// The cell strip
+// ---------------------------------------------------------------------------
+
+/** How many cells a 400 dp header can carry before they stop being countable. */
+internal const val CellCap = 32
+
+/**
+ * One cell per unit of work, in the order the run declared it.
+ *
+ * `null` is a cell nobody has been launched for yet — a queued swarm item, a
+ * member of a phase that has not started. Drawing it is the point: a plan that
+ * announced twenty items and shows five cells is a plan that shrank.
+ *
+ * Pure, so `OrchBitsTest` can pin the padding and the cap without a phone.
+ */
+internal fun cellStates(
+    members: List<Member>,
+    total: Int,
+    cap: Int = CellCap,
+): List<OrchStatus?> {
+    val known = members.map { it.status as OrchStatus? }
+    val queued = (total - known.size).coerceAtLeast(0)
+    return (known + List(queued) { null }).take(cap)
+}
+
+/**
+ * The strip of cells that lives in a run card's HEADER.
+ *
+ * In the header rather than the body, and that placement is the whole
+ * argument: a card the reader collapsed must not stop showing what broke.
+ * Collapsing hides the *detail* of a run, never its shape.
+ *
+ * A RUNNING cell takes the accent and not the member's own mode tint. Half the
+ * mode palette is a green, so a swarm of `code` agents drew running-green
+ * beside done-green and the strip said nothing at all.
+ */
+@Composable
+internal fun CellStrip(
+    states: List<OrchStatus?>,
+    modifier: Modifier = Modifier,
+    height: Dp = 3.dp,
+) {
+    if (states.isEmpty()) return
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val queuedInk = scheme.outlineVariant
+    val runningInk = scheme.primary
+    val doneInk = colors.addedMark
+    val failedInk = colors.removedMark
+    val spoken = remember(states) { cellSummary(states) }
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .semantics { contentDescription = spoken },
+    ) {
+        val gap = 2.dp.toPx()
+        val cells = states.size
+        val cell = ((size.width - gap * (cells - 1)) / cells).coerceAtLeast(1f)
+        val radius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
+        states.forEachIndexed { index, status ->
+            drawRoundRect(
+                color = when (status) {
+                    OrchStatus.Done -> doneInk
+                    OrchStatus.Failed -> failedInk
+                    OrchStatus.Running -> runningInk
+                    null -> queuedInk
+                },
+                topLeft = Offset(index * (cell + gap), 0f),
+                size = Size(cell, size.height),
+                cornerRadius = radius,
+            )
+        }
+    }
+}
+
+/** What a screen reader hears instead of thirty-two rectangles. */
+internal fun cellSummary(states: List<OrchStatus?>): String {
+    val done = states.count { it == OrchStatus.Done }
+    val failed = states.count { it == OrchStatus.Failed }
+    val running = states.count { it == OrchStatus.Running }
+    val queued = states.count { it == null }
+    return listOfNotNull(
+        "$done done".takeIf { done > 0 },
+        "$failed failed".takeIf { failed > 0 },
+        "$running running".takeIf { running > 0 },
+        "$queued queued".takeIf { queued > 0 },
+    ).joinToString(", ").ifEmpty { "not started yet" }
+}
+
+// ---------------------------------------------------------------------------
 // The spinner and the status glyph
 // ---------------------------------------------------------------------------
 
-private const val SpinnerDots = 8
-private const val SpinnerStepMs = 50L
-
 /**
- * Spettro's own braille spinner, ported to a ring of dots.
+ * Spettro's braille spinner, now [SeekerSpinner].
  *
- * Eight discrete 50 ms steps — one revolution per 400 ms, exactly the CLI's
- * ⣾⣽⣻⢿⡿⣟⣯⣷ cadence — with the head at full opacity and the tail falling away
- * behind it. It is deliberately not a `CircularProgressIndicator`: this glyph
- * is what "Spettro is working" looks like everywhere else the user has seen
- * Spettro, and a Material sweep would be a different product's spinner.
- *
- * Discrete steps rather than a continuous rotation is also the cheap answer to
- * a fan-out: twenty of these on screen at once are twenty invalidations every
- * 50 ms, not twenty per frame.
+ * The implementation MOVED to `ui/components/SeekerSpinner.kt` in P3 — the
+ * cadence and the reduce-motion branch were already right, and the only thing
+ * wrong with them was that they lived in the agent package where the build
+ * strip and the setup steps could not reach them. This name survives as the
+ * one-line forward because the orchestration surfaces read as one vocabulary
+ * and `SpettroSpinner` is what the peek and the cards call it.
  */
 @Composable
 internal fun SpettroSpinner(
@@ -305,32 +425,7 @@ internal fun SpettroSpinner(
     modifier: Modifier = Modifier,
     size: Dp = 12.dp,
 ) {
-    val reduce = LocalReduceMotion.current
-    var step by remember { mutableIntStateOf(0) }
-    LaunchedEffect(reduce) {
-        // Reduced motion keeps the ramp and stops the rotation, which is Zed's
-        // own answer for the status-bar spinner: still legible as "working",
-        // no movement.
-        if (reduce) return@LaunchedEffect
-        while (true) {
-            delay(SpinnerStepMs)
-            step = (step + 1) % SpinnerDots
-        }
-    }
-    Canvas(modifier.size(size)) {
-        val dot = this.size.minDimension * 0.11f
-        val ring = this.size.minDimension / 2f - dot
-        for (index in 0 until SpinnerDots) {
-            val behind = (step - index + SpinnerDots) % SpinnerDots
-            val alpha = (1f - behind * 0.16f).coerceAtLeast(0.12f)
-            val angle = (-90f + index * 45f) * (PI.toFloat() / 180f)
-            drawCircle(
-                color = color.copy(alpha = color.alpha * alpha),
-                radius = dot,
-                center = center + Offset(ring * cos(angle), ring * sin(angle)),
-            )
-        }
-    }
+    SeekerSpinner(modifier = modifier, size = size, color = color)
 }
 
 /**
@@ -348,8 +443,7 @@ internal fun StatusGlyph(
     size: Dp = 12.dp,
     runningTint: Color? = null,
 ) {
-    val theme = LocalZedTheme.current
-    val accent = runningTint ?: theme.color("text.accent", MaterialTheme.colorScheme.primary)
+    val accent = runningTint ?: MaterialTheme.colorScheme.primary
     val description = when (status) {
         OrchStatus.Running -> "running"
         OrchStatus.Done -> "done"
@@ -409,23 +503,24 @@ internal fun countsTerms(counts: OrchCounts): List<CountTerm> = buildList {
 
 @Composable
 internal fun CountsLabel(counts: OrchCounts, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val danger = failColor()
     val terms = countsTerms(counts)
     if (terms.isEmpty()) return
+    // Tabular, because every one of these figures ticks during a fan-out and
+    // `1 running` becoming `2 running` must not move `3 done` sideways.
+    val style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = TabularNums)
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space1),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         terms.forEachIndexed { index, term ->
-            if (index > 0) {
-                Text("·", style = MaterialTheme.typography.labelSmall, color = muted)
-            }
+            if (index > 0) Text("·", style = style, color = muted)
             Text(
                 text = term.text,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (term.failure) failColor() else muted,
+                style = style,
+                color = if (term.failure) danger else muted,
                 maxLines = 1,
             )
         }
@@ -453,20 +548,13 @@ internal fun truncateInstance(instance: String, max: Int = 16): String {
 /**
  * `12s`, `1m 07s`, `1h 04m` — elapsed, never a clock time.
  *
- * Two units at most: the third is noise at the width this is drawn, and a run
- * measured in hours is not one anybody is watching the seconds of.
+ * The arithmetic MOVED to `ui/components/RunTicker.kt` with the readout that
+ * is now every caller's front end; this forwards so the peek, the run cards
+ * and `AgentScreen`'s own clock keep printing the same string, and so
+ * `OrchBitsTest` keeps pinning it from where it was written.
  */
-internal fun elapsedLabel(millis: Long): String {
-    val seconds = (millis / 1000).coerceAtLeast(0L)
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val rest = seconds % 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes.toString().padStart(2, '0')}m"
-        minutes > 0 -> "${minutes}m ${rest.toString().padStart(2, '0')}s"
-        else -> "${rest}s"
-    }
-}
+internal fun elapsedLabel(millis: Long): String =
+    to.eyed.seeker.code.ui.components.elapsedLabel(millis)
 
 // ---------------------------------------------------------------------------
 // Which rows survive
@@ -551,21 +639,21 @@ internal fun MemberRow(
     /** `conflict` / `preserved` — unmerged swarm work. Empty draws nothing. */
     trailingPill: String = "",
 ) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val muted = scheme.onSurfaceVariant
     val tint = memberTint(member.specId)
     val hasDetail = member.children.isNotEmpty() || member.resultText.isNotBlank()
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth().animateSize()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = MemberRowHeight)
                 .clickable(enabled = hasDetail, onClickLabel = member.instance) { onToggle() }
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = MD.space1),
         ) {
             StatusGlyph(member.status, runningTint = tint)
             Text(
@@ -577,16 +665,16 @@ internal fun MemberRow(
             )
             Text(
                 text = member.liveDetail.replace('\n', '⏎'),
-                style = MaterialTheme.typography.bodySmall,
+                // The live detail is a path or a command — the buffer's face,
+                // so the same string looks the same here as in the editor.
+                style = MonoSmall,
                 color = muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (trailingPill.isNotEmpty()) Pill(trailingPill, failColor())
-            if (member.cached) {
-                Pill("REPLAYED", theme.color("text.accent", MaterialTheme.colorScheme.primary))
-            }
+            if (trailingPill.isNotEmpty()) Pill(trailingPill, colors.dangerInk)
+            if (member.cached) Pill("REPLAYED", scheme.primary)
             if (member.children.isNotEmpty()) {
                 Text(
                     text = "(${member.children.size})",
@@ -594,9 +682,7 @@ internal fun MemberRow(
                     color = muted,
                 )
             }
-            if (hasDetail) {
-                DisclosureMark(open = expanded, tint = muted)
-            }
+            if (hasDetail) DisclosureMark(open = expanded, tint = muted)
         }
 
         // The failure reason is never behind the disclosure. It is the only
@@ -605,13 +691,13 @@ internal fun MemberRow(
         if (member.status == OrchStatus.Failed && member.failureReason.isNotBlank()) {
             Text(
                 text = member.failureReason.trim(),
-                style = MaterialTheme.typography.labelSmall,
-                color = mix(muted, failColor(), 0.75f),
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.dangerInk,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 22.dp, bottom = 6.dp, end = 4.dp),
+                    .padding(start = 22.dp, bottom = MD.iconGap, end = MD.space1),
             )
         }
 
@@ -619,18 +705,18 @@ internal fun MemberRow(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 22.dp, end = 4.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                    .padding(start = 22.dp, end = MD.space1, bottom = MD.space2),
+                verticalArrangement = Arrangement.spacedBy(MD.space05),
             ) {
                 if (member.task.isNotBlank()) {
                     Text(
                         text = member.task.trim(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = text,
+                        color = scheme.onSurface,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(MD.space1))
                 }
                 for (child in member.children) {
                     Text(
@@ -638,23 +724,32 @@ internal fun MemberRow(
                             .removePrefix("[${member.instance}]")
                             .trim()
                             .replace('\n', '⏎'),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
+                        style = MonoSmall,
                         color = muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (member.resultText.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = member.resultText.trim(),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = if (member.resultIsJson) FontFamily.Monospace else null,
-                        color = muted,
-                        maxLines = 12,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Spacer(Modifier.height(MD.space1))
+                    if (member.resultIsJson) {
+                        // A JSON result is code, so it goes in the island
+                        // rather than being drawn as Material text in the
+                        // system mono (docs/VISUAL.md, "THE SEAM").
+                        ZedCodeBlock(
+                            text = member.resultText.trim(),
+                            language = "json",
+                            maxLines = 12,
+                        )
+                    } else {
+                        Text(
+                            text = member.resultText.trim(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = muted,
+                            maxLines = 12,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -678,9 +773,9 @@ private fun Pill(label: String, accent: Color) {
         color = accent,
         maxLines = 1,
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(MD.radiusXs))
             .background(accent.copy(alpha = 0.12f))
-            .padding(horizontal = 4.dp, vertical = 1.dp),
+            .padding(horizontal = MD.space1, vertical = 1.dp),
     )
 }
 
@@ -694,16 +789,15 @@ private fun Pill(label: String, accent: Color) {
  */
 @Composable
 internal fun GhostRow(item: String, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = MemberRowHeight)
             .alpha(0.5f)
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = MD.space1),
     ) {
         SeekerIcon(
             icon = R.drawable.ic_ui_circle,
@@ -719,7 +813,7 @@ internal fun GhostRow(item: String, modifier: Modifier = Modifier) {
         )
         Text(
             text = item.replace('\n', '⏎'),
-            style = MaterialTheme.typography.bodySmall,
+            style = MonoSmall,
             color = muted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -729,7 +823,7 @@ internal fun GhostRow(item: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * A one-line disclosure: `⌄ log (7)  "journal replayed 0 entries"`.
+ * A one-line disclosure: `log (7)  "journal replayed 0 entries"`.
  *
  * Always a disclosure on the phone, never the desktop's "inline when there are
  * three or fewer" rule — a card whose height depends on how much it happens to
@@ -745,16 +839,15 @@ internal fun Disclosure(
     peek: String = "",
     peekMono: Boolean = false,
 ) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 36.dp)
             .clickable(onClickLabel = label) { onToggle() }
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = MD.space1),
     ) {
         DisclosureMark(open = open, tint = muted)
         Text(
@@ -766,8 +859,7 @@ internal fun Disclosure(
         if (peek.isNotEmpty()) {
             Text(
                 text = peek.replace('\n', '⏎'),
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (peekMono) FontFamily.Monospace else null,
+                style = if (peekMono) MonoSmall else MaterialTheme.typography.labelSmall,
                 color = muted.copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -778,36 +870,43 @@ internal fun Disclosure(
 }
 
 /**
- * The frame both run cards take: a rounded box with a tinted border.
+ * The frame both run cards take: a rounded box with a tinted wash and a
+ * tinted edge.
  *
- * [accent] is the run's identity — amber for Ultra, the neutral border for a
- * workflow — and a failed run flips it to the error mix and adds no second
- * badge. One signal per fact: a red frame and a `FAILED` chip and a red status
- * dot are three ways of saying the same thing and two of them are noise.
+ * **[wash] IS A WASH AND NOT AN INK, and the two are separate values on
+ * purpose** (docs/VISUAL.md, "Agent — a workflow run card"). This takes the
+ * raw hue — `primary` for a workflow, `ultraAmber` for a swarm, `agentAccent`
+ * for a sub-agent — because darkening a fill to clear a text ratio only makes
+ * the card muddy. Whatever the caller draws as TEXT inside it takes the
+ * matching `*Ink` from [LocalSeekerColors] instead.
+ *
+ * A failed run flips the wash to the failure hue and adds no second badge. One
+ * signal per fact: a red frame and a `FAILED` chip and a red status dot are
+ * three ways of saying the same thing and two of them are noise.
+ *
+ * Elevation is zero, as everywhere: the card is a wash plus a hairline, and
+ * `animateSize()` is what makes opening it a movement rather than a jump.
  */
 @Composable
 internal fun RunCardFrame(
-    accent: Color,
+    wash: Color,
     failed: Boolean,
     modifier: Modifier = Modifier,
-    fillAmount: Float = 0.06f,
-    borderAmount: Float = 0.22f,
     content: @Composable () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    val surface = theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface)
-    val edge = if (failed) failColor() else accent
+    val colors = LocalSeekerColors.current
+    val hue = if (failed) colors.removedMark else wash
+    val shape = RoundedCornerShape(RunCardRadius)
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(RunCardRadius))
-            .background(mix(surface, edge, fillAmount))
-            .border(
-                width = 1.dp,
-                color = mix(surface, edge, if (failed) 0.45f else borderAmount),
-                shape = RoundedCornerShape(RunCardRadius),
-            )
-            .padding(10.dp),
+            .animateSize()
+            .clip(shape)
+            // 6% dark / 4.5% light: a light theme's canvas has less headroom
+            // above it, so the same alpha reads as a stronger tint.
+            .background(hue.copy(alpha = if (colors.isDark) 0.06f else 0.045f))
+            .border(MD.hairline, hue.copy(alpha = 0.25f), shape)
+            .padding(MD.space3),
     ) {
         content()
     }
@@ -816,13 +915,7 @@ internal fun RunCardFrame(
 /** A hairline between a card's header and its body. */
 @Composable
 internal fun CardRule(modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(theme.color("border.variant", theme.color("border", Color.Transparent))),
-    )
+    HairlineDivider(modifier = modifier)
 }
 
 /**
@@ -838,15 +931,14 @@ internal fun PhaseDot(
     pending: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
     val reduce = LocalReduceMotion.current
-    val accent = theme.color("text.accent", MaterialTheme.colorScheme.primary)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val scheme = MaterialTheme.colorScheme
+    val danger = failColor()
     val color = when {
-        pending -> muted
-        status == OrchStatus.Failed -> failColor()
-        status == OrchStatus.Running -> accent
-        else -> muted
+        pending -> scheme.onSurfaceVariant
+        status == OrchStatus.Failed -> danger
+        status == OrchStatus.Running -> scheme.primary
+        else -> scheme.onSurfaceVariant
     }
     // The halo pulses opacity only — a halo that pulsed its radius would move
     // the rail beside it, and the rail is the alignment the eye reads phases
@@ -884,8 +976,7 @@ internal fun SpineRail(
     dashed: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    val border = theme.color("border.variant", theme.color("border", Color.Transparent))
+    val border = MaterialTheme.colorScheme.outlineVariant
     Canvas(
         modifier = modifier
             .width(SpineWidth)
@@ -896,7 +987,7 @@ internal fun SpineRail(
             color = border,
             start = Offset(x, 0f),
             end = Offset(x, size.height),
-            strokeWidth = 1.dp.toPx(),
+            strokeWidth = MD.hairline.toPx(),
             pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(3f, 4f), 0f) else null,
         )
     }

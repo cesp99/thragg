@@ -1,21 +1,35 @@
 package to.eyed.seeker.code.ui.shell.agent
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -34,20 +49,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,13 +84,17 @@ import to.eyed.seeker.code.core.PromptImages
 import to.eyed.seeker.code.ui.agent.mentionTokensIn
 import to.eyed.seeker.code.ui.agent.spettro.ActivationSurface
 import to.eyed.seeker.code.ui.agent.spettro.rememberActivationTransformation
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerSearchField
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
-import to.eyed.seeker.code.ui.theme.BufferFontFamily
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoBody
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.accentIcon
+import to.eyed.seeker.code.ui.theme.effectSpec
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -122,6 +147,26 @@ internal fun sendLabel(mode: SendMode): String = when (mode) {
  */
 internal const val STEER_NOTE =
     "Steering sent — the agent takes it at its next step. The turn is still running."
+
+/**
+ * What the caption under the box says while a turn is running, or null when
+ * nothing is.
+ *
+ * This line carries a job the old composer gave to the button. The send
+ * control used to be the *word* "Send"/"Steer"/"Queue" in a transparent box;
+ * it is now a 40dp filled circle (docs/VISUAL.md, "Agent — the composer"),
+ * and a circle cannot say which of the three it is. Rather than lose the
+ * distinction [sendLabel] exists to make, the mode is stated in a sentence
+ * while it is *not* the ordinary one — which is exactly when a user needs to
+ * be told, because Steer and Queue are the two behaviours nobody guesses. The
+ * label itself survives as the button's `onClickLabel`, so TalkBack still
+ * announces "Steer" on the control.
+ */
+internal fun busyNote(mode: SendMode): String? = when (mode) {
+    SendMode.Steer -> "Steering — the agent takes it at its next step."
+    SendMode.Queue -> "Queued — this is sent when the turn settles."
+    SendMode.Send -> null
+}
 
 /**
  * Which of the three sentences the empty box shows.
@@ -183,7 +228,24 @@ internal fun commandMatches(
 // ---------------------------------------------------------------------------
 
 /**
- * The box, its two context buttons and the one button that speaks.
+ * The box, the one button that adds to it, and the one that speaks.
+ *
+ * THE SHAPE, which is the whole of what changed (docs/VISUAL.md, "Agent — the
+ * composer, three states"): a `surfaceContainer` column under a
+ * [HairlineDivider], holding a 32dp horizontally-scrolling strip of whatever
+ * has been attached, the caller's config summary, and one bottom-aligned row —
+ * `＋`, the pill, and the circles. The field was a 10dp-radius box filled with
+ * the *editor's* background, with no border and no focused state, and the send
+ * control was the word "Send" in a transparent 8dp box; those two facts are
+ * most of what the owner meant by "pretty bad". It is the same three controls,
+ * dressed.
+ *
+ * WHAT DID NOT CHANGE, because every one of them is protocol-correct and has
+ * an argument written under it: [SendMode] and its three labels, the
+ * **separate** stop control, the long-press [SendOptionsSheet], [STEER_NOTE],
+ * [ComposerHint]'s three sentences, the hardware-Enter handling, the
+ * optimistic clear with its restore, the whole-token mention filter, and the
+ * activation glow travelling through the letters as they are typed.
  *
  * Draft state lives on the [AgentThread] rather than here, so leaving Agent
  * for Code to look something up and coming back does not lose a half-written
@@ -204,8 +266,18 @@ internal fun AgentComposer(
     onStop: () -> Unit,
     onSteered: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * The one-line config summary that sits directly over the input row —
+     * `ConfigSummaryRow`, which belongs to the config surface rather than to
+     * the composer because it is that sheet's *reading* of its own state.
+     *
+     * A slot rather than a call so the two can land independently: the
+     * composer draws the band whether or not anything is in it, and the screen
+     * decides what a summary of the session is.
+     */
+    configSummary: (@Composable () -> Unit)? = null,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val busy = state.isBusy
@@ -220,10 +292,20 @@ internal fun AgentComposer(
     var attachError by remember(thread) { mutableStateOf<String?>(null) }
     var steerNote by remember(thread) { mutableStateOf<String?>(null) }
     var longPress by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
+    var palette by remember { mutableStateOf<String?>(null) }
 
     fun setField(value: TextFieldValue) {
+        // The slash palette used to render up to five 48dp rows *inline* above
+        // the box, so the composer jumped up the screen as the token was
+        // typed. It is a sheet now, and this is what opens it: the transition
+        // of the whole field into a command token, so it fires once on the `/`
+        // and not again on every letter after it.
+        val wasToken = CommandToken.matchEntire(field.text) != null
+        val token = CommandToken.matchEntire(value.text)?.groupValues?.get(1)
         field = value
         thread?.draft = value.text
+        if (!wasToken && token != null && state.commands.isNotEmpty()) palette = token
     }
 
     fun replaceText(text: String) {
@@ -249,13 +331,6 @@ internal fun AgentComposer(
         if (steerNote == null) return@LaunchedEffect
         delay(6_000)
         steerNote = null
-    }
-
-    val commandQuery = CommandToken.matchEntire(field.text)?.groupValues?.get(1)
-    val commandRows = if (commandQuery == null) {
-        emptyList()
-    } else {
-        commandMatches(state.commands, commandQuery)
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -314,133 +389,249 @@ internal fun AgentComposer(
         }
     }
 
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    // The hairline warms to the accent on focus and cools back. It is the only
+    // thing on the screen that says which control the keyboard is typing into,
+    // now that the field is a pill on a container rather than a hole cut in
+    // the panel.
+    val edge by animateColorAsState(
+        targetValue = if (focused) scheme.primary.copy(alpha = 0.5f) else scheme.outlineVariant,
+        animationSpec = effectSpec(),
+        label = "composer-border",
+    )
+    val note = steerNote ?: if (busy && enabled) busyNote(mode) else null
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .imePadding()
-            .background(theme.color("panel.background", theme.color("surface.background")))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            // Painted before the inset is taken, so the band stays continuous
+            // with the bottom of the window while the IME animates in.
+            .background(scheme.surfaceContainer)
+            .imePadding(),
     ) {
-        steerNote?.let { note ->
-            Text(
-                text = note,
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
-        }
-        for (mention in mentioned) {
-            ComposerChip("@" + (mention.textToken ?: mention.label)) { mentioned.remove(mention) }
-        }
-        for (image in attached) {
-            // The name alone. It used to carry a 🖼 prefix — an emoji in a
-            // chip, which draws from the emoji font at emoji metrics beside
-            // labelSmall text, and is tofu on a device without one. The chip
-            // is already visibly an attachment; the picture of a picture was
-            // not carrying its width.
-            ComposerChip(image.name) { attached.remove(image) }
+        HairlineDivider()
+        // Mentions and attachments used to stack VERTICALLY, one full-width
+        // chip per row: three of them was three rows shoving the composer up a
+        // 890dp screen. One scrolling strip is a fixed 32dp however many there
+        // are.
+        if (mentioned.isNotEmpty() || attached.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = MD.space2)
+                    .height(DraftStripHeight),
+                contentPadding = PaddingValues(horizontal = MD.space4),
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items(
+                    count = mentioned.size,
+                    key = { "m:" + (mentioned[it].textToken ?: mentioned[it].label) },
+                ) { index ->
+                    val mention = mentioned[index]
+                    DraftChip(
+                        label = "@" + (mention.textToken ?: mention.label),
+                        icon = R.drawable.ic_ui_at,
+                        onRemove = { mentioned.remove(mention) },
+                    )
+                }
+                items(count = attached.size, key = { "a:" + it + ":" + attached[it].name }) { index ->
+                    val image = attached[index]
+                    DraftChip(
+                        label = image.name,
+                        icon = R.drawable.ic_agent_attach,
+                        thumbnail = image,
+                        onRemove = { attached.remove(image) },
+                    )
+                }
+            }
         }
         attachError?.let { message ->
             Text(
                 text = message,
                 style = MaterialTheme.typography.labelSmall,
-                color = theme.color("error", MaterialTheme.colorScheme.error),
+                color = scheme.error,
+                modifier = Modifier.padding(
+                    start = MD.space4,
+                    end = MD.space4,
+                    top = MD.space2,
+                ),
             )
         }
-
-        // The slash palette, above the box where the thumb is, one 48 dp row
-        // per command: the name in mono, its input hint as ghost text, its
-        // description underneath.
-        for (command in commandRows) {
-            CommandRow(command) { replaceText("/" + command.name + " ") }
-        }
-
-        BasicTextField(
-            value = field,
-            onValueChange = ::setField,
-            enabled = enabled,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            ),
-            cursorBrush = SolidColor(theme.color("text.accent", MaterialTheme.colorScheme.primary)),
-            // The glow travels through the letters of an activation phrase as
-            // it is typed — never a box behind them (K10).
-            visualTransformation = rememberActivationTransformation(ActivationSurface.COMPOSER),
-            maxLines = 6,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(theme.color("editor.background", Color.Transparent))
-                .padding(horizontal = 10.dp, vertical = 8.dp)
-                .focusRequester(focus)
-                .onPreviewKeyEvent { event ->
-                    // A *soft* keyboard's Enter never arrives as a key event —
-                    // it is committed text — so this is the hardware keyboard's
-                    // path only, and on a phone the button is how you send.
-                    when {
-                        event.type != KeyEventType.KeyDown -> false
-                        event.key != Key.Enter && event.key != Key.NumPadEnter -> false
-                        event.isShiftPressed -> false
-                        else -> {
-                            send()
-                            true
-                        }
-                    }
-                },
-            decorationBox = { inner ->
-                Box {
-                    if (field.text.isEmpty()) {
-                        Text(
-                            text = composerPlaceholder(agentName, projectName, enabled),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    inner()
-                }
-            },
-        )
+        configSummary?.invoke()
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = MD.space4, vertical = MD.space2),
+            // Bottom, not Center: the pill grows upward as the message reaches
+            // six lines and the three controls stay on the line the thumb
+            // already found.
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
-            if (state.agent?.capabilities?.images == true) {
-                ComposerAction(R.drawable.ic_agent_attach, "Attach an image", enabled) {
-                    attachError = null
-                    picker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                }
-            }
-            ComposerAction(R.drawable.ic_ui_at, "Add context", enabled, onClick = onOpenMentions)
-            ComposerAction(R.drawable.ic_ui_slash, "Commands", enabled) {
-                if (field.text.isEmpty()) replaceText("/")
-            }
-            Box(modifier = Modifier.weight(1f))
+            ComposerCircle(
+                icon = R.drawable.ic_ui_plus,
+                description = "Add to this message",
+                enabled = enabled,
+                fill = Color.Transparent,
+                ink = accentIcon,
+                size = IconSize.Action,
+                // A sheet of one row is a worse control than the row itself:
+                // with no image capability and no commands, `＋` *is* the
+                // mention picker, so it opens it.
+                onClick = {
+                    if (state.agent?.capabilities?.images == true || state.commands.isNotEmpty()) {
+                        adding = true
+                    } else {
+                        onOpenMentions()
+                    }
+                },
+            )
+            BasicTextField(
+                value = field,
+                onValueChange = ::setField,
+                enabled = enabled,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+                cursorBrush = SolidColor(scheme.primary),
+                // The glow travels through the letters of an activation phrase as
+                // it is typed — never a box behind them (K10).
+                visualTransformation = rememberActivationTransformation(ActivationSurface.COMPOSER),
+                maxLines = 6,
+                interactionSource = interaction,
+                modifier = Modifier
+                    .weight(1f)
+                    // The two discs are centred in a 48dp target, so their
+                    // drawn edge stops [CircleInset] short of the row's
+                    // bottom; the pill matches it rather than sitting proud.
+                    .padding(bottom = CircleInset)
+                    .heightIn(min = FieldMinHeight)
+                    .clip(RoundedCornerShape(MD.pill))
+                    .background(scheme.surfaceContainerHigh)
+                    .border(MD.hairline, edge, RoundedCornerShape(MD.pill))
+                    .padding(horizontal = MD.space3, vertical = MD.composerPadY)
+                    .focusRequester(focus)
+                    .onPreviewKeyEvent { event ->
+                        // A *soft* keyboard's Enter never arrives as a key event —
+                        // it is committed text — so this is the hardware keyboard's
+                        // path only, and on a phone the button is how you send.
+                        when {
+                            event.type != KeyEventType.KeyDown -> false
+                            event.key != Key.Enter && event.key != Key.NumPadEnter -> false
+                            event.isShiftPressed -> false
+                            else -> {
+                                send()
+                                true
+                            }
+                        }
+                    },
+                decorationBox = { inner ->
+                    Box {
+                        if (field.text.isEmpty()) {
+                            Text(
+                                text = composerPlaceholder(agentName, projectName, enabled),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
             // **Cancel is its own control.** Steering and stopping are opposite
             // acts and they are never the same button: a Send that turned into
-            // a Stop mid-turn is what makes a steer look like a cancel.
+            // a Stop mid-turn is what makes a steer look like a cancel. Both
+            // circles are on screen at once for the whole of a running turn,
+            // which is the point spettro-android's composer concedes.
             if (busy) {
-                ComposerAction(
-                    icon = R.drawable.ic_ui_stop,
+                ComposerCircle(
+                    // `ic_agent_stop`, not `ic_ui_stop`: identical art, but
+                    // the drawables are named for what they stop and this one
+                    // stops a turn. The composer had the build's.
+                    icon = R.drawable.ic_agent_stop,
                     description = "Stop the turn",
                     enabled = true,
-                    tint = theme.color("error", MaterialTheme.colorScheme.error),
+                    fill = scheme.error,
+                    ink = scheme.onError,
                     onClick = onStop,
                 )
             }
-            SendButton(
-                mode = mode,
+            ComposerCircle(
+                icon = if (mode == SendMode.Queue) {
+                    R.drawable.ic_agent_queue
+                } else {
+                    R.drawable.ic_agent_send
+                },
+                description = sendLabel(mode),
                 enabled = enabled && (field.text.isNotBlank() || attached.isNotEmpty()),
-                onClick = { send() },
+                // Disabled keeps the accent at 35% rather than going grey: an
+                // empty composer is the resting state of this screen, and a
+                // dead grey disc is what the resting state would look like.
+                fill = scheme.primary,
+                disabledFill = scheme.primary.copy(alpha = 0.35f),
+                ink = scheme.onPrimary,
+                // `onPrimary` is solved against a *full* primary; over a 35%
+                // wash of it it is not, and `onSurfaceVariant` is already
+                // solved against the container the wash sits on.
+                disabledInk = scheme.onSurfaceVariant,
+                longClickLabel = "More ways to send",
                 onLongClick = { if (busy) longPress = true },
+                onClick = { send() },
             )
         }
+        note?.let { line ->
+            Text(
+                text = line,
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(
+                    start = MD.space4,
+                    end = MD.space4,
+                    bottom = MD.space2,
+                ),
+            )
+        }
+    }
+
+    if (adding) {
+        ComposerAddSheet(
+            shell = shell,
+            canAttach = state.agent?.capabilities?.images == true,
+            hasCommands = state.commands.isNotEmpty(),
+            onAttach = {
+                adding = false
+                attachError = null
+                picker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onMentions = {
+                adding = false
+                onOpenMentions()
+            },
+            onCommands = {
+                adding = false
+                palette = ""
+            },
+            onDismiss = { adding = false },
+        )
+    }
+
+    palette?.let { seed ->
+        CommandPaletteSheet(
+            shell = shell,
+            commands = state.commands,
+            seed = seed,
+            onPick = { command ->
+                palette = null
+                replaceText("/" + command.name + " ")
+                runCatching { focus.requestFocus() }
+            },
+            onDismiss = { palette = null },
+        )
     }
 
     if (longPress) {
@@ -464,140 +655,327 @@ internal fun AgentComposer(
     }
 }
 
+/** The height of the pill at one line, and of the two circles beside it. */
+private val FieldMinHeight = 40.dp
+
+/** The drawn height of a control in the input row. */
+private val CircleSize = 40.dp
+
+/** Half of what a 48dp touch target adds around a [CircleSize] disc. */
+private val CircleInset = 4.dp
+
+/** The attachment strip: one row, whatever the count. */
+private val DraftStripHeight = 32.dp
+
+/** A thumbnail inside a draft chip. */
+private val ThumbSize = 22.dp
+
+/** How wide a chip's label may get before it middle-ellipsises. */
+private val ChipLabelMax = 140.dp
+
+/**
+ * One of the three controls in the input row: `＋`, stop, send.
+ *
+ * They are one component because they differ only in their fill — transparent
+ * for `＋`, `error` for stop, `primary` for send — and drawing them three
+ * times is how three 40dp circles end up three different sizes. The drawn disc
+ * is [CircleSize] inside a 48dp target: `minimumInteractiveComponentSize()`
+ * grows the hit box and centres the disc in it, which clears WCAG 2.5.8
+ * without changing a pixel of what is drawn. The [CircleInset] the pill takes
+ * on its own bottom edge is the other half of that — 4dp each side of a 40dp
+ * disc in a 48dp slot, so all three controls sit on one line.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SendButton(
-    mode: SendMode,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    val theme = LocalZedTheme.current
-    val label = sendLabel(mode)
-    val ink = if (enabled) {
-        theme.color("text.accent", MaterialTheme.colorScheme.primary)
-    } else {
-        theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .touchTarget()
-            .clip(RoundedCornerShape(8.dp))
-            .combinedClickable(
-                enabled = enabled,
-                onClickLabel = label,
-                onLongClickLabel = "More ways to send",
-                onLongClick = onLongClick,
-                onClick = onClick,
-            )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        SeekerIcon(
-            icon = R.drawable.ic_agent_send,
-            contentDescription = null,
-            tint = ink,
-            size = IconSize.Inline,
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = ink,
-            maxLines = 1,
-        )
-    }
-}
-
-/** One tap target in the composer's bottom row. */
-@Composable
-private fun ComposerAction(
+private fun ComposerCircle(
     @DrawableRes icon: Int,
     description: String,
     enabled: Boolean,
-    tint: Color? = null,
+    fill: Color,
+    ink: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    disabledFill: Color = fill,
+    disabledInk: Color = ink,
+    size: Dp = IconSize.Inline,
+    longClickLabel: String? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
-    val theme = LocalZedTheme.current
-    SeekerIconButton(
-        icon = icon,
-        description = description,
-        onClick = onClick,
-        enabled = enabled,
-        tint = when {
-            !enabled -> theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-            tint != null -> tint
-            else -> theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-        },
-    )
+    Box(
+        modifier = modifier
+            .touchTarget()
+            .clip(CircleShape)
+            .combinedClickable(
+                enabled = enabled,
+                onClickLabel = description,
+                onLongClickLabel = longClickLabel,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(CircleSize)
+                .clip(CircleShape)
+                .background(if (enabled) fill else disabledFill),
+            contentAlignment = Alignment.Center,
+        ) {
+            SeekerIcon(
+                icon = icon,
+                contentDescription = description,
+                tint = if (enabled) ink else disabledInk,
+                size = size,
+            )
+        }
+    }
 }
 
-/** An attachment or a mention, with the button that takes it back. */
+/**
+ * One mention or one attachment, in the strip above the box.
+ *
+ * THE WHOLE CHIP IS THE REMOVE CONTROL, and the `⨯` on it is decoration. The
+ * alternative — a separate icon button — is the correct shape for the
+ * affordance and the wrong one for the constraint: `SeekerIconButton` carries
+ * `minimumInteractiveComponentSize()`, which reports 48dp of *layout* and
+ * would make this strip 48dp tall rather than the 32dp it is specified at.
+ * With the row itself clickable the target is 32dp × its full width, which
+ * clears WCAG 2.5.8's 24dp floor for a labelled control, and the click label
+ * says what the tap does.
+ *
+ * An attachment draws its own picture: [thumbnail] is decoded off the frame
+ * thread from the base64 the prompt will carry, so the chip shows the image
+ * that is about to be sent rather than a filename that could be anything.
+ */
 @Composable
-private fun ComposerChip(label: String, onRemove: () -> Unit) {
-    val theme = LocalZedTheme.current
+private fun DraftChip(
+    label: String,
+    @DrawableRes icon: Int,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    thumbnail: PromptAttachment? = null,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val bitmap = thumbnail?.let { rememberThumbnail(it) }
     Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(theme.color("element.background", Color.Transparent))
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+        modifier = modifier
+            .height(DraftStripHeight)
+            .clip(RoundedCornerShape(MD.pill))
+            .background(scheme.surfaceContainerHigh)
+            .border(MD.hairline, scheme.outlineVariant, RoundedCornerShape(MD.pill))
+            .clickable(onClickLabel = "Remove $label", onClick = onRemove)
+            .padding(horizontal = MD.space2),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
     ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(ThumbSize).clip(RoundedCornerShape(MD.radiusXs)),
+            )
+        } else {
+            SeekerIcon(
+                icon = icon,
+                contentDescription = null,
+                tint = mutedIcon,
+                size = IconSize.Marker,
+            )
+        }
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            style = MaterialTheme.typography.labelMedium,
+            color = scheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.MiddleEllipsis,
-            modifier = Modifier.weight(1f, fill = false),
+            // Capped rather than weighted: this Row is inside a `LazyRow`, so
+            // its main axis is unbounded and a weight would resolve against
+            // the row's *minimum* width — which is zero, and a label of zero
+            // width is an invisible chip.
+            modifier = Modifier.widthIn(max = ChipLabelMax),
         )
-        SeekerIconButton(
+        SeekerIcon(
             icon = R.drawable.ic_ui_close,
-            description = "Remove $label",
-            onClick = onRemove,
-            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            contentDescription = null,
+            tint = mutedIcon,
             size = IconSize.Marker,
         )
     }
 }
 
-/** One row of the slash palette. */
+/**
+ * [attachment]'s picture at thumbnail size, or null until it has one.
+ *
+ * The bytes are already in memory as base64 — [PromptImages] re-encoded them
+ * when the image was picked — but they are a 1568px JPEG, and decoding one to
+ * fill 22dp on the frame thread is the kind of jank that only shows up on the
+ * device. Off-thread, at the smallest power-of-two sample that still covers
+ * the chip, keyed on the attachment so a strip of four decodes four times and
+ * not four times per recomposition.
+ */
 @Composable
-private fun CommandRow(command: AgentCommand, onPick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClickLabel = command.name, onClick = onPick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "/" + command.name,
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = BufferFontFamily),
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+private fun rememberThumbnail(attachment: PromptAttachment): ImageBitmap? {
+    val target = with(LocalDensity.current) { ThumbSize.roundToPx() }
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, attachment, target) {
+        value = withContext(Dispatchers.Default) { decodeThumbnail(attachment.data, target) }
+    }
+    return bitmap
+}
+
+/** [rememberThumbnail]'s worker: base64 in, a small bitmap out, never a throw. */
+private fun decodeThumbnail(data: String, edgePx: Int): ImageBitmap? = runCatching {
+    val bytes = Base64.decode(data, Base64.DEFAULT)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sample = 1
+    var longest = max(bounds.outWidth, bounds.outHeight)
+    while (longest / 2 >= edgePx && sample < 1 shl 10) {
+        longest /= 2
+        sample *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
+}.getOrNull()
+
+/**
+ * What `＋` offers: the three things that go into a message and are not typed.
+ *
+ * These were three icon buttons in a row under the box, which cost the field
+ * a third of its width to say what two of them do only once each in a session.
+ * The wireframe has one `＋` (docs/VISUAL.md, "Agent — the composer"), so the
+ * three become rows with sentences — which is also the first time "Commands"
+ * has been discoverable without knowing that `/` does something.
+ */
+@Composable
+private fun ComposerAddSheet(
+    shell: ShellState,
+    canAttach: Boolean,
+    hasCommands: Boolean,
+    onAttach: () -> Unit,
+    onMentions: () -> Unit,
+    onCommands: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    SheetScaffold(state = shell, onDismiss = onDismiss, title = "Add to this message") {
+        if (canAttach) {
+            SheetAction(
+                icon = R.drawable.ic_agent_attach,
+                title = "Attach an image",
+                detail = "A screenshot or a photograph, scaled down and sent with the message.",
+                onClick = onAttach,
             )
-            command.inputHint?.let { hint ->
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = BufferFontFamily),
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
-        if (command.description.isNotBlank()) {
-            Text(
-                text = command.description,
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        SheetAction(
+            icon = R.drawable.ic_ui_at,
+            title = "Add context",
+            detail = "A file, a directory, a symbol, the editor's selection, a fetched page.",
+            onClick = onMentions,
+        )
+        if (hasCommands) {
+            SheetAction(
+                icon = R.drawable.ic_ui_slash,
+                title = "Commands",
+                detail = "What this agent can be asked to do directly, without a prompt.",
+                onClick = onCommands,
             )
+        }
+    }
+}
+
+/**
+ * The slash palette, as a sheet with a filter.
+ *
+ * It rendered up to five 48dp rows *inline* above the field, so the composer
+ * climbed the screen as the token was typed and the list was capped at five
+ * whatever the agent offered. A [SheetScaffold] is a fixed surface with the
+ * search field pinned under it where the IME lands, and it shows every command
+ * an agent has.
+ *
+ * [seed] is what was already typed after the `/`, so opening the sheet by
+ * typing does not throw the typing away.
+ */
+@Composable
+private fun CommandPaletteSheet(
+    shell: ShellState,
+    commands: List<AgentCommand>,
+    seed: String,
+    onPick: (AgentCommand) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    var query by remember(seed) { mutableStateOf(seed) }
+    val search = remember { FocusRequester() }
+    val rows = remember(commands, query) { commandMatches(commands, query, commands.size) }
+
+    LaunchedEffect(Unit) { runCatching { search.requestFocus() } }
+
+    SheetScaffold(
+        state = shell,
+        onDismiss = onDismiss,
+        title = "Commands",
+        field = {
+            SeekerSearchField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "Find a command",
+                focusRequester = search,
+            )
+        },
+    ) {
+        if (rows.isEmpty()) {
+            Text(
+                text = if (commands.isEmpty()) {
+                    "This agent offers no commands."
+                } else {
+                    "No command starts with that."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space3),
+            )
+        }
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            items(count = rows.size, key = { rows[it].name }) { index ->
+                val command = rows[index]
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = MD.rowMin)
+                        .clickable(onClickLabel = "/" + command.name) { onPick(command) }
+                        .padding(horizontal = MD.space4, vertical = MD.rowPadY),
+                    verticalArrangement = Arrangement.spacedBy(MD.space05),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(MD.iconGap)) {
+                        // Mono because a command is typed, and the buffer face
+                        // rather than `FontFamily.Monospace` because that is
+                        // the mono this app has chosen (Type.kt).
+                        Text(
+                            text = "/" + command.name,
+                            style = MonoBody,
+                            color = scheme.onSurface,
+                        )
+                        command.inputHint?.let { hint ->
+                            Text(
+                                text = hint,
+                                style = MonoBody,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (command.description.isNotBlank()) {
+                        Text(
+                            text = command.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -620,55 +998,71 @@ private fun SendOptionsSheet(
     onStopAndSend: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     SheetScaffold(state = shell, onDismiss = onDismiss, title = "Send this how?") {
-        SendOption(
+        SheetAction(
+            icon = R.drawable.ic_agent_queue,
             title = "Queue",
             detail = "Hold it until this turn settles, then send it as its own turn.",
             onClick = onQueue,
         )
-        SendOption(
+        SheetAction(
+            icon = R.drawable.ic_agent_stop,
             title = "Stop & send",
             detail = "Cancel the running turn, then send this as a new one.",
-            tint = theme.color("error", MaterialTheme.colorScheme.error),
+            tint = scheme.error,
             onClick = onStopAndSend,
         )
         if (mode == SendMode.Steer) {
             Text(
                 text = "Tapping Steer instead hands it to the turn that is already " +
                     "running — it keeps working, and nothing is cancelled.",
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
             )
         }
     }
 }
 
+/** One row of a composer sheet: a mark, what it does, and why you would. */
 @Composable
-private fun SendOption(
+private fun SheetAction(
+    @DrawableRes icon: Int,
     title: String,
     detail: String,
-    tint: Color? = null,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
 ) {
-    val theme = LocalZedTheme.current
-    Column(
-        modifier = Modifier
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = MD.rowMin)
             .clickable(onClickLabel = title, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = MD.space4, vertical = MD.rowPadY),
+        horizontalArrangement = Arrangement.spacedBy(MD.space3),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = tint ?: theme.color("text", MaterialTheme.colorScheme.onSurface),
+        SeekerIcon(
+            icon = icon,
+            contentDescription = null,
+            tint = tint ?: mutedIcon,
+            size = IconSize.Action,
         )
-        Text(
-            text = detail,
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(MD.space05)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = tint ?: scheme.onSurface,
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+        }
     }
 }

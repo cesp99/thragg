@@ -30,13 +30,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 /**
@@ -98,9 +99,17 @@ fun SheetScaffold(
      * this puts it, so this changes the opening pose and nothing else.
      */
     openFraction: Float = OPEN_FRACTION,
+    /**
+     * The sheet's ground.
+     *
+     * `surfaceContainer` is the default and is right for a sheet whose body is
+     * a list or a form. Pass `background` when the body is CARDS — a card at
+     * `surfaceContainer` on a `surfaceContainer` sheet is an outline with
+     * nothing inside it.
+     */
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val sheetState = rememberModalBottomSheetState(
         // Material's partial detent is half the window and is not
         // configurable; this scaffold owns the height instead (see [fraction]),
@@ -133,7 +142,18 @@ fun SheetScaffold(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface),
+        // A sheet whose body is a bare list takes `surfaceContainer`; the two
+        // sheets whose bodies are CARDS (permission, question) pass
+        // `background` instead, so their cards have something to read against
+        // (docs/VISUAL.md, "Foundations" — spettro-android splits the same
+        // way at ChatConfigSheet.kt:117 vs ChatComposer.kt:369).
+        containerColor = containerColor,
+        // 24dp, the sheet's own corner in the shape scale, and flat: depth in
+        // this app is a fill step and a hairline, never a shadow or a tonal
+        // overlay (`surfaceTint` is transparent, so the overlay would be a
+        // no-op that still costs a draw).
+        shape = RoundedCornerShape(topStart = MD.radiusXl, topEnd = MD.radiusXl),
+        tonalElevation = 0.dp,
         // Drawn below, so the drag can size the sheet rather than move it.
         dragHandle = null,
         modifier = modifier,
@@ -159,15 +179,19 @@ fun SheetScaffold(
                     modifier = Modifier
                         .size(width = HandleWidth, height = HandleHeight)
                         .clip(RoundedCornerShape(HandleHeight / 2))
-                        .background(theme.color("border", MaterialTheme.colorScheme.outline)),
+                        .background(MaterialTheme.colorScheme.outlineVariant),
                 )
             }
             if (title != null) {
+                // A real title, not the 12sp muted line this used to draw. A
+                // sheet's header is the one place on it that says what it is,
+                // and at labelMedium in `text.muted` it read as a caption over
+                // the content rather than as the content's name.
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(horizontal = SheetPadding, vertical = TitleGap),
                 )
             }
@@ -208,5 +232,5 @@ private const val DISMISS_FRACTION = 0.45f
 private val HandleWidth = 32.dp
 private val HandleHeight = 4.dp
 private val HandlePadding = 8.dp
-private val SheetPadding = 16.dp
-private val TitleGap = 8.dp
+private val SheetPadding = MD.space4
+private val TitleGap = MD.space2

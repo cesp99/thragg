@@ -1,12 +1,7 @@
 package to.eyed.seeker.code.ui.theme
 
-import androidx.compose.foundation.IndicationNodeFactory
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -14,37 +9,27 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.core.AppSettings
 
 /**
- * No ripple, anywhere.
+ * The app's one theme root, and the Material half of the hybrid.
  *
- * gpui has no transition machinery and Zed's chrome swaps colours instantly on
- * hover and press (ui/src/styles/animation.rs has a vocabulary and almost no
- * callers) — the animated Material ripple is the loudest single "not Zed" tell
- * a Compose port can carry. Widgets that want press feedback draw their own
- * state from the interaction source, exactly as Zed's components restate
- * their hover/active fills.
+ * An IDE has its own visual identity: we deliberately skip Material dynamic
+ * colour so the editor looks like Zed everywhere. Every colour comes from
+ * Zed's theme JSON parsed by [ZedTheme], with `theme_overrides` laid over it,
+ * and `ZedTheme.palette()` turns that one source into both the Material
+ * `ColorScheme` and [SeekerColors] in a single pass. A wallpaper primary would
+ * appear nowhere in the editor, which is exactly the clash the hybrid exists
+ * to prevent. The two fonts and the icon theme come from settings.json the
+ * same way.
+ *
+ * What this root provides is now the APP's rules — real Material type, real
+ * Material shapes, ripple, and the locale's own layout direction. The editor's
+ * rules are entered explicitly through [ZedSurface], which is the seam.
  */
-private object NoIndication : IndicationNodeFactory {
-    private class NoopNode : Modifier.Node()
-    override fun create(interactionSource: InteractionSource): DelegatableNode = NoopNode()
-    override fun equals(other: Any?): Boolean = other === this
-    override fun hashCode(): Int = System.identityHashCode(this)
-}
-
-// An IDE has its own visual identity: we deliberately skip Material dynamic
-// color so the editor looks like Zed everywhere. All colors come from Zed's
-// theme JSON parsed by ZedTheme, with `theme_overrides` laid over it; Material
-// roles are mapped from the theme's style table for the stock components we
-// use. The two fonts and the icon theme come from settings.json the same way.
 @Composable
 fun SeekerCodeByEyedTheme(
     settings: AppSettings = AppSettings(),
@@ -118,41 +103,21 @@ fun SeekerCodeByEyedTheme(
         } ?: IconThemes.bundled
     }
 
-    // Material's light/dark base follows the *theme*, not the mode: previewing
-    // a light theme while the device is dark must give light scrollbars and
-    // ripples too, or half the stock components fight the palette.
-    val colorScheme = remember(theme) {
-        val base = if (theme.isDark) darkColorScheme() else lightColorScheme()
-        base.copy(
-            primary = theme.color("text.accent"),
-            background = theme.color("editor.background"),
-            surface = theme.color("panel.background"),
-            surfaceVariant = theme.color("elevated_surface.background"),
-            // Material's menus and dialogs paint themselves from the
-            // surfaceContainer roles, not from `surface` — left unmapped they
-            // leak Material's own purple-tinted defaults into any stock
-            // DropdownMenu or AlertDialog (tokens/MenuTokens.kt maps menus to
-            // SurfaceContainer). All of them are Zed's elevated surface.
-            surfaceContainerLowest = theme.color("elevated_surface.background"),
-            surfaceContainerLow = theme.color("elevated_surface.background"),
-            surfaceContainer = theme.color("elevated_surface.background"),
-            surfaceContainerHigh = theme.color("elevated_surface.background"),
-            surfaceContainerHighest = theme.color("elevated_surface.background"),
-            outline = theme.color("border"),
-            outlineVariant = theme.color("border.variant"),
-            onPrimary = theme.color("editor.background"),
-            onBackground = theme.color("text"),
-            onSurface = theme.color("text"),
-            onSurfaceVariant = theme.color("text.muted"),
-            error = theme.color("error"),
-        )
-    }
+    // ONE DERIVATION, ONE `remember`, TWO LOCALS. The Material half's whole
+    // ColorScheme and the small token set M3 has no role for come out of the
+    // same pure call on the same theme, so the two halves of the app cannot
+    // disagree by a frame — and there is no second palette authored anywhere.
+    // The rules, the ladder and the contrast solving all live in
+    // MaterialBridge.kt, where a host test can walk all eleven bundled themes
+    // through them without a Compose runtime.
+    val palette = remember(theme) { theme.palette() }
     // Zed's `reduce_motion`, answered once for every widget that moves —
     // reading the system's animator scale per animation would be a
     // ContentResolver query per frame and could disagree with itself.
     val reduceMotion = rememberReduceMotion(settings)
     CompositionLocalProvider(
         LocalZedTheme provides theme,
+        LocalSeekerColors provides palette.seeker,
         LocalAppSettings provides settings,
         LocalReduceMotion provides reduceMotion,
         LocalUiFontSize provides fonts.uiSize,
@@ -160,19 +125,39 @@ fun SeekerCodeByEyedTheme(
         LocalBufferFontFamily provides bufferFontFamily,
         LocalBufferFontFeatures provides fonts.featureSettings,
         LocalIconTheme provides iconTheme,
-        LocalIndication provides NoIndication,
-        // Zed's chrome is LTR-only, and ours draws indent guides, tab borders
-        // and focus rails at absolute x in drawBehind — mirroring the layout
-        // under an RTL locale would put them on the wrong side of rows that
-        // did mirror. Pin the direction instead of mirroring every draw.
-        LocalLayoutDirection provides LayoutDirection.Ltr,
+        // LocalIndication and LocalLayoutDirection are deliberately NOT
+        // provided here any more. Both used to pin the whole app to the
+        // editor's rules: no ripple, and LTR whatever the locale. The reason
+        // for each is real and *local* — Zed's chrome does not ripple, and the
+        // editor draws indent guides and focus rails at absolute x in
+        // drawBehind — so both moved into ZedSurface, which is the only place
+        // those reasons apply. What is left out here is the Material half
+        // getting press feedback and correct RTL, which is what it should have
+        // had (docs/VISUAL.md, "THE BOUNDARY, EXACTLY").
     ) {
+        // The root is stock MaterialTheme rather than MaterialExpressiveTheme.
+        // The spec called for the expressive entry point, and its JVM method
+        // in material3 1.4.0 really is public and unmangled — but the Kotlin
+        // declaration is `internal`, and Kotlin resolves visibility from
+        // @Metadata, so the call does not compile: "Cannot access 'fun
+        // MaterialExpressiveTheme(...)': it is internal in file." Same for
+        // MotionScheme, MotionScheme.expressive() and MaterialTheme.motionScheme.
+        // Nothing is lost but the motion scheme, because that is all
+        // MaterialExpressiveTheme does differently in 1.4.0 — its other effect
+        // is an internal LocalUsingExpressiveTheme flag no component reads,
+        // and the only stock component that reads a MotionScheme at all in
+        // this version is TextField. The expressive motion numbers themselves
+        // are reproduced from ExpressiveMotionTokens in Motion.kt, where every
+        // animation in the app reads them through effectSpec/spatialSpec.
         MaterialTheme(
-            colorScheme = colorScheme,
-            typography = remember(fonts.uiSize, uiFontFamily) {
-                zedTypography(fonts.uiSize, uiFontFamily)
-            },
-            content = content
+            colorScheme = palette.scheme,
+            shapes = SeekerShapes,
+            // Keyed on the face alone: this scale is fixed sp on purpose, so a
+            // Material sheet does not resize because someone changed the size
+            // of the font in their editor. ZedSurface re-provides the scale
+            // that does follow ui_font_size, for the half where it should.
+            typography = remember(uiFontFamily) { materialTypography(uiFontFamily) },
+            content = content,
         )
     }
 }

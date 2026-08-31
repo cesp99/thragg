@@ -112,16 +112,90 @@ class ContextGaugeTest {
         assertTrue(contextAdviceLine(0.95f)!!.startsWith("Full — compact now"))
     }
 
+    /**
+     * The notice arrives with the red and not before it.
+     *
+     * This replaces `showsComposerWarning`'s 85 % threshold, which was the
+     * gate on a permanently-pinned `ContextWarningRow`. The band is gone: the
+     * percentage now changes colour in place on the status strip at 75 % and
+     * 90 % and costs no height at all, so the only thing left to gate is the
+     * card that DOES take space — and it earns that at exactly the point the
+     * agent may refuse (docs/VISUAL.md, "Agent — the context gauge").
+     */
     @Test
-    fun theComposerWarningArrivesBeforeTheRedRing() {
-        // 0.85, not AgentUsage.isNearlyFull's 0.90: the strip is the one that
-        // has to leave room to act on it.
-        assertFalse(showsComposerWarning(0.849f))
-        assertTrue(showsComposerWarning(0.85f))
+    fun theNoticeArrivesWithTheRedAndTakesTheComposerOnlyOnARefusal() {
+        assertFalse(showsContextNotice(0.899f))
+        assertTrue(showsContextNotice(0.90f))
         assertFalse(AgentUsage(used = 85, size = 100).isNearlyFull)
+
+        // A full window alone never removes the composer: a 96 %-full session
+        // usually still takes a short prompt, and taking the field away from
+        // someone who could have typed is the worst way to be wrong.
+        assertFalse(contextBlocksComposer(0.96f, refused = false))
+        assertFalse(contextBlocksComposer(0.50f, refused = true))
+        assertTrue(contextBlocksComposer(0.96f, refused = true))
     }
 
-    // -- the two derived lines ----------------------------------------------
+    // -- the derived lines ---------------------------------------------------
+
+    /**
+     * The headroom, which is the number that decides whether the next message
+     * fits — "191.4k of 200.0k" needs a subtraction before it means anything.
+     */
+    @Test
+    fun theHeadroomIsPrintedAndNeverGoesNegative() {
+        assertEquals("8.6k left", contextLeftLine(AgentUsage(used = 191_402, size = 200_000)))
+        // The request that overflowed reports occupancy past the window.
+        assertEquals("0 left", contextLeftLine(AgentUsage(used = 201_000, size = 200_000)))
+        assertNull(contextLeftLine(AgentUsage(used = 10, size = 0)))
+        assertNull(contextLeftLine(null))
+    }
+
+    /**
+     * Where the last TURN's tokens went — not the window's. Zero parts are
+     * dropped: an agent that reports no cache has not reported a cache of
+     * nothing.
+     */
+    @Test
+    fun theTurnBreakdownDropsThePartsThatAreZero() {
+        assertNull(turnBreakdownLine(null))
+        assertNull(
+            turnBreakdownLine(
+                AgentTurnUsage(
+                    inputTokens = 0,
+                    outputTokens = 0,
+                    totalTokens = 0,
+                    cachedReadTokens = 0,
+                    cachedWriteTokens = 0,
+                ),
+            ),
+        )
+        assertEquals(
+            "Prompt 148.0k · Output 43.0k · Cache 12.0k",
+            turnBreakdownLine(
+                AgentTurnUsage(
+                    inputTokens = 148_000,
+                    outputTokens = 43_000,
+                    totalTokens = 203_000,
+                    cachedReadTokens = 8_000,
+                    cachedWriteTokens = 4_000,
+                ),
+            ),
+        )
+        assertEquals(
+            "Output 900",
+            turnBreakdownLine(
+                AgentTurnUsage(
+                    inputTokens = 0,
+                    outputTokens = 900,
+                    totalTokens = 900,
+                    cachedReadTokens = 0,
+                    cachedWriteTokens = 0,
+                ),
+            ),
+        )
+    }
+
 
     @Test
     fun totalProcessedIsShownOnlyWhenItExceedsOccupancy() {

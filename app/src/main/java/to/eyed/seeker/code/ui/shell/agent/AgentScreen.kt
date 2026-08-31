@@ -1,7 +1,18 @@
+// `SeekerTopBar` takes a `TopAppBarScrollBehavior?`, which is still an
+// experimental type in material3 1.4.0, so every caller of it repeats this one
+// line — the component's own KDoc says so. Nothing else in this file is
+// experimental.
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package to.eyed.seeker.code.ui.shell.agent
 
 import android.content.Context
-import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -10,17 +21,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -34,12 +46,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -67,17 +76,16 @@ import to.eyed.seeker.code.core.rememberAgentSession
 import to.eyed.seeker.code.core.rememberAgentSessionList
 import to.eyed.seeker.code.core.rememberSpettroQuestions
 import to.eyed.seeker.code.solana.agents.SpettroInstall
-import to.eyed.seeker.code.ui.agent.spettro.ConfigChips
-import to.eyed.seeker.code.ui.agent.spettro.ConfigNotice
-import to.eyed.seeker.code.ui.agent.spettro.ContextRing
+import to.eyed.seeker.code.ui.agent.spettro.ConfigSummaryRow
+import to.eyed.seeker.code.ui.agent.spettro.ContextNotice
 import to.eyed.seeker.code.ui.agent.spettro.ContextSheet
-import to.eyed.seeker.code.ui.agent.spettro.ContextWarningRow
 import to.eyed.seeker.code.ui.agent.spettro.LiveRunPeek
 import to.eyed.seeker.code.ui.agent.spettro.PermissionChoice
 import to.eyed.seeker.code.ui.agent.spettro.PermissionChoiceSheet
 import to.eyed.seeker.code.ui.agent.spettro.PermissionSheet
+import to.eyed.seeker.code.ui.agent.spettro.PlanProgress
 import to.eyed.seeker.code.ui.agent.spettro.PlanSheet
-import to.eyed.seeker.code.ui.agent.spettro.PlanStrip
+import to.eyed.seeker.code.ui.agent.spettro.PlanUnfold
 import to.eyed.seeker.code.ui.agent.spettro.QuestionForm
 import to.eyed.seeker.code.ui.agent.spettro.QuestionSheet
 import to.eyed.seeker.code.ui.agent.spettro.ReplayedSessionNotice
@@ -86,24 +94,30 @@ import to.eyed.seeker.code.ui.agent.spettro.SessionPicker
 import to.eyed.seeker.code.ui.agent.spettro.SessionReplaySkeleton
 import to.eyed.seeker.code.ui.agent.spettro.SessionScope
 import to.eyed.seeker.code.ui.agent.spettro.SessionSearchField
-import to.eyed.seeker.code.ui.agent.spettro.SpettroSetupBanner
 import to.eyed.seeker.code.ui.agent.spettro.SpettroSetupScreen
-import to.eyed.seeker.code.ui.agent.spettro.SpettroSpinner
-import to.eyed.seeker.code.ui.agent.spettro.elapsedLabel
+import to.eyed.seeker.code.ui.agent.spettro.UsageReadout
+import to.eyed.seeker.code.ui.agent.spettro.contextBlocksComposer
 import to.eyed.seeker.code.ui.agent.spettro.sessionOpenMode
+import to.eyed.seeker.code.ui.components.EmptyState
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.ModeChip
+import to.eyed.seeker.code.ui.components.NoticeCard
+import to.eyed.seeker.code.ui.components.RunTicker
+import to.eyed.seeker.code.ui.components.SeekerTopBar
+import to.eyed.seeker.code.ui.components.Severity
+import to.eyed.seeker.code.ui.components.StatusDot
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.projects.AgentThreadSeed
 import to.eyed.seeker.code.ui.shell.projects.ProjectsSheet
-import to.eyed.seeker.code.ui.theme.ChipCaret
-import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.Durations
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.animateSize
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.revealItem
-import to.eyed.seeker.code.ui.theme.touchTarget
-import to.eyed.seeker.code.ui.workspace.Notifications
 
 // ---------------------------------------------------------------------------
 // The pure half
@@ -170,6 +184,37 @@ internal fun agentDisplayName(connected: String?, chosen: String?): String =
         ?: "Agent"
 
 /**
+ * `Spettro · coding` — the top bar's second line.
+ *
+ * The bar's TITLE is the project, because that is what the whole window is
+ * about and it is the thing the user switches; the identity of the agent and
+ * the hat it is wearing are the subtitle, which is exactly the slot Material's
+ * two-line app bar exists for. This used to be a caret-suffixed text button in
+ * the middle of a hand-rolled 48 dp `Row`, competing with the project name for
+ * the same horizontal space (docs/VISUAL.md, "Agent — the screen at rest").
+ *
+ * The mode is dropped rather than printed as a placeholder when the agent has
+ * not published one: a generic ACP agent has no modes, and "Agent · —" is a
+ * dash where a fact should be.
+ */
+internal fun barSubtitle(agentName: String, mode: String?): String =
+    if (mode.isNullOrBlank()) agentName else "$agentName · $mode"
+
+/**
+ * `Spettro is waiting on you — 2 requests`, or null when it is not.
+ *
+ * The bar this labels is a LINK and not a form: it names what is parked and
+ * takes you to the one sheet that can answer it. Answering in place would put
+ * a permission decision in a 40 dp strip above the keyboard, which is the
+ * shape of every consent dialog anybody has ever tapped through by accident.
+ */
+internal fun attentionLabel(agentName: String, count: Int): String? = when {
+    count <= 0 -> null
+    count == 1 -> "$agentName is waiting on you — 1 request"
+    else -> "$agentName is waiting on you — $count requests"
+}
+
+/**
  * Whether the transcript's own tail is on screen.
  *
  * [lastVisibleIndex] is null for a list that has laid nothing out yet, which
@@ -177,7 +222,7 @@ internal fun agentDisplayName(connected: String?, chosen: String?): String =
  * been scrolled away from, and answering `false` there would leave the very
  * first reply un-followed.
  *
- * The last item is the transcript's `tail` slot (the ticker / stop notice), so
+ * The last item is the transcript's `tail` slot (the notices / stop reason), so
  * "the tail is visible" and "the newest words are visible" are the same
  * question.
  */
@@ -201,7 +246,7 @@ internal fun followsTail(previous: Boolean, dragging: Boolean, atTail: Boolean):
     else -> previous
 }
 
-/** `2 files changed`, or null when the review bar has nothing to say. */
+/** `2 files changed`, or null when there is nothing waiting to be reviewed. */
 internal fun reviewLabel(editedFiles: Int): String? = when {
     editedFiles <= 0 -> null
     editedFiles == 1 -> "1 file changed"
@@ -225,13 +270,16 @@ internal fun emptySubhead(projectName: String?): String =
     if (projectName.isNullOrBlank()) "No project is open" else "Working in $projectName"
 
 /**
- * Whether the vertical budget has room for the plan strip and the run peek.
+ * Whether the vertical budget has room for the secondary surfaces.
  *
- * With the IME open the keyboard eats ~340 dp of 890 and these two collapse to
- * zero, so at least two transcript rows stay visible (docs/SPETTRO.md, "Screen
- * shell"). They are *hidden*, never shrunk: this layout animates opacity and
- * transform only, because these surfaces repaint several times a second during
- * a fan-out and an animated height would fight the repaint.
+ * With the IME open the keyboard eats ~340 dp of 890 and the plan unfold and
+ * the live-run strip collapse to zero, so at least two transcript rows stay
+ * visible (docs/SPETTRO.md, "Screen shell"). They are *hidden*, never shrunk.
+ *
+ * The 36 dp status strip itself is NOT one of them any more: it is one of the
+ * three bands that always survive, it costs one line, and the readings on it
+ * — how long this has been running, how full the window is — are exactly the
+ * ones you want while typing the next message.
  */
 internal fun showsSecondaryBands(imeVisible: Boolean): Boolean = !imeVisible
 
@@ -281,12 +329,26 @@ private fun markPermissionChoiceAnswered(context: Context) {
 /**
  * Agent — the whole Spettro superset on a 400 x 890 dp column.
  *
- * The layout is docs/SPETTRO.md's "Screen shell" from top to bottom: a 48 dp
- * app bar carrying identity and the context ring and nothing else; the
- * transcript, folded so a workflow's two hundred sibling tool calls are one
- * card; the run ticker at its tail; the sticky review bar; the plan strip and
- * the live-run peek, both of which collapse when the keyboard is up; the chip
- * row; and the composer.
+ * **THREE FIXED BANDS, and that is the redesign** (docs/VISUAL.md, "Agent —
+ * the screen at rest"). This screen used to stack up to SEVEN pinned surfaces
+ * between the transcript and the composer — the review bar, the setup banner,
+ * the context warning, two config notices, the 32 dp plan strip and the
+ * live-run peek — and only two of them collapsed with the IME. On an 890 dp
+ * column with the keyboard up that left the conversation a slot. What survives
+ * is a real `TopAppBar`, one 36 dp [AgentStatusStrip] and the composer;
+ * everything else moved to the one place where it is still true:
+ *
+ *  - the review count is an action in the `⋮` overflow, badged;
+ *  - the setup banner is a card in the empty state, where the user is anyway;
+ *  - both config notices are [NoticeCard]s **in the transcript**, at the point
+ *    in the conversation they happened, so they scroll away with the thing
+ *    they are about instead of standing over it for ever;
+ *  - the plan folds into the strip's [PlanProgress] and unfolds inside it;
+ *  - the context ring becomes a tabular percentage on the same strip, and the
+ *    warning becomes a card that appears only at 90 % — and only at 90 % *with
+ *    a refusal* does it take the composer's place;
+ *  - the attention bar is the fourth band and exists only while something is
+ *    parked, which is the one interruption worth a band of its own.
  *
  * Three decisions here are load-bearing rather than cosmetic:
  *
@@ -295,7 +357,7 @@ private fun markPermissionChoiceAnswered(context: Context) {
  *     loop — you correct a run from a bus — and it is *not* a cancel: the text
  *     is delivered to the turn already in flight at its next step boundary,
  *     the steering prompt itself ends immediately, and the original turn keeps
- *     going. Cancel is a separate ■ button beside it (see [AgentComposer]).
+ *     going. Cancel is a separate control beside it (see [AgentComposer]).
  *  2. **A parked question or permission raises its sheet by itself.** The turn
  *     is stopped until it is answered; a prompt that has scrolled away is an
  *     app that looks hung. Dismissing the sheet is not answering it — the
@@ -311,7 +373,6 @@ private fun markPermissionChoiceAnswered(context: Context) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val project = state.project
@@ -334,10 +395,11 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     var sessionQuery by remember { mutableStateOf("") }
     var sessionScope by remember { mutableStateOf(SessionScope.PROJECT) }
     var lockedNotice by remember { mutableStateOf<String?>(null) }
+    var planOpen by remember(sessionId) { mutableStateOf(false) }
     // The notice says "raise the permission level first". Once the level *has*
     // been raised the sentence is no longer true, and it used to stay on
     // screen until the user tapped it away — which put it directly above an
-    // Ultra chip the same screen had just drawn solid and enabled, two
+    // Ultra control the same screen had just drawn solid and enabled, two
     // contradictory claims at once (seen on the device: wave 4's
     // build/conformance-shots/10-ultra-on.png). The lock going away is what
     // retires the notice, not the user acknowledging it.
@@ -411,8 +473,8 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
         session.title?.let { title -> thread?.title = title }
         session.acpSessionId?.let { id -> thread?.acpSessionId = id }
     }
-    // A chip tapped while the agent was still starting was queued rather than
-    // dropped; this is where it goes out.
+    // A control tapped while the agent was still starting was queued rather
+    // than dropped; this is where it goes out.
     LaunchedEffect(session.phase) {
         if (session.phase == AgentPhase.Ready) AgentSessions.flushQueuedConfig()
     }
@@ -464,7 +526,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     //
     // The newest message is at the END: this list is not `reverseLayout`, so
     // index 0 is the *first* thing ever said in the thread. `rows.size` is the
-    // trailing `tail` item (the ticker / stop notice), which is the one row
+    // trailing `tail` item (the notices / stop reason), which is the one row
     // that is always below the last message — and the same target the arrival
     // effect below uses, so a retap and a new row land in the same place.
     val retapSeen = remember { intArrayOf(state.retapCount) }
@@ -531,38 +593,78 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     val bands = showsSecondaryBands(WindowInsets.isImeVisible)
     val liveRuns = remember(rows) { runsIn(rows) }
     var peekOpen by remember { mutableStateOf(false) }
+    val agentName = agentDisplayName(session.agent?.agentName, agent?.name)
+    val review = reviewLabel(session.editedFiles)
+
+    // The moment the running turn started, computed in composition rather than
+    // stamped by an effect: an effect lands a frame late, and the ticker would
+    // spend that frame reading the epoch. Keyed on `isBusy` so the clock
+    // restarts with the turn and on the session so a thread switch never
+    // inherits the previous one's start.
+    val turnStartedAt = remember(sessionId, session.isBusy) {
+        if (session.isBusy) System.currentTimeMillis() else 0L
+    }
+
+    fun newThread() {
+        val open = project ?: return
+        AgentSessions.newThread(open.id, open.rootName, open.rootPath)
+    }
+
+    // The one thing the destination is doing that is not a band: `/compact` is
+    // a prompt on the wire like any other command, and the agent owns what it
+    // means.
+    fun compact() = AgentSessions.prompt("/compact", emptyList(), emptyList()) {}
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(theme.color("panel.background", theme.color("surface.background"))),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        AgentBar(
-            projectName = project?.rootName,
-            state = session,
-            onProjects = { sheet = AgentSheet.Projects },
-            onConfig = { sheet = AgentSheet.Config },
-            onContext = { sheet = AgentSheet.Context },
-            onNewThread = {
-                val open = project ?: return@AgentBar
-                AgentSessions.newThread(open.id, open.rootName, open.rootPath)
+        SeekerTopBar(
+            title = project?.rootName ?: "No project",
+            subtitle = barSubtitle(agentName, session.toolbar.mode?.currentLabel),
+            actions = {
+                SeekerIconButton(
+                    icon = R.drawable.ic_ui_chevron_down,
+                    description = "Projects",
+                    onClick = { sheet = AgentSheet.Projects },
+                    tint = mutedIcon,
+                )
+                SeekerIconButton(
+                    icon = R.drawable.ic_ui_plus,
+                    description = "New thread",
+                    onClick = { newThread() },
+                    tint = mutedIcon,
+                )
+                OverflowAction(badge = review, onClick = { sheet = AgentSheet.Overflow })
             },
-            onOverflow = { sheet = AgentSheet.Overflow },
         )
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outline))
+        HairlineDivider()
+        AgentStatusStrip(
+            state = session,
+            startedAt = turnStartedAt,
+            planOpen = planOpen && bands,
+            onTogglePlan = { planOpen = !planOpen },
+            onOpenContext = { sheet = AgentSheet.Context },
+        )
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             when {
-                // The `play` edition has no Linux userland and never will, so
-                // this is an honest dead end rather than a broken screen.
+                // Defensive rather than reachable: the agent runs inside the
+                // Linux guest and every build that ships has one. Kept as an
+                // honest dead end rather than a broken screen if the seam ever
+                // answers no — but it no longer blames an "edition", because
+                // there is only one.
                 !AgentSessions.isSupported -> AgentEmpty(
-                    line = "This edition has no Linux userland, so it cannot run an agent.",
+                    headline = "No agent available",
+                    body = "The agent runs inside the Linux guest, which is not available.",
                     action = null,
                     onAction = {},
                 )
 
                 project == null -> AgentEmpty(
-                    line = "No project is open.",
+                    headline = "No project is open",
+                    body = "Open or create one, and the thread opens with it.",
                     action = "Projects & tools",
                     onAction = { sheet = AgentSheet.Projects },
                 )
@@ -577,32 +679,32 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 )
 
                 agent == null -> AgentEmpty(
-                    line = "No agent yet. Spettro is a 15 MB download and needs no Node, " +
-                        "no Python and no compiler.",
+                    headline = "No agent yet",
+                    body = "Spettro is a 15 MB download and needs no Node, no Python and " +
+                        "no compiler.",
                     action = "Set up Spettro",
                     onAction = { state.push(Route.Setup) },
                 )
 
                 AgentSessions.startError != null -> AgentEmpty(
-                    line = AgentSessions.startError.orEmpty(),
+                    headline = "The agent did not start",
+                    body = AgentSessions.startError.orEmpty(),
                     action = "Try again",
-                    onAction = {
-                        AgentSessions.newThread(project.id, project.rootName, project.rootPath)
-                    },
+                    onAction = { newThread() },
                 )
 
                 AgentSessions.isStarting -> AgentEmpty(
-                    line = "Starting " + agent.name + "…",
+                    headline = "Starting " + agent.name + "…",
+                    body = "The first launch unpacks the runtime; later ones are instant.",
                     action = null,
                     onAction = {},
                 )
 
                 sessionId == null -> AgentEmpty(
-                    line = "No thread open.",
+                    headline = "No thread open.",
+                    body = "Start one to talk to $agentName.",
                     action = "New thread",
-                    onAction = {
-                        AgentSessions.newThread(project.id, project.rootName, project.rootPath)
-                    },
+                    onAction = { newThread() },
                 )
 
                 // A loaded session streams its whole transcript back before
@@ -611,10 +713,28 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 thread?.expectsReplay == true && rows.isEmpty() -> SessionReplaySkeleton()
 
                 rows.isEmpty() -> AgentEmpty(
-                    line = emptyHeadline(),
-                    detail = emptySubhead(project.rootName),
+                    headline = emptyHeadline(),
+                    body = emptySubhead(project.rootName),
                     action = null,
                     onAction = {},
+                    // The setup banner used to be a permanent 40 dp band above
+                    // the composer. It says "no model connected", which is
+                    // only ever true of a conversation that has not happened
+                    // yet — so this is where it belongs, and it costs nothing
+                    // on every other screen state.
+                    notice = {
+                        AgentNotices(
+                            refusal = session.notice ?: AgentSessions.lastRefusal,
+                            onDismissRefusal = {
+                                AgentSessions.clearRefusal()
+                                AgentSessions.clearNotice()
+                            },
+                            locked = lockedNotice,
+                            onDismissLocked = { lockedNotice = null },
+                            setup = SpettroSetup.needsBanner,
+                            onOpenSetup = { SpettroSetup.unskip() },
+                        )
+                    },
                 )
 
                 else -> Column(modifier = Modifier.fillMaxSize()) {
@@ -632,6 +752,15 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                         tail = {
                             TranscriptTail(
                                 state = session,
+                                refusal = session.notice ?: AgentSessions.lastRefusal,
+                                onDismissRefusal = {
+                                    AgentSessions.clearRefusal()
+                                    AgentSessions.clearNotice()
+                                },
+                                locked = lockedNotice,
+                                onDismissLocked = { lockedNotice = null },
+                                setup = SpettroSetup.needsBanner,
+                                onOpenSetup = { SpettroSetup.unskip() },
                                 onRetry = { AgentSessions.retryLastPrompt() },
                             )
                         },
@@ -641,34 +770,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
         }
 
-        // Everything below here is pinned. The review bar first, because it is
-        // the trust surface and it must not scroll away.
-        reviewLabel(session.editedFiles)?.let { label ->
-            ReviewBar(label) { state.push(Route.Changes) }
-        }
-        if (SpettroSetup.needsBanner) {
-            SpettroSetupBanner(onOpen = { SpettroSetup.unskip() })
-        }
-        ContextWarningRow(
-            usage = session.usage,
-            onOpenGauge = { sheet = AgentSheet.Context },
-        )
-        val refusal = session.notice ?: AgentSessions.lastRefusal
-        if (refusal != null) {
-            ConfigNotice(
-                text = refusal,
-                onDismiss = {
-                    AgentSessions.clearRefusal()
-                    AgentSessions.clearNotice()
-                },
-            )
-        }
-        lockedNotice?.let { text ->
-            ConfigNotice(text = text, onDismiss = { lockedNotice = null })
-        }
-        if (bands && session.plan.isNotEmpty()) {
-            PlanStrip(plan = session.plan, onExpand = { sheet = AgentSheet.Plan })
-        }
+        // Everything below here is pinned, and there is very little of it.
         if (bands) {
             LiveRunPeek(
                 runs = liveRuns,
@@ -676,27 +778,73 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 onToggle = { peekOpen = !peekOpen },
             )
         }
-        ConfigChips(
-            toolbar = session.toolbar,
-            busy = session.phase == AgentPhase.Starting,
-            onSelect = { sheet = AgentSheet.Config },
-            onToggleUltra = { option, value ->
-                AgentSessions.setConfigOption(option.id, configValueJson(value))
+        AttentionBar(
+            label = attentionLabel(agentName, waitingCount),
+            onAnswer = {
+                // Re-raise even a request the user put away: they asked for it
+                // by name this time.
+                val form = questions.firstOrNull()
+                val approval = approvals.firstOrNull()
+                when {
+                    form != null -> {
+                        dismissed.remove(form.id)
+                        sheet = AgentSheet.Form(form.id)
+                    }
+
+                    approval != null -> {
+                        dismissed.remove(approval.key)
+                        sheet = AgentSheet.Approval(approval.key)
+                    }
+                }
             },
-            onLockedTap = { lockedNotice = to.eyed.seeker.code.core.ULTRA_LOCK_REASON },
         )
-        AgentComposer(
-            shell = state,
-            state = session,
-            thread = thread,
-            agentName = agentDisplayName(session.agent?.agentName, agent?.name),
-            projectName = project?.rootName,
-            enabled = session.canPrompt && sessionId != null,
-            focus = composerFocus,
-            onOpenMentions = { sheet = AgentSheet.Mentions },
-            onStop = { AgentSessions.cancelTurn() },
-            onSteered = {},
+        // Tier three. Above the composer at 90 %, and INSTEAD of it once the
+        // host has actually refused a turn: there is nothing useful to type,
+        // and leaving the field there means the user writes a paragraph before
+        // finding that out.
+        val blocked = contextBlocksComposer(
+            fraction = session.usage?.takeIf { it.size > 0L }?.fraction ?: 0f,
+            refused = session.stopReason == "refusal",
         )
+        ContextNotice(
+            usage = session.usage,
+            onCompact = { compact() },
+            onNewThread = { newThread() },
+            modifier = Modifier.padding(
+                start = MD.space4,
+                end = MD.space4,
+                top = MD.space2,
+                bottom = MD.space2,
+            ),
+        )
+        if (!blocked) {
+            AgentComposer(
+                shell = state,
+                state = session,
+                thread = thread,
+                agentName = agentName,
+                projectName = project?.rootName,
+                enabled = session.canPrompt && sessionId != null,
+                focus = composerFocus,
+                onOpenMentions = { sheet = AgentSheet.Mentions },
+                onStop = { AgentSessions.cancelTurn() },
+                onSteered = {},
+                // The five selectors, as one ~20dp line directly over the input
+                // row. This slot is the ONLY reason the 36dp chip band could be
+                // deleted: without something drawn here, the thinking slider
+                // and the model list are reachable only from the overflow, and
+                // the two controls the agent screen exists to expose would be
+                // two taps behind a glyph. `ConfigSummaryRow` returns Unit when
+                // there is nothing on the wire yet, so a session that has not
+                // reported its selectors costs no height at all.
+                configSummary = {
+                    ConfigSummaryRow(
+                        toolbar = session.toolbar,
+                        onOpen = { sheet = AgentSheet.Config },
+                    )
+                },
+            )
+        }
     }
 
     AgentSheets(
@@ -715,6 +863,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
         },
         onSheet = { sheet = it },
         onDismissedAnswered = { key -> dismissed.remove(key) },
+        onLocked = { lockedNotice = to.eyed.seeker.code.core.ULTRA_LOCK_REASON },
         onMention = { mention ->
             thread?.let { open ->
                 if (mention !in open.draftMentions) open.draftMentions.add(mention)
@@ -755,6 +904,7 @@ private fun AgentSheets(
     onDismiss: (key: String?) -> Unit,
     onSheet: (AgentSheet?) -> Unit,
     onDismissedAnswered: (String) -> Unit,
+    onLocked: () -> Unit,
     onMention: (AgentMention) -> Unit,
     onPermissionChosen: (String) -> Unit,
 ) {
@@ -777,19 +927,23 @@ private fun AgentSheets(
             onPick = { option, valueJson ->
                 AgentSessions.setConfigOption(option.id, valueJson)
             },
-            onOpenContext = { onSheet(AgentSheet.Context) },
-            onLocked = {
-                Notifications.info(
-                    to.eyed.seeker.code.core.ULTRA_LOCK_REASON,
-                    key = "ultra-locked",
-                )
-            },
+            // A NoticeCard in the transcript rather than a toast: the sentence
+            // is "raise the permission level first", which is an instruction
+            // the user has to be able to re-read while doing it.
+            onLocked = onLocked,
             onDismiss = { onDismiss(null) },
         )
 
         AgentSheet.Overflow -> AgentOverflowSheet(
             shell = state,
             items = listOf(
+                // First, and it is new here: the selectors used to be a 36 dp
+                // band of horizontally-scrolling chips. They are the
+                // composer's `ConfigSummaryRow` now, and this is the second
+                // way in, for the same reason every sheet has one.
+                OverflowItem("Configure", session.toolbar.mode?.currentLabel) {
+                    onSheet(AgentSheet.Config)
+                },
                 OverflowItem(
                     "Sessions",
                     stringResource(R.string.agent_overflow_sessions, agentName),
@@ -805,6 +959,10 @@ private fun AgentSheets(
                 OverflowItem("Context", "what the window is holding") {
                     onSheet(AgentSheet.Context)
                 },
+                // The old sticky review bar, now an action with the count on
+                // it — and the `⋮` itself carries a dot while it says
+                // anything, so the trust surface is still visible without
+                // opening this (docs/VISUAL.md, "Agent — the screen at rest").
                 OverflowItem("Review changes", reviewLabel(session.editedFiles)) {
                     onDismiss(null)
                     state.push(Route.Changes)
@@ -1057,274 +1215,353 @@ private fun SessionsSheet(
     }
 }
 
+// ---------------------------------------------------------------------------
+// The status strip
+// ---------------------------------------------------------------------------
+
 /**
- * The 48 dp app bar: who you are talking to, and the one number that changes
- * what you should do next.
+ * The 36 dp line under the app bar: what is running, what is planned, and how
+ * much room is left.
  *
- * Nothing else is up here. The plan, the git state and the statistics are in
- * the overflow, because a bar that carries five readings is a bar nobody
- * reads (docs/SPETTRO.md, "Screen shell").
+ * FOUR SURFACES MERGED INTO ONE, at a quarter of the height they cost apart —
+ * the app bar's mode text, the app bar's 12 dp context ring, the 32 dp plan
+ * strip, and the elapsed/token readout that used to live at the SCROLLING
+ * transcript tail, where it disappeared the moment you read anything above it.
+ * Elapsed time that scrolls away is not status.
+ *
+ * Left to right, and the order is the argument: the thing that is happening
+ * now, the thing it is working through, then a gap, then the thing that limits
+ * it. Nothing on this line is a control that changes the conversation — two of
+ * the three open something, and the third is a label.
+ *
+ * The busy/idle swap is a swap and not two rows: while a turn runs the mode is
+ * on the app bar's subtitle anyway, and what the eye wants there is the clock.
+ *
+ * [Modifier.animateSize] because the plan unfolds INTO this strip. A strip that
+ * jumped from 36 dp to 250 dp would take the transcript's scroll position with
+ * it; springing there keeps the reader's place.
  */
 @Composable
-private fun AgentBar(
-    projectName: String?,
+private fun AgentStatusStrip(
     state: AgentSessionState,
-    onProjects: () -> Unit,
-    onConfig: () -> Unit,
-    onContext: () -> Unit,
-    onNewThread: () -> Unit,
-    onOverflow: () -> Unit,
+    startedAt: Long,
+    planOpen: Boolean,
+    onTogglePlan: () -> Unit,
+    onOpenContext: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    val agentName = agentDisplayName(state.agent?.agentName, null)
-    val mode = state.toolbar.mode?.currentLabel
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .background(theme.color("status_bar.background", MaterialTheme.colorScheme.surface))
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        // Both carets in this bar are drawables, for the reason spelled out
-        // on Code's header: a `▾` at label metrics is thinner and smaller than
-        // the real icons sharing the bar with it.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .touchTarget()
-                .clip(RoundedCornerShape(4.dp))
-                .clickable(onClickLabel = "Projects", onClick = onProjects)
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text = projectName ?: "No project",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            ChipCaret(modifier = Modifier.padding(start = 2.dp))
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .weight(1f)
-                .touchTarget()
-                .clip(RoundedCornerShape(4.dp))
-                .clickable(onClickLabel = "Agent settings", onClick = onConfig)
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text = if (mode.isNullOrBlank()) agentName else "$agentName · $mode",
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            // Only when there is a mode to change — the caret said "this
-            // opens something" even when the chip was just the agent's name.
-            if (!mode.isNullOrBlank()) {
-                ChipCaret(modifier = Modifier.padding(start = 2.dp))
-            }
-        }
-        ContextRing(usage = state.usage, onClick = onContext)
-        BarAction(R.drawable.ic_ui_plus, "New thread", onNewThread)
-        BarAction(R.drawable.ic_ui_more_vertical, "More", onOverflow)
-    }
-}
+    val colors = LocalSeekerColors.current
+    val mode = state.toolbar.mode
+    val hasUsage = (state.usage?.size ?: 0L) > 0L
+    val busy = state.isBusy && startedAt > 0L
+    // Nothing to report is a strip that is not there, rather than an empty
+    // rule across the screen.
+    if (!busy && mode == null && state.plan.isEmpty() && !hasUsage) return
 
-@Composable
-private fun BarAction(@DrawableRes icon: Int, description: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    SeekerIconButton(
-        icon = icon,
-        description = description,
-        onClick = onClick,
-        tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-    )
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .animateSize(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MD.space3),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = MD.stripHeight)
+                .padding(horizontal = MD.space4),
+        ) {
+            if (busy) {
+                RunTicker(
+                    startedAt = startedAt,
+                    tokens = state.turnUsage?.totalTokens?.takeIf { it > 0L },
+                    tint = colors.accentMark,
+                )
+            } else if (mode != null) {
+                ModeChip(
+                    name = mode.currentLabel,
+                    // The caller keeps the `category != "mode"` guard; the
+                    // component decides what a name means, not whether it is
+                    // a mode's (docs/VISUAL.md, THE HYBRID, band C).
+                    colorName = mode.currentValue?.takeIf { mode.category == "mode" },
+                )
+            }
+            PlanProgress(plan = state.plan, expanded = planOpen, onToggle = onTogglePlan)
+            Spacer(Modifier.weight(1f))
+            UsageReadout(usage = state.usage, onClick = onOpenContext)
+        }
+        if (planOpen) {
+            HairlineDivider()
+            PlanUnfold(plan = state.plan)
+        }
+        HairlineDivider()
+    }
 }
 
 /**
- * The end of the transcript: the run ticker, the stop-reason notice and any
- * error the turn ended with.
+ * `⋮`, with a dot on it while something is unreviewed.
  *
- * The ticker is Spettro's braille spinner rather than a Material progress
- * ring — this is brand, and it is also the only thing on screen during a
- * two-minute silent turn that says work is happening rather than nothing.
+ * The dot is decoration and the COUNT is in the button's description, so
+ * TalkBack says "More, 2 files changed" in one node instead of announcing a
+ * button and then an unlabelled circle. That is the whole trick that lets the
+ * review bar stop being a band: the number is still on screen, it just costs
+ * six dp instead of forty.
  */
 @Composable
-private fun TranscriptTail(state: AgentSessionState, onRetry: () -> Unit) {
-    val theme = LocalZedTheme.current
-    var startedAt by remember { mutableStateOf(0L) }
-    var now by remember { mutableStateOf(0L) }
-    LaunchedEffect(state.isBusy) {
-        if (!state.isBusy) {
-            startedAt = 0L
-            return@LaunchedEffect
-        }
-        startedAt = System.currentTimeMillis()
-        while (true) {
-            now = System.currentTimeMillis()
-            kotlinx.coroutines.delay(500)
+private fun OverflowAction(badge: String?, onClick: () -> Unit) {
+    Box {
+        SeekerIconButton(
+            icon = R.drawable.ic_ui_more_vertical,
+            description = if (badge == null) "More" else "More — $badge",
+            onClick = onClick,
+            tint = mutedIcon,
+        )
+        if (badge != null) {
+            StatusDot(
+                color = MaterialTheme.colorScheme.primary,
+                size = 6.dp,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp),
+            )
         }
     }
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+}
+
+/**
+ * The fourth band, and the only one that earns being one: something is parked
+ * and the turn is not moving until you deal with it.
+ *
+ * A LINK AND NOT A FORM. The sheet it opens has the options, their
+ * descriptions and the queue position; a 40 dp strip above the keyboard has
+ * room for none of that, and a consent control at that size is the shape of
+ * every permission anybody has ever granted by accident.
+ *
+ * It arrives at [Durations.BAND_IN] and leaves at [Durations.BAND_OUT] —
+ * slower out, so answering the last request settles rather than blinking the
+ * bar away under the finger that answered it.
+ */
+@Composable
+private fun AttentionBar(label: String?, onAnswer: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    // Held so the exit transition has a sentence to draw: `label` is null the
+    // instant the last request is answered, and an AnimatedVisibility whose
+    // content went blank animates a blank bar out.
+    //
+    // A plain array and not `mutableStateOf`, for the same reason `retapSeen`
+    // above is one: nothing needs to *observe* this — it is read in the very
+    // composition that writes it — and a snapshot write during composition
+    // would invalidate the frame that just made it.
+    val held = remember { arrayOfNulls<String>(1) }
+    if (label != null) held[0] = label
+    val shown = held[0].orEmpty()
+    AnimatedVisibility(
+        visible = label != null,
+        enter = fadeIn(tween(Durations.BAND_IN)) + expandVertically(tween(Durations.BAND_IN)),
+        exit = fadeOut(tween(Durations.BAND_OUT)) + shrinkVertically(tween(Durations.BAND_OUT)),
+        modifier = modifier,
     ) {
-        if (state.isBusy) {
+        Column {
+            HairlineDivider()
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(scheme.surfaceContainer)
+                    .clickable(onClickLabel = "Answer", onClick = onAnswer)
+                    .heightIn(min = AttentionBarHeight)
+                    .padding(start = MD.space4, end = MD.space2),
             ) {
-                SpettroSpinner(
-                    color = theme.color("text.accent", MaterialTheme.colorScheme.primary)
-                )
+                StatusDot(color = scheme.primary, pulsing = true)
                 Text(
-                    text = tickerLabel(
-                        elapsedMillis = if (startedAt == 0L) 0L else (now - startedAt),
-                        tokens = state.turnUsage?.totalTokens ?: 0L,
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    text = shown,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                TextButton(onClick = onAnswer) { Text(text = "Answer") }
             }
         }
+    }
+}
+
+/** docs/VISUAL.md's wireframe gives the attention bar exactly this much. */
+private val AttentionBarHeight = 40.dp
+
+// ---------------------------------------------------------------------------
+// The transcript's tail, and the notices that live in it
+// ---------------------------------------------------------------------------
+
+/**
+ * The end of the transcript: what the turn ended with, and any notice the
+ * session raised while it ran.
+ *
+ * THE RUN TICKER IS NOT HERE ANY MORE. It was the whole reason this slot
+ * existed, and it was in the wrong place: a readout at the end of a scrolling
+ * list is only visible while the reader happens to be at the end of the list,
+ * which is exactly not the case while they are reading what the agent wrote.
+ * It is on [AgentStatusStrip] now, pinned, and this slot keeps the two things
+ * that genuinely belong to a *position in the conversation* — how the turn
+ * ended, and what went wrong.
+ *
+ * The notices arrive here for the same reason. A refused config change and a
+ * locked Ultra used to be permanent bands above the composer; they are facts
+ * about a moment, so they are drawn at that moment, dismissible, and they
+ * scroll away with it.
+ */
+@Composable
+private fun TranscriptTail(
+    state: AgentSessionState,
+    refusal: String?,
+    onDismissRefusal: () -> Unit,
+    locked: String?,
+    onDismissLocked: () -> Unit,
+    setup: Boolean,
+    onOpenSetup: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            // NO horizontal padding. This composable is the transcript's `tail`
+            // slot, so it is drawn INSIDE the LazyColumn's own 16dp
+            // `contentPadding` (AgentTranscript.kt:476) — the gutter belongs to
+            // the list, once, and a row that adds its own lands at 32dp while
+            // every message above it sits at 16dp.
+            .padding(vertical = MD.space1),
+        verticalArrangement = Arrangement.spacedBy(MD.space2),
+    ) {
+        AgentNotices(
+            refusal = refusal,
+            onDismissRefusal = onDismissRefusal,
+            locked = locked,
+            onDismissLocked = onDismissLocked,
+            setup = setup,
+            onOpenSetup = onOpenSetup,
+        )
         stopReasonNotice(state.stopReason)?.let { notice ->
             Text(
                 text = notice.text,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = if (notice.isError) {
-                    theme.color("error", MaterialTheme.colorScheme.error)
+                    LocalSeekerColors.current.dangerInk
                 } else {
-                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                    scheme.onSurfaceVariant
                 },
             )
         }
         state.error?.let { error ->
-            Text(
-                text = error,
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("error", MaterialTheme.colorScheme.error),
+            NoticeCard(
+                severity = Severity.Error,
+                title = "The turn failed",
+                body = error,
+                actions = {
+                    if (state.canRetry) {
+                        TextButton(onClick = onRetry) { Text(text = "Try again") }
+                    }
+                },
             )
-            if (state.canRetry) {
-                Text(
-                    text = "Try again",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                    modifier = Modifier
-                        .touchTarget()
-                        .clickable(onClickLabel = "Try again", onClick = onRetry)
-                        .padding(vertical = 2.dp),
-                )
-            }
         }
     }
 }
 
 /**
- * `1m 07s · 3.4k tok`, or just the clock before anything has been spent.
+ * The three notices that used to be pinned bands, as cards.
  *
- * The token figure is the *turn's*, not the context occupancy: occupancy falls
- * after a compaction and a ticker that ran backwards would be describing the
- * wrong quantity.
+ * One composable because they appear in two places — at the transcript's tail
+ * and under the empty state — and the empty state is the case that matters
+ * for the setup card: "no model connected" is only ever the explanation for a
+ * conversation that has not happened yet.
+ *
+ * `Warn` rather than `Error` for all three: none of them is a failure. A
+ * refused config option, a locked Ultra and an unfinished provider setup are
+ * all states with a way out, and spending the red on them leaves nothing for
+ * the turn that actually broke.
  */
-internal fun tickerLabel(elapsedMillis: Long, tokens: Long): String {
-    val clock = elapsedLabel(elapsedMillis.coerceAtLeast(0))
-    if (tokens <= 0) return clock
-    val spent = if (tokens >= 1000) {
-        String.format(java.util.Locale.US, "%.1fk", tokens / 1000.0)
-    } else {
-        tokens.toString()
+@Composable
+private fun AgentNotices(
+    refusal: String?,
+    onDismissRefusal: () -> Unit,
+    locked: String?,
+    onDismissLocked: () -> Unit,
+    setup: Boolean,
+    onOpenSetup: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (refusal == null && locked == null && !setup) return
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(MD.space2),
+    ) {
+        refusal?.let { text ->
+            NoticeCard(
+                severity = Severity.Warn,
+                title = null,
+                body = text,
+                onDismiss = onDismissRefusal,
+            )
+        }
+        locked?.let { text ->
+            NoticeCard(
+                severity = Severity.Warn,
+                title = null,
+                body = text,
+                onDismiss = onDismissLocked,
+            )
+        }
+        if (setup) {
+            // The whole reason **Skip for now** is allowed to exist: it must
+            // not produce a raw provider error at the first prompt.
+            NoticeCard(
+                severity = Severity.Warn,
+                title = "No model connected",
+                body = "Spettro cannot answer until a provider is set up.",
+                actions = {
+                    TextButton(onClick = onOpenSetup) { Text(text = "Set up") }
+                },
+            )
+        }
     }
-    return "$clock · $spent tok"
 }
 
 /**
- * `2 files changed · Review →` — the trust surface, pinned above the composer.
+ * A headline, a sentence, at most one button — and never a blank rectangle.
  *
- * It must not scroll away: this is the count of files an agent has written
- * that nobody has looked at, and it is the one number in the app that is worth
- * interrupting a conversation for.
+ * [EmptyState] rather than a local `Column` of `Text`s: the quiet 40 dp mark,
+ * the 32 dp gutter and the titleMedium/bodyMedium pair are the same on every
+ * screen in the app that has nothing to show, and this one is reached by seven
+ * different routes.
+ *
+ * The copy register is the existing one and it is right — "No thread open.
+ * Start one to talk to Spettro." names the way out, because unlike a chat app
+ * the composer here is not always available.
  */
-@Composable
-private fun ReviewBar(label: String, onOpen: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp)
-            .background(theme.color("element.background", MaterialTheme.colorScheme.surface))
-            .clickable(onClickLabel = "Review changes", onClick = onOpen)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "Review",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-        )
-        SeekerIcon(
-            icon = R.drawable.ic_ui_chevron_right,
-            contentDescription = null,
-            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            size = IconSize.Marker,
-        )
-    }
-}
-
-/** One line of body text and at most one button — never a blank rectangle. */
 @Composable
 private fun AgentEmpty(
-    line: String,
+    headline: String,
+    body: String,
     onAction: () -> Unit,
     action: String?,
-    detail: String? = null,
+    notice: @Composable () -> Unit = {},
 ) {
-    val theme = LocalZedTheme.current
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = MD.space4),
         verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            text = line,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+        EmptyState(
+            headline = headline,
+            body = body,
+            action = if (action == null) {
+                null
+            } else {
+                { TextButton(onClick = onAction) { Text(text = action) } }
+            },
         )
-        detail?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-        if (action != null) {
-            Text(
-                text = action,
-                style = MaterialTheme.typography.labelLarge,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .touchTarget()
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable(onClickLabel = action, onClick = onAction)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
+        notice()
     }
 }

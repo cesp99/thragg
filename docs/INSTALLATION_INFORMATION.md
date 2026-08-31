@@ -69,11 +69,11 @@ closure. See `docs/LICENSING.md` §3, and `NOTICE` for the written offer.
 `gradle.properties` and the Rust toolchain is pinned in the workspace.
 
 ```
-./gradlew assembleFullRelease
+./gradlew assembleRelease
 ```
 
-Which produces an unsigned `app-full-<abi>-release-unsigned.apk` under
-`app/build/outputs/apk/full/release/`.
+Which produces an unsigned `app-<abi>-release-unsigned.apk` under
+`app/build/outputs/apk/release/`.
 
 ### 3. Sign it with your own key
 
@@ -84,7 +84,7 @@ keytool -genkey -v -keystore my-release.jks -keyalg RSA -keysize 4096 \
 $ANDROID_HOME/build-tools/<version>/apksigner sign \
         --ks my-release.jks --ks-key-alias seeker \
         --out seeker-ide-signed.apk \
-        app-full-arm64-v8a-release-unsigned.apk
+        app-arm64-v8a-release-unsigned.apk
 ```
 
 Any key works. The app does not care which one.

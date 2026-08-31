@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -147,20 +149,55 @@ fun SeekerIconButton(
 }
 
 /**
- * The muted ink every chrome icon defaults to, from the Zed theme.
+ * The two inks the Zed half draws its icons in, when it is the Zed half doing
+ * the drawing.
  *
- * Written once here because it was written thirty times: `theme.color(
- * "text.muted", MaterialTheme.colorScheme.onSurfaceVariant)` is the colour of
- * an icon that is not carrying a state.
+ * Null everywhere else, which is what makes [mutedIcon] and [accentIcon] work
+ * on both sides of the seam without a parameter: absent means "we are in the
+ * Material half, solve it from the scheme", and [ZedSurface] is the only thing
+ * that provides it.
+ */
+@Immutable
+class IconTint(val muted: Color, val accent: Color)
+
+/** [IconTint] for the editor half; null in the app half. See [ZedSurface]. */
+val LocalIconTint = staticCompositionLocalOf<IconTint?> { null }
+
+/**
+ * The muted ink every chrome icon defaults to.
+ *
+ * These two definitions are the highest-leverage lines in the redesign, which
+ * is why they are worth a long comment on a short body. They are the default
+ * `tint` of [RowChevron], [DisclosureMark], [ChipCaret] and [SelectionMark] —
+ * that is, of very nearly every icon in every sheet and every row in the app —
+ * so what they resolve to *is* the tint of the Material half. Changing them
+ * here retints it in one edit instead of at four hundred call sites.
+ *
+ * In the Material half the answer is `onSurfaceVariant`, which the bridge has
+ * already solved to 4.5:1 against `surface` (MaterialBridge.kt). It used to be
+ * `theme.color("text.muted", …)` — a raw Zed read whose Material fallback
+ * never fired — and on Ayu Light that lands at 2.79:1, which is the whole
+ * argument for the solver.
+ *
+ * In the Zed half [ZedSurface] provides [LocalIconTint] and the raw Zed reads
+ * come back, because that half's job is to look like Zed and Zed draws them
+ * raw beside tree-sitter output that is also raw.
  */
 val mutedIcon: Color
     @Composable get() =
-        LocalZedTheme.current.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+        LocalIconTint.current?.muted ?: MaterialTheme.colorScheme.onSurfaceVariant
 
-/** The ink of an icon that *is* carrying a state: selected, accented, live. */
+/**
+ * The ink of an icon that *is* carrying a state: selected, accented, live.
+ *
+ * `accentMark` rather than `primary`: an icon is a mark, not text, so it is
+ * solved at 3:1 against the ground a card actually has rather than at 4.5:1 —
+ * pushing an accent further than it needs to go is how a theme's identity gets
+ * washed out one role at a time.
+ */
 val accentIcon: Color
     @Composable get() =
-        LocalZedTheme.current.color("text.accent", MaterialTheme.colorScheme.primary)
+        LocalIconTint.current?.accent ?: LocalSeekerColors.current.accentMark
 
 /**
  * The `›` at the end of a row that opens something.

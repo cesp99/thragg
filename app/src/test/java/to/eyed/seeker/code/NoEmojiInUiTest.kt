@@ -80,31 +80,52 @@ class NoEmojiInUiTest {
      * The three biggest — TerminalPane, ProjectSearchPanel, BufferSearchBar —
      * are reachable UI (Build's Shell mode, and the find bars in Code), so they
      * are the ones worth doing first.
+     *
+     * The six entries at the bottom arrived in P4 rather than being written
+     * then: they are in packages that used to be skipped wholesale as "about
+     * to be deleted", and the parts of those packages that survived the
+     * demolition are now scanned like everything else. Two of them are keyboard
+     * chord labels ("Ctrl →") rather than icons, which is a fair argument for
+     * an exemption and not one this test is going to make on their behalf —
+     * the shell's menus print chords through a drawable now.
      */
     private val baseline: Map<String, Int> = mapOf(
         "solana/agents/SpettroInstall.kt" to 2,
         "core/Tasks.kt" to 1,
-        "ui/shell/build/BuildLogView.kt" to 2,
         "ui/shell/changes/ChangesScreen.kt" to 1,
         "ui/common/MarkdownText.kt" to 2,
         "ui/search/ProjectSearchPanel.kt" to 5,
         "ui/search/BufferSearchBar.kt" to 4,
-        "ui/diagnostics/DiagnosticsPane.kt" to 2,
         "ui/terminal/TerminalPane.kt" to 10,
         "ui/terminal/TerminalSearchBar.kt" to 1,
+        "ui/workspace/ProjectPanel.kt" to 3,
+        "ui/workspace/GoToLine.kt" to 2,
+        "ui/workspace/ContextMenu.kt" to 1,
+        "ui/agent/AgentReviewPane.kt" to 1,
+        "ui/git/AskpassDialog.kt" to 1,
+        "ui/git/DiffPane.kt" to 1,
+        "ui/workspace/RenameSymbol.kt" to 2,
+        "ui/workspace/LspLogsPane.kt" to 2,
     )
 
     /**
      * Packages still carrying the inherited desktop UI.
      *
-     * These are deleted wholesale in P10 (docs/UI.md, "What is removed"), and
-     * converting glyphs in a file that is about to be deleted is work with a
-     * negative return. The exclusion is a dated concession, not a permanent
-     * carve-out: when P10 lands this set should empty and this comment should
-     * go with it.
+     * Converting glyphs in a file that is about to be deleted is work with a
+     * negative return, so the packages awaiting demolition are skipped whole.
+     * The exclusion is a dated concession, not a permanent carve-out.
+     *
+     * P4 cut it from seven entries to one. ui/workspace, ui/agent, ui/git,
+     * ui/preview, ui/media and ui/tasks have had their dead halves removed
+     * (docs/UI.md, "What is removed"), so what is left in them is code that
+     * ships and is now scanned like everything else — its remaining glyph
+     * sites moved into `baseline` above, where they are debts with names
+     * rather than a hole in the net. ui/editor is the last one out: the vim
+     * package, the minimap and the inlay hints go in the editor pass, and
+     * until they do a third of that directory is about to stop existing.
      */
     private val notYetDeleted = setOf(
-        "ui/workspace", "ui/agent", "ui/editor", "ui/git", "ui/preview", "ui/media", "ui/tasks",
+        "ui/editor",
     )
 
     private fun pictographs(text: String): Set<Char> =
@@ -180,7 +201,7 @@ class NoEmojiInUiTest {
                 "sized with the chrome around it, and shows tofu where the face lacks the codepoint.\n" +
                 "Use a drawable through ui/theme/Icons.kt (SeekerIcon / SeekerIconButton).\n\n" +
                 grew.entries.joinToString("\n") { (f, n) ->
-                    "$f: ${'$'}n now, ${'$'}{baseline[f] ?: 0} allowed"
+                    "$f: $n now, ${baseline[f] ?: 0} allowed"
                 } + "\n\n" + offences.filter { it.substringBefore(':') in grew }.joinToString("\n"),
             grew.isEmpty(),
         )
@@ -192,7 +213,7 @@ class NoEmojiInUiTest {
         assertTrue(
             "These are cleaner than the baseline claims. Lower or remove the entry in `baseline`:\n" +
                 stale.entries.joinToString("\n") { (f, n) ->
-                    "$f: ${'$'}{byFile[f] ?: 0} now, baseline says ${'$'}n"
+                    "$f: ${byFile[f] ?: 0} now, baseline says $n"
                 },
             stale.isEmpty(),
         )

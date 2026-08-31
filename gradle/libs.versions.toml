@@ -20,9 +20,6 @@ json = "20250107"
 benchmark = "1.5.0-rc01"
 profileinstaller = "1.4.1"
 uiautomator = "2.4.0"
-# ExoPlayer, for the audio and video tabs. 1.9.0 is what the rest of the
-# AndroidX set here already pulls media3-common at.
-media3 = "1.9.0"
 
 [libraries]
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
@@ -45,7 +42,6 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
-androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

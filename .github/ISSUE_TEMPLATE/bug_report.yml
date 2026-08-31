@@ -16,23 +16,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: edition
-    attributes:
-      label: Edition
-      options:
-        - full (F-Droid / direct APK — includes Debian userland)
-        - play (Google Play — no userland)
-        - Not sure
-    validations:
-      required: true
-
   - type: input
     id: setup
     attributes:
       label: Version, device, Android version
       description: Version is in Settings → About. Form factor matters — foldables and tablets especially.
-      placeholder: "1.0-full · Galaxy Z Fold 5 (foldable) · Android 14"
+      placeholder: "1.0 · Galaxy Z Fold 5 (foldable) · Android 14"
     validations:
       required: true
 

@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package to.eyed.seeker.code.ui.shell.changes
 
 import androidx.annotation.DrawableRes
@@ -11,17 +13,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,8 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -65,20 +69,29 @@ import to.eyed.seeker.code.ui.git.isGitPanelSupported
 import to.eyed.seeker.code.ui.git.remoteFailureMessage
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.components.DiffStatLabel
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerCard
+import to.eyed.seeker.code.ui.components.SeekerChip
+import to.eyed.seeker.code.ui.components.SeekerTopBar
+import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.shell.build.CodeJump
-import to.eyed.seeker.code.ui.shell.build.FlatButton
 import to.eyed.seeker.code.ui.shell.projects.ProjectWork
-import to.eyed.seeker.code.ui.theme.ChipCaret
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoBody
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.theme.RowChevron
+import to.eyed.seeker.code.ui.theme.SeekerColors
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.ContextMenu
 import to.eyed.seeker.code.ui.workspace.ContextMenuItem
 import to.eyed.seeker.code.ui.workspace.GitFileStatus as PanelStatus
-import to.eyed.seeker.code.ui.workspace.GitStatusColours
 import to.eyed.seeker.code.ui.workspace.Notifications
 
 /**
@@ -106,23 +119,30 @@ import to.eyed.seeker.code.ui.workspace.Notifications
  */
 @Composable
 fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
     val project = state.project
 
     if (project == null || !isGitPanelSupported) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = if (project == null) {
-                    "No project is open."
-                } else {
-                    // The play edition has no Linux userland, and git only
-                    // exists inside it. Saying so beats a screen of nothing.
-                    "git lives in the Linux guest, which this edition has no room for."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
+        Column(modifier = modifier.fillMaxSize()) {
+            SeekerTopBar(title = "Changes", onBack = { state.pop() })
+            HairlineDivider()
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (project == null) {
+                        "No project is open."
+                    } else {
+                        // Defensive rather than reachable: `isGitPanelSupported`
+                        // asks the userland seam, and every build that ships
+                        // has one. If the guest is ever missing, saying which
+                        // piece is absent beats a screen of nothing — but the
+                        // sentence no longer blames an edition, because there
+                        // is only one.
+                        "git runs inside the Linux guest, which is not available."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         return
     }
@@ -188,6 +208,8 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
         ChangesHeader(
             status = snapshot.status,
             busy = ops.busy,
+            subtitle = changesSummary(model, snapshot.counts),
+            onBack = { state.pop() },
             onOpenBranches = { sheet = ChangesSheet.Branches },
             onPull = { pull(session, project.id, snapshot.status) },
             onPush = { push(session, project.id, snapshot.status) },
@@ -197,9 +219,20 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             },
             onInitRepository = { perform({ session.initRepository() }) },
         )
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
+        HairlineDivider()
 
-        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            // The gutter is 16dp and the last row clears the commit bar by 24
+            // (docs/VISUAL.md, "Foundations", RHYTHM).
+            contentPadding = PaddingValues(
+                start = MD.space4,
+                end = MD.space4,
+                top = MD.space2,
+                bottom = MD.space6,
+            ),
+            verticalArrangement = Arrangement.spacedBy(MD.space2),
+        ) {
             if (!snapshot.status.hasRepo && snapshot.status.scanned) {
                 item(key = "no-repo") {
                     Note("This project is not a git repository yet. ⋮ → Initialize repository.")
@@ -207,8 +240,8 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
             if (model.agent.isNotEmpty()) {
                 item(key = "agent-header") {
-                    SectionHeader(
-                        title = "AGENT EDITS (${model.agent.size})",
+                    BlockHeader(
+                        title = "Agent edits (${model.agent.size})",
                         action = "Keep all",
                         // Keep, not Reject, is the bulk button offered: the
                         // list is what the agent proposed and the common
@@ -217,34 +250,48 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
                         onAction = { AgentSessions.keepEdits(emptyList()) },
                     )
                 }
-                items(model.agent, key = { "agent:${it.path}" }) { row ->
-                    AgentRow(row) { state.push(Route.Diff(row.path)) }
+                // One card per block, rows inside it, hairlines between them —
+                // rather than a card per row. A list of files is one object
+                // with parts, and eleven separate cards down a 400dp column is
+                // eleven borders where one is meant (docs/VISUAL.md, "Changes").
+                item(key = "agent-rows") {
+                    SeekerCard {
+                        model.agent.forEachIndexed { index, row ->
+                            if (index > 0) HairlineDivider()
+                            AgentRow(row) { state.push(Route.Diff(row.path)) }
+                        }
+                    }
                 }
             }
             if (model.git.isNotEmpty()) {
                 item(key = "git-header") {
-                    SectionHeader(
-                        title = "YOUR CHANGES (${model.git.size})",
+                    BlockHeader(
+                        title = "Your changes (${model.git.size})",
                         action = if (model.stageAll.isEmpty()) null else "Stage all",
                         onAction = { perform({ session.stage(model.stageAll) }) },
                     )
                 }
-                items(model.git, key = { "git:${it.change.path}" }) { row ->
-                    GitRow(
-                        row = row,
-                        onOpen = { state.push(Route.Diff(row.change.path)) },
-                        onToggleStage = {
-                            val path = listOf(row.change.path)
-                            perform({
-                                if (row.mark == StageMark.Staged) {
-                                    session.unstage(path)
-                                } else {
-                                    session.stage(path)
-                                }
-                            })
-                        },
-                        onLongPress = { discardAsk = row.change },
-                    )
+                item(key = "git-rows") {
+                    SeekerCard {
+                        model.git.forEachIndexed { index, row ->
+                            if (index > 0) HairlineDivider()
+                            GitRow(
+                                row = row,
+                                onOpen = { state.push(Route.Diff(row.change.path)) },
+                                onToggleStage = {
+                                    val path = listOf(row.change.path)
+                                    perform({
+                                        if (row.mark == StageMark.Staged) {
+                                            session.unstage(path)
+                                        } else {
+                                            session.stage(path)
+                                        }
+                                    })
+                                },
+                                onLongPress = { discardAsk = row.change },
+                            )
+                        }
+                    }
                 }
             }
             if (model.conflicts.isNotEmpty()) {
@@ -275,7 +322,7 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
         }
 
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
+        HairlineDivider()
         CommitBar(
             message = message,
             stagedCount = model.stagedCount,
@@ -350,11 +397,25 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
 /** Which of the two sheets this route can raise is open. */
 private enum class ChangesSheet { Commit, Branches }
 
-/** `main ⌄   ↑2 ↓0   ⋮`, under the shell's own ← row. */
+/**
+ * `Changes · 3 files +128 −47`, with the branch chip and the ⋮ in the bar.
+ *
+ * This is the route's own [SeekerTopBar] rather than a strip under a shared
+ * one, which is why [SeekerShell]'s frame stopped drawing a bar for it: the
+ * bar is where a branch belongs — it is the *identity* of what is being looked
+ * at, in the same slot the Code destination puts the file — and a screen that
+ * had both would spend 92dp on two rows of chrome before the first file.
+ *
+ * The subtitle counts what is on screen; the chip says which branch it is on
+ * and opens the branch sheet; `↑2 ↓0` opens the remote menu and is drawn only
+ * when there is a branch to sync.
+ */
 @Composable
 private fun ChangesHeader(
     status: GitPanelState,
     busy: Boolean,
+    subtitle: String?,
+    onBack: () -> Unit,
     onOpenBranches: () -> Unit,
     onPull: () -> Unit,
     onPush: () -> Unit,
@@ -362,157 +423,129 @@ private fun ChangesHeader(
     onUnstageAll: () -> Unit,
     onInitRepository: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     var remoteMenu by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
     val branch = status.branch
-    Row(
-        modifier = Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .clickable(
-                    enabled = status.hasRepo,
-                    onClickLabel = "Switch branch",
-                    onClick = onOpenBranches,
-                )
-                .touchTarget()
-                .padding(horizontal = 4.dp),
-        ) {
-            Text(
-                text = branch?.name ?: "no branch",
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                maxLines = 1,
-                // The branch name is what identifies it and long ones share a
-                // prefix (`feature/…`), so the middle goes, not the end.
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f, fill = false),
+    SeekerTopBar(
+        title = "Changes",
+        subtitle = subtitle,
+        onBack = onBack,
+        actions = {
+            SeekerChip(
+                label = branch?.name ?: "no branch",
+                onClick = onOpenBranches,
+                enabled = status.hasRepo,
+                leading = R.drawable.ic_ui_git_branch,
+                // Capped, because a branch name is arbitrarily long and the
+                // two controls to its right are not optional. The chip
+                // ellipsises; the ⋮ never moves.
+                modifier = Modifier.widthIn(max = BranchChipMax),
             )
-            // Drawn, not typed: this caret is the affordance that says the
-            // name opens a picker, so it belongs at an icon metric rather
-            // than at whatever labelMedium's face does with U+25BE.
-            ChipCaret(modifier = Modifier.padding(start = 2.dp))
-        }
-        Box(modifier = Modifier.weight(1f))
-        if (branch != null) {
-            Box {
-                // `↑2 ↓0` was two arrows in a label. The arrows are the
-                // whole meaning — which way the commits go — so they are
-                // drawables, and the row says the sentence a screen reader
-                // needs instead of leaving it to read two arrowheads out.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clickable(onClickLabel = "Sync with the remote") { remoteMenu = true }
-                        .touchTarget()
-                        .padding(horizontal = 4.dp)
-                        .semantics {
-                            contentDescription =
-                                "${branch.ahead} ahead, ${branch.behind} behind"
-                        },
-                ) {
-                    AheadBehind(R.drawable.ic_ui_arrow_up, branch.ahead)
-                    AheadBehind(
-                        R.drawable.ic_ui_arrow_down,
-                        branch.behind,
-                        Modifier.padding(start = 6.dp),
-                    )
-                }
-                ContextMenu(
-                    expanded = remoteMenu,
-                    onDismiss = { remoteMenu = false },
-                    items = listOf(
-                        ContextMenuItem("Pull", enabled = !busy) { onPull() },
-                        ContextMenuItem("Push", enabled = !busy) { onPush() },
-                        ContextMenuItem("Fetch", enabled = !busy) { onFetch() },
-                    ),
-                )
-            }
-        }
-        Box {
-            SeekerIconButton(
-                icon = R.drawable.ic_ui_more_vertical,
-                description = "More",
-                onClick = { overflow = true },
-                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
-            ContextMenu(
-                expanded = overflow,
-                onDismiss = { overflow = false },
-                items = buildList {
-                    if (status.hasRepo) {
-                        add(ContextMenuItem("Unstage all", enabled = !busy) { onUnstageAll() })
-                        add(ContextMenuItem("Fetch", enabled = !busy) { onFetch() })
-                    } else {
-                        add(
-                            ContextMenuItem("Initialize repository", enabled = !busy) {
-                                onInitRepository()
-                            }
+            if (branch != null) {
+                Box {
+                    // `↑2 ↓0` was two arrows in a label. The arrows are the
+                    // whole meaning — which way the commits go — so they are
+                    // drawables, and the row says the sentence a screen reader
+                    // needs instead of leaving it to read two arrowheads out.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable(onClickLabel = "Sync with the remote") { remoteMenu = true }
+                            .touchTarget()
+                            .padding(horizontal = MD.space1)
+                            .semantics {
+                                contentDescription =
+                                    "${branch.ahead} ahead, ${branch.behind} behind"
+                            },
+                    ) {
+                        AheadBehind(R.drawable.ic_ui_arrow_up, branch.ahead)
+                        AheadBehind(
+                            R.drawable.ic_ui_arrow_down,
+                            branch.behind,
+                            Modifier.padding(start = MD.iconGap),
                         )
                     }
-                },
-            )
-        }
-    }
+                    ContextMenu(
+                        expanded = remoteMenu,
+                        onDismiss = { remoteMenu = false },
+                        items = listOf(
+                            ContextMenuItem("Pull", enabled = !busy) { onPull() },
+                            ContextMenuItem("Push", enabled = !busy) { onPush() },
+                            ContextMenuItem("Fetch", enabled = !busy) { onFetch() },
+                        ),
+                    )
+                }
+            }
+            Box {
+                SeekerIconButton(
+                    icon = R.drawable.ic_ui_more_vertical,
+                    description = "More",
+                    onClick = { overflow = true },
+                    tint = mutedIcon,
+                )
+                ContextMenu(
+                    expanded = overflow,
+                    onDismiss = { overflow = false },
+                    items = buildList {
+                        if (status.hasRepo) {
+                            add(ContextMenuItem("Unstage all", enabled = !busy) { onUnstageAll() })
+                            add(ContextMenuItem("Fetch", enabled = !busy) { onFetch() })
+                        } else {
+                            add(
+                                ContextMenuItem("Initialize repository", enabled = !busy) {
+                                    onInitRepository()
+                                }
+                            )
+                        }
+                    },
+                )
+            }
+        },
+    )
 }
 
-/** A block title with the block's one bulk action on its right. */
+/**
+ * A block title with the block's one bulk action on its right.
+ *
+ * The title is the shared [SectionHeader] — 12sp caps tracked to 0.8sp, marked
+ * as a `heading()` so TalkBack can jump between the blocks — and the private
+ * copy of it that used to live here is gone, along with its
+ * `editor.subheader.background` fill. There were three of these in the app at
+ * three sizes and two colours (SettingsScreen.kt:276 was another), which is
+ * what a component library exists to stop.
+ */
 @Composable
-private fun SectionHeader(title: String, action: String?, onAction: () -> Unit) {
-    val theme = LocalZedTheme.current
+private fun BlockHeader(title: String, action: String?, onAction: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(theme.color("editor.subheader.background", MaterialTheme.colorScheme.surfaceVariant))
-            .padding(start = 12.dp, end = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = MD.space2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier.weight(1f),
-        )
+        SectionHeader(text = title, modifier = Modifier.weight(1f))
         if (action != null) {
-            Text(
-                text = action,
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                modifier = Modifier
-                    .clickable(onClick = onAction)
-                    .touchTarget()
-                    .padding(horizontal = 8.dp),
-            )
+            TextButton(onClick = onAction) { Text(action) }
         }
     }
 }
 
-/** `~ programs/escrow/src/state.rs  +3 −1 →` — one file the agent edited. */
+/** `~ programs/escrow/src/state.rs  +3 −1 ›` — one file the agent edited. */
 @Composable
 private fun AgentRow(row: AgentChangeRow, onOpen: () -> Unit) {
-    val theme = LocalZedTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = RowHeight)
             .clickable(onClick = onOpen)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = MD.space3),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
         Text(
             text = row.glyph,
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            style = MonoSmall,
+            color = MaterialTheme.colorScheme.primary,
         )
-        PathText(row.path, theme.color("text", MaterialTheme.colorScheme.onSurface), Modifier.weight(1f))
-        Counts(row.added, row.removed)
+        PathText(row.path, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+        DiffStatLabel(added = row.added, removed = row.removed)
         Chevron()
     }
 }
@@ -526,69 +559,87 @@ private fun GitRow(
     onToggleStage: () -> Unit,
     onLongPress: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    // Read outside the `remember`: `MaterialTheme.colorScheme` is a
-    // composition-local and cannot be touched from inside a plain lambda.
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    // The map lookups behind these are per-key, so they happen once per theme
-    // rather than once per row (GitStatusColours.kt).
-    val colours = remember(theme, text, muted) { GitStatusColours.from(theme, text, muted) }
+    val colours = LocalSeekerColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = RowHeight)
             .combinedClickable(onLongClick = onLongPress, onClick = onOpen)
-            .padding(end = 12.dp),
+            .padding(end = MD.space3),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
         // The checkbox is its own target: tapping the row opens the diff and
         // tapping the box stages, which are the two things a row is for and
         // must not be the same gesture.
-        StageBox(
-            mark = row.mark,
-            onToggle = onToggleStage,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
+        StageBox(mark = row.mark, onToggle = onToggleStage)
         Text(
             text = statusLetter(row.change),
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            // Dimming is off: an ignored file that git bothered to list is a
-            // file the user asked about, and greying it here would hide it.
-            color = colours.colorFor(paintedStatus(row.change), dimIgnored = false),
+            // The buffer face at caption size — the letter is git's own
+            // vocabulary and it columns with the one above it, which
+            // `FontFamily.Monospace` (the *system* mono over Material ink) did
+            // not do beside the app's own face.
+            style = MonoSmall,
+            color = statusInk(row.change, colours, MaterialTheme.colorScheme.onSurfaceVariant),
         )
-        PathText(row.change.path, theme.color("text", MaterialTheme.colorScheme.onSurface), Modifier.weight(1f))
-        if (row.added != null && row.removed != null) Counts(row.added, row.removed)
+        PathText(row.change.path, MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+        if (row.added != null && row.removed != null) {
+            DiffStatLabel(added = row.added, removed = row.removed)
+        }
         Chevron()
     }
+}
+
+/**
+ * The ink a status letter is drawn in.
+ *
+ * `GitStatusColours.from(theme, …)` is what this replaces, and the swap is the
+ * seam rather than a preference: that helper reads Zed's `created`, `deleted`
+ * and `conflict` keys raw, which is correct *inside* the diff — where they
+ * have to match the hunk fills — and wrong on a Material card, where Ayu Light
+ * draws `created` at 2.11:1. These are the same hues solved against the
+ * ground they are printed on (docs/VISUAL.md, "THE HYBRID" — inks in the
+ * Material half are solved, inks in the Zed half are drawn raw).
+ *
+ * Dimming is off: an ignored file that git bothered to list is a file the user
+ * asked about, and greying it here would hide it.
+ */
+private fun statusInk(
+    change: GitChange,
+    colours: SeekerColors,
+    neutral: androidx.compose.ui.graphics.Color,
+): androidx.compose.ui.graphics.Color = when (paintedStatus(change)) {
+    PanelStatus.Added, PanelStatus.Untracked -> colours.addedInk
+    PanelStatus.Deleted -> colours.removedInk
+    PanelStatus.Modified, PanelStatus.Renamed -> colours.warnInk
+    PanelStatus.Conflicted -> colours.dangerInk
+    PanelStatus.Ignored, PanelStatus.None -> neutral
 }
 
 /** `⚠ conflict — Anchor.toml ›`, its own block because it blocks the commit. */
 @Composable
 private fun ConflictRow(change: GitChange, onOpen: () -> Unit) {
-    val theme = LocalZedTheme.current
+    val ink = LocalSeekerColors.current.dangerInk
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = RowHeight)
             .clickable(onClick = onOpen)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = MD.space3),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
         SeekerIcon(
             icon = R.drawable.ic_ui_warning,
             // Decoration: the sentence beside it already says "conflict".
             contentDescription = null,
-            tint = theme.color("conflict", MaterialTheme.colorScheme.error),
+            tint = ink,
             size = IconSize.Marker,
         )
         Text(
             text = "conflict — ${change.name}",
-            style = MaterialTheme.typography.bodySmall,
-            color = theme.color("conflict", MaterialTheme.colorScheme.error),
+            style = MaterialTheme.typography.bodyMedium,
+            color = ink,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -614,73 +665,79 @@ private fun CommitBar(
     onEdit: () -> Unit,
     onCommit: (andPush: Boolean) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = MD.space4, vertical = MD.space2),
     ) {
         Text(
             text = message.ifBlank { "Commit message…" },
+            // Material prose, deliberately: a commit message is a sentence
+            // somebody wrote, not a snippet. Only the diff is an island
+            // (docs/VISUAL.md, "THE SEAM").
             style = MaterialTheme.typography.bodyMedium,
             color = if (message.isBlank()) {
-                theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                MaterialTheme.colorScheme.onSurfaceVariant
             } else {
-                theme.color("text", MaterialTheme.colorScheme.onSurface)
+                MaterialTheme.colorScheme.onSurface
             },
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onEdit)
+                .clickable(onClickLabel = "Edit the commit message", onClick = onEdit)
                 .touchTarget()
-                .padding(vertical = 6.dp),
+                .padding(vertical = MD.iconGap),
         )
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = MD.space1),
+            horizontalArrangement = Arrangement.spacedBy(MD.space3),
         ) {
-            FlatButton(
-                label = if (stagedCount == 0) "Commit" else "Commit $stagedCount",
+            // Stock buttons, in the pair Material means by them: the outlined
+            // one is the ordinary answer and the filled one is the emphasised
+            // answer, which is what `FlatButton(emphasis = true)` was drawing
+            // by hand out of `element.selected`.
+            OutlinedButton(
+                onClick = { if (!busy) onCommit(false) },
+                enabled = !busy,
                 modifier = Modifier.weight(1f),
-            ) { if (!busy) onCommit(false) }
-            FlatButton(
-                label = "Commit & Push",
-                emphasis = true,
+            ) {
+                Text(
+                    text = if (stagedCount == 0) "Commit" else "Commit $stagedCount",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Button(
+                onClick = { if (!busy) onCommit(true) },
+                enabled = !busy,
                 modifier = Modifier.weight(1f),
-            ) { if (!busy) onCommit(true) }
+            ) {
+                Text(text = "Commit & Push", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
 
+/**
+ * The path, in the buffer face.
+ *
+ * The *end* of a path is what identifies it — `…/instructions/initialize.rs`
+ * — so the middle is what goes (docs/UI.md, "Orientation"). It is [MonoBody]
+ * rather than `FontFamily.Monospace`: the second is the system's mono, which
+ * matches neither the app's face nor the buffer's, and this row was one of the
+ * eleven sites drawing it (docs/VISUAL.md, "THE SEAM").
+ */
 @Composable
 private fun PathText(path: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier) {
     Text(
         text = path,
-        style = MaterialTheme.typography.bodySmall,
-        fontFamily = FontFamily.Monospace,
+        style = MonoBody,
         color = color,
         maxLines = 1,
-        // The path's *end* is what identifies it — `…/instructions/initialize.rs`
-        // — so the middle is what goes (docs/UI.md, "Orientation").
         overflow = TextOverflow.MiddleEllipsis,
         modifier = modifier,
-    )
-}
-
-@Composable
-private fun Counts(added: Int, removed: Int) {
-    val theme = LocalZedTheme.current
-    Text(
-        text = "+$added",
-        style = MaterialTheme.typography.labelSmall,
-        color = theme.color("created", theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)),
-    )
-    Text(
-        text = "−$removed",
-        style = MaterialTheme.typography.labelSmall,
-        color = theme.color("deleted", theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)),
     )
 }
 
@@ -699,60 +756,48 @@ private fun Chevron() {
 /**
  * The staging checkbox, in the three states git's status pair can be in.
  *
+ * A real `TriStateCheckbox`, which is the control Material has for exactly
+ * this: [StageMark.Partial] — a file edited, staged, and *edited again* — is
+ * `Indeterminate`, and it is the state that matters most, because committing
+ * now would commit the older of the two versions. It used to be hand-drawn out
+ * of two Lucide glyphs (an empty box with a dot centred in it) because the
+ * pinned icon set has no half-filled square; the stock control has one, plus
+ * the animation between the three and the `Checkbox` role in semantics.
+ *
  * Its own target, not the row's: tapping the row opens the diff and tapping
  * the box stages, which are the two things a row is for and must not be the
- * same gesture. [touchTarget] gives it 48dp of hit box around an 18dp mark.
+ * same gesture. `TriStateCheckbox` brings its own 48dp minimum with it.
  *
- * [StageMark.Partial] is drawn rather than picked, because Lucide's pinned
- * snapshot has no half-filled square and adding one means a network fetch of
- * the pinned release. So it composes the two marks that *are* vendored: the
- * empty box, with a dot centred in it. That is the same shape Material's
- * indeterminate checkbox and git clients generally use for "some of this file
- * is staged", and it cannot be confused with either of its neighbours —
- * which was the whole reason the third state exists.
+ * The `onClick` is *always* a toggle, never a walk through three states — the
+ * third one is a fact about the file, not an answer the user can give — so
+ * partial stages like unstaged, which is what the caller already does.
  */
 @Composable
 private fun StageBox(mark: StageMark, onToggle: () -> Unit, modifier: Modifier = Modifier) {
-    val ink = LocalZedTheme.current.color("text", MaterialTheme.colorScheme.onSurface)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = modifier
-            .touchTarget()
-            .clickable(onClickLabel = "Stage or unstage", onClick = onToggle)
-            // The box is the only thing that says the state, so it carries
-            // the words rather than passing null the way decoration does.
-            .semantics { contentDescription = mark.spoken },
-    ) {
-        SeekerIcon(
-            icon = when (mark) {
-                StageMark.Staged -> R.drawable.ic_ui_checkbox_checked
-                StageMark.Partial, StageMark.Unstaged -> R.drawable.ic_ui_checkbox
-            },
-            contentDescription = null,
-            tint = ink,
-            size = IconSize.Inline,
-        )
-        if (mark == StageMark.Partial) {
-            SeekerIcon(
-                icon = R.drawable.ic_ui_dot,
-                contentDescription = null,
-                tint = ink,
-                size = 10.dp,
-            )
-        }
-    }
+    TriStateCheckbox(
+        state = when (mark) {
+            StageMark.Staged -> ToggleableState.On
+            StageMark.Partial -> ToggleableState.Indeterminate
+            StageMark.Unstaged -> ToggleableState.Off
+        },
+        onClick = onToggle,
+        // The box is the only thing that says the state, so it carries the
+        // words rather than leaving a screen reader to say "partially checked".
+        modifier = modifier.semantics { contentDescription = mark.spoken },
+    )
 }
 
 /** One half of `↑2 ↓0`: the arrow, drawn, and its number. */
 @Composable
 private fun AheadBehind(@DrawableRes icon: Int, count: Int, modifier: Modifier = Modifier) {
-    val tint = LocalZedTheme.current
-        .color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         SeekerIcon(icon = icon, contentDescription = null, tint = tint, size = IconSize.Marker)
         Text(
             text = "$count",
-            style = MaterialTheme.typography.labelMedium,
+            // Tabular, because both numbers move on every fetch and a `1`
+            // narrower than a `0` makes the pair shimmy (Type.kt).
+            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = TabularNums),
             color = tint,
         )
     }
@@ -762,10 +807,36 @@ private fun AheadBehind(@DrawableRes icon: Int, count: Int, modifier: Modifier =
 private fun Note(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = LocalZedTheme.current.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(vertical = MD.space6),
     )
+}
+
+/**
+ * `3 files · +128 −47` — the bar's subtitle, and the one place on the screen
+ * that says how big the whole change is.
+ *
+ * Over every block, agent edits included, because the question it answers is
+ * "how much is different" and not "how much is staged". A file git has no
+ * numbers for — an untracked one — counts as a file and adds nothing to the
+ * totals, which is the same thing its row does.
+ *
+ * Pure and internal so the wording is checkable on the host, like every other
+ * sentence this screen prints.
+ */
+internal fun changesSummary(model: ChangesModel, counts: Map<String, DiffCount>): String? {
+    val files = model.agent.size + model.git.size + model.conflicts.size
+    if (files == 0) return null
+    val added = model.agent.sumOf { it.added } +
+        model.git.sumOf { counts[it.change.path]?.added ?: 0 } +
+        model.conflicts.sumOf { counts[it.path]?.added ?: 0 }
+    val removed = model.agent.sumOf { it.removed } +
+        model.git.sumOf { counts[it.change.path]?.removed ?: 0 } +
+        model.conflicts.sumOf { counts[it.path]?.removed ?: 0 }
+    val noun = if (files == 1) "file" else "files"
+    if (added == 0 && removed == 0) return "$files $noun"
+    return "$files $noun · +$added \u2212$removed"
 }
 
 // ---- the engine seams, shared with DiffScreen --------------------------------
@@ -911,6 +982,14 @@ private fun runRemote(
 }
 
 private val RowHeight = 44.dp
+
+/**
+ * 128dp — the branch chip in the bar, before it ellipsises.
+ *
+ * `feature/an-arbitrarily-long-name` is a real branch name and the ⋮ beside it
+ * is not optional; the chip is the thing that gives way.
+ */
+private val BranchChipMax = 128.dp
 
 /** The git counter is cheap to read; the reads behind it are not. */
 private const val STATUS_POLL_MS = 400L

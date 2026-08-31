@@ -24,7 +24,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-APK="$ROOT/app/build/outputs/apk/full/debug/app-full-arm64-v8a-debug.apk"
+APK="$ROOT/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
 PKG=to.eyed.seeker.code
 BUILD=1
 SHOT=""
@@ -73,7 +73,7 @@ wait_for_device
 if [ "$BUILD" = 1 ]; then
   say "building (arm64 only)"
   cd "$ROOT"
-  ./gradlew assembleFullDebug -Pseeker.abis=arm64-v8a --console=plain
+  ./gradlew assembleDebug -Pseeker.abis=arm64-v8a --console=plain
 fi
 
 [ -f "$APK" ] || { echo "no APK at $APK" >&2; exit 1; }

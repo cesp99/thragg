@@ -31,14 +31,9 @@ android {
 
     targetProjectPath = ":app"
 
-    // A test module must mirror the flavors of the module it targets. Both
-    // editions share the startup path this module exercises, and the profile
-    // is merged into src/main (see :app), so either flavor's run covers both.
-    flavorDimensions += "distribution"
-    productFlavors {
-        create("full") { dimension = "distribution" }
-        create("play") { dimension = "distribution" }
-    }
+    // No product flavours here, because :app has none: a test module must
+    // mirror the flavours of the module it targets, and the two editions
+    // (`full` with the Debian userland, `play` without) collapsed into one.
 
     testOptions.managedDevices.localDevices {
         create("pixel6Api36") {

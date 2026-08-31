@@ -19,8 +19,8 @@ body:
   - type: input
     id: build
     attributes:
-      label: Edition and version
-      placeholder: "full · 1.0-full"
+      label: Version
+      placeholder: "1.0"
     validations:
       required: true
 

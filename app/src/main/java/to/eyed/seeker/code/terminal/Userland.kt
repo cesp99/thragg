@@ -6,19 +6,25 @@ import android.content.Context
  * The Linux userland a terminal session can run inside.
  *
  * Android will not execute a program that arrived after installation, which is
- * why a package manager is impossible on a modern target SDK. The `full`
- * flavour targets SDK 28, where that restriction does not apply, and runs a
- * real Debian under proot: `apt install` works, and we maintain none of it.
- * The `play` flavour has no userland at all and falls back to Android's own
- * shell. See docs/BUILDING.md for what differs between the two, and
- * agent-docs/DECISIONS.md for why.
+ * why a package manager is impossible on a modern target SDK. This app targets
+ * SDK 28, where that restriction does not apply, and runs a real Debian under
+ * proot: `apt install` works, and we maintain none of it. See
+ * docs/BUILDING.md, and agent-docs/DECISIONS.md for why.
  *
- * Everything above this interface is flavour-agnostic: the terminal asks for a
+ * This interface used to be a build-flavour seam — a Play-compatible edition
+ * compiled a `NoUserland` in place of [DebianUserland] and fell back to
+ * Android's own shell. That edition is gone, and the seam is kept anyway,
+ * because it is what keeps everything above it honest: the terminal asks for a
  * command to run and gets one, whether that is `proot … /bin/bash` or plain
- * `/system/bin/sh`.
+ * `/system/bin/sh`, and the not-installed and unsupported states below are
+ * still reachable — a rootfs is a download, and a download can be absent.
  */
 sealed interface UserlandState {
-    /** This build has no userland support. The `play` flavour, always. */
+    /**
+     * This build has no userland support. Unreachable from the one backend
+     * that ships today; kept because [UserlandBackend.isSupported] is part of
+     * the seam and every caller already branches on it.
+     */
     data object Unsupported : UserlandState
 
     /** Supported, but the rootfs has not been downloaded yet. */
@@ -126,7 +132,7 @@ interface UserlandBackend {
     fun remove(context: Context)
 }
 
-/** The backend this build was compiled with; see the flavour source sets. */
+/** The one backend: DebianUserland.kt, beside this file. */
 object Userland {
     val backend: UserlandBackend by lazy { createUserlandBackend() }
 }

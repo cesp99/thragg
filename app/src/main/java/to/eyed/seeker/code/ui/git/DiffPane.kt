@@ -52,6 +52,7 @@ import to.eyed.seeker.code.core.pollVersion
 import to.eyed.seeker.code.ui.theme.BufferFontFamily
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.touchTarget
 
 /** What a diff tab is looking at. */
 data class DiffTarget(
@@ -452,6 +453,15 @@ private fun FileHeader(file: FileDiff, onOpenFile: (String) -> Unit, controls: D
 /**
  * A header's verb — a ghost button of small muted text, as the file
  * header's "open" is drawn, greyed while git is running.
+ *
+ * [touchTarget] is the one change this file took in the Material pass, and it
+ * is the exception that proves the rule: the diff keeps every colour, every
+ * rem and its no-ripple rule, because it must agree with the same hunk drawn
+ * in the editor two taps away (docs/VISUAL.md, "Diff"). But Stage / Unstage /
+ * Restore were 16dp of drawn text and 16dp of hit box on a 480dpi phone, and
+ * "which of these three verbs did my thumb just land on" is not a question a
+ * staging control may ask. Outermost in the chain, as `SeekerIconButton` puts
+ * it: the ink is unchanged and the pointer bounds around it are not.
  */
 @Composable
 private fun HeaderButton(label: String, enabled: Boolean, onClick: () -> Unit) {
@@ -463,6 +473,7 @@ private fun HeaderButton(label: String, enabled: Boolean, onClick: () -> Unit) {
         style = MaterialTheme.typography.labelMedium,
         color = if (enabled) theme.color("text.muted") else theme.color("text.disabled", theme.color("text.muted")),
         modifier = Modifier
+            .touchTarget()
             .clip(RoundedCornerShape(4.dp))
             .background(
                 if (hovered && enabled) {

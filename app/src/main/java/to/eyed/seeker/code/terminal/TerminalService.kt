@@ -110,7 +110,8 @@ class TerminalService : Service() {
          * Create the notification channel.
          *
          * Called at startup rather than when the service first runs: for apps
-         * targeting API 32 or lower — which the `full` flavour does — Android
+         * targeting API 32 or lower — which this app does, for the userland —
+         * Android
          * only offers the user the notification prompt the first time an
          * activity starts *after* a channel exists. Creating it late means the
          * first session runs with its notification silently blocked.

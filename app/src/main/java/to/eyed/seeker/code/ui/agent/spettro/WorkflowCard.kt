@@ -1,7 +1,7 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -28,8 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,12 +38,16 @@ import to.eyed.seeker.code.core.OrchRun
 import to.eyed.seeker.code.core.OrchStatus
 import to.eyed.seeker.code.core.WorkflowPhase
 import to.eyed.seeker.code.core.WorkflowScript
+import to.eyed.seeker.code.ui.components.ZedCodeBlock
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.seekerSpring
 
 /**
  * A workflow run, live.
@@ -57,7 +60,7 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  * traffic as an anonymous `workflow` tool call with a wall of `agent` calls
  * after it, and that is precisely the failure this card exists to avoid.
  *
- * Two rules from the spec do most of the work here:
+ * Three rules from the spec do most of the work here:
  *
  *  - **A declared phase with no members is never hidden.** Knowing what is
  *    still coming is half the value of a run that announced a plan, and the
@@ -66,6 +69,10 @@ import to.eyed.seeker.code.ui.theme.LocalZedTheme
  *  - **A finished run drops successful DETAIL, never STRUCTURE.** The spine,
  *    the meters and every `3/3 done` survive; each failed member keeps its row
  *    and gains its reason; the successes fold behind one `4 done` disclosure.
+ *  - **The meter, the counts and the cell strip live in the HEADER**
+ *    (docs/VISUAL.md, "Agent — a workflow run card"), above the chevron's
+ *    guard, so collapsing the card hides the run's detail and never its shape.
+ *    A failure folded behind a chevron is a failure the card hid.
  *
  * [state] is here for one reason: the raw-tree sheet. Every modal surface in
  * this app goes through [SheetScaffold] so the shell's ordered back handler
@@ -84,18 +91,18 @@ fun WorkflowCard(
     state: ShellState,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val border = theme.color("border", Color.Transparent)
+    val scheme = MaterialTheme.colorScheme
+    val muted = scheme.onSurfaceVariant
     val live = run.status.isMoving
 
-    // Seeded open while the run is moving, closed once it is over — the same
-    // "seeded rather than closed" rule the tool-call cards already use. A run
-    // in flight is the one thing on the screen worth its height; a scrollback
-    // of three finished runs, each 400 dp tall, is a wall. The user's own
-    // toggle wins from then on, which is what the flag remembers.
-    var open by rememberSaveable(run.tool.key) { mutableStateOf(live) }
+    // COLLAPSED is the phone's default, with one exception. A desktop has a
+    // column beside the transcript; here the transcript IS the screen, and
+    // three finished runs at 400 dp each are a wall. A FAILED run opens
+    // expanded, because the reason a member died is the thing the reader came
+    // back for and it must not need a tap.
+    var open by rememberSaveable(run.tool.key) {
+        mutableStateOf(run.status == OrchStatus.Failed)
+    }
     var showLogs by rememberSaveable(run.tool.key) { mutableStateOf(false) }
     var showScript by rememberSaveable(run.tool.key) { mutableStateOf(false) }
     var showRaw by rememberSaveable(run.tool.key) { mutableStateOf(false) }
@@ -104,31 +111,33 @@ fun WorkflowCard(
     // saves.
     val openMembers = remember(run.tool.key) { mutableStateMapOf<String, Boolean>() }
 
+    val cells = remember(run.phases, run.counts.total) {
+        cellStates(run.phases.flatMap { it.members }, run.counts.total)
+    }
+
     RunCardFrame(
-        accent = border,
+        // The WASH, not an ink: the accent's raw hue behind the card, with
+        // every piece of text inside it taking a solved value instead
+        // (docs/VISUAL.md, "INK AND WASH ARE SEPARATE VALUES").
+        wash = scheme.primary,
         failed = run.status == OrchStatus.Failed,
         modifier = modifier,
-        fillAmount = 0.02f,
-        borderAmount = 1f,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MD.iconGap)) {
             // ---- header line 1: mark, name, badge, chevron ----------------
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 36.dp)
                     .clickable(onClickLabel = run.name) { open = !open },
             ) {
-                // The run's own mark. Was `▣` (U+25A3) typed as text — a
-                // codepoint a phone's UI face need not carry at all, drawn at
-                // labelMedium beside a titleSmall name, which is why it read
-                // as a speck. `git_graph` because what distinguishes a
+                // The run's own mark. `git_graph` because what distinguishes a
                 // workflow from the swarm card beside it is its *structure* —
-                // phases with members hanging off them — and the swarm
-                // already wears its own distinguishing property (the Ultra
-                // bolt). A goal mark would not have told the two apart.
+                // phases with members hanging off them — and the swarm already
+                // wears its own distinguishing property (the Ultra bolt). A
+                // goal mark would not have told the two apart.
                 SeekerIcon(
                     icon = R.drawable.ic_ui_git_graph,
                     contentDescription = null,
@@ -139,39 +148,49 @@ fun WorkflowCard(
                     text = run.name.ifBlank { "workflow" },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
-                    color = text,
+                    color = scheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(2.dp))
-                if (open) {
-                    RunBadge(run.status)
-                    Spacer(Modifier.weight(1f))
-                } else {
-                    // Collapsed, the summary *is* the card: `12 agents · 1
-                    // failed`, in the run's own words.
+                Spacer(Modifier.width(MD.space05))
+                RunBadge(run.status)
+                Spacer(Modifier.weight(1f))
+                Chevron(open)
+            }
+
+            // ---- header line 2: meter, ratio, counts, elapsed --------------
+            // Above the `!open` guard on purpose: see the class comment.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                ProgressMeter(
+                    run.counts,
+                    // Wider when the card is open, because there is room for
+                    // it; the ratio beside it never moves either way.
+                    modifier = Modifier.width(if (open) 96.dp else 72.dp),
+                )
+                Text(
+                    text = run.counts.ratio,
+                    style = MaterialTheme.typography.labelMedium
+                        .copy(fontFeatureSettings = TabularNums),
+                    color = muted,
+                )
+                CountsLabel(run.counts, modifier = Modifier.weight(1f))
+                val elapsed = runElapsed(run.tool.key, live)
+                if (elapsed.isNotEmpty()) {
                     Text(
-                        text = run.summary,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (run.counts.failed > 0) failColor() else muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                        text = elapsed,
+                        style = MaterialTheme.typography.labelMedium
+                            .copy(fontFeatureSettings = TabularNums),
+                        color = muted,
                     )
                 }
-                // Down open, up tucked away — the state, not the gesture,
-                // which is the vocabulary every other card in this app uses.
-                SeekerIcon(
-                    icon = if (open) {
-                        R.drawable.ic_ui_chevron_down
-                    } else {
-                        R.drawable.ic_ui_chevron_up
-                    },
-                    contentDescription = null,
-                    tint = muted,
-                    size = IconSize.Marker,
-                )
             }
+
+            // ---- header line 3: the cell strip -----------------------------
+            CellStrip(cells)
 
             if (!open) return@RunCardFrame
 
@@ -185,32 +204,7 @@ fun WorkflowCard(
                 )
             }
 
-            // ---- header line 2: meter, ratio, elapsed ----------------------
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                ProgressMeter(run.counts, modifier = Modifier.weight(1f))
-                Text(
-                    text = run.counts.ratio,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                )
-                val elapsed = runElapsed(run.tool.key, live)
-                if (elapsed.isNotEmpty()) {
-                    Text(
-                        text = elapsed,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = muted,
-                    )
-                }
-            }
-            // The counts string lives only here: it does not fit beside a
-            // meter at 400 dp, and the ratio above already answers "how far".
-            CountsLabel(run.counts)
-
-            CardRule(Modifier.padding(vertical = 2.dp))
+            CardRule(Modifier.padding(vertical = MD.space05))
 
             for (phase in run.phases) {
                 PhaseBlock(
@@ -230,20 +224,13 @@ fun WorkflowCard(
                     peekMono = true,
                 )
                 if (showLogs) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = SpineWidth, bottom = 4.dp),
-                    ) {
-                        for (line in run.logs) {
-                            Text(
-                                text = line,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = muted,
-                            )
-                        }
-                    }
+                    // The island, not `FontFamily.Monospace` over Material ink:
+                    // a run's log is the CLI's own output and reads as the
+                    // buffer's face on the editor's ground or as nothing.
+                    ZedCodeBlock(
+                        text = run.logs.joinToString("\n"),
+                        modifier = Modifier.padding(start = SpineWidth, bottom = MD.space1),
+                    )
                 }
             }
 
@@ -291,20 +278,20 @@ fun WorkflowScriptRow(
     state: ShellState,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    val muted = scheme.onSurfaceVariant
     var sheet by rememberSaveable(script.tool.key) { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = MemberRowHeight)
                 .clickable(onClickLabel = "Workflow script") { sheet = true }
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = MD.space2),
         ) {
             SeekerIcon(
                 icon = R.drawable.ic_ui_git_graph,
@@ -314,8 +301,8 @@ fun WorkflowScriptRow(
             )
             Text(
                 text = "Workflow" + script.savedAs.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                color = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -326,11 +313,11 @@ fun WorkflowScriptRow(
         if (script.error.isNotBlank()) {
             Text(
                 text = script.error.lineSequence().first(),
-                style = MaterialTheme.typography.labelSmall,
-                color = mix(muted, failColor(), 0.75f),
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.dangerInk,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 26.dp, end = 8.dp, bottom = 4.dp),
+                modifier = Modifier.padding(start = 26.dp, end = MD.space2, bottom = MD.space1),
             )
         }
     }
@@ -353,11 +340,35 @@ fun WorkflowScriptRow(
 // Pieces
 // ---------------------------------------------------------------------------
 
-/** `● RUNNING` / `✓ DONE` / `✗ FAILED`, in the run's own colour. */
+/**
+ * The card's disclosure: down when it is closed, up when it is open.
+ *
+ * One chevron rotated rather than two drawables swapped, so it joins the
+ * single [seekerSpring] every other expand in the app rides — and so
+ * reduce-motion snaps it in one place rather than in twenty
+ * (docs/VISUAL.md, "Foundations", MOTION).
+ */
+@Composable
+private fun Chevron(open: Boolean) {
+    val angle by animateFloatAsState(
+        targetValue = if (open) 180f else 0f,
+        animationSpec = seekerSpring(),
+        label = "run-card-chevron",
+    )
+    SeekerIcon(
+        icon = R.drawable.ic_ui_chevron_down,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        size = IconSize.Marker,
+        modifier = Modifier.rotate(angle),
+    )
+}
+
+/** `RUNNING` / `DONE` / `FAILED`, in the run's own colour. */
 @Composable
 private fun RunBadge(status: OrchStatus) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val scheme = MaterialTheme.colorScheme
+    val danger = failColor()
     val label = when (status) {
         OrchStatus.Running -> "RUNNING"
         OrchStatus.Done -> "DONE"
@@ -365,16 +376,16 @@ private fun RunBadge(status: OrchStatus) {
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space1),
     ) {
         StatusGlyph(status, size = 10.dp)
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = when (status) {
-                OrchStatus.Failed -> failColor()
-                OrchStatus.Running -> theme.color("text.accent", MaterialTheme.colorScheme.primary)
-                OrchStatus.Done -> muted
+                OrchStatus.Failed -> danger
+                OrchStatus.Running -> scheme.primary
+                OrchStatus.Done -> scheme.onSurfaceVariant
             },
         )
     }
@@ -395,9 +406,8 @@ private fun PhaseBlock(
     isOpen: (String) -> Boolean,
     onToggle: (String) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val scheme = MaterialTheme.colorScheme
+    val muted = scheme.onSurfaceVariant
     val pending = phase.isPending
     var showAll by remember(phase.title) { mutableStateOf(false) }
     var showDone by remember(phase.title) { mutableStateOf(false) }
@@ -412,7 +422,7 @@ private fun PhaseBlock(
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.space1),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 28.dp)
@@ -423,7 +433,7 @@ private fun PhaseBlock(
                 text = phase.title.ifBlank { "unphased" },
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
-                color = text,
+                color = scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -454,12 +464,14 @@ private fun PhaseBlock(
                 if (pending) {
                     // The empty track still occupies the rail, so a phase
                     // tinting in place does not push the card around.
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(MD.space3))
                 } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = MD.space05),
                     ) {
                         ProgressMeter(phase.counts, modifier = Modifier.width(72.dp))
                         CountsLabel(phase.counts, modifier = Modifier.weight(1f))
@@ -501,54 +513,43 @@ private fun PhaseBlock(
 /** `… 5 more` / `show fewer`, at the member rows' own indent. */
 @Composable
 internal fun OverflowRow(label: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     Text(
         text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 32.dp)
             .clickable(onClickLabel = label) { onClick() }
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+            .padding(horizontal = MD.space1, vertical = MD.space2),
     )
 }
 
+/**
+ * A script's returned value, its source and its error.
+ *
+ * The first two are code and go in the island; the error is a sentence and
+ * stays Material text in the failure ink.
+ */
 @Composable
 private fun ScriptBody(script: WorkflowScript) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = SpineWidth, bottom = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(start = SpineWidth, bottom = MD.space1),
+        verticalArrangement = Arrangement.spacedBy(MD.space1),
     ) {
         if (script.returned.isNotBlank()) {
-            Text(
-                text = script.returned,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                maxLines = 12,
-                overflow = TextOverflow.Ellipsis,
-            )
+            ZedCodeBlock(text = script.returned, language = "returned", maxLines = 12)
         }
         if (script.source.isNotBlank()) {
-            Text(
-                text = script.source,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = muted,
-                maxLines = 12,
-                overflow = TextOverflow.Ellipsis,
-            )
+            ZedCodeBlock(text = script.source, language = "source", maxLines = 12)
         }
         if (script.error.isNotBlank()) {
             Text(
                 text = script.error,
-                style = MaterialTheme.typography.labelSmall,
-                color = mix(muted, failColor(), 0.75f),
+                style = MaterialTheme.typography.labelMedium,
+                color = LocalSeekerColors.current.dangerInk,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -559,10 +560,13 @@ private fun ScriptBody(script: WorkflowScript) {
 /**
  * The mono sheet: the CLI's own tree, unwrapped.
  *
- * Horizontal scroll and `softWrap = false` are the whole point. An 80-column
- * ASCII tree wrapped into a 400 dp column is not a tree any more — the
- * indentation that carries the structure is exactly what wrapping destroys —
- * so this scrolls sideways like the terminal does.
+ * Horizontal scroll and no soft wrap are the whole point. An 80-column ASCII
+ * tree wrapped into a 400 dp column is not a tree any more — the indentation
+ * that carries the structure is exactly what wrapping destroys — so this
+ * scrolls sideways like the terminal does. [ZedCodeBlock] owns both, plus the
+ * thing this used to get wrong: it drew in `FontFamily.Monospace`, the
+ * *system* mono, so the CLI's tree came out in a different face from the
+ * editor two taps away (docs/VISUAL.md, "THE SEAM").
  */
 @Composable
 internal fun MonoSheet(
@@ -571,22 +575,14 @@ internal fun MonoSheet(
     body: String,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     SheetScaffold(state = state, onDismiss = onDismiss, title = title) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = MD.space4, vertical = MD.space2),
         ) {
-            Text(
-                text = body,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
-                color = theme.color("editor.foreground", MaterialTheme.colorScheme.onSurface),
-                softWrap = false,
-            )
+            ZedCodeBlock(text = body)
         }
     }
 }

@@ -4,8 +4,7 @@ The terminal in Seeker IDE can run a real **Debian**, with `apt` and the
 tens of thousands of packages that come with it. This page explains what
 that is, what it can and cannot do, and where things live.
 
-Available in the **`full` edition** only — see [BUILDING.md](BUILDING.md)
-for why.
+Every build has it — see [BUILDING.md](BUILDING.md) for what that costs.
 
 ## Installing it
 
@@ -83,8 +82,8 @@ and the git panel's commands.)
 
 Android does not allow an app to run a program that was downloaded rather
 than installed — which would make `apt` impossible — unless the app targets
-an older SDK. The `full` edition does, which is also why it cannot be
-distributed on Google Play.
+an older SDK. Seeker IDE does, which is also why it cannot be distributed
+on Google Play.
 
 Debian's own binaries expect to live at `/usr/bin`, `/etc` and so on. They
 are actually inside the app's private storage, so **proot** sits in between,
@@ -106,12 +105,12 @@ virtualisation: proot uses `ptrace` to rewrite what the guest sees.
   on background child processes, and aggressive vendor battery managers.
 
   That service normally shows a notification, with a **Stop all** action
-  that ends every session. In this edition you may have to turn it on
-  yourself, in Android's app settings for Seeker IDE: the edition
-  targets an old API level so that the userland can run at all, and
-  Android will not show the notification permission prompt to an app that
-  does. Until you allow notifications, the service protects your sessions
-  without showing anything.
+  that ends every session. You may have to turn it on yourself, in
+  Android's app settings for Seeker IDE: the app targets an old API level
+  so that the userland can run at all, and Android will not show the
+  notification permission prompt to an app that does. Until you allow
+  notifications, the service protects your sessions without showing
+  anything.
 
 ## Removing it
 

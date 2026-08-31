@@ -27,8 +27,8 @@ class BaselineProfileGenerator {
     @Test
     fun startup() {
         rule.collect(
-            // Both flavors share one applicationId; only the versionName
-            // carries a suffix.
+            // One applicationId, one variant — the `full`/`play` flavour
+            // split and its versionName suffixes are gone.
             packageName = "to.eyed.seeker.code",
         ) {
             pressHome()

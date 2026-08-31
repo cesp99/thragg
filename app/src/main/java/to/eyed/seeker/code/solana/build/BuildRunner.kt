@@ -549,7 +549,7 @@ object BuildRunner {
 
     private fun noUserland(context: Context): String =
         if (!Userland.backend.isSupported) {
-            "This edition has no Linux userland, so there is nothing here that can compile " +
+            "The Linux guest is not available, so there is nothing here that can compile " +
                 "a Solana program."
         } else if (Userland.backend.state(context) !is UserlandState.Ready) {
             "${Userland.backend.displayName} is not installed yet — open Shell to install it, " +

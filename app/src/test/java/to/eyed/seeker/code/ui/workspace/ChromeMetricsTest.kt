@@ -14,17 +14,27 @@ import to.eyed.seeker.code.ui.theme.remsAt
  *
  * Zed sets `window.rem_size = ui_font_size` (theme_settings/src/settings.rs:619),
  * so every chrome dimension in it is a multiple of the UI font size and bumping
- * that setting grows the tab bar, the rows and the gaps along with the text.
- * Z-18 moved our panel, tabs, title bar, status bar, toolbar and menus onto the
- * same footing, and the whole risk of that change is arithmetic: a mistyped
- * multiple moves a dimension at the *default* font size, where nothing was
- * supposed to move at all.
+ * that setting grows the rows and the gaps along with the text. Z-18 moved our
+ * panel and menus onto the same footing, and the whole risk of that change is
+ * arithmetic: a mistyped multiple moves a dimension at the *default* font
+ * size, where nothing was supposed to move at all.
  *
- * So the first half of this file is that acceptance criterion, spelled out one
+ * So the first part of this file is that acceptance criterion, spelled out one
  * number at a time: **at `ui_font_size` = 16 every metric is exactly the dp
- * literal it replaced.** The second half checks that they then scale — and that
- * the dimensions Zed writes as `px(…)` do *not*, because growing those would
- * make us diverge from Zed at precisely the setting this work exists to honour.
+ * literal it replaced.** The rest checks that they then scale — and that the
+ * dimensions Zed writes as `px(…)` do *not*, because growing those would make
+ * us diverge from Zed at precisely the setting this work exists to honour.
+ *
+ * SHRUNK IN P4, not weakened. The tab strip, title bar, status bar and editor
+ * toolbar this used to cover went with ui/workspace/ (docs/UI.md, "What is
+ * removed"), and their metric objects went with them; TabMetrics,
+ * TitleBarMetrics, StatusBarMetrics, ToolbarMetrics, TabPixels and
+ * StatusBarPixels no longer exist to assert about. What survives is the two
+ * surfaces that survived — the project panel behind the Files sheet, and the
+ * context menu — plus the whole accessibility half, which was always the part
+ * about Rem.kt rather than about any one bar. Rem.kt is kept and never
+ * surfaced (docs/UI.md, "What is kept but not surfaced"); this is the test
+ * that says so.
  */
 class ChromeMetricsTest {
 
@@ -53,61 +63,6 @@ class ChromeMetricsTest {
         assertEquals(6.dp, at(default, PanelMetrics.DIRECTORY_DOT))
         assertEquals(12.dp, at(default, PanelMetrics.LIST_BOTTOM_PADDING))
         assertEquals(12.dp, at(default, PanelMetrics.MESSAGE_PADDING))
-    }
-
-    @Test
-    fun tabStripIsUnchangedAtTheDefault() {
-        assertEquals(32.dp, at(default, TabMetrics.BAR_HEIGHT))
-        assertEquals(31.dp, TabMetrics.contentHeight(default))
-        assertEquals(4.dp, at(default, TabMetrics.CONTENT_PADDING))
-        assertEquals(4.dp, at(default, TabMetrics.CONTENT_GAP))
-        assertEquals(6.dp, at(default, TabMetrics.DIRTY_DOT))
-        assertEquals(180.dp, at(default, TabMetrics.MAX_LABEL_WIDTH))
-        assertEquals(96.dp, at(default, TabMetrics.WHEEL_STEP))
-        assertEquals(6.dp, at(default, TabMetrics.TOOL_GROUP_PADDING))
-        assertEquals(4.dp, at(default, TabMetrics.TOOL_GROUP_GAP))
-        assertEquals(22.dp, at(default, TabMetrics.TOOL_BUTTON_BOX))
-    }
-
-    @Test
-    fun titleBarIsUnchangedAtTheDefault() {
-        assertEquals(34.dp, TitleBarMetrics.barHeight(default))
-        assertEquals(22.dp, at(default, TitleBarMetrics.BUTTON_HEIGHT))
-        assertEquals(4.dp, at(default, TitleBarMetrics.BUTTON_PAD))
-        assertEquals(4.dp, at(default, TitleBarMetrics.BUTTON_GAP))
-        assertEquals(2.dp, at(default, TitleBarMetrics.LEFT_GROUP_GAP))
-        assertEquals(8.dp, at(default, TitleBarMetrics.LEADING_PAD))
-        assertEquals(12.dp, at(default, TitleBarMetrics.XSMALL_ICON))
-        assertEquals(260.dp, at(default, TitleBarMetrics.MENU_MIN_WIDTH))
-        assertEquals(6.dp, at(default, TitleBarMetrics.SEPARATOR_GAP))
-        assertEquals(4.dp, at(default, TitleBarMetrics.MENU_INSET))
-        assertEquals(6.dp, at(default, TitleBarMetrics.MENU_ROW_PAD_X))
-        assertEquals(2.dp, at(default, TitleBarMetrics.MENU_ROW_PAD_Y))
-        assertEquals(16.dp, at(default, TitleBarMetrics.LABEL_TO_CHORD))
-    }
-
-    @Test
-    fun statusBarIsUnchangedAtTheDefault() {
-        assertEquals(22.dp, at(default, StatusBarMetrics.ITEM_BOX))
-        assertEquals(14.dp, at(default, StatusBarMetrics.ITEM_ICON))
-        assertEquals(4.dp, at(default, StatusBarMetrics.BAR_PADDING))
-        assertEquals(4.dp, at(default, StatusBarMetrics.ITEM_GAP))
-        assertEquals(16.dp, at(default, StatusBarMetrics.DIVIDER_HEIGHT))
-        assertEquals(4.dp, at(default, StatusBarMetrics.NOTE_DOT))
-        // The 30px the bar has always been: one 22px button plus 4px above and
-        // below, which is how Zed's gets its height (status_bar.rs:153).
-        assertEquals(30.dp, StatusBarMetrics.barHeight(default))
-    }
-
-    @Test
-    fun toolbarIsUnchangedAtTheDefault() {
-        assertEquals(32.dp, at(default, ToolbarMetrics.ITEM_ROW_HEIGHT))
-        assertEquals(6.dp, at(default, ToolbarMetrics.VERTICAL_PAD))
-        assertEquals(8.dp, at(default, ToolbarMetrics.HORIZONTAL_PAD))
-        assertEquals(8.dp, at(default, ToolbarMetrics.GROUP_GAP))
-        assertEquals(4.dp, at(default, ToolbarMetrics.CRUMB_GAP))
-        assertEquals(22.dp, at(default, ToolbarMetrics.BUTTON_BOX))
-        assertEquals(14.dp, at(default, ToolbarMetrics.ICON))
     }
 
     @Test
@@ -140,41 +95,12 @@ class ChromeMetricsTest {
     }
 
     @Test
-    fun chromeAtATwentyPixelUiFont() {
-        // The whole point of the change, in the numbers a user who bumps the
-        // setting one notch actually gets.
-        assertEquals(40.dp, at(20f, TabMetrics.BAR_HEIGHT))
-        assertEquals(39.dp, TabMetrics.contentHeight(20f))
-        assertEquals(32.dp, PanelMetrics.rowHeight(20f))
-        assertEquals(37.5.dp, StatusBarMetrics.barHeight(20f))
-        assertEquals(40.dp, at(20f, ToolbarMetrics.ITEM_ROW_HEIGHT))
-        assertEquals(27.5.dp, at(20f, StatusBarMetrics.ITEM_BOX))
-    }
-
-    @Test
     fun theRowPitchOnlyGrowsByItsContentBox() {
         // 1px borders are `px(1.)` in Zed, so the pitch is `rems(1.5) + 2px`
         // and not `rems(1.625)` — those agree at 16 and nowhere else.
         assertEquals(26.dp, PanelMetrics.rowHeight(16f))
         assertEquals(32.dp, PanelMetrics.rowHeight(20f))
         assertEquals(32.5.dp, at(20f, 1.625f)) // what the wrong spelling gives
-    }
-
-    @Test
-    fun theTabContentBoxOnlyGivesUpOneRealPixel() {
-        assertEquals(31.dp, TabMetrics.contentHeight(16f))
-        assertEquals(63.dp, TabMetrics.contentHeight(32f))
-    }
-
-    @Test
-    fun theTitleBarKeepsZedsPixelFloor() {
-        // `(1.75 * rem_size).max(px(34.))` (ui/src/utils/constants.rs:16-19):
-        // the floor is why the bar is 34 and not 28 at the default, and the
-        // rem only takes over once it passes it.
-        assertEquals(34.dp, TitleBarMetrics.barHeight(16f))
-        assertEquals(34.dp, TitleBarMetrics.barHeight(19f))
-        assertEquals(35.dp, TitleBarMetrics.barHeight(20f))
-        assertEquals(42.dp, TitleBarMetrics.barHeight(24f))
     }
 
     // --- The px constants stay px ---
@@ -185,18 +111,13 @@ class ChromeMetricsTest {
         // must leave it exactly where it is: `indent_size` is a settings number
         // handed to `px()` (project_panel.rs:6140), the guide offset and end
         // padding are `px(15.)`/`px(4.)` (indent_guides.rs:33,
-        // project_panel.rs:7215), the borders are `px(1.)`/`px(2.)`, and the
-        // tab slots are `px(12.)`/`px(14.)` (tab.rs:8-9).
+        // project_panel.rs:7215) and the borders are `px(1.)`/`px(2.)`.
         assertEquals(20.dp, PanelPixels.IndentPerLevel)
         assertEquals(1.dp, PanelPixels.GuideWidth)
         assertEquals(15.dp, PanelPixels.GuideOffset)
         assertEquals(4.dp, PanelPixels.GuideEndInset)
         assertEquals(2.dp, PanelPixels.ActiveRowRail)
         assertEquals(2.dp, PanelPixels.RowBorders)
-        assertEquals(1.dp, TabPixels.Border)
-        assertEquals(12.dp, TabPixels.StartSlotWidth)
-        assertEquals(14.dp, TabPixels.EndSlotWidth)
-        assertEquals(1.dp, StatusBarPixels.DividerWidth)
     }
 
     // --- The accessibility floor, and the promise that it costs nothing ---
@@ -227,12 +148,7 @@ class ChromeMetricsTest {
         assertEquals(15.6.dp.value, label.value, 0.01f)
 
         assertTrue("panel row", body + PanelPixels.RowBorders < PanelMetrics.rowHeight(default))
-        assertTrue("tab bar", body + TabPixels.Border < at(default, TabMetrics.BAR_HEIGHT))
-        assertTrue("title bar", body < TitleBarMetrics.barHeight(default))
-        assertTrue("bar button", body < at(default, TitleBarMetrics.BUTTON_HEIGHT))
-        assertTrue("toolbar row", body < at(default, ToolbarMetrics.ITEM_ROW_HEIGHT))
-        assertTrue("status item", label < at(default, StatusBarMetrics.ITEM_BOX))
-        assertTrue("tab tool button", label < at(default, TabMetrics.TOOL_BUTTON_BOX))
+        assertTrue("menu row", label < at(default, MenuMetrics.MIN_WIDTH))
     }
 
     @Test
@@ -275,40 +191,6 @@ class ChromeMetricsTest {
         PanelMetrics.DIRECTORY_DOT,
         PanelMetrics.LIST_BOTTOM_PADDING,
         PanelMetrics.MESSAGE_PADDING,
-        TabMetrics.BAR_HEIGHT,
-        TabMetrics.CONTENT_PADDING,
-        TabMetrics.CONTENT_GAP,
-        TabMetrics.DIRTY_DOT,
-        TabMetrics.MAX_LABEL_WIDTH,
-        TabMetrics.WHEEL_STEP,
-        TabMetrics.TOOL_GROUP_PADDING,
-        TabMetrics.TOOL_GROUP_GAP,
-        TabMetrics.TOOL_BUTTON_BOX,
-        TitleBarMetrics.BUTTON_HEIGHT,
-        TitleBarMetrics.BUTTON_PAD,
-        TitleBarMetrics.BUTTON_GAP,
-        TitleBarMetrics.LEFT_GROUP_GAP,
-        TitleBarMetrics.LEADING_PAD,
-        TitleBarMetrics.XSMALL_ICON,
-        TitleBarMetrics.MENU_MIN_WIDTH,
-        TitleBarMetrics.SEPARATOR_GAP,
-        TitleBarMetrics.MENU_INSET,
-        TitleBarMetrics.MENU_ROW_PAD_X,
-        TitleBarMetrics.MENU_ROW_PAD_Y,
-        TitleBarMetrics.LABEL_TO_CHORD,
-        StatusBarMetrics.ITEM_BOX,
-        StatusBarMetrics.ITEM_ICON,
-        StatusBarMetrics.BAR_PADDING,
-        StatusBarMetrics.ITEM_GAP,
-        StatusBarMetrics.DIVIDER_HEIGHT,
-        StatusBarMetrics.NOTE_DOT,
-        ToolbarMetrics.ITEM_ROW_HEIGHT,
-        ToolbarMetrics.VERTICAL_PAD,
-        ToolbarMetrics.HORIZONTAL_PAD,
-        ToolbarMetrics.GROUP_GAP,
-        ToolbarMetrics.CRUMB_GAP,
-        ToolbarMetrics.BUTTON_BOX,
-        ToolbarMetrics.ICON,
         MenuMetrics.MIN_WIDTH,
         MenuMetrics.INSET,
         MenuMetrics.ROW_PAD_X,

@@ -7,8 +7,23 @@
          can apply to itself; see terminal/TerminalService.kt. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Only so the service can say why it is running; denial costs the
-         notification, not the protection. -->
+         notification, not the protection. Note that Android never shows the
+         dialog for it at this app's targetSdk (28) — the user has to allow
+         notifications from system settings; see
+         MainActivity.requestNotificationPermission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- The Debian userland downloads its rootfs from Debian's registry on
+         first use; nothing in this app phones home, and the privacy section of
+         README.md is the record of that. These two used to live in the `full`
+         flavour's manifest, beside a `play` flavour that had no userland and
+         therefore no reason to touch the network at all. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- So the guest's /etc/resolv.conf can carry the device's own resolvers.
+         Without it ConnectivityManager returns nothing and the userland falls
+         back to public DNS, which breaks on networks with a captive or
+         split-horizon resolver. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- "Open with…" (core/ShareOut.kt) asks which apps can view a file
          before it offers the chooser, so that it can leave this app out of

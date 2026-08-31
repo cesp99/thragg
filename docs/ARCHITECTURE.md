@@ -107,8 +107,7 @@ engine working.
 `MANAGE_EXTERNAL_STORAGE` would give real paths anywhere and so genuine
 open-in-place, but Google Play restricts that permission to a short list
 of app categories an IDE is not in, and shared storage is FUSE-backed and
-slower to scan. It stays off the table for now, and would only ever be a
-flavor-specific capability.
+slower to scan. It stays off the table for now.
 
 ### What a project remembers
 
@@ -199,10 +198,10 @@ project panel's context menu, the tab menu and the media pane
 Android only executes programs that arrived through the package installer.
 On a modern target SDK that rules out any package manager: a downloaded
 binary cannot run, whatever permissions it is given. This shapes the whole
-tooling story, and the project answers it with two editions (see
+tooling story, and the project answers it by targeting an old SDK (see
 [BUILDING.md](BUILDING.md)).
 
-The **`full`** edition targets SDK 28, where the restriction does not
+The app targets SDK 28, where the restriction does not
 apply, and runs a real **Debian** through
 [proot](https://github.com/termux/proot): the rootfs is downloaded on first
 use into app-private storage, proot fakes the filesystem layout its
@@ -212,11 +211,13 @@ see the same files. Nothing about the packages is maintained by this
 project — that is the point of borrowing a distribution. See
 [USERLAND.md](USERLAND.md).
 
-The **`play`** edition keeps a modern target SDK and has no userland. Its
-terminal runs Android's own shell (mksh, with toybox's ~210 commands), and
-anything else it needs must be compiled into the APK as a
-`lib<name>_exec.so` in the native library directory, which stays executable
-at any target SDK.
+Before the rootfs is installed the terminal falls back to Android's own
+shell (mksh, with toybox's ~210 commands), and anything shipped rather than
+downloaded goes into the APK as a `lib<name>_exec.so` in the native library
+directory, which stays executable at any target SDK — that is how proot
+itself gets to run. A Play-compatible edition that stopped at that fallback
+used to ship beside this one; it is gone, because a modern target SDK
+forecloses every toolchain the app exists to drive.
 
 Terminal emulation builds on Termux's cleanly decoupled
 `terminal-emulator` / `terminal-view` libraries (GPL-compatible),
@@ -236,9 +237,9 @@ crate. The engine spawns and supervises agent processes and maintains
 thread state (messages, tool calls, plans, permission requests); the
 Compose agent panel renders that state. Node-based agents (Claude Code,
 Gemini CLI) need Node, which comes from the Linux userland's own package
-manager like any other tool — so the agent panel belongs to the `full`
-edition, and the `play` edition leaves it out rather than showing it
-broken.
+manager like any other tool — so the agent panel is one more thing that
+depends on the userland being real, and one more reason there is no
+edition without it.
 
 ## Privacy
 

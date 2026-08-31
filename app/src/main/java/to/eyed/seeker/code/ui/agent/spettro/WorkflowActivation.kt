@@ -25,7 +25,7 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import to.eyed.seeker.code.ui.theme.LocalReduceMotion
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 
 /*
  * Activation glow — the composer telling the truth about what the next turn
@@ -342,9 +342,14 @@ fun activationGlow(text: String, brush: Brush): AnnotatedString =
  */
 @Composable
 fun rememberActivationBrush(surface: ActivationSurface = ActivationSurface.COMPOSER): Brush {
+    // `isDark` off [LocalSeekerColors] rather than off the Zed theme: this
+    // file sits in the Material half, where the boundary rule is that nothing
+    // reads `LocalZedTheme` (docs/VISUAL.md, "THE BOUNDARY, EXACTLY"). It is
+    // the same boolean — the bridge copies `ZedTheme.isDark` into the palette
+    // it derives — asked of the local this half is allowed to ask.
     val ramp = when {
         surface == ActivationSurface.BUBBLE -> BUBBLE_RAMP
-        LocalZedTheme.current.isDark -> DARK_RAMP
+        LocalSeekerColors.current.isDark -> DARK_RAMP
         else -> LIGHT_RAMP
     }
     val still = LocalReduceMotion.current

@@ -101,8 +101,7 @@ object ShellEnvironment {
      *
      * A Linux userland takes precedence when one is installed — that is the
      * whole point of it — and the host shell is the fallback, so the terminal
-     * works on a fresh install, in the `play` flavour, and while Debian is
-     * still downloading.
+     * works on a fresh install and while Debian is still downloading.
      */
     fun commandFor(context: Context, cwd: String): ShellCommand {
         Userland.backend.shellCommand(context, cwd)?.let { command ->
@@ -217,11 +216,11 @@ object ShellEnvironment {
      * Where an Android path shows up inside the guest.
      *
      * The same mapping DebianUserland does for a session's working directory,
-     * restated here because that one is private to the flavour and this file
-     * compiles into both. Only the projects directory is bound in, so anything
-     * outside it — or anything that would have to climb out with `..` — has no
-     * guest path at all and is answered with null rather than a path that does
-     * not exist there.
+     * restated here because that one is private to the backend and this file
+     * talks to the seam, not to Debian. Only the projects directory is bound
+     * in, so anything outside it — or anything that would have to climb out
+     * with `..` — has no guest path at all and is answered with null rather
+     * than a path that does not exist there.
      */
     private fun guestPathOf(context: Context, file: File): String? {
         val projects = File(context.filesDir, "projects")

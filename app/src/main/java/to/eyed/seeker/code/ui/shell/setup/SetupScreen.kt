@@ -2,24 +2,25 @@ package to.eyed.seeker.code.ui.shell.setup
 
 import android.content.Context
 import android.net.ConnectivityManager
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,10 +30,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -47,15 +47,32 @@ import to.eyed.seeker.code.solana.toolchain.ToolchainManifest
 import to.eyed.seeker.code.solana.toolchain.ToolchainPhase
 import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.terminal.Userland
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.NoticeCard
+import to.eyed.seeker.code.ui.components.SeekerCard
+import to.eyed.seeker.code.ui.components.SeekerChip
+import to.eyed.seeker.code.ui.components.SeekerSpinner
+import to.eyed.seeker.code.ui.components.Severity
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.TabularNums
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 /**
  * The one full-screen takeover: the honest cost of a phone that compiles
  * Solana programs, said plainly, once, with an honest Skip.
+ *
+ * THE SHAPE IS VISUAL.md'S SETUP WIREFRAME, and it is the same shape the
+ * agent's own provider gate takes: a static 40dp mark, a `headlineSmall`, two
+ * lines of `bodyMedium` at the muted ink, one **StepList** — a single
+ * [SeekerCard] whose rows are divided by [HairlineDivider] rather than a
+ * column of separate cards — and one filled action pinned at the bottom above
+ * the nav bar. The mark is drawn STATIC: this is the slot spettro-chat-android
+ * fills with a morphing blob, and the slot is worth having while the blob is
+ * not (docs/VISUAL.md, "Every other screen" → Setup).
  *
  * It is a route like any other (Route.Setup) and it is reachable at any time
  * from Projects → Toolchain, where it doubles as the repair and free-the-disk
@@ -75,7 +92,8 @@ import to.eyed.seeker.code.ui.theme.touchTarget
  *     four-minute compile would be an invention.
  *  3. **Skip is a text link, not a button.** It is the minority path and it is
  *     a real one: the editor, highlighting, the file tree, search, git and the
- *     agent all work with no toolchain at all.
+ *     agent all work with no toolchain at all. A `TextButton` under a filled
+ *     one is Material's own way of saying exactly that.
  *
  * Leaving the screen does not stop the install — [ToolchainInstaller] lives
  * outside the composition and holds the terminal's foreground notification
@@ -84,7 +102,7 @@ import to.eyed.seeker.code.ui.theme.touchTarget
 @Composable
 fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     val supported = Userland.backend.isSupported
 
     LaunchedEffect(Unit) { ToolchainInstaller.refresh(context) }
@@ -94,6 +112,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
     }
     val rows = ToolchainInstaller.rows
     val phase = ToolchainInstaller.phase
+    val complete = ToolchainInstaller.isComplete
 
     /**
      * One tick a second, and only while something is running — this is what
@@ -109,52 +128,68 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(theme.color("editor.background", MaterialTheme.colorScheme.background)),
-    ) {
+    Column(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
+                // 16dp is the screen gutter, everywhere, on every screen.
+                .padding(horizontal = MD.space4),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Masthead(theme.color("text", MaterialTheme.colorScheme.onSurface))
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
+            Spacer(Modifier.height(MD.space8))
+            SeekerIcon(
+                icon = R.drawable.ic_launcher_monochrome,
+                contentDescription = null,
+                tint = scheme.primary,
+                size = IconSize.Hero,
+            )
+            Spacer(Modifier.height(MD.space4))
+            Text(
+                text = headline(supported, complete),
+                style = MaterialTheme.typography.headlineSmall,
+                color = scheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(MD.space2))
             Text(
                 text = costLine(supported, manifest),
-                style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                style = MaterialTheme.typography.bodyMedium,
+                // 70%, centred: the sentence under a headline is context, and
+                // a second line at full strength competes with the headline
+                // for the same job.
+                color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center,
             )
-
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MD.space6))
 
             if (!supported) {
-                UnsupportedCard()
+                NoticeCard(
+                    severity = Severity.Info,
+                    title = null,
+                    body = "Android will not execute a program that arrived after " +
+                        "installation — which every part of a compiler toolchain is. " +
+                        "The editor, the file tree, search and git are unaffected.",
+                )
             } else {
-                for (row in rows) {
-                    ComponentRowView(
-                        row = row,
-                        now = now,
-                        onRetry = { ToolchainInstaller.retry(context, row.component.id) },
-                    )
-                }
-            }
-
-            ToolchainInstaller.lastError?.let { message ->
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("error", MaterialTheme.colorScheme.error),
+                StepList(
+                    rows = rows,
+                    now = now,
+                    onRetry = { id -> ToolchainInstaller.retry(context, id) },
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
+            ToolchainInstaller.lastError?.let { message ->
+                Spacer(Modifier.height(MD.space2))
+                NoticeCard(
+                    severity = Severity.Error,
+                    title = "The install stopped",
+                    body = message,
+                )
+            }
+
+            Spacer(Modifier.height(MD.space6))
         }
 
         // The actions sit at the bottom, in the thumb zone, which is the
@@ -168,36 +203,16 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-private fun Masthead(textColor: androidx.compose.ui.graphics.Color) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        SeekerIcon(
-            icon = R.drawable.ic_ui_target,
-            contentDescription = null,
-            tint = textColor,
-            size = IconSize.Hero,
-        )
-        Text(
-            text = "Seeker IDE",
-            style = MaterialTheme.typography.titleLarge,
-            color = textColor,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Text(
-            text = "Build and ship Solana programs from your phone.",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = textColor.copy(alpha = 0.7f),
-            modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp),
-        )
-    }
+/** What the screen is for, in four words, and it changes with the state. */
+private fun headline(supported: Boolean, complete: Boolean): String = when {
+    !supported -> "No Linux userland"
+    complete -> "The toolchain is installed"
+    else -> "Set up the toolchain"
 }
 
 /**
- * The headline, and the one place the two numbers appear together.
+ * The headline's second line, and the one place the two numbers appear
+ * together.
  *
  * Summed from the manifest rather than written down, so the sentence cannot
  * drift from the component list underneath it. They are genuinely different
@@ -205,29 +220,50 @@ private fun Masthead(textColor: androidx.compose.ui.graphics.Color) {
  * saying so is the point.
  */
 private fun costLine(supported: Boolean, manifest: ToolchainManifest?): String {
+    // Defensive: the userland seam answers yes in every build that ships, so
+    // this branch is a backstop rather than a state anyone reaches. It used to
+    // name an edition that no longer exists.
     if (!supported) {
-        return "This edition of Seeker IDE cannot run a Linux userland, so the Solana " +
-            "toolchain cannot be installed here. Everything else works."
+        return "The Linux guest is not available, so the Solana toolchain " +
+            "cannot be installed. Everything else works."
     }
     if (manifest == null) return "The toolchain manifest could not be read."
     return "One setup, once. ${formatBytes(manifest.totalDownloadBytes)} down, " +
         "${formatBytes(manifest.totalInstallBytes)} on disk, then the phone builds offline."
 }
 
+/**
+ * Every component in one card, divided by hairlines.
+ *
+ * ONE CARD RATHER THAN A COLUMN OF THEM, which is the whole difference between
+ * this and what was here before. Six separate cards read as six unrelated
+ * things; a list inside one edge reads as the steps of a single operation,
+ * which is what an install IS. It is also the shape the wireframe draws and
+ * the shape the agent's provider gate takes, so the two setup screens in this
+ * app are recognisably the same screen.
+ */
 @Composable
-private fun UnsupportedCard() {
-    val theme = LocalZedTheme.current
-    Text(
-        text = "The Play edition targets a modern SDK, and Android will not execute a " +
-            "program that arrived after installation — which every part of a compiler " +
-            "toolchain is. The editor, the file tree, search and git are unaffected.",
-        style = MaterialTheme.typography.bodySmall,
-        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-    )
+private fun StepList(
+    rows: List<ComponentRow>,
+    now: Long,
+    onRetry: (String) -> Unit,
+) {
+    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            rows.forEachIndexed { index, row ->
+                if (index > 0) HairlineDivider()
+                ComponentRowView(
+                    row = row,
+                    now = now,
+                    onRetry = { onRetry(row.component.id) },
+                )
+            }
+        }
+    }
 }
 
 /**
- * One component: a glyph, a name, a right-hand figure, and — only while it is
+ * One component: a mark, a name, a right-hand figure, and — only while it is
  * the row that is running — a bar under it.
  *
  * The right-hand figure is where the two row kinds diverge and it is decided
@@ -236,98 +272,151 @@ private fun UnsupportedCard() {
  */
 @Composable
 private fun ComponentRowView(row: ComponentRow, now: Long, onRetry: () -> Unit) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     val state = row.state
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = MD.rowMin)
+            .padding(horizontal = MD.space3, vertical = MD.rowPadY),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MD.space3),
+        ) {
             // A fixed 20dp slot whether or not there is a mark in it, so the
-            // names of the components stay in one column down the screen.
+            // names of the components stay in one column down the card.
             Box(
                 modifier = Modifier.width(20.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                stateIcon(state)?.let { (icon, said) ->
-                    SeekerIcon(
-                        icon = icon,
-                        contentDescription = said,
-                        tint = when (state) {
-                            is ComponentState.Installed -> theme.color("created", muted)
-                            is ComponentState.Failed ->
-                                theme.color("error", MaterialTheme.colorScheme.error)
-                            else -> muted
-                        },
-                        size = IconSize.Marker,
-                    )
-                }
+                StateMark(state)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = row.component.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = text,
+                    color = scheme.onSurface,
                 )
                 val detail = detail(row, now)
                 if (detail.isNotEmpty()) {
                     Text(
                         text = detail,
                         style = MaterialTheme.typography.bodySmall,
-                        color = muted,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = MD.space05),
                     )
                 }
             }
             if (state is ComponentState.Failed || state is ComponentState.Cancelled) {
-                Text(
-                    text = "Retry",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                    modifier = Modifier
-                        .touchTarget()
-                        .clickable(onClick = onRetry)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                SeekerChip(
+                    label = "Retry",
+                    onClick = onRetry,
+                    // 28dp drawn, 48dp of target: the chip does not grow its
+                    // own hit box because most chips sit in a scrolling row
+                    // where that would change the layout.
+                    modifier = Modifier.touchTarget(),
+                    tint = scheme.primary,
                 )
             } else {
                 Text(
                     text = figure(row),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = muted,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        // A figure that ticks — bytes, elapsed — must not
+                        // shimmy as its digits change width.
+                        fontFeatureSettings = TabularNums,
+                    ),
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
         if (state is ComponentState.Downloading) {
             val fraction = state.fraction
             if (fraction == null) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                Bar()
             } else {
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                )
+                Bar(fraction)
             }
         } else if (state is ComponentState.Working) {
             // No fraction exists for an unpack, an apt run or a compile, and
             // inventing one is exactly what the two-row-kinds rule forbids.
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+            Bar()
         }
     }
 }
 
 /**
- * The mark on the left of a component row, and the words behind it.
+ * The progress bar, at the app's colours rather than Material's defaults.
  *
- * `null` for a component that has not started: an empty slot is what "not yet"
- * looks like, and the middle dot that used to sit there was a glyph carrying
- * no meaning a screen reader could read.
+ * `primary` on `surfaceVariant`, with the gap and stop indicator Material 1.4
+ * draws by default — this is the one place a stock M3 indicator is used, and
+ * it is used because a determinate download genuinely has a fraction. There is
+ * no `WavyProgressIndicator` at this version and nothing here wants one.
  */
-private fun stateIcon(state: ComponentState): Pair<Int, String>? = when (state) {
-    is ComponentState.Installed -> R.drawable.ic_ui_check to "installed"
-    is ComponentState.Downloading, is ComponentState.Working ->
-        R.drawable.ic_ui_play to "working"
-    is ComponentState.Failed -> R.drawable.ic_ui_close to "failed"
-    is ComponentState.Pending, is ComponentState.Cancelled -> null
+@Composable
+private fun Bar(fraction: Float? = null) {
+    val scheme = MaterialTheme.colorScheme
+    val modifier = Modifier.fillMaxWidth().padding(top = MD.space2)
+    if (fraction == null) {
+        LinearProgressIndicator(
+            modifier = modifier,
+            color = scheme.primary,
+            trackColor = scheme.surfaceVariant,
+        )
+    } else {
+        LinearProgressIndicator(
+            progress = { fraction },
+            modifier = modifier,
+            color = scheme.primary,
+            trackColor = scheme.surfaceVariant,
+        )
+    }
+}
+
+/**
+ * The mark on the left of a component row.
+ *
+ * A running row draws the app's own [SeekerSpinner] rather than a static
+ * glyph: it is the same braille cadence the agent's live-run strip and the
+ * build strip use, it stands still under reduce-motion rather than vanishing,
+ * and it is the only thing in the list that says "this one, right now".
+ *
+ * A pending row draws an empty circle at half strength — "not yet" has a
+ * shape, and the middle dot that used to sit there was a glyph carrying no
+ * meaning a screen reader could read.
+ */
+@Composable
+private fun StateMark(state: ComponentState) {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalSeekerColors.current
+    when (state) {
+        is ComponentState.Installed -> SeekerIcon(
+            icon = R.drawable.ic_ui_check,
+            contentDescription = "installed",
+            tint = colors.addedMark,
+            size = IconSize.Marker,
+        )
+
+        is ComponentState.Downloading, is ComponentState.Working ->
+            SeekerSpinner(size = 14.dp, color = scheme.primary)
+
+        is ComponentState.Failed -> SeekerIcon(
+            icon = R.drawable.ic_ui_close,
+            contentDescription = "failed",
+            tint = colors.removedMark,
+            size = IconSize.Marker,
+        )
+
+        is ComponentState.Pending, is ComponentState.Cancelled -> SeekerIcon(
+            icon = R.drawable.ic_ui_circle,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+            size = IconSize.Marker,
+        )
+    }
 }
 
 /** The right-hand figure: a size, a byte count, or the words for a compile. */
@@ -375,11 +464,17 @@ private fun elapsedFrom(startedAt: Long, now: Long): String {
 private fun elapsed(startedAt: Long): String = elapsedFrom(startedAt, System.currentTimeMillis())
 
 /**
- * One primary action, and the Skip link under it.
+ * One primary action, and the text links under it.
  *
  * On a metered connection the button names the cost instead of saying Start,
  * because "Start" on mobile data is a question the user was never asked
  * (docs/UI.md, "Setup" — metered connections).
+ *
+ * A stock filled `Button`, and this is the first screen in the app to use one:
+ * the bridge solves `onPrimary` against `primary`, which is what makes it
+ * safe. Left as it was — `onPrimary = editor.background` (Theme.kt:139) — the
+ * label on this button measured 2.84:1 on Ayu Light, and it is the single
+ * most important label on the whole screen.
  */
 @Composable
 private fun Actions(
@@ -388,7 +483,7 @@ private fun Actions(
     supported: Boolean,
     manifest: ToolchainManifest?,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     val phase = ToolchainInstaller.phase
     val complete = ToolchainInstaller.isComplete
     val metered = remember(context) { isMetered(context) }
@@ -414,53 +509,45 @@ private fun Actions(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = MD.space4, vertical = MD.space3),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(theme.color("element.background", MaterialTheme.colorScheme.primary))
-                .clickable {
-                    when {
-                        !supported || complete -> {
-                            // From the rows, not from disk: this runs on the
-                            // main thread and the rows already are the answer.
-                            state.toolchainReady = ToolchainInstaller.isComplete
-                            state.pop()
-                        }
-                        phase == ToolchainPhase.Running -> ToolchainInstaller.cancel()
-                        else -> ToolchainInstaller.start(context) { ready ->
-                            state.toolchainReady = ready
-                        }
+        Button(
+            onClick = {
+                when {
+                    !supported || complete -> {
+                        // From the rows, not from disk: this runs on the main
+                        // thread and the rows already are the answer.
+                        state.toolchainReady = ToolchainInstaller.isComplete
+                        state.pop()
                     }
-                },
-            contentAlignment = Alignment.Center,
+                    phase == ToolchainPhase.Running -> ToolchainInstaller.cancel()
+                    else -> ToolchainInstaller.start(context) { ready ->
+                        state.toolchainReady = ready
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(MD.rowMin),
+            // Elevation zero, in both halves, always: depth is a fill step and
+            // one hairline, never a shadow (docs/VISUAL.md, ELEVATION).
+            elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                color = theme.color("text", MaterialTheme.colorScheme.onPrimary),
-            )
+            Text(text = label, style = MaterialTheme.typography.labelLarge)
         }
-        Spacer(Modifier.height(4.dp))
         // A text link and not a button, deliberately: the minority path, and a
         // real one. Setup comes back from Projects → Toolchain at any time.
-        Text(
-            text = if (complete) "Close" else "Skip — I only want to edit code",
-            style = MaterialTheme.typography.labelMedium,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier
-                .touchTarget()
-                .clickable {
-                    state.toolchainReady = ToolchainInstaller.isComplete
-                    state.pop()
-                }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        )
+        TextButton(
+            onClick = {
+                state.toolchainReady = ToolchainInstaller.isComplete
+                state.pop()
+            },
+        ) {
+            Text(
+                text = if (complete) "Close" else "Skip — I only want to edit code",
+                style = MaterialTheme.typography.labelLarge,
+                color = scheme.onSurfaceVariant,
+            )
+        }
         // The other half of this screen's job: once the toolchain is in, this
         // is also the page you come to to get the disk back (docs/UI.md —
         // "the repair / uninstall / free-1.4-GB page"). Only offered when
@@ -468,21 +555,21 @@ private fun Actions(
         // standing, because the terminal and git are useful without a compiler.
         if (complete) {
             val scope = rememberCoroutineScope()
-            Text(
-                text = "Remove the toolchain — frees ${formatBytes(installedBytes)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier
-                    .touchTarget()
-                    .clickable {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { SolanaToolchain.remove(context) }
-                            state.toolchainReady = false
-                            ToolchainInstaller.refresh(context)
-                        }
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { SolanaToolchain.remove(context) }
+                        state.toolchainReady = false
+                        ToolchainInstaller.refresh(context)
                     }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+                },
+            ) {
+                Text(
+                    text = "Remove the toolchain — frees ${formatBytes(installedBytes)}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

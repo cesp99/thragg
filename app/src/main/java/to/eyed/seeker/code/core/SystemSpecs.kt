@@ -14,9 +14,11 @@ import to.eyed.seeker.code.BuildConfig
  * architecture and GPU. Ours keeps every line that means something on Android
  * and adds the three that only mean something here:
  *
- *  * the **flavour**, because `full` and `play` are two apps as far as a bug
- *    is concerned — one can run a Linux userland and the other cannot, and
- *    half the reports about git or a language server are really about that;
+ *  * whether there is a **userland**, because half the reports about git or a
+ *    language server are really about that. This used to be the build
+ *    *flavour*, back when a Play-compatible edition shipped without one; there
+ *    is a single edition now, so the line states the capability instead of
+ *    naming an edition that no longer varies;
  *  * the **ABI**, because the engine is a native library and an arm64 bug and
  *    an x86_64 bug are different bugs;
  *  * the **page size**, because Android 15 began shipping devices with 16 KiB
@@ -31,12 +33,10 @@ import to.eyed.seeker.code.BuildConfig
  * text a user is about to paste into an issue is checkable on the host.
  */
 data class SystemSpecs(
-    /** `0.0.4-full`, as the launcher and the store show it. */
+    /** `0.0.5`, as the launcher shows it. */
     val appVersion: String,
     val versionCode: Int,
-    /** `full` or `play` — see the note above on why this is not cosmetic. */
-    val flavour: String,
-    /** Whether this edition can run a Linux userland at all. */
+    /** Whether this build can run a Linux userland at all. */
     val hasUserland: Boolean,
     /** The Rust engine's own version string, from `CoreBridge.engineVersion`. */
     val engineVersion: String,
@@ -53,7 +53,7 @@ data class SystemSpecs(
     /** The report as label/value pairs, which is what the dialog draws. */
     fun lines(): List<Pair<String, String>> = listOf(
         "App" to "$appVersion ($versionCode)",
-        "Edition" to if (hasUserland) "$flavour — Linux userland" else "$flavour — no userland",
+        "Userland" to if (hasUserland) "Linux userland" else "no userland",
         "Engine" to engineVersion,
         "Zed" to zedCommit,
         "Device" to deviceModel,
@@ -80,7 +80,6 @@ data class SystemSpecs(
         fun of(engineVersion: String): SystemSpecs = SystemSpecs(
             appVersion = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
-            flavour = BuildConfig.FLAVOR,
             hasUserland = BuildConfig.USERLAND,
             engineVersion = engineVersion,
             zedCommit = BuildConfig.ZED_COMMIT,

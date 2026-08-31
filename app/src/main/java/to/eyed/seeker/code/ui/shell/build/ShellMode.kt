@@ -13,17 +13,22 @@ import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.terminal.TerminalDock
 import to.eyed.seeker.code.ui.theme.LocalAppSettings
+import to.eyed.seeker.code.ui.theme.ZedSurface
 
 /**
  * Shell is a **mode of Build**, not a fourth destination.
  *
  * The bar has three stops and that is the specification, not an accident
  * (docs/UI.md, "Navigation"): a terminal is the escape hatch for everything
- * the three buttons do not cover — `solana config`, `anchor keys list`,
- * `apt install`, `solana logs` — and it is reached by the `⌗ Shell` chip in
- * the Build header, in the same Debian proot and the same working directory
- * the build uses. Back from Shell goes to Code, not to Build, because the two
- * are one destination; the mode is remembered, so coming back to ▶ comes back
+ * Build, Test and Deploy do not cover — `solana config`, `anchor keys list`,
+ * `apt install`, `solana logs` — and it is reached by the terminal mark in the
+ * Build destination's app bar, in the same Debian proot and the same working
+ * directory the build uses. That mark stayed in the bar rather than moving
+ * into the overflow with Test and Deploy: it is the app's only route to a
+ * shell, and a route with no other entrance does not go in a menu.
+ *
+ * Back from Shell goes to Code, not to Build, because the two are one
+ * destination; the mode is remembered, so coming back to the build comes back
  * to the terminal you left mid-command.
  *
  * Two sessions exist at most and neither is a tab: the interactive shell here,
@@ -68,6 +73,18 @@ object ShellModes {
 /**
  * The terminal itself, hosted rather than rebuilt.
  *
+ * WRAPPED IN [ZedSurface], WHICH IS NOT DECORATION. The app root is the
+ * MATERIAL half now — ripple on, `materialTypography`, no layout-direction pin
+ * — and a terminal emulator is the most Zed-shaped surface in the app: it
+ * draws its cells at absolute x in a `drawBehind`, it takes its palette
+ * straight from the theme's `terminal.ansi.*` keys, and a ripple over a cell
+ * grid is the one place a press highlight is actively wrong. [ZedSurface]
+ * re-provides Zed's metrics, Zed's no-ripple rule and Zed's LTR pin over the
+ * shared colour scheme, which is exactly the list of things this host needs
+ * and the Build chrome above it must not have (docs/VISUAL.md, "The hybrid" →
+ * THE BOUNDARY). It is the same wrapper `CodeScreen.kt:669` puts around the
+ * editor, for the same reason.
+ *
  * `TerminalDock` is the inherited Termux emulator host with everything a touch
  * user needs already in it: the extra-keys row (GBoard has no Esc, Tab, Ctrl
  * or arrows, so without it the terminal cannot be driven at all), the ⌨
@@ -88,7 +105,7 @@ fun ShellTerminal(state: ShellState, projectRoot: String, modifier: Modifier = M
     LaunchedEffect(projectRoot) { terminals.openShell(projectRoot) }
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (terminals.active != null) {
+        if (terminals.active != null) ZedSurface {
             TerminalDock(
                 state = terminals,
                 cwd = projectRoot,

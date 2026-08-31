@@ -124,14 +124,21 @@ class LiveRunPeekTest {
         assertEquals(5_000L, later.single().settledAt)
     }
 
-    /** 1600 ms in full, then the one-line summary, then gone at 7000 ms. */
+    /**
+     * 4000 ms in full, then the one-line summary, then gone at 7000 ms.
+     *
+     * The hold is `Durations.RUN_HOLD` now rather than a constant of its own —
+     * it was 1600 ms, which is the copy-confirmation's duration, and four
+     * figures of final counts are not readable in it (docs/VISUAL.md,
+     * "Foundations", MOTION).
+     */
     @Test
     fun theSnapshotIsHeldThenCollapsedThenReleased() {
         val live = peekSlots(emptyList(), listOf(workflow("a", OrchStatus.Running)), 0)
         val settled = peekSlots(live, listOf(workflow("a", OrchStatus.Done)), 1_000).single()
 
-        assertTrue(settled.isHeld(1_000 + 1_599))
-        assertFalse(settled.isHeld(1_000 + 1_600))
+        assertTrue(settled.isHeld(1_000 + 3_999))
+        assertFalse(settled.isHeld(1_000 + 4_000))
         assertFalse(settled.isReleased(1_000 + 6_999))
         assertTrue(settled.isReleased(1_000 + 7_000))
 

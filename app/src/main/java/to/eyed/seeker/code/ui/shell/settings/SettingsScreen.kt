@@ -1,24 +1,23 @@
 package to.eyed.seeker.code.ui.shell.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,27 +25,30 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import to.eyed.seeker.code.R
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AppSettings
-import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
-import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.core.Autosave
 import to.eyed.seeker.code.core.FormatOnSave
+import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
+import to.eyed.seeker.code.solana.toolchain.formatBytes
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SectionHeader
+import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.editor.SoftWrapMode
 import to.eyed.seeker.code.ui.shell.Destination
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.RowChevron
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.TabularNums
 import to.eyed.seeker.code.ui.workspace.AboutDialog
 import to.eyed.seeker.code.ui.workspace.Notifications
 
@@ -72,6 +74,17 @@ import to.eyed.seeker.code.ui.workspace.Notifications
  * — it is a JNI hop that rewrites a file — so every one of them is on IO and
  * the resolved settings come back to [onSettingsChanged], which is what
  * repaints the theme.
+ *
+ * THE MATERIAL PASS (docs/VISUAL.md, "Settings") changed three things and no
+ * behaviour. Each section is a [SeekerCard] group with a [HairlineDivider]
+ * between rows, under the shared [SectionHeader] — this file's own private
+ * copy of that header, one of three in the app, is gone. The booleans are a
+ * real `Switch`: the note that used to be here said Material's takes its
+ * colours from the M3 scheme "and this app's colours come from a Zed theme
+ * file", which was true until the bridge made the M3 scheme *be* the Zed
+ * theme, and two boxes and a circle never had the drag gesture, the state
+ * description or the disabled treatment. [SliderRow] keeps its write-on-
+ * release rule exactly and simply loses its three colour overrides.
  */
 @Composable
 fun SettingsScreen(
@@ -124,117 +137,139 @@ fun SettingsScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
+            .padding(horizontal = MD.space4)
+            // 24dp so the last row clears the nav bar rather than sitting
+            // under it (docs/VISUAL.md, "Foundations", RHYTHM).
+            .padding(bottom = MD.space6),
+        verticalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
-        SectionHeader("SOLANA")
-        LinkRow(
-            label = "Toolchain",
-            detail = when {
-                !state.toolchainReady -> "not installed"
-                toolchainBytes != null -> "installed · ${formatBytes(toolchainBytes!!)}"
-                else -> "installed"
-            },
-            onClick = { state.push(Route.Setup) },
-        )
-        LinkRow(
-            label = "Cluster",
-            detail = if (onOpenCluster == null) "not set up yet" else "devnet",
-            enabled = onOpenCluster != null,
-            onClick = { onOpenCluster?.invoke() },
-        )
-        LinkRow(
-            label = "Wallet",
-            detail = if (onOpenWallet == null) "not set up yet" else "Seed Vault",
-            enabled = onOpenWallet != null,
-            onClick = { onOpenWallet?.invoke() },
-        )
+        SectionHeader("Solana", modifier = Modifier.padding(top = MD.space4))
+        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            LinkRow(
+                label = "Toolchain",
+                detail = when {
+                    !state.toolchainReady -> "not installed"
+                    toolchainBytes != null -> "installed · ${formatBytes(toolchainBytes!!)}"
+                    else -> "installed"
+                },
+                onClick = { state.push(Route.Setup) },
+            )
+            HairlineDivider()
+            LinkRow(
+                label = "Cluster",
+                detail = if (onOpenCluster == null) "not set up yet" else "devnet",
+                enabled = onOpenCluster != null,
+                onClick = { onOpenCluster?.invoke() },
+            )
+            HairlineDivider()
+            LinkRow(
+                label = "Wallet",
+                detail = if (onOpenWallet == null) "not set up yet" else "Seed Vault",
+                enabled = onOpenWallet != null,
+                onClick = { onOpenWallet?.invoke() },
+            )
+        }
 
-        SectionHeader("AGENT")
-        LinkRow(
-            label = "Coding agent",
-            // The agents in settings.json are the only agents there are — the
-            // panel names none of its own (core/AppSettings.kt, `agents`).
-            detail = settings.agents.firstOrNull()?.name ?: "none installed",
-            enabled = onOpenAgentPicker != null,
-            onClick = { onOpenAgentPicker?.invoke() },
-        )
-        LinkRow(
-            label = "Install an agent",
-            enabled = onOpenAgentPicker != null,
-            onClick = { onOpenAgentPicker?.invoke() },
-        )
+        SectionHeader("Agent", modifier = Modifier.padding(top = MD.space4))
+        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            LinkRow(
+                label = "Coding agent",
+                // The agents in settings.json are the only agents there are —
+                // the panel names none of its own (core/AppSettings.kt,
+                // `agents`).
+                detail = settings.agents.firstOrNull()?.name ?: "none installed",
+                enabled = onOpenAgentPicker != null,
+                onClick = { onOpenAgentPicker?.invoke() },
+            )
+            HairlineDivider()
+            LinkRow(
+                label = "Install an agent",
+                enabled = onOpenAgentPicker != null,
+                onClick = { onOpenAgentPicker?.invoke() },
+            )
+        }
 
-        SectionHeader("EDITOR")
-        LinkRow(
-            label = "Theme",
-            detail = settings.themeSelection.let { selection ->
-                if (selection.isStatic) selection.light else "${selection.dark} / ${selection.light}"
-            },
-            onClick = { themeListOpen = true },
-        )
-        SliderRow(
-            label = "Font size",
-            value = settings.bufferFontSize,
-            range = MIN_FONT_SIZE..MAX_FONT_SIZE,
-            onValue = { size ->
-                write(AppSettings.KEY_FONT_SIZE, size.toInt().toString())
-            },
-        )
-        ToggleRow(
-            label = "Wrap long lines",
-            checked = settings.softWrap.wraps,
-            onToggle = { on ->
-                // `editor_width` and not `bounded`: bounded also wraps at
-                // preferred_line_length, and an 80-column wrap on a 400dp
-                // screen would leave a strip of empty gutter down the right.
-                val mode = if (on) SoftWrapMode.EditorWidth else SoftWrapMode.None
-                write(AppSettings.KEY_SOFT_WRAP, "\"${mode.key}\"")
-            },
-        )
-        ToggleRow(
-            label = "Format on save",
-            checked = settings.formatOnSave != FormatOnSave.Off,
-            onToggle = { on ->
-                val value = if (on) FormatOnSave.On else FormatOnSave.Off
-                write(AppSettings.KEY_FORMAT_ON_SAVE, "\"${value.key}\"")
-            },
-        )
-        ToggleRow(
-            label = "Autosave on leaving a file",
-            detail = "A build reads the file on disk. 71 seconds is a long time to spend on a stale one.",
-            checked = settings.autosave != Autosave.Off,
-            onToggle = { on ->
-                val value = if (on) Autosave.OnFocusChange else Autosave.Off
-                write(AppSettings.KEY_AUTOSAVE, value.toJson())
-            },
-        )
+        SectionHeader("Editor", modifier = Modifier.padding(top = MD.space4))
+        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            LinkRow(
+                label = "Theme",
+                detail = settings.themeSelection.let { selection ->
+                    if (selection.isStatic) selection.light else "${selection.dark} / ${selection.light}"
+                },
+                onClick = { themeListOpen = true },
+            )
+            HairlineDivider()
+            SliderRow(
+                label = "Font size",
+                value = settings.bufferFontSize,
+                range = MIN_FONT_SIZE..MAX_FONT_SIZE,
+                onValue = { size ->
+                    write(AppSettings.KEY_FONT_SIZE, size.toInt().toString())
+                },
+            )
+            HairlineDivider()
+            ToggleRow(
+                label = "Wrap long lines",
+                checked = settings.softWrap.wraps,
+                onToggle = { on ->
+                    // `editor_width` and not `bounded`: bounded also wraps at
+                    // preferred_line_length, and an 80-column wrap on a 400dp
+                    // screen would leave a strip of empty gutter down the right.
+                    val mode = if (on) SoftWrapMode.EditorWidth else SoftWrapMode.None
+                    write(AppSettings.KEY_SOFT_WRAP, "\"${mode.key}\"")
+                },
+            )
+            HairlineDivider()
+            ToggleRow(
+                label = "Format on save",
+                checked = settings.formatOnSave != FormatOnSave.Off,
+                onToggle = { on ->
+                    val value = if (on) FormatOnSave.On else FormatOnSave.Off
+                    write(AppSettings.KEY_FORMAT_ON_SAVE, "\"${value.key}\"")
+                },
+            )
+            HairlineDivider()
+            ToggleRow(
+                label = "Autosave on leaving a file",
+                detail = "A build reads the file on disk. 71 seconds is a long time to spend on a stale one.",
+                checked = settings.autosave != Autosave.Off,
+                onToggle = { on ->
+                    val value = if (on) Autosave.OnFocusChange else Autosave.Off
+                    write(AppSettings.KEY_AUTOSAVE, value.toJson())
+                },
+            )
+        }
 
-        SectionHeader("ADVANCED")
-        LinkRow(
-            label = "Edit settings.json",
-            detail = "every key, including the ones with no row",
-            enabled = settingsPath != null && state.openPath != null,
-            onClick = {
-                val path = settingsPath ?: return@LinkRow
-                val open = state.openPath ?: return@LinkRow
-                state.show(Destination.Code)
-                open(path)
-            },
-        )
-        // Between the JSON door and About, which is where docs/LICENSING.md §5
-        // puts it. Two taps from anywhere in the app to every notice in the
-        // package — that reachability is the compliance requirement, not the
-        // existence of the files.
-        LinkRow(
-            label = stringResource(R.string.licences_settings_row),
-            detail = stringResource(R.string.licences_settings_detail),
-            onClick = { state.push(Route.Licences) },
-        )
-        LinkRow(
-            label = "About this device",
-            detail = "engine version, ABI, page size",
-            onClick = { aboutOpen = true },
-        )
+        SectionHeader("Advanced", modifier = Modifier.padding(top = MD.space4))
+        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            LinkRow(
+                label = "Edit settings.json",
+                detail = "every key, including the ones with no row",
+                enabled = settingsPath != null && state.openPath != null,
+                onClick = {
+                    val path = settingsPath ?: return@LinkRow
+                    val open = state.openPath ?: return@LinkRow
+                    state.show(Destination.Code)
+                    open(path)
+                },
+            )
+            HairlineDivider()
+            // Between the JSON door and About, which is where
+            // docs/LICENSING.md §5 puts it. Two taps from anywhere in the app
+            // to every notice in the package — that reachability is the
+            // compliance requirement, not the existence of the files.
+            LinkRow(
+                label = stringResource(R.string.licences_settings_row),
+                detail = stringResource(R.string.licences_settings_detail),
+                onClick = { state.push(Route.Licences) },
+            )
+            HairlineDivider()
+            LinkRow(
+                label = "About this device",
+                detail = "engine version, ABI, page size",
+                onClick = { aboutOpen = true },
+            )
+        }
     }
 
     if (themeListOpen) {
@@ -272,17 +307,6 @@ fun SettingsScreen(
 private const val MIN_FONT_SIZE = 10f
 private const val MAX_FONT_SIZE = 24f
 
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = LocalZedTheme.current.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        modifier = Modifier.padding(start = RowPadding, end = RowPadding, top = 20.dp, bottom = 4.dp),
-    )
-}
-
 /** A row that goes somewhere: a label, an optional readout, and a chevron. */
 @Composable
 private fun LinkRow(
@@ -291,31 +315,47 @@ private fun LinkRow(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
-            .heightIn(min = RowHeight)
-            .padding(horizontal = RowPadding),
+            .heightIn(min = MD.rowMin)
+            .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) {
-                theme.color("text", MaterialTheme.colorScheme.onSurface)
-            } else {
-                theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-            },
+            // Material's disabled alpha rather than the muted role: muted is a
+            // *kind* of text in this design, not a state, and using it for
+            // both makes a live secondary line read as switched off.
+            color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // The label is the only WEIGHTED child, so it absorbs the slack and
+            // pushes the readout and the chevron to the row's edge. It used to
+            // share a weight with the readout, and two weights split the row in
+            // half — which parked the chevron in the middle of the card on
+            // every row whose readout was short, while an icon-bearing sibling
+            // put its own on the edge.
             modifier = Modifier.weight(1f),
         )
         if (detail != null) {
             Text(
                 text = detail,
                 style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(end = 10.dp),
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // Unweighted, so it measures first — capped, so that measuring
+                // first cannot squeeze the label. An uncapped readout like
+                // "what this app is built from, and the source offer" takes its
+                // whole intrinsic width and leaves the part that says what the
+                // row *is* with nothing; [DetailMax] is the share of a 400dp
+                // row a readout may have before it is the one that ellipsises.
+                modifier = Modifier.widthIn(max = DetailMax),
             )
         }
         RowChevron()
@@ -325,10 +365,10 @@ private fun LinkRow(
 /**
  * A row with a switch.
  *
- * Drawn rather than Material's `Switch` for the reason every control in this
- * app is drawn: Material's takes its colours from the M3 scheme, and this
- * app's colours come from a Zed theme file. Two boxes and a circle is the
- * whole of it, and the whole row is the target.
+ * A real `Switch` now. The row carries the `toggleable` semantics and the
+ * switch is handed `onCheckedChange = null`, which is Material's own idiom for
+ * "the control is the mark, the row is the target": one node, announced once,
+ * with the whole 400dp width to hit.
  */
 @Composable
 private fun ToggleRow(
@@ -337,67 +377,56 @@ private fun ToggleRow(
     onToggle: (Boolean) -> Unit,
     detail: String? = null,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggle(!checked) }
-            .heightIn(min = RowHeight)
-            .padding(horizontal = RowPadding, vertical = 6.dp),
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onToggle,
+            )
+            .heightIn(min = MD.rowMin)
+            .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = scheme.onSurface,
             )
             if (detail != null) {
                 Text(
                     text = detail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MD.space05),
                 )
             }
         }
-        Box(
-            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
-            modifier = Modifier
-                .size(width = SwitchWidth, height = SwitchHeight)
-                .clip(RoundedCornerShape(SwitchHeight / 2))
-                .background(
-                    if (checked) {
-                        theme.color("element.selected", MaterialTheme.colorScheme.primary)
-                    } else {
-                        theme.color("element.background", MaterialTheme.colorScheme.surfaceVariant)
-                    }
-                )
-                .padding(3.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(SwitchHeight - 6.dp)
-                    .clip(CircleShape)
-                    .background(theme.color("text", MaterialTheme.colorScheme.onSurface)),
-            )
-        }
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
 /**
  * A row with a slider, for the one setting that is a number worth dragging.
  *
- * Material's `Slider` with the Zed theme's colours poured into it, rather
- * than a hand-drawn track: a slider is one of the few controls where the
- * platform's own touch handling — the press-anywhere-on-the-track jump, the
- * drag that keeps following a finger that has left the track vertically — is
- * worth more than matching Zed's chrome exactly.
+ * Material's `Slider`, now with Material's own colours — the three overrides
+ * this row used to pour into it were Zed reads whose M3 fallback never fired,
+ * and `SliderDefaults.colors()` gives it the accent for free because the
+ * accent *is* the theme's (docs/VISUAL.md, "Settings"). A slider is one of the
+ * few controls where the platform's own touch handling — the
+ * press-anywhere-on-the-track jump, the drag that keeps following a finger
+ * that has left the track vertically — is worth more than matching Zed's
+ * chrome exactly.
  *
  * The *write* is on release, through `onValueChangeFinished`, and this is not
  * a nicety: [AppSettings.set] rewrites settings.json through the engine, and
  * writing the file on every frame of a drag would be sixty file rewrites a
  * second. What moves live is the local value, which is what the number on the
- * right reads.
+ * right reads — tabular, because it ticks under a finger.
  */
 @Composable
 private fun SliderRow(
@@ -406,25 +435,30 @@ private fun SliderRow(
     range: ClosedFloatingPointRange<Float>,
     onValue: (Float) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     // Null while the setting is what is showing; a number while a finger is
     // on it. Keyed on [value] so a change from anywhere else — a hand edit of
     // settings.json — is picked up rather than pinned by a stale drag.
     var dragging by remember(value) { mutableStateOf<Float?>(null) }
     val shown = dragging ?: value
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = RowPadding, vertical = 4.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = MD.space3, vertical = MD.space2),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = shown.toInt().toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFeatureSettings = TabularNums,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Slider(
@@ -436,20 +470,10 @@ private fun SliderRow(
             // chose. The step count is the number of gaps, not of values.
             steps = (range.endInclusive - range.start).toInt() - 1,
             onValueChangeFinished = { dragging?.let { onValue(it) } },
-            colors = SliderDefaults.colors(
-                thumbColor = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                activeTrackColor = theme.color("element.selected", MaterialTheme.colorScheme.primary),
-                inactiveTrackColor = theme.color(
-                    "element.background",
-                    MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            ),
-            modifier = Modifier.fillMaxWidth().heightIn(min = RowHeight),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
 
-private val RowHeight = 44.dp
-private val RowPadding = 16.dp
-private val SwitchWidth = 44.dp
-private val SwitchHeight = 26.dp
+/** The share of a 400dp row a readout may take before it is the one that ellipsises. */
+private val DetailMax = 168.dp

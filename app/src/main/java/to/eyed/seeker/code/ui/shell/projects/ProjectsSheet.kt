@@ -4,24 +4,26 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,12 +34,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,16 +52,26 @@ import to.eyed.seeker.code.core.ProjectsRoot
 import to.eyed.seeker.code.core.SafTransfer
 import to.eyed.seeker.code.terminal.GitClone
 import to.eyed.seeker.code.terminal.TerminalSessions
+import to.eyed.seeker.code.ui.components.EmptyState
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerCard
+import to.eyed.seeker.code.ui.components.SeekerSearchField
+import to.eyed.seeker.code.ui.components.SeekerSpinner
+import to.eyed.seeker.code.ui.components.SectionHeader
+import to.eyed.seeker.code.ui.components.StatusDot
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.build.ShellModes
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.accentIcon
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.workspace.Notifications
-import java.io.File
 
 /**
  * Projects & tools — the sheet behind the project chip.
@@ -74,9 +85,20 @@ import java.io.File
  * tools").
  *
  * A sheet rather than a fourth destination because it is visited once a
- * session, not once a minute; and the last three rows are pinned because they
- * are the *only* route to Wallet, Toolchain and Settings, none of which is a
+ * session, not once a minute; and the tool rows are here because this is the
+ * *only* route to Wallet, Toolchain and Settings, none of which is a
  * destination either.
+ *
+ * WHAT THE MATERIAL PASS CHANGED (docs/VISUAL.md, "Projects"): the rows are
+ * one [SeekerCard] group with a [HairlineDivider] between them rather than a
+ * per-row hand-drawn fill; the filter is the SAME pill as the composer and the
+ * model drill ([SeekerSearchField]), which is the entire point of having one
+ * of them; and the two ways to get a *new* project moved into SheetScaffold's
+ * pinned `actions` slot, where a list of forty projects cannot push them off
+ * the bottom. Press feedback comes back for free with the ripple, and that
+ * matters most here: a 56dp project row that does not respond to a press is
+ * the clearest single instance of the "this is not a real Android app" tell
+ * the owner named.
  *
  * The two hard rules of switching, both inherited from
  * WorkspaceScreen.kt:1197 and both easy to lose in a rewrite:
@@ -109,7 +131,24 @@ fun ProjectsSheet(
     var projects by remember { mutableStateOf(emptyList<ProjectRow>()) }
     LaunchedEffect(revision) {
         projects = withContext(Dispatchers.IO) {
-            ProjectsRoot.list(context).map { ProjectRow(it, ProjectKind.of(File(it.path))) }
+            ProjectsRoot.list(context).map { summary ->
+                val root = File(summary.path)
+                ProjectRow(summary, ProjectKind.of(root), headBranch(root))
+            }
+        }
+    }
+
+    /** The filter, over names and framework labels. Empty is the whole list. */
+    var query by remember { mutableStateOf("") }
+    val matches = remember(projects, query) {
+        val needle = query.trim().lowercase(Locale.getDefault())
+        if (needle.isEmpty()) {
+            projects
+        } else {
+            projects.filter { row ->
+                row.summary.name.lowercase(Locale.getDefault()).contains(needle) ||
+                    row.kind.label?.lowercase(Locale.getDefault())?.contains(needle) == true
+            }
         }
     }
 
@@ -167,65 +206,150 @@ fun ProjectsSheet(
         state = state,
         onDismiss = onDismiss,
         modifier = modifier,
-        title = "PROJECTS",
+        title = "Projects",
         actions = {
-            // Pinned: the three doors out of work and into configuration.
-            ToolRow(
-                label = "Wallet",
-                detail = if (onOpenWallet == null) "Not set up yet" else null,
-                enabled = onOpenWallet != null,
-                onClick = { onOpenWallet?.invoke() },
-            )
-            ToolRow(
-                label = "Toolchain",
-                detail = if (state.toolchainReady) "Installed" else "Not installed",
-                onClick = { state.push(Route.Setup); onDismiss() },
-            )
-            ToolRow(
-                label = "Settings",
-                onClick = { state.push(Route.Settings); onDismiss() },
-            )
+            // Pinned, and only these two: the ways to get a project that does
+            // not exist yet. Filled for the one this screen exists to
+            // encourage, outlined for the other — Material's own pairing for
+            // a primary action beside its alternative.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MD.space3),
+            ) {
+                Button(
+                    onClick = { state.push(Route.NewProgram); onDismiss() },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("New program", style = MaterialTheme.typography.labelLarge)
+                }
+                // Absent rather than greyed where there is no userland: a
+                // build without the Linux guest cannot run git at all
+                // (GitClone.isSupported), and offering what it cannot do is
+                // worse than not mentioning it.
+                if (GitClone.isSupported) {
+                    OutlinedButton(
+                        onClick = { state.push(Route.Clone); onDismiss() },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Clone…", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
         },
     ) {
+        // Fixed above the list rather than scrolling with it: a filter that
+        // scrolls away is a filter you have to hunt for to correct.
+        SeekerSearchField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = "Filter projects…",
+            modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space1),
+        )
         if (busy != null) {
-            Message(busy!!)
-        }
-        if (projects.isEmpty()) {
-            Message("No projects yet. Make one below.")
-        }
-        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
-            items(projects, key = { it.summary.path }) { row ->
-                ProjectListRow(
-                    row = row,
-                    isCurrent = row.summary.path == state.project?.rootPath,
-                    onOpen = {
-                        ProjectWork.launch {
-                            openProjectInShell(context, state, row.summary.path)
-                            onDismiss()
-                        }
-                    },
-                    onLongPress = { menuFor = row.summary },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+                modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
+            ) {
+                SeekerSpinner()
+                Text(
+                    text = busy!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-        ActionRow(icon = R.drawable.ic_ui_plus, label = "New program") {
-            state.push(Route.NewProgram)
-            onDismiss()
-        }
-        // Absent rather than greyed where there is no userland: the `play`
-        // edition cannot run git at all (GitClone.isSupported), and offering
-        // what it cannot do is worse than not mentioning it.
-        if (GitClone.isSupported) {
-            ActionRow(icon = R.drawable.ic_ui_clone, label = "Clone from GitHub") {
-                state.push(Route.Clone)
-                onDismiss()
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(
+                start = MD.space4,
+                end = MD.space4,
+                top = MD.space3,
+                bottom = MD.space6,
+            ),
+            verticalArrangement = Arrangement.spacedBy(MD.space2),
+        ) {
+            if (projects.isEmpty()) {
+                item(key = "empty") {
+                    EmptyState(
+                        headline = "No projects yet",
+                        body = "New program scaffolds one. Clone brings one down from GitHub.",
+                    )
+                }
+            } else if (matches.isEmpty()) {
+                item(key = "no-matches") {
+                    Text(
+                        text = "Nothing matches “$query”.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = MD.space6),
+                    )
+                }
+            } else {
+                item(key = "recent-header") { SectionHeader("Recent") }
+                // One card for the whole group rather than one per row: the
+                // rows are a list, and a list is one object with rules in it.
+                // Not `items()` — a phone's project root holds tens of
+                // folders, not thousands, so the recycling a lazy row would
+                // buy is worth less than the group's single edge.
+                item(key = "recent") {
+                    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                        matches.forEachIndexed { index, row ->
+                            if (index > 0) HairlineDivider()
+                            ProjectListRow(
+                                row = row,
+                                isCurrent = row.summary.path == state.project?.rootPath,
+                                onOpen = {
+                                    ProjectWork.launch {
+                                        openProjectInShell(context, state, row.summary.path)
+                                        onDismiss()
+                                    }
+                                },
+                                onLongPress = { menuFor = row.summary },
+                            )
+                        }
+                    }
+                }
             }
-        }
-        ActionRow(icon = R.drawable.ic_ui_folder_import, label = "Import a folder") {
-            importLauncher.launch(null)
+
+            item(key = "tools-header") {
+                SectionHeader("Tools", modifier = Modifier.padding(top = MD.space4))
+            }
+            item(key = "tools") {
+                SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                    ToolRow(
+                        label = "Import a folder",
+                        icon = R.drawable.ic_ui_folder_import,
+                        onClick = { importLauncher.launch(null) },
+                    )
+                    HairlineDivider()
+                    ToolRow(
+                        label = "Wallet",
+                        // The wallet IS a keypair, so the key glyph is the
+                        // literal thing rather than a metaphor.
+                        icon = R.drawable.ic_ui_key,
+                        detail = if (onOpenWallet == null) "Not set up yet" else null,
+                        enabled = onOpenWallet != null,
+                        onClick = { onOpenWallet?.invoke() },
+                    )
+                    HairlineDivider()
+                    ToolRow(
+                        label = "Toolchain",
+                        // The row reads "Not installed" and opens the
+                        // installer, so the glyph is the download it offers.
+                        icon = R.drawable.ic_ui_download,
+                        detail = if (state.toolchainReady) "Installed" else "Not installed",
+                        onClick = { state.push(Route.Setup); onDismiss() },
+                    )
+                    HairlineDivider()
+                    ToolRow(
+                        label = "Settings",
+                        icon = R.drawable.ic_file_settings,
+                        onClick = { state.push(Route.Settings); onDismiss() },
+                    )
+                }
+            }
         }
     }
 
@@ -380,8 +504,35 @@ internal suspend fun openProjectInShell(
     return opened
 }
 
-/** A project plus the one thing about it worth reading off disk. */
-private data class ProjectRow(val summary: ProjectSummary, val kind: ProjectKind)
+/** A project, the one thing about it worth reading off disk, and its branch. */
+private data class ProjectRow(
+    val summary: ProjectSummary,
+    val kind: ProjectKind,
+    val branch: String?,
+)
+
+/**
+ * The checked-out branch, read straight out of `.git/HEAD`.
+ *
+ * One small file per row, which is why it is affordable where a status is not:
+ * the wireframe's `main ● 3` wants a dirty count beside the branch, and a
+ * count means `git status` over a whole worktree, per project, on a phone.
+ * The branch is a single line of text and the honest half of that pair, so it
+ * is the half this list draws (docs/VISUAL.md, "Projects").
+ *
+ * Null for a detached HEAD as well as for a folder that is not a repository:
+ * a bare object id is not a branch, and printing forty hex characters where a
+ * name goes would be worse than printing nothing.
+ *
+ * **Blocking** — one file read. It runs in the same IO block as the listing.
+ */
+private fun headBranch(root: File): String? {
+    val head = File(root, ".git/HEAD")
+    if (!head.isFile) return null
+    val text = runCatching { head.readText() }.getOrNull()?.trim() ?: return null
+    if (!text.startsWith("ref:")) return null
+    return text.substringAfterLast('/').takeIf { it.isNotBlank() }
+}
 
 /**
  * What kind of Solana project a directory holds, by the files in it.
@@ -409,6 +560,21 @@ internal enum class ProjectKind(val label: String?) {
     }
 }
 
+/**
+ * One project: which one is open, what it is, where it is, and when it was
+ * last touched.
+ *
+ * 56dp because that is the height a two-line list row is on Android and this
+ * is now one. The open marker is a [StatusDot] in a fixed 8dp slot drawn
+ * whether or not the dot is in it, so every name below starts at the same x —
+ * and it takes a description, because unlike most dots in this app it is the
+ * only thing on the row saying what it says.
+ *
+ * The branch is [MonoSmall]: it is a git identifier, and identifiers are set
+ * in the buffer face here for the same reason a path is. The elapsed time
+ * carries [TabularNums] so the right-hand column stops jittering while a build
+ * touches the tree.
+ */
 @Composable
 private fun ProjectListRow(
     row: ProjectRow,
@@ -416,121 +582,142 @@ private fun ProjectListRow(
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (isCurrent) theme.color("element.selected") else Color.Transparent)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
             .heightIn(min = RowHeight)
-            .padding(horizontal = SheetPadding, vertical = 6.dp),
+            .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {
-        // The dot is the whole of "which one is open": a filled row plus a
-        // bullet, and no checkmark column stealing 24dp from the name. The
-        // slot is drawn whether or not the dot is in it, so every name below
-        // starts at the same x.
         Box(
             // Padding first, then the slot: the other way round the 10dp is
             // taken *out of* the 8dp and the dot measures zero.
-            modifier = Modifier.padding(end = 10.dp).width(CurrentDotSlot),
+            modifier = Modifier.padding(end = DotGap).width(CurrentDotSlot),
             contentAlignment = Alignment.Center,
         ) {
             if (isCurrent) {
-                SeekerIcon(
-                    icon = R.drawable.ic_ui_dot,
-                    contentDescription = "open",
-                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                    size = CurrentDotSize,
+                StatusDot(
+                    color = scheme.primary,
+                    size = CurrentDotSlot,
+                    contentDescription = "Open",
                 )
             }
         }
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(end = MD.space2)) {
             Text(
                 text = row.summary.name,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = listOfNotNull(row.kind.label, relativeTime(row.summary.lastModified))
-                    .joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                maxLines = 1,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
+                modifier = Modifier.padding(top = MD.space05),
+            ) {
+                row.kind.label?.let { label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+                if (row.branch != null) {
+                    SeekerIcon(
+                        icon = R.drawable.ic_ui_git_branch,
+                        contentDescription = null,
+                        tint = mutedIcon,
+                        size = IconSize.Marker,
+                    )
+                    Text(
+                        text = row.branch,
+                        style = MonoSmall,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun ActionRow(@DrawableRes icon: Int, label: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            // The whole row is the target, glyph included — 400dp wide and
-            // 44dp tall, which is the size every tappable thing in this shell
-            // is (docs/UI.md, "Navigation").
-            .combinedClickable(onClick = onClick)
-            .heightIn(min = RowHeight)
-            .padding(horizontal = SheetPadding),
-    ) {
-        SeekerIcon(
-            icon = icon,
-            contentDescription = null,
-            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-            size = IconSize.Inline,
-            modifier = Modifier.padding(end = 12.dp),
-        )
         Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            modifier = Modifier.weight(1f),
+            text = relativeTime(row.summary.lastModified),
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+            color = scheme.onSurfaceVariant,
+            maxLines = 1,
         )
     }
 }
 
-/** A pinned bottom row: a label, an optional readout, and a chevron. */
+/** A row in a card group: a label, an optional readout, and a chevron. */
 @Composable
 private fun ToolRow(
     label: String,
     detail: String? = null,
+    @DrawableRes icon: Int? = null,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
+    val scheme = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = RowHeight)
-            .combinedClickable(enabled = enabled, onClick = onClick),
+            .combinedClickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = MD.rowMin)
+            .padding(horizontal = MD.space3),
     ) {
+        if (icon != null) {
+            SeekerIcon(
+                icon = icon,
+                contentDescription = null,
+                tint = accentIcon,
+                size = IconSize.Inline,
+            )
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) {
-                theme.color("text", MaterialTheme.colorScheme.onSurface)
-            } else {
-                theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-            },
+            // A disabled row keeps its ink at 38%, Material's own disabled
+            // alpha, rather than dropping to the muted role — muted is a
+            // *kind* of text here, not a state, and reusing it for both makes
+            // a live secondary line look switched off.
+            color = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // MEASURED: the label is the ONLY weighted child. It was weighted
+            // alongside a `weight(1f, fill = false)` readout, and two weights
+            // split the row in half — so the readout and the chevron were laid
+            // out in the middle of the card while the icon-bearing row above
+            // them put its chevron on the edge, and one card drew three rows on
+            // three different grids. The label absorbing the slack is what
+            // pushes the readout and the chevron to the edge; a long readout
+            // now ellipsises the label instead of moving the chevron.
             modifier = Modifier.weight(1f),
         )
         if (detail != null) {
             Text(
                 text = detail,
                 style = MaterialTheme.typography.labelSmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier.padding(end = 10.dp),
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // Capped for the reason SettingsScreen's LinkRow caps it: an
+                // unweighted child measures first, so an uncapped readout would
+                // squeeze the label instead of ellipsising itself.
+                modifier = Modifier.widthIn(max = DetailMax),
             )
         }
         RowChevron()
     }
 }
+
+/** The share of a 400dp row a readout may take before it is the one that ellipsises. */
+private val DetailMax = 168.dp
 
 /** Rename / Export / Delete — docs/UI.md, "Long-press a row". */
 @Composable
@@ -542,7 +729,7 @@ private fun ProjectMenuSheet(
     onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    SheetScaffold(state = state, onDismiss = onDismiss, title = project.name.uppercase()) {
+    SheetScaffold(state = state, onDismiss = onDismiss, title = project.name) {
         MenuRow("Rename", onClick = onRename)
         MenuRow("Export a copy", onClick = onExport)
         MenuRow("Delete", isDestructive = true, onClick = onDelete)
@@ -567,7 +754,7 @@ private fun RenameProjectSheet(
     SheetScaffold(
         state = state,
         onDismiss = onDismiss,
-        title = "RENAME",
+        title = "Rename",
         field = {
             SheetTextField(
                 value = name,
@@ -613,7 +800,7 @@ private fun ConfirmDeleteSheet(
     SheetScaffold(
         state = state,
         onDismiss = onDismiss,
-        title = "DELETE",
+        title = "Delete",
         actions = {
             SheetButtons(
                 cancelLabel = "Keep it",
@@ -631,35 +818,33 @@ private fun ConfirmDeleteSheet(
 
 @Composable
 private fun MenuRow(label: String, isDestructive: Boolean = false, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     Text(
         text = label,
         style = MaterialTheme.typography.bodyMedium,
         color = if (isDestructive) {
-            theme.color("error", MaterialTheme.colorScheme.error)
+            MaterialTheme.colorScheme.error
         } else {
-            theme.color("text", MaterialTheme.colorScheme.onSurface)
+            MaterialTheme.colorScheme.onSurface
         },
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick)
-            .heightIn(min = RowHeight)
-            .padding(horizontal = SheetPadding, vertical = 12.dp),
+            .heightIn(min = MD.rowMin)
+            .padding(horizontal = MD.space4, vertical = MD.space3),
     )
 }
 
 @Composable
 internal fun Message(text: String, isError: Boolean = false) {
-    val theme = LocalZedTheme.current
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
         color = if (isError) {
-            theme.color("error", MaterialTheme.colorScheme.error)
+            MaterialTheme.colorScheme.error
         } else {
-            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+            MaterialTheme.colorScheme.onSurfaceVariant
         },
-        modifier = Modifier.padding(horizontal = SheetPadding, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
     )
 }
 
@@ -670,6 +855,14 @@ internal fun Message(text: String, isError: Boolean = false) {
  * within the row the destructive or committing one is on the *right*, under
  * the thumb — which is also the one place a slip is least likely, because the
  * thumb arrives there deliberately rather than on the way past.
+ *
+ * Stock `TextButton` and `Button` now, rather than two `Box`es with a
+ * background and a `combinedClickable`: what the hand-rolled pair could not
+ * give is exactly what a confirm needs — a button role for TalkBack, a
+ * disabled state the platform draws consistently, and press feedback. The
+ * destructive confirm swaps the container for `error` rather than tinting the
+ * label, because a Delete that reads like every other button is a Delete
+ * somebody presses on the way past.
  */
 @Composable
 internal fun SheetButtons(
@@ -680,54 +873,27 @@ internal fun SheetButtons(
     onConfirm: () -> Unit,
     isDestructive: Boolean = false,
 ) {
-    val theme = LocalZedTheme.current
     Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MD.space3, Alignment.End),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(top = MD.space2),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = ButtonHeight)
-                .background(
-                    theme.color("element.background", MaterialTheme.colorScheme.surfaceVariant),
-                    RoundedCornerShape(8.dp),
-                )
-                .combinedClickable(onClick = onCancel),
-        ) {
-            Text(
-                text = cancelLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            )
+        TextButton(onClick = onCancel) {
+            Text(cancelLabel, style = MaterialTheme.typography.labelLarge)
         }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = ButtonHeight)
-                .background(
-                    when {
-                        !confirmEnabled ->
-                            theme.color("element.background", MaterialTheme.colorScheme.surfaceVariant)
-                        isDestructive -> theme.color("error", MaterialTheme.colorScheme.error)
-                        else -> theme.color("element.selected", MaterialTheme.colorScheme.primary)
-                    },
-                    RoundedCornerShape(8.dp),
+        Button(
+            onClick = onConfirm,
+            enabled = confirmEnabled,
+            colors = if (isDestructive) {
+                ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
                 )
-                .combinedClickable(enabled = confirmEnabled, onClick = onConfirm),
+            } else {
+                ButtonDefaults.buttonColors()
+            },
         ) {
-            Text(
-                text = confirmLabel,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (confirmEnabled) {
-                    theme.color("text", MaterialTheme.colorScheme.onSurface)
-                } else {
-                    theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-                },
-            )
+            Text(confirmLabel, style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -754,20 +920,25 @@ internal fun relativeTime(then: Long, now: Long = System.currentTimeMillis()): S
     }
 }
 
-private val RowHeight = 44.dp
-private val ButtonHeight = 44.dp
-private val SheetPadding = 16.dp
+/** Two lines of name and detail, at Android's list-row height. */
+private val RowHeight = 56.dp
 
 /**
  * One text field, and the only shape a text field takes in this package.
  *
- * `BasicTextField` rather than Material's `TextField` for the reason every
- * field in this app is: Material's carries a 56dp container, a floating label
- * and its own indicator colours, none of which survive contact with a Zed
- * theme, and all of which cost vertical space this column does not have.
+ * Now a stock `OutlinedTextField` rather than a `BasicTextField` in a themed
+ * box. The old note said Material's container "does not survive contact with
+ * a Zed theme" — that was true while the scheme was a Zed theme wearing
+ * Material's names, and it stopped being true when the bridge started solving
+ * the Material half's roles (docs/VISUAL.md, THE HYBRID). What the stock field
+ * brings back is the part that was quietly missing: [isError] and
+ * [supportingText] mean a refused name is *announced* as an error by TalkBack
+ * rather than drawn as a red line underneath it, and the label, the focus
+ * indicator and the IME handling stop being this file's problem.
  *
- * The error goes *under* the field rather than replacing the placeholder, so
- * a name that is refused is still readable while it is being fixed.
+ * The error still sits under the field rather than replacing the placeholder,
+ * so a name that is refused is readable while it is being fixed — that part of
+ * the old design was right.
  */
 @Composable
 internal fun SheetTextField(
@@ -778,82 +949,41 @@ internal fun SheetTextField(
     autoFocus: Boolean = false,
     singleLine: Boolean = true,
 ) {
-    val theme = LocalZedTheme.current
     val focus = remember { FocusRequester() }
     // Only ever requested once per field. A request on every recomposition
     // fights the user for focus the moment a second field exists.
     LaunchedEffect(autoFocus) { if (autoFocus) runCatching { focus.requestFocus() } }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    theme.color("editor.background", MaterialTheme.colorScheme.surface),
-                    RoundedCornerShape(8.dp),
-                )
-                .heightIn(min = ButtonHeight)
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = singleLine,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                ),
-                cursorBrush = SolidColor(
-                    theme.color("editor.foreground", MaterialTheme.colorScheme.onSurface)
-                ),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            )
-            if (value.isEmpty()) {
-                Text(
-                    text = placeholder,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                )
-            }
-        }
-        if (error != null) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+        placeholder = {
             Text(
-                text = error,
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color("error", MaterialTheme.colorScheme.error),
-                modifier = Modifier.padding(top = 6.dp),
+                text = placeholder,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-        }
-    }
+        },
+        textStyle = MaterialTheme.typography.bodyLarge,
+        singleLine = singleLine,
+        isError = error != null,
+        supportingText = if (error == null) {
+            null
+        } else {
+            { Text(text = error, style = MaterialTheme.typography.bodySmall) }
+        },
+    )
 }
+
+/** The "open" slot: a fixed width, so the names beside it line up. */
+private val CurrentDotSlot = 8.dp
 
 /**
- * The interim door to [ProjectsSheet].
+ * The gap between the open marker and the name.
  *
- * The sheet's real trigger is the project chip in Code's header, which is
- * P2's (docs/UI.md, "Code"). Until that lands there is nothing on screen that
- * can open it, and a sheet nothing opens is a sheet R8 strips out of the
- * release build along with everything it reaches — which here is
- * SolanaTemplates and SolanaNames, the two files docs/UI.md names as
- * "currently referenced from nowhere".
- *
- * So this is one line in the shell's placeholder destination and it goes when
- * the placeholders do. P2: call [ProjectsSheet] from the chip and delete this.
+ * 10dp rather than 8 or 12 because the slot either side of it is 8dp of dot
+ * and the name is 14sp: on the 4dp grid this pair reads as either crowded or
+ * detached, and this is the one place in the row where that matters.
  */
-@Composable
-fun ProjectsEntryPoint(state: ShellState, modifier: Modifier = Modifier) {
-    var open by remember { mutableStateOf(false) }
-    Text(
-        text = "Projects & tools",
-        style = MaterialTheme.typography.labelMedium,
-        color = LocalZedTheme.current.color("text.accent", MaterialTheme.colorScheme.primary),
-        modifier = modifier
-            .padding(top = 12.dp)
-            .combinedClickable { open = true },
-    )
-    if (open) {
-        ProjectsSheet(state = state, onDismiss = { open = false })
-    }
-}
-
-/** The "open" slot: a fixed width, so the names below it line up. */
-private val CurrentDotSlot = 8.dp
-private val CurrentDotSize = 7.dp
+private val DotGap = 10.dp

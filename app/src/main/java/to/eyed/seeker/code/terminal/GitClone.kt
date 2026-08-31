@@ -25,9 +25,9 @@ import java.util.concurrent.TimeUnit
  * git runs *inside the userland*, through the same seam the terminal uses
  * ([UserlandBackend.execCommand]), for the reason the userland exists at all:
  * the only git on this device is the one apt installed, and Android will
- * execute it for nobody but proot. The `play` flavour therefore cannot clone,
- * `execCommand` returns null there, and the UI leaves the action out rather
- * than showing it greyed — see [isSupported].
+ * execute it for nobody but proot. Where there is no guest `execCommand`
+ * returns null, and the UI leaves the action out rather than showing it
+ * greyed — see [isSupported].
  *
  * Three things about driving git from a program rather than a terminal, all of
  * which have bitten this code:
@@ -296,16 +296,16 @@ object GitClone {
     }
 
     /**
-     * Why there is nowhere to run git. Reached in the `full` flavour before
-     * Debian is installed; the `play` flavour never gets here, because the UI
-     * leaves the action out when [isSupported] is false.
+     * Why there is nowhere to run git. Reached before Debian is installed;
+     * the unsupported branch is unreachable today, because the UI leaves the
+     * action out entirely when [isSupported] is false.
      */
     private fun noUserland(): String =
         if (Userland.backend.isSupported) {
             "${Userland.backend.displayName} is not installed yet — open the terminal to " +
                 "install it, then try again"
         } else {
-            "This edition has no Linux userland to run git in"
+            "The Linux guest is not available, so there is nowhere to run git"
         }
 
     /**

@@ -3,7 +3,6 @@ package to.eyed.seeker.code.ui.agent.spettro
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import to.eyed.seeker.code.core.AgentConfigOption
 import to.eyed.seeker.code.core.AgentSessionState
 
 /**
@@ -134,45 +133,99 @@ class ConfigSheetsTest {
         assertEquals(listOf("worker"), sheetSections(model).single().choices.map { it.value })
     }
 
-    // --- opening position ----------------------------------------------------
+    // --- which control ---------------------------------------------------------
 
     /**
-     * The sheet opens on the current value. Item 0 is the subtitle and each
-     * header takes one item, so this arithmetic is where the off-by-one would
-     * live.
+     * `selectStyle` is the eight lines the whole config sheet turns on, and
+     * every branch of it is a claim about the SHAPE of the data rather than
+     * about an id — so each one is pinned here, including the one that would
+     * silently turn a thirty-model list into thirty radio rows.
      */
     @Test
-    fun theOpeningRowCountsHeadersAndTheSubtitle() {
-        val sections = listOf(
-            SheetSection("Anthropic", choices("a1", "a2")),
-            SheetSection("OpenAI", choices("o1")),
+    fun aThinkingScaleIsASlider() {
+        val thinking = option(
+            """{"id":"thinking","name":"Thinking","type":"select","category":"thought_level",
+                "currentValue":"high","options":[
+                  {"name":"off","value":"off"},{"name":"low","value":"low"},
+                  {"name":"high","value":"high"}]}"""
         )
-        assertEquals(2, currentRowIndex(sections, "a1"))
-        assertEquals(3, currentRowIndex(sections, "a2"))
-        assertEquals(5, currentRowIndex(sections, "o1"))
-        // Unresolvable, or nothing set: stay at the top rather than guessing.
-        assertEquals(0, currentRowIndex(sections, "gone"))
-        assertEquals(0, currentRowIndex(sections, null))
+        assertEquals(SelectStyle.Slider, selectStyle(thinking))
     }
 
+    /** Two levels is not a scale worth reading as one; it is a pair of segments. */
     @Test
-    fun aFlatListHasNoHeaderToCount() {
-        val sections = listOf(SheetSection(null, choices("x", "y")))
-        assertEquals(1, currentRowIndex(sections, "x"))
-        assertEquals(2, currentRowIndex(sections, "y"))
+    fun aTwoLevelThinkingOptionIsNotASlider() {
+        val thinking = option(
+            """{"id":"thinking","name":"Thinking","type":"select","category":"thought_level",
+                "currentValue":"off","options":[
+                  {"name":"off","value":"off"},{"name":"on","value":"on"}]}"""
+        )
+        assertEquals(SelectStyle.Segmented, selectStyle(thinking))
+    }
+
+    /** Grouped means providers, which means a page with a filter on it. */
+    @Test
+    fun aGroupedListDrillsHoweverShortItIs() {
+        val model = option(
+            """{"id":"model","name":"Model","type":"select","category":"model",
+                "currentValue":"a","options":[
+                  {"group":"anthropic","name":"Anthropic","options":[
+                    {"name":"A","value":"a"}]}]}"""
+        )
+        assertEquals(SelectStyle.Drill, selectStyle(model))
+    }
+
+    /** Seven flat choices is longer than the sheet has room for. */
+    @Test
+    fun aLongFlatListDrillsToo() {
+        val many = (1..7).joinToString(",") { """{"name":"n$it","value":"v$it"}""" }
+        val option = option(
+            """{"id":"sandbox","name":"Sandbox","type":"select","currentValue":"v1",
+                "options":[$many]}"""
+        )
+        assertEquals(SelectStyle.Drill, selectStyle(option))
     }
 
     /**
-     * An option the agent described has a subtitle row; one it did not has
-     * none, and every row below moves up by one. Getting this wrong opens the
-     * sheet on the model *above* the current one, which reads as correct.
+     * Five segments give 70dp each at 400dp minus the gutters, which cannot
+     * hold "Ask once each" at any size a thumb can aim at — so four is the
+     * upper bound and five is a column of rows.
      */
     @Test
-    fun anOptionWithNoDescriptionHasNoSubtitleRowToSkip() {
-        val sections = listOf(SheetSection("Anthropic", choices("a1", "a2")))
-        assertEquals(2, currentRowIndex(sections, "a1", leading = 1))
-        assertEquals(1, currentRowIndex(sections, "a1", leading = 0))
-        assertEquals(2, currentRowIndex(sections, "a2", leading = 0))
+    fun twoToFourAreSegmentsAndFiveIsRows() {
+        fun flat(n: Int) = option(
+            """{"id":"sandbox","name":"Sandbox","type":"select","currentValue":"v1",
+                "options":[${(1..n).joinToString(",") { """{"name":"n$it","value":"v$it"}""" }}]}"""
+        )
+        assertEquals(SelectStyle.Segmented, selectStyle(flat(2)))
+        assertEquals(SelectStyle.Segmented, selectStyle(flat(4)))
+        assertEquals(SelectStyle.Rows, selectStyle(flat(5)))
+    }
+
+    /**
+     * The internal-role filter runs BEFORE the count is taken. A mode list of
+     * five whose last two are `worker` and `subagent` is a three-way choice to
+     * the person looking at it, and it has to be drawn as one.
+     */
+    @Test
+    fun theStyleCountsOnlyTheChoicesAPersonMayPick() {
+        val mode = option(
+            """{"id":"mode","name":"Mode","type":"select","category":"mode",
+                "currentValue":"coding","options":[
+                  {"name":"Ask","value":"ask"},{"name":"Coding","value":"coding"},
+                  {"name":"Plan","value":"plan"},{"name":"Worker","value":"worker"},
+                  {"name":"Subagent","value":"subagent"}]}"""
+        )
+        assertEquals(SelectStyle.Segmented, selectStyle(mode))
+    }
+
+    /** A boolean never reaches the list branches at all. */
+    @Test
+    fun aBooleanIsASwitch() {
+        assertEquals(
+            SelectStyle.Switch,
+            selectStyle(option("""{"id":"ultra","name":"Ultra","type":"boolean","currentValue":false}""")),
+        )
     }
 
     // --- footers -------------------------------------------------------------
@@ -238,9 +291,6 @@ class ConfigSheetsTest {
     }
 
     // --- helpers -------------------------------------------------------------
-
-    private fun choices(vararg values: String) =
-        values.map { AgentConfigOption.Choice(it, it) }
 
     private fun permission(current: String) = option(
         """{"id":"permission","name":"Permission","type":"select","currentValue":"$current",

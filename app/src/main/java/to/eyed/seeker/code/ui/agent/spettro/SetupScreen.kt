@@ -37,11 +37,13 @@ import androidx.core.net.toUri
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.SetupGate
 import to.eyed.seeker.code.core.SpettroSetup
+import to.eyed.seeker.code.ui.components.NoticeCard
+import to.eyed.seeker.code.ui.components.Severity
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 /**
@@ -79,10 +81,9 @@ fun SpettroSetupScreen(
     modifier: Modifier = Modifier,
     quotedError: String? = null,
 ) {
-    val theme = LocalZedTheme.current
     val context = LocalContext.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val text = MaterialTheme.colorScheme.onSurface
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     var sheet by remember { mutableStateOf<SetupSheet?>(null) }
 
@@ -95,7 +96,7 @@ fun SpettroSetupScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(theme.color("editor.background", MaterialTheme.colorScheme.background)),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         Column(
             modifier = Modifier
@@ -158,7 +159,7 @@ fun SpettroSetupScreen(
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("error", MaterialTheme.colorScheme.error),
+                    color = LocalSeekerColors.current.dangerInk,
                 )
             }
 
@@ -255,19 +256,18 @@ private fun SetupCard(
     badge: String? = null,
     chevron: Boolean = false,
 ) {
-    val theme = LocalZedTheme.current
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val text = MaterialTheme.colorScheme.onSurface
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .border(
                 width = 1.dp,
-                color = theme.color("border", MaterialTheme.colorScheme.outline),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 shape = RoundedCornerShape(10.dp),
             )
             .clickable(onClick = onClick)
@@ -298,7 +298,7 @@ private fun SetupCard(
                     Text(
                         text = badge,
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("created", muted),
+                        color = LocalSeekerColors.current.addedInk,
                     )
                 }
             }
@@ -314,34 +314,23 @@ private fun SetupCard(
     }
 }
 
-/** The agent's own error, quoted rather than rewritten. */
+/**
+ * The agent's own error, quoted rather than rewritten.
+ *
+ * A [NoticeCard] at [Severity.Error], which is the app's one shape for "this
+ * went wrong and here is what it said": the hue at 10% behind a solved
+ * `dangerInk` glyph and title, rather than the hand-rolled box with a raw
+ * `error` border this drew before. The MESSAGE is untouched — Spettro's own
+ * words are the only part of a failure that helps.
+ */
 @Composable
 private fun QuotedError(message: String) {
-    val theme = LocalZedTheme.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(theme.color("editor.background", MaterialTheme.colorScheme.surface))
-            .border(
-                width = 1.dp,
-                color = theme.color("error", MaterialTheme.colorScheme.error),
-                shape = RoundedCornerShape(8.dp),
-            )
-            .padding(12.dp),
-    ) {
-        Text(
-            text = "Spettro said:",
-            style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-        )
-    }
+    NoticeCard(
+        severity = Severity.Error,
+        title = "Spettro said:",
+        body = message,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 /**
@@ -353,19 +342,18 @@ private fun QuotedError(message: String) {
  */
 @Composable
 fun SpettroSetupBanner(onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = modifier
             .fillMaxWidth()
-            .background(theme.color("elevated_surface.background", MaterialTheme.colorScheme.surface))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
             text = "No model connected — Spettro can't answer yet.",
             style = MaterialTheme.typography.bodySmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
         Box(
@@ -380,7 +368,7 @@ fun SpettroSetupBanner(onOpen: () -> Unit, modifier: Modifier = Modifier) {
                 text = "Set up",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                color = LocalSeekerColors.current.accentInk,
             )
         }
     }

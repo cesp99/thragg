@@ -190,14 +190,15 @@ class MainActivity : ComponentActivity() {
      * it is running. Denial is not fatal — the service still protects sessions,
      * it just does so invisibly — so this never blocks anything.
      *
-     * **The `full` flavour cannot actually ask.** Measured on the Fold
-     * (Android 17): the system starts `GrantPermissionsActivity`, which
-     * displays and then finishes itself ~50 ms later with no UI and no
-     * `USER_SET` flag — the permission controller does not show this dialog to
-     * an app targeting API 32 or lower, which is exactly what the userland
-     * costs us (targetSdk 28, see DECISIONS.md). There the user has to enable
-     * notifications from system settings, and the service runs invisibly until
-     * they do. The `play` flavour targets a modern API and gets a real prompt.
+     * **This app cannot actually ask.** Measured on the Fold (Android 17):
+     * the system starts `GrantPermissionsActivity`, which displays and then
+     * finishes itself ~50 ms later with no UI and no `USER_SET` flag — the
+     * permission controller does not show this dialog to an app targeting API
+     * 32 or lower, which is exactly what the userland costs us (targetSdk 28,
+     * see DECISIONS.md). So the user has to enable notifications from system
+     * settings, and the service runs invisibly until they do. The call stays:
+     * it is free, it is correct on any future target, and the alternative is
+     * code that silently does the wrong thing the day the target moves.
      *
      * Asked from `onResume` rather than `onCreate` so the request happens with
      * a window on screen; that is correct either way, and cost nothing to fix

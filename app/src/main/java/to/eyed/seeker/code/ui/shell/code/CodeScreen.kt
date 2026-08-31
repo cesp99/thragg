@@ -1,18 +1,22 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package to.eyed.seeker.code.ui.shell.code
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,10 +31,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -82,11 +84,17 @@ import to.eyed.seeker.code.ui.shell.agent.AgentSeams
 import to.eyed.seeker.code.ui.shell.agent.agentFixPrompt
 import to.eyed.seeker.code.ui.shell.build.CodeJump
 import to.eyed.seeker.code.ui.shell.projects.ProjectsSheet
-import to.eyed.seeker.code.ui.theme.ChipCaret
+import to.eyed.seeker.code.ui.components.EmptyState
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.TabularNums
+import to.eyed.seeker.code.ui.theme.ZedSurface
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.AutosaveTracker
 import to.eyed.seeker.code.ui.workspace.GoToLine
@@ -135,7 +143,6 @@ fun CodeScreen(
     onSettingsChanged: (AppSettings) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
     val scope = rememberCoroutineScope()
     val code = remember { CodeState.current }
     val files = code.files
@@ -617,22 +624,19 @@ fun CodeScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(theme.color("editor.background", MaterialTheme.colorScheme.background)),
+            // Bare: `background` *is* `editor.background` through the bridge
+            // (MaterialBridge.kt, BAND A), so the Zed read with an M3 fallback
+            // that used to be here was one that could never fire.
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        CodeHeader(
+        CodeTopBar(
             projectName = project?.let { File(it.rootPath).name },
             file = active,
             errorCount = activeEditor?.diagnostics?.rows?.count {
                 it.severity == DiagnosticSeverity.Error
             } ?: 0,
-            // P8's Projects & tools sheet, behind the chip where the spec
-            // puts it (docs/UI.md, "Projects & tools"). It is not decoration:
-            // with no project open this is the *only* way to make one, and
-            // until it was wired the start destination of a fresh install was
-            // a screen with nothing on it to press.
-            onOpenProjects = { sheet = CodeSheet.Projects },
             onFind = {
-                val editor = activeEditor ?: return@CodeHeader
+                val editor = activeEditor ?: return@CodeTopBar
                 val open = searchDeploy
                 val seed = if (open != null && searchFocused) null else editor.searchSeed()
                 searchDeploy = SearchDeploy(token = (open?.token ?: 0) + 1, seed = seed)
@@ -640,53 +644,65 @@ fun CodeScreen(
             onProblems = { state.push(Route.Problems) },
             onOverflow = { sheet = CodeSheet.Overflow },
         )
+        HairlineDivider()
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             when {
                 project == null -> CodeEmpty(
-                    line = "No project is open.",
+                    headline = "No project is open",
+                    body = "Open one, clone a repository or start a new program.",
                     action = "Projects & tools",
                     onAction = { sheet = CodeSheet.Projects },
                 )
                 active == null -> CodeEmpty(
-                    line = "Nothing open yet.",
+                    headline = "Nothing open yet",
+                    body = "Pick a file from the tree, or search the project by name.",
                     action = "Browse files",
                     onAction = { sheet = CodeSheet.Files(FilesMode.Names) },
                 )
-                activeEditor != null -> EditorPane(
-                    state = activeEditor,
-                    modifier = Modifier.fillMaxSize(),
-                    fileName = active.name,
-                    languageSettings = active.languageSettings.wrappedForAPhone(),
-                    showInlineBlame = active.languageSettings.inlineBlame,
-                    onOpenDefinition = { target ->
-                        // The server answers in absolute paths and the project
-                        // opens by its own relative spelling; a target outside
-                        // the root — the standard library, a registry crate —
-                        // is dropped rather than opened as a path that does
-                        // not resolve (WorkspaceScreen.kt:2104).
-                        // `project` is non-null in this branch — the `when`
-                        // above answered the no-project case first.
-                        val relative = relativeTo(project, target.path)
-                        if (relative != target.path) {
-                            openFile(relative) { opened ->
-                                opened.editor?.revealDefinitionTarget(target)
+                // THE SEAM. Everything inside this wrapper is the Zed half:
+                // the gutter, the indent guides, the completions popup, the
+                // LSP action list and the selection handles keep Zed's
+                // colours, Zed's rem metrics, Zed's no-ripple rule and Zed's
+                // LTR pin, because they have to agree with tree-sitter's
+                // output in the same buffer (docs/VISUAL.md, "THE BOUNDARY,
+                // EXACTLY"). Nothing inside it was touched by this pass.
+                activeEditor != null -> ZedSurface {
+                    EditorPane(
+                        state = activeEditor,
+                        modifier = Modifier.fillMaxSize(),
+                        fileName = active.name,
+                        languageSettings = active.languageSettings.wrappedForAPhone(),
+                        showInlineBlame = active.languageSettings.inlineBlame,
+                        onOpenDefinition = { target ->
+                            // The server answers in absolute paths and the project
+                            // opens by its own relative spelling; a target outside
+                            // the root — the standard library, a registry crate —
+                            // is dropped rather than opened as a path that does
+                            // not resolve (WorkspaceScreen.kt:2104).
+                            // `project` is non-null in this branch — the `when`
+                            // above answered the no-project case first.
+                            val relative = relativeTo(project, target.path)
+                            if (relative != target.path) {
+                                openFile(relative) { opened ->
+                                    opened.editor?.revealDefinitionTarget(target)
+                                }
                             }
-                        }
-                    },
-                    onWorkspaceEditApplied = { receipt -> resyncAfterWorkspaceEdit(receipt) },
-                    onSaveBuffer = { save(active) },
-                    onBuild = { runBuild() },
-                    buildRunning = buildRunning,
-                    onFixWithAgent = { diagnostic ->
-                        fixWithAgent(state, active.path, diagnostic)
-                    },
-                    // Two strips docked on one keyboard would be 88dp of the
-                    // 454 the typing posture has; the find bar wins while it
-                    // is deployed, because it is the thing being typed into.
-                    showActionRow = searchDeploy == null,
-                    overlays = code.overlays,
-                )
+                        },
+                        onWorkspaceEditApplied = { receipt -> resyncAfterWorkspaceEdit(receipt) },
+                        onSaveBuffer = { save(active) },
+                        onBuild = { runBuild() },
+                        buildRunning = buildRunning,
+                        onFixWithAgent = { diagnostic ->
+                            fixWithAgent(state, active.path, diagnostic)
+                        },
+                        // Two strips docked on one keyboard would be 88dp of the
+                        // 454 the typing posture has; the find bar wins while it
+                        // is deployed, because it is the thing being typed into.
+                        showActionRow = searchDeploy == null,
+                        overlays = code.overlays,
+                    )
+                }
                 // A 1.4 MB `.so` never reaches the text rope: MediaKind routed
                 // it away in `openFileInto`, and this is what it routed it to.
                 else -> BinaryPlaceholder(
@@ -703,17 +719,32 @@ fun CodeScreen(
         // the keyboard covering its own results is the thing being fixed.
         val deploy = searchDeploy
         if (deploy != null && activeEditor != null) {
-            Box(modifier = Modifier.fillMaxWidth().imePadding()) {
-                BufferSearchBar(
-                    editor = activeEditor,
-                    deploy = deploy,
-                    onDismiss = {
-                        activeEditor.clearSearchMatches()
-                        searchDeploy = null
-                    },
-                    onFocusChanged = { focused -> searchFocused = focused },
-                )
+            // Inside the wrapper with the buffer it searches: the find bar
+            // draws its match count against the editor's own ground and its
+            // hits in `search.match_background`, which is the same ink the
+            // spans behind it are painted in (ui/search/ is the Zed half).
+            ZedSurface {
+                Box(modifier = Modifier.fillMaxWidth().imePadding()) {
+                    BufferSearchBar(
+                        editor = activeEditor,
+                        deploy = deploy,
+                        onDismiss = {
+                            activeEditor.clearSearchMatches()
+                            searchDeploy = null
+                        },
+                        onFocusChanged = { focused -> searchFocused = focused },
+                    )
+                }
             }
+        }
+
+        // The status line, between the buffer and the file bar: where the
+        // caret is, what the language is, and how many problems the server has
+        // published about this file. It reads `cursorRow`/`cursorCol` inside
+        // its own composable rather than here, so a caret moving recomposes
+        // 28dp of text instead of the destination.
+        if (activeEditor != null) {
+            EditorStatusLine(editor = activeEditor, file = active)
         }
 
         FileBar(
@@ -753,6 +784,10 @@ fun CodeScreen(
                 sheet = null
                 state.push(Route.Changes)
             },
+            // Straight into the other sheet rather than through `null`: the
+            // slot holds one at a time, so assigning it *is* the swap, and
+            // dismissing first would drop a frame of bare editor between them.
+            onOpenProjects = { sheet = CodeSheet.Projects },
             onDismiss = { sheet = null },
         )
         CodeSheet.Overflow -> CodeOverflowSheet(
@@ -789,119 +824,96 @@ fun CodeScreen(
 }
 
 /**
- * The 44dp header: identity on the left, the rare exits on the right.
+ * The 56dp top bar: identity on the left, the rare exits on the right.
  *
- * Everything here is either something you read (which project, which file,
+ * Everything here is either something you read (which file, where it lives,
  * whether it is dirty, how many errors) or something you press once an hour.
  * Everything you press once a minute is in the file bar at the bottom, which
  * is the whole reachability argument (docs/UI.md, "Why", defect 3).
+ *
+ * It is the shared [SeekerTopBar] now, which is what makes it 56dp with the
+ * app's other bars rather than 44dp on its own, gives it the window insets and
+ * the bar semantics, and puts the file's directory on a second line instead of
+ * squeezing project and file onto one 400dp row. **The file is the title**:
+ * this destination is one buffer at a time and the buffer is what the screen
+ * is about; the project's name goes in the subtitle beside the directory,
+ * where it identifies without competing.
+ *
+ * The project chip that used to open Projects & tools went with the old row —
+ * a `SeekerTopBar` has one leading slot and it belongs to back. The sheet is
+ * still two taps away and from the same thumb: the file bar's tree button
+ * opens Files & Find, which carries Projects in its action row. With no
+ * project open the empty state carries it as a button, which is the case that
+ * mattered — a fresh install must never draw a screen with nothing to press.
  */
 @Composable
-private fun CodeHeader(
+private fun CodeTopBar(
     projectName: String?,
     file: OpenFile?,
     errorCount: Int,
-    /** Opens Projects & tools — P8's sheet, and null until it lands. */
-    onOpenProjects: (() -> Unit)?,
     onFind: () -> Unit,
     onProblems: () -> Unit,
     onOverflow: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(HeaderHeight)
-            .background(theme.color("status_bar.background", MaterialTheme.colorScheme.surface))
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        // The caret is drawn only when there is a sheet behind it. A chevron
-        // on a control that opens nothing is a promise the header cannot
-        // keep; without it the chip is what the rest of the header is, which
-        // is identity.
-        //
-        // It is a *drawable* rather than a `▾` appended to the label. Keeping
-        // it as punctuation was defensible on its own — but the same caret is
-        // drawn on Changes and on Problems, and one project cannot have two
-        // vocabularies for "this opens a picker": at labelLarge on the
-        // Seeker's 480dpi panel the character reads visibly thinner and
-        // smaller than every real icon beside it in the same bar, which is
-        // the whole defect this pass exists to remove.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .let { if (onOpenProjects != null) it.clickable(onClick = onOpenProjects) else it }
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text = projectName ?: "No project",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (onOpenProjects != null) {
-                ChipCaret(modifier = Modifier.padding(start = 2.dp))
-            }
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f, fill = true),
-        ) {
-            Text(
-                text = file?.name ?: "",
-                style = MaterialTheme.typography.labelMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+    val directory = file?.path?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+    SeekerTopBar(
+        title = file?.name ?: projectName ?: "No project",
+        subtitle = when {
+            file == null -> projectName?.let { "no file open" }
+            else -> listOfNotNull(directory, projectName).joinToString(" · ").ifEmpty { null }
+        },
+        actions = {
             if (file?.isDirty == true) {
+                // The unsaved mark sits with the actions rather than beside the
+                // title: a dot inside a `titleLarge` line reads as punctuation,
+                // and this one is a *state*.
                 SeekerIcon(
                     icon = R.drawable.ic_ui_dot,
                     contentDescription = "unsaved",
-                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                    size = 8.dp,
-                    modifier = Modifier.padding(start = 4.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                    size = DirtyDot,
+                    modifier = Modifier.padding(end = MD.space1),
                 )
             }
-        }
-        SeekerIconButton(
-            icon = R.drawable.ic_ui_magnifying_glass,
-            description = "Search in files",
-            onClick = onFind,
-            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
-        // The count is the point, so this one keeps its number and gains the
-        // glyph beside it rather than becoming an icon-only button.
-        if (errorCount > 0) {
-            ProblemsAction(errorCount, onProblems)
-        }
-        SeekerIconButton(
-            icon = R.drawable.ic_ui_more_vertical,
-            description = "More",
-            onClick = onOverflow,
-            tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-        )
-    }
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_magnifying_glass,
+                // It searches *this buffer* — the file bar's magnifier is the
+                // one that searches the project. The two were both labelled
+                // "Search in files", which is a thing a screen reader user
+                // could only discover by pressing the wrong one.
+                description = "Find in this file",
+                onClick = onFind,
+                tint = mutedIcon,
+            )
+            // The count is the point, so this one keeps its number and gains
+            // the glyph beside it rather than becoming an icon-only button.
+            if (errorCount > 0) {
+                ProblemsAction(errorCount, onProblems)
+            }
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_more_vertical,
+                description = "More",
+                onClick = onOverflow,
+                tint = mutedIcon,
+            )
+        },
+    )
 }
 
 /** `✕ 3` — the error count, with the mark that says what is being counted. */
 @Composable
 private fun ProblemsAction(errorCount: Int, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    val tint = theme.color("error", MaterialTheme.colorScheme.error)
+    // The solved ink, not `error` raw: this is a label on the Material half and
+    // it has to clear 4.5:1 on the bar it sits in (docs/VISUAL.md, "THE
+    // HYBRID" — inks in the Material half are solved).
+    val tint = LocalSeekerColors.current.removedInk
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .touchTarget()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(MD.radiusXs))
             .clickable(onClickLabel = "Problems", onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp)
+            .padding(horizontal = MD.iconGap, vertical = MD.space2)
             .semantics { contentDescription = "$errorCount problems" },
     ) {
         SeekerIcon(
@@ -912,48 +924,100 @@ private fun ProblemsAction(errorCount: Int, onClick: () -> Unit) {
         )
         Text(
             text = "$errorCount",
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = TabularNums),
             color = tint,
             maxLines = 1,
-            modifier = Modifier.padding(start = 2.dp),
+            modifier = Modifier.padding(start = MD.space05),
         )
     }
 }
 
 /**
- * Empty Code: one line of body text and one button.
+ * `Ln 104, Col 31 · rust · 2 problems` — 28dp of what the caret is standing
+ * on, under the buffer and over the file bar.
+ *
+ * On the Material side of the seam, because it is chrome about the file rather
+ * than a rendering of it (docs/VISUAL.md's Code wireframe puts it below the
+ * double rule). Three decisions worth their lines:
+ *
+ *  - **It reads the caret here.** `cursorRow`/`cursorCol` are snapshot state
+ *    on [EditorState], so the read has to happen inside the smallest
+ *    composable that needs it or every keystroke would recompose the whole
+ *    destination — including the pane that is drawing the keystroke.
+ *  - **Tabular figures.** The two numbers change under a moving finger and
+ *    proportional digits make the row jitter as a `1` becomes a `0`
+ *    (Type.kt, [TabularNums]).
+ *  - **The language is read off the engine, once, off the main thread.**
+ *    `BufferSession.language` is a JNI call, and this row is recomposed by
+ *    every caret move.
+ *
+ * There is deliberately no "UTF-8": the app does not know a buffer's encoding
+ * — the engine reads bytes as UTF-8 and says nothing about what they were —
+ * and a status line that states an unchecked fact is worse than one that
+ * leaves it out.
+ *
+ * It hides with the keyboard, under the same rule as [FileBar] and
+ * [to.eyed.seeker.code.ui.shell.ShellNavBar] and for the same arithmetic: the
+ * typing posture's ~454dp of buffer is what is left after the 56dp bar and the
+ * 44dp file bar give their space back (docs/UI.md, "Code with the soft
+ * keyboard up"), and a row that stayed would quietly spend 28dp of it. This is
+ * the only band this destination gained, so it is the only one that could.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EditorStatusLine(editor: EditorState, file: OpenFile) {
+    if (WindowInsets.isImeVisible) return
+    var language by remember(file) { mutableStateOf<String?>(null) }
+    LaunchedEffect(file) {
+        language = withContext(Dispatchers.IO) { runCatching { file.session?.language }.getOrNull() }
+    }
+    val problems = editor.diagnostics.rows.size
+    val position = "Ln ${editor.cursorRow + 1}, Col ${editor.cursorCol + 1}"
+    val text = listOfNotNull(
+        position,
+        language,
+        when (problems) {
+            0 -> null
+            1 -> "1 problem"
+            else -> "$problems problems"
+        },
+    ).joinToString(" · ")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(StatusLineHeight)
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = MD.space4),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * Empty Code: the shared [EmptyState], with one button.
  *
  * Never a blank screen with nothing to press (docs/UI.md, "First run", step 4)
  * — the empty state of the start destination is the first thing a fresh
  * install shows after Setup, and a blank rectangle there reads as a crash.
+ * The way out is a real filled `Button` rather than a tinted line of text: it
+ * is the only action on the screen, and the one place in Code where a button
+ * that looks like a button is worth 44dp.
  */
 @Composable
-private fun CodeEmpty(line: String, action: String?, onAction: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = line,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+private fun CodeEmpty(headline: String, body: String, action: String, onAction: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        EmptyState(
+            headline = headline,
+            body = body,
+            action = { Button(onClick = onAction) { Text(action) } },
         )
-        if (action != null) {
-            Text(
-                text = action,
-                style = MaterialTheme.typography.labelLarge,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .touchTarget()
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable(onClick = onAction)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
     }
 }
 
@@ -1082,9 +1146,6 @@ private const val STATUS_POLL_MS = 250L
 /** The toast key the project-settings complaint is keyed on, so it replaces. */
 private const val LOCAL_SETTINGS_NOTIFICATION = "project-settings"
 
-/** docs/UI.md's 44dp header — the same height Code's file bar is. */
-private val HeaderHeight = 44.dp
-
 /**
  * Whether the project's own settings file parsed, said once.
  *
@@ -1149,3 +1210,9 @@ internal fun shareFile(context: android.content.Context, file: OpenFile) {
     if (!ShareOut.canShare(onDisk)) return
     ShareOut.share(context, onDisk)
 }
+
+/** 28dp — the status line under the buffer (docs/VISUAL.md's Code wireframe). */
+private val StatusLineHeight = 28.dp
+
+/** The unsaved mark in the bar, at the size the file bar's chips draw it. */
+private val DirtyDot = 8.dp

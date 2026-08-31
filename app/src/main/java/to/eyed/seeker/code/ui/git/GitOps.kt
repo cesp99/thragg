@@ -9,7 +9,25 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.terminal.Userland
 import to.eyed.seeker.code.ui.workspace.Notifications
+
+/**
+ * Whether this build can do git at all.
+ *
+ * Everything git here runs the `git` inside the Linux userland, so a build
+ * with no userland is not offered it, greyed or otherwise. That is the same
+ * rule the clone action already follows: an editor should not advertise what
+ * it cannot ever do. (True in every build that ships; the question is still
+ * asked of the seam rather than assumed — see terminal/Userland.kt.)
+ *
+ * It lived in ui/git/GitPanel.kt, whose 3565 lines the Changes destination
+ * replaced (docs/UI.md, "What is removed"). The name is kept as it was
+ * because ui/shell/changes/ChangesScreen.kt gates on it and that file belongs
+ * to another pass; it is the capability probe, not a panel reference.
+ */
+val isGitPanelSupported: Boolean
+    get() = Userland.backend.isSupported
 
 /**
  * One git mutation at a time, per project — the single-flight the panel's

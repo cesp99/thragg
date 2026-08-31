@@ -394,9 +394,11 @@ class AptInstaller(private val tag: String) {
     /**
      * False in builds with no userland: the UI must not offer this at all.
      *
-     * The `play` flavour has no guest and therefore no apt — `execCommand`
-     * returns null there — so installing is *absent*, exactly as cloning is
-     * (`GitClone.isSupported`), rather than shown greyed out.
+     * True in every build that ships today. It is still asked rather than
+     * assumed, because it is the seam's own answer (`UserlandBackend`) and the
+     * rule it encodes outlives the edition that motivated it: no guest means
+     * no apt, `execCommand` returns null, and installing is *absent* — exactly
+     * as cloning is (`GitClone.isSupported`) — rather than shown greyed out.
      */
     val isSupported: Boolean get() = Userland.backend.isSupported
 
@@ -565,15 +567,15 @@ class AptInstaller(private val tag: String) {
     }
 
     /**
-     * Why there is nowhere to run apt. Reached in the `full` flavour before
-     * Debian is installed; the `play` flavour never gets here, because the UI
-     * leaves the action out when [isSupported] is false.
+     * Why there is nowhere to run apt. Reached before Debian is installed;
+     * the unsupported branch is unreachable today, because the UI leaves the
+     * action out entirely when [isSupported] is false.
      */
     private fun noUserland(): String =
         if (Userland.backend.isSupported) {
             "${Userland.backend.displayName} is not installed yet — open the terminal to " +
                 "install it, then try again"
         } else {
-            "This edition has no Linux userland to install into"
+            "The Linux guest is not available, so there is nothing to install into"
         }
 }

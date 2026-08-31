@@ -4,7 +4,7 @@
 # Kotlin at all — and the app is Kotlin throughout. Autobuild's guess,
 # `./gradlew assemble`, fails the other way: packaging needs rustup's
 # Android targets and cargo-ndk to cross-compile the engine, which a
-# hosted runner does not have. `:app:compileFullDebugKotlin` is the line
+# hosted runner does not have. `:app:compileDebugKotlin` is the line
 # between the two: every Kotlin file compiles, nothing native runs —
 # though `preBuild` depends on `cargoNdkBuild`, so that task is excluded
 # by hand; the Kotlin compiler never reads the .so it would produce.
@@ -69,7 +69,7 @@ jobs:
         run: |
           ./gradlew --no-daemon \
             -Dkotlin.compiler.execution.strategy=in-process \
-            :app:compileFullDebugKotlin -x :app:cargoNdkBuild
+            :app:compileDebugKotlin -x :app:cargoNdkBuild
 
       - uses: github/codeql-action/analyze@v3
         with:

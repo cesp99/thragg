@@ -3,8 +3,6 @@ package to.eyed.seeker.code.ui.agent.spettro
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +13,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,11 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,13 +41,13 @@ import to.eyed.seeker.code.core.AgentEntry
 import to.eyed.seeker.code.core.PermissionOption
 import to.eyed.seeker.code.core.SpettroAnswers
 import to.eyed.seeker.code.core.ToolKind
+import to.eyed.seeker.code.ui.components.ZedCodeBlock
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.theme.BufferFontFamily
-import to.eyed.seeker.code.ui.theme.LocalAppSettings
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 
 // ---------------------------------------------------------------------------
 // The pure half
@@ -278,8 +273,7 @@ fun PermissionSheet(
     queuePosition: Int = 1,
     queueDepth: Int = 1,
 ) {
-    val theme = LocalZedTheme.current
-    val settings = LocalAppSettings.current
+    val colors = LocalSeekerColors.current
 
     val options = remember(request.key, request.options) { PermissionPrompt.order(request.options) }
     val custom = remember(request.key) { options.firstOrNull { it.isCustomInput } }
@@ -307,16 +301,16 @@ fun PermissionSheet(
                 Column {
                     Text(
                         text = custom.name,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                        modifier = Modifier.padding(bottom = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = MD.space1),
                     )
                     CustomAnswerField(value = typed, onValueChange = { typed = it })
                 }
             }
         },
         actions = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MD.space2)) {
                 for ((index, option) in options.withIndex()) {
                     if (option.isCustomInput) {
                         // Its label is already above the field; the button is
@@ -345,8 +339,8 @@ fun PermissionSheet(
                     if (option.kind == "allow_always") {
                         Text(
                             text = PermissionPrompt.durabilityNote(request),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -354,7 +348,7 @@ fun PermissionSheet(
                     Text(
                         text = "The agent offered no options — it may have withdrawn the request.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -364,77 +358,83 @@ fun PermissionSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = MD.space4),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
                 SeekerIcon(
                     icon = PermissionPrompt.icon(request),
                     contentDescription = null,
-                    tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                    size = IconSize.Inline,
+                    tint = colors.accentMark,
+                    size = IconSize.Action,
                 )
                 Text(
                     text = stringResource(PermissionPrompt.HEADLINE, agentName),
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(MD.space2))
             Text(
                 text = request.title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
             PermissionPrompt.subject(request)?.let { subject ->
-                Spacer(Modifier.height(8.dp))
-                // Mono, selectable, one long line rather than a wrapped one:
-                // a wrapped shell command hides where its arguments end, and
-                // "approve this" has to mean approving what you can read.
-                SelectionContainer {
-                    Text(
-                        text = subject,
-                        style = TextStyle(
-                            fontFamily = BufferFontFamily,
-                            fontSize = (settings.bufferFontSize * 0.85f).sp,
-                            lineHeight = (settings.bufferFontSize * 1.35f).sp,
-                        ),
-                        color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                        softWrap = false,
-                        // Six lines, then it scrolls: a 400-line patch in the
-                        // approval box pushes the buttons off the screen.
-                        maxLines = SUBJECT_LINES,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                theme.color("editor.background", MaterialTheme.colorScheme.surface),
-                                RoundedCornerShape(8.dp),
-                            )
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    )
-                }
+                Spacer(Modifier.height(MD.space2))
+                // THE SEAM: the sheet is Material, the command is a Zed island
+                // (docs/VISUAL.md, "The hybrid"). It used to draw the BUFFER
+                // text over Material ink with a hand-rolled background, which
+                // is a hole in the sheet; [ZedCodeBlock] gives it the editor's
+                // own ground and the sheet's own 1dp `outlineVariant` edge,
+                // which is what stops it reading as one. Unwrapped and
+                // horizontally scrollable, because a wrapped shell command
+                // hides where its arguments end and "approve this" has to mean
+                // approving what you can read.
+                ZedCodeBlock(
+                    text = subject,
+                    // Six lines, then it scrolls: a 400-line patch in the
+                    // approval box pushes the buttons off the screen.
+                    maxLines = SUBJECT_LINES,
+                    // No copy header. The buttons are the point of this sheet
+                    // and every row above them costs one of theirs.
+                    copyable = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             PermissionPrompt.explanation(request)?.let { explanation ->
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(MD.space2))
                 Text(
                     text = explanation,
                     style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MD.space3))
         }
     }
 }
 
-/** One 48 dp answer. The recommendation is badged and nothing more. */
+/**
+ * One answer, as a real Material button.
+ *
+ * This was a hand-rolled `Box` with a `clickable` and two backgrounds, which
+ * cost it everything a button gets for free and needs here: a state layer
+ * under the finger, a disabled appearance that is not an alpha guess, and
+ * TalkBack's "button" / "button, disabled". On the one surface in the app that
+ * decides what the agent may do to a working tree, those are not decoration.
+ *
+ * EXACTLY ONE FILLED BUTTON AND IT IS THE FIRST ALLOW — the least durable
+ * grant — so the permanent one is never the easiest to hit. Everything else is
+ * outlined, and a reject carries `error` as its CONTENT colour rather than its
+ * fill: a filled red button beside a filled primary one is two loud answers,
+ * and the loud one has to be the safe one.
+ */
 @Composable
 private fun OptionButton(
     option: PermissionOption,
@@ -442,94 +442,87 @@ private fun OptionButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
-    val border = theme.color("border", MaterialTheme.colorScheme.outline)
-    val background = if (filled) {
-        theme.color("element.background", MaterialTheme.colorScheme.primary)
-    } else {
-        Color.Transparent
-    }
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = ButtonHeight)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (enabled) background else background.copy(alpha = 0.4f))
-            .then(
-                if (filled) {
-                    Modifier
-                } else {
-                    Modifier.background(border.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
-                },
-            )
-            .clickable(enabled = enabled, onClickLabel = option.name, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-    ) {
+    val scheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(MD.radiusSm)
+    val label: @Composable () -> Unit = {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
             Text(
                 // The agent's own label, untouched.
                 text = option.name,
                 style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (filled) FontWeight.Medium else FontWeight.Normal,
-                color = when {
-                    !enabled -> theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-                    option.isAllow -> theme.color("text", MaterialTheme.colorScheme.onSurface)
-                    else -> theme.color("error", MaterialTheme.colorScheme.error)
-                },
+                fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (option.isRecommended) {
-                Text(
-                    text = "Recommended",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color("created", MaterialTheme.colorScheme.primary),
-                    maxLines = 1,
-                )
-            }
+            if (option.isRecommended) RecommendedTag()
         }
+    }
+    if (filled) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            shape = shape,
+            modifier = Modifier.fillMaxWidth().heightIn(min = ButtonHeight),
+            content = { label() },
+        )
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            shape = shape,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = if (option.isAllow) scheme.onSurface else scheme.error,
+            ),
+            modifier = Modifier.fillMaxWidth().heightIn(min = ButtonHeight),
+            content = { label() },
+        )
     }
 }
 
-/** The synthetic custom-input option's field — free text, pinned above the IME. */
+/**
+ * The agent's preferred option, badged — accent, never green.
+ *
+ * This was `theme.color("created")`, and that is a real defect rather than a
+ * style preference: on a form that decides what the agent does to your working
+ * tree, a GREEN recommendation reads as "this is the safe one", which is a
+ * claim the agent did not make. An accent-washed capsule reads as "this is the
+ * suggested one", which is what it means. It is a TAG and never a
+ * preselection.
+ */
+@Composable
+private fun RecommendedTag() {
+    val colors = LocalSeekerColors.current
+    Text(
+        text = "Recommended",
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+        fontWeight = FontWeight.SemiBold,
+        color = colors.accentInk,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+            .padding(horizontal = MD.tagPadX, vertical = MD.tagPadY),
+    )
+}
+
+/**
+ * The synthetic custom-input option's field.
+ *
+ * [SheetTextField] is the shape — the same pill the question sheet's two
+ * fields take, because they are the same control in the same place on the same
+ * kind of sheet.
+ */
 @Composable
 private fun CustomAnswerField(value: String, onValueChange: (String) -> Unit) {
-    val theme = LocalZedTheme.current
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                theme.color("editor.background", MaterialTheme.colorScheme.surface),
-                RoundedCornerShape(8.dp),
-            )
-            .heightIn(min = 44.dp)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            maxLines = 3,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-            ),
-            cursorBrush = SolidColor(
-                theme.color("editor.foreground", MaterialTheme.colorScheme.onSurface),
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (value.isEmpty()) {
-            Text(
-                text = "Type your own answer",
-                style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-            )
-        }
-    }
+    SheetTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = "Type your own answer",
+        maxLines = 3,
+    )
 }
 
 /** "mono, h-scroll, selectable, 6-line cap" — docs/SPETTRO.md. */

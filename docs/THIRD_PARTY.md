@@ -373,13 +373,13 @@ Every one of these ships in the APK. Apache-2.0 flows into GPL-3 cleanly —
 which is precisely why this app targets GPL-3 and not GPL-2 — but all of
 them require attribution, which the package now carries: the in-app
 licences screen (docs/LICENSING.md §5) is generated from
-`tools/licenses/maven-runtime.json`, the release runtime classpath of
-**both** flavours as dumped by `:app:dumpMavenLicences`.
+`tools/licenses/maven-runtime.json`, the release runtime classpath as
+dumped by `:app:dumpMavenLicences`.
 
 That dump is the authority for this table, and reconciling the two moved
 four rows. `org.checkerframework:checker-qual` is **not** on the release
-runtime classpath of either flavour and has been removed; Guava and its two
-companions **are**, and were missing.
+runtime classpath and has been removed; Guava and its two companions
+**are**, and were missing.
 
 | Component | Coordinate | Licence |
 |---|---|---|
@@ -407,11 +407,11 @@ Also generated rather than hand-maintained. See [LICENSING.md](LICENSING.md).
 
 ## Binaries shipped in the APK
 
-`app/src/full/jniLibs/*/libproot_exec.so` is **committed to this repository**
-(`.gitignore` covers `/app/src/main/jniLibs/`, which is the cargo-ndk output,
-not this one). It is compiled by `tools/build-proot.sh`, which fetches each
-tarball and verifies its SHA-256 before building. It appears in the `full`
-edition only.
+`app/src/main/jniLibs/*/libproot_exec.so` is **committed to this repository**
+(`.gitignore` covers the rest of `/app/src/main/jniLibs/`, which is the
+cargo-ndk output, and names these two files as its exception). It is
+compiled by `tools/build-proot.sh`, which fetches each tarball and verifies
+its SHA-256 before building.
 
 | Binary | Source | Version | Licence |
 |---|---|---|---|

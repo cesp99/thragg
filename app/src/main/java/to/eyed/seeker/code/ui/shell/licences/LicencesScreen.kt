@@ -1,16 +1,18 @@
 package to.eyed.seeker.code.ui.shell.licences
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -30,10 +33,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.BuildConfig
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.ui.components.CopyChip
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SectionHeader
+import to.eyed.seeker.code.ui.components.SeekerCard
+import to.eyed.seeker.code.ui.components.SeekerSearchField
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
-import to.eyed.seeker.code.ui.shell.projects.SheetTextField
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.theme.RowChevron
 
 /**
@@ -56,7 +64,9 @@ import to.eyed.seeker.code.ui.theme.RowChevron
  *     four anywhere. They are string resources so they translate.
  *  2. **The source URL**, from BuildConfig, which reads `core/Cargo.toml`, so
  *     the one URL §3 requires everything to agree on cannot drift into a
- *     Kotlin constant.
+ *     Kotlin constant. It is drawn in [MonoSmall] and carries a [CopyChip],
+ *     because a URL is an identifier and the reviewer this screen is written
+ *     for is going to want it in a clipboard rather than in a photograph.
  *  3. **The written offer**, in full. It takes the second of the two forms
  *     GPLv3 §6(b) permits — access to copy the source from a network server
  *     at no charge — so there is no postal address to show, and its absence
@@ -68,11 +78,17 @@ import to.eyed.seeker.code.ui.theme.RowChevron
  * ([Licences]), which is generated. Adding a dependency and forgetting its
  * notice fails `./gradlew :app:verifyLicenceAssets` rather than quietly
  * producing a screen that is missing a row.
+ *
+ * The Material pass is mechanical and deliberately so (docs/VISUAL.md,
+ * "Licences"): the shared [SectionHeader] per licence family, [SeekerCard]
+ * groups of rows with a [HairlineDivider] between, the shared filter pill, and
+ * the licence text left as Material prose — it is prose, and setting it in the
+ * buffer face at 13sp would be both harder to read and a category error about
+ * what a code island is.
  */
 @Composable
 fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val theme = LocalZedTheme.current
 
     // Blocking, once: 260 KB of JSON parsed off the main thread, then a field
     // read for the life of the process ([Licences.catalog]). Null while it is
@@ -85,7 +101,10 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
     var query by remember { mutableStateOf("") }
     val shown = remember(catalog, query) { catalog?.filter(query) }
 
-    LazyColumn(modifier = modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = MD.space4),
+    ) {
         item(key = "header") { LegalNotices(state) }
 
         if (catalog == null) {
@@ -102,13 +121,13 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
         }
 
         item(key = "filter") {
-            Column(modifier = Modifier.padding(horizontal = RowPadding, vertical = 8.dp)) {
-                // The shell's one field shape, borrowed rather than redrawn
-                // — it is a `BasicTextField` in a themed box precisely so
-                // that a surface outside a sheet can use it too. No
-                // autofocus: arriving at a compliance screen with the
-                // keyboard up hides the notices the screen exists to show.
-                SheetTextField(
+            Column(modifier = Modifier.padding(top = MD.space4)) {
+                // The shell's one field shape, borrowed rather than redrawn —
+                // it is the same pill as the composer and the model drill, and
+                // a user who has typed into one knows what this is. No
+                // autofocus: arriving at a compliance screen with the keyboard
+                // up hides the notices the screen exists to show.
+                SeekerSearchField(
                     value = query,
                     onValueChange = { query = it },
                     placeholder = stringResource(R.string.licences_search_placeholder),
@@ -121,12 +140,9 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
                     } else {
                         stringResource(R.string.licences_count_filtered, matching, total)
                     },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color(
-                        "text.muted",
-                        MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    modifier = Modifier.padding(top = 6.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MD.space2, start = MD.space1),
                 )
             }
         }
@@ -143,14 +159,26 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
             }
             // Keyed on the component id, which the generator guarantees is
             // unique across the whole file — 615 rows re-keyed on every
-            // keystroke of the filter otherwise costs a full relayout.
-            items(group.components, key = { it.id }) { component ->
-                ComponentRow(
-                    component = component,
+            // keystroke of the filter otherwise costs a full relayout. One
+            // card per row rather than one per group, for the same reason the
+            // rows are lazy at all: a group here can be six hundred long, and
+            // a group-shaped card would be one item six hundred rows tall.
+            itemsIndexed(group.components, key = { _, it -> it.id }) { index, component ->
+                SeekerCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    // The group is one card drawn one row at a time: the
+                    // corners are rounded only at its two ends, so six hundred
+                    // lazy items still read as a single block. A group-shaped
+                    // card would have to be one item six hundred rows tall,
+                    // which is the whole cost of laziness handed back.
+                    shape = groupShape(index, group.components.size),
                     onClick = {
                         state.push(Route.LicenceDetail(component.id, component.name))
                     },
-                )
+                ) {
+                    if (index > 0) HairlineDivider()
+                    ComponentRow(component)
+                }
             }
         }
 
@@ -159,25 +187,13 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
             // docs/TRADEMARKS.md. It belongs at the end rather than in the
             // header: it is about the ~64 file-type logos, which are rows in
             // the group above it, not about the app's own licence.
-            Column(
-                modifier = Modifier.padding(
-                    start = RowPadding,
-                    end = RowPadding,
-                    top = 24.dp,
-                    bottom = 32.dp,
-                )
-            ) {
-                HorizontalDivider(
-                    color = theme.color("border", MaterialTheme.colorScheme.outlineVariant)
-                )
+            Column(modifier = Modifier.padding(top = MD.space6, bottom = MD.space8)) {
+                HairlineDivider()
                 Text(
                     text = stringResource(R.string.licences_trademarks),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = theme.color(
-                        "text.muted",
-                        MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    modifier = Modifier.padding(top = 16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MD.space4),
                 )
             }
         }
@@ -193,11 +209,9 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
  */
 @Composable
 private fun LegalNotices(state: ShellState) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
-    val body = theme.color("text", MaterialTheme.colorScheme.onSurface)
+    val scheme = MaterialTheme.colorScheme
 
-    Column(modifier = Modifier.fillMaxWidth().padding(RowPadding)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = MD.space4)) {
         // GPLv3 s0/s5(d): the copyright notice, the warranty disclaimer, the
         // redistribution statement, and a way to see the licence itself.
         SelectionContainer {
@@ -206,19 +220,19 @@ private fun LegalNotices(state: ShellState) {
                     text = stringResource(R.string.licences_notice_copyright),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = body,
+                    color = scheme.onSurface,
                 )
                 Text(
                     text = stringResource(R.string.licences_notice_warranty),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = body,
-                    modifier = Modifier.padding(top = 8.dp),
+                    color = scheme.onSurface,
+                    modifier = Modifier.padding(top = MD.space2),
                 )
                 Text(
                     text = stringResource(R.string.licences_notice_redistribute),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = body,
-                    modifier = Modifier.padding(top = 4.dp),
+                    color = scheme.onSurface,
+                    modifier = Modifier.padding(top = MD.space1),
                 )
             }
         }
@@ -228,20 +242,21 @@ private fun LegalNotices(state: ShellState) {
         // itself points at, so it is here.
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MD.space3),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp)
+                .padding(top = MD.space2)
                 .clickable {
                     state.push(
                         Route.LicenceDetail(APP_COMPONENT_ID, APP_COMPONENT_NAME)
                     )
                 }
-                .heightIn(min = RowHeight),
+                .heightIn(min = MD.rowMin),
         ) {
             Text(
                 text = stringResource(R.string.licences_notice_view_gpl),
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("link_text.hover", MaterialTheme.colorScheme.primary),
+                color = scheme.primary,
                 modifier = Modifier.weight(1f),
             )
             RowChevron()
@@ -249,66 +264,81 @@ private fun LegalNotices(state: ShellState) {
 
         Text(
             text = stringResource(R.string.licences_version_note),
-            style = MaterialTheme.typography.labelSmall,
-            color = muted,
-            modifier = Modifier.padding(top = 4.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = MD.space1),
         )
 
-        SectionLabel(stringResource(R.string.licences_source_heading))
+        SectionHeader(
+            stringResource(R.string.licences_source_heading),
+            modifier = Modifier.padding(top = MD.space6),
+        )
         Text(
             text = stringResource(R.string.licences_source_intro),
-            style = MaterialTheme.typography.labelSmall,
-            color = muted,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
         )
-        SelectionContainer {
-            Column(modifier = Modifier.padding(top = 6.dp)) {
-                Text(
-                    text = BuildConfig.SOURCE_URL,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = body,
-                )
-                Text(
-                    // The release, and the upstream commit the engine was
-                    // vendored at — the two identifiers that make "the
-                    // source for this build" a resolvable claim rather than
-                    // a gesture at a repository.
-                    text = stringResource(
-                        R.string.licences_source_release,
-                        BuildConfig.VERSION_NAME,
-                        BuildConfig.ZED_COMMIT,
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = muted,
-                    modifier = Modifier.padding(top = 2.dp),
+        SeekerCard(modifier = Modifier.fillMaxWidth().padding(top = MD.space2)) {
+            SelectionContainer {
+                Column(modifier = Modifier.padding(MD.space3)) {
+                    Text(
+                        text = BuildConfig.SOURCE_URL,
+                        style = MonoSmall,
+                        color = scheme.onSurface,
+                    )
+                    Text(
+                        // The release, and the upstream commit the engine was
+                        // vendored at — the two identifiers that make "the
+                        // source for this build" a resolvable claim rather
+                        // than a gesture at a repository.
+                        text = stringResource(
+                            R.string.licences_source_release,
+                            BuildConfig.VERSION_NAME,
+                            BuildConfig.ZED_COMMIT,
+                        ),
+                        style = MonoSmall,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = MD.space05),
+                    )
+                }
+            }
+            // The whole block in one copy: a reviewer resolving the offer
+            // needs the URL *and* the release it is a claim about, and two
+            // separate selections is two chances to paste half of one. It
+            // replaces nothing — there was no way to copy this before.
+            Row(modifier = Modifier.padding(start = MD.space3, bottom = MD.space3)) {
+                CopyChip(
+                    text = BuildConfig.SOURCE_URL + "\n" +
+                        BuildConfig.VERSION_NAME + "\n" + BuildConfig.ZED_COMMIT,
+                    label = "Copy",
                 )
             }
         }
 
-        SectionLabel(stringResource(R.string.licences_offer_heading))
+        SectionHeader(
+            stringResource(R.string.licences_offer_heading),
+            modifier = Modifier.padding(top = MD.space6),
+        )
         SelectionContainer {
             Column {
                 Text(
                     text = stringResource(R.string.licences_offer_body),
                     style = MaterialTheme.typography.bodySmall,
-                    color = body,
+                    color = scheme.onSurface,
                 )
                 Text(
                     text = stringResource(R.string.licences_offer_address),
                     style = MaterialTheme.typography.bodySmall,
-                    color = body,
-                    modifier = Modifier.padding(top = 10.dp),
+                    color = scheme.onSurface,
+                    modifier = Modifier.padding(top = MD.rowPadY),
                 )
             }
         }
         Text(
             text = stringResource(R.string.licences_offer_note),
-            style = MaterialTheme.typography.labelSmall,
-            color = muted,
-            modifier = Modifier.padding(top = 10.dp),
-        )
-        HorizontalDivider(
-            color = theme.color("border", MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.padding(top = 16.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = MD.rowPadY),
         )
     }
 }
@@ -324,47 +354,17 @@ private fun LegalNotices(state: ShellState) {
 private const val APP_COMPONENT_ID = "app/seeker-ide"
 private const val APP_COMPONENT_NAME = "Seeker IDE"
 
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = LocalZedTheme.current.color(
-            "text.muted",
-            MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-        modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
-    )
-}
-
 /** A group heading and the sentence that says what is, and is not, in it. */
 @Composable
 private fun GroupHeader(title: String, note: String?) {
-    val theme = LocalZedTheme.current
-    Column(
-        modifier = Modifier.padding(
-            start = RowPadding,
-            end = RowPadding,
-            top = 20.dp,
-            bottom = 6.dp,
-        )
-    ) {
-        Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-        )
+    Column(modifier = Modifier.padding(top = MD.space6, bottom = MD.space1)) {
+        SectionHeader(title)
         if (note != null) {
             Text(
                 text = note,
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color(
-                    "text.muted",
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-                modifier = Modifier.padding(top = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = MD.space2),
             )
         }
     }
@@ -375,24 +375,24 @@ private fun GroupHeader(title: String, note: String?) {
  *
  * The name gets the one line that can ellipsize and the SPDX id never does —
  * on a 400dp column something has to give, and "MIT OR Apache-2.0" truncated
- * to "MIT OR Apac…" is the half of the row that stops being an answer.
+ * to "MIT OR Apac…" is the half of the row that stops being an answer. The
+ * version and the id are identifiers, so they are set in the buffer face.
  */
 @Composable
-private fun ComponentRow(component: LicenceComponent, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
+private fun ComponentRow(component: LicenceComponent) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .heightIn(min = RowHeight)
-            .padding(horizontal = RowPadding, vertical = 6.dp),
+            .heightIn(min = MD.rowMin)
+            .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = component.name,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -401,32 +401,40 @@ private fun ComponentRow(component: LicenceComponent, onClick: () -> Unit) {
                     component.version.takeIf { it.isNotBlank() },
                     component.spdx,
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = theme.color(
-                    "text.muted",
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
+                style = MonoSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = MD.space05),
             )
         }
         RowChevron()
     }
 }
 
+/**
+ * The corner radii of one row inside a card group: rounded at the ends of the
+ * run and square in the middle, so a lazy list of rows reads as one card.
+ *
+ * A single row group is rounded on all four corners, which is why the two
+ * conditions are asked separately rather than as a `when` over the position.
+ */
+private fun groupShape(index: Int, count: Int): Shape = RoundedCornerShape(
+    topStart = if (index == 0) MD.radiusMd else 0.dp,
+    topEnd = if (index == 0) MD.radiusMd else 0.dp,
+    bottomStart = if (index == count - 1) MD.radiusMd else 0.dp,
+    bottomEnd = if (index == count - 1) MD.radiusMd else 0.dp,
+)
+
 /** A paragraph that is the whole of what the screen has to say right now. */
 @Composable
 private fun Note(text: String, error: Boolean = false) {
-    val theme = LocalZedTheme.current
     Text(
         text = text,
-        style = MaterialTheme.typography.bodySmall,
+        style = MaterialTheme.typography.bodyMedium,
         color = if (error) {
-            theme.color("error", MaterialTheme.colorScheme.error)
+            MaterialTheme.colorScheme.error
         } else {
-            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+            MaterialTheme.colorScheme.onSurfaceVariant
         },
-        modifier = Modifier.padding(horizontal = RowPadding, vertical = 12.dp),
+        modifier = Modifier.padding(vertical = MD.space3),
     )
 }
-
-internal val RowHeight = 44.dp
-internal val RowPadding = 16.dp

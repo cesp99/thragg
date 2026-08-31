@@ -440,21 +440,41 @@ class AgentScreenTest {
     }
 
     /**
-     * The ticker's tokens are the *turn's* spend, so the label never runs
-     * backwards; zero is left off rather than drawn as `0 tok`, which reads as
-     * a stall.
+     * The bar's second line is identity, and it drops the mode rather than
+     * printing a placeholder for an agent that has none: a generic ACP agent
+     * publishes no modes, and "Agent · —" is a dash where a fact should be.
+     *
+     * (`tickerLabel` used to be tested here. It is gone: the elapsed/token
+     * readout is `ui/components/RunTicker.kt` now, pinned to the status strip
+     * instead of scrolling away at the transcript's tail, and its two halves
+     * are pinned by `RunTickerFormatTest`.)
      */
     @Test
-    fun theTickerShowsTokensOnlyOnceSomethingIsSpent() {
-        assertEquals("0s", tickerLabel(0, 0))
-        assertEquals("1m 07s · 3.4k tok", tickerLabel(67_000, 3_400))
-        assertEquals("2s · 900 tok", tickerLabel(2_000, 900))
+    fun theSubtitleNamesTheAgentAndDropsAnAbsentMode() {
+        assertEquals("Spettro · coding", barSubtitle("Spettro", "coding"))
+        assertEquals("Spettro", barSubtitle("Spettro", null))
+        assertEquals("Agent", barSubtitle("Agent", "  "))
     }
 
     /**
-     * The plan strip and the run peek are *hidden* with the keyboard up, never
-     * shrunk: this layout animates opacity and transform only, and these two
-     * repaint several times a second during a fan-out.
+     * The attention bar counts what it can actually open, and says nothing at
+     * all when there is nothing parked — it is a band that exists only while
+     * the turn is stopped.
+     */
+    @Test
+    fun theAttentionBarNamesTheAgentAndCountsWhatIsParked() {
+        assertNull(attentionLabel("Spettro", 0))
+        assertNull(attentionLabel("Spettro", -1))
+        assertEquals("Spettro is waiting on you — 1 request", attentionLabel("Spettro", 1))
+        assertEquals("Spettro is waiting on you — 3 requests", attentionLabel("Spettro", 3))
+    }
+
+    /**
+     * The plan unfold and the run strip are *hidden* with the keyboard up,
+     * never shrunk: this layout animates opacity and transform only, and these
+     * two repaint several times a second during a fan-out. The 36 dp status
+     * strip is not one of them — it is one of the three bands that always
+     * survive.
      */
     @Test
     fun theSecondaryBandsCollapseForTheKeyboard() {

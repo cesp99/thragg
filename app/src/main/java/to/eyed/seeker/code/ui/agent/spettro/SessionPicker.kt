@@ -12,10 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,7 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -39,12 +36,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentPastSession
+import to.eyed.seeker.code.ui.components.SeekerSearchField
 import to.eyed.seeker.code.ui.shell.projects.relativeTime
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
-import to.eyed.seeker.code.ui.theme.touchTarget
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -272,8 +269,7 @@ fun SessionPicker(
     loading: Boolean = false,
     error: String? = null,
 ) {
-    val theme = LocalZedTheme.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     // Recomputed on every list identity rather than cached: `session/list`
     // answers land as a whole new list, and the day a row falls into changes
     // with the clock as much as with the data.
@@ -292,7 +288,7 @@ fun SessionPicker(
             Text(
                 text = error,
                 style = MaterialTheme.typography.bodySmall,
-                color = theme.color("error", MaterialTheme.colorScheme.error),
+                color = LocalSeekerColors.current.dangerInk,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
@@ -351,7 +347,7 @@ fun SessionPicker(
                 }
             }
         }
-        HorizontalDivider(color = theme.color("border.variant", Color.Transparent))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.End,
@@ -364,14 +360,14 @@ fun SessionPicker(
             SeekerIcon(
                 icon = R.drawable.ic_ui_plus,
                 contentDescription = null,
-                tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                tint = LocalSeekerColors.current.accentMark,
                 size = IconSize.Inline,
                 modifier = Modifier.padding(end = 8.dp),
             )
             Text(
                 text = "New session",
                 style = MaterialTheme.typography.labelLarge,
-                color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                color = LocalSeekerColors.current.accentInk,
             )
         }
     }
@@ -399,10 +395,9 @@ private fun SessionRow(
     onLongPress: () -> Unit,
     onResume: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val haptics = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val at = remember(session.updatedAt) { sessionTimeMillis(session.updatedAt) }
     val project = sessionProject(session)
 
@@ -415,7 +410,7 @@ private fun SessionRow(
                 .heightIn(min = RowHeight)
                 .background(
                     if (expanded) {
-                        theme.color("element.selected", Color.Transparent)
+                        MaterialTheme.colorScheme.secondaryContainer
                     } else {
                         Color.Transparent
                     },
@@ -438,7 +433,7 @@ private fun SessionRow(
                 icon = if (isOpen) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
                 contentDescription = if (isOpen) "open" else null,
                 tint = if (isOpen) {
-                    theme.color("text.accent", MaterialTheme.colorScheme.primary)
+                    LocalSeekerColors.current.accentMark
                 } else {
                     muted
                 },
@@ -448,7 +443,7 @@ private fun SessionRow(
                 Text(
                     text = session.label,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -509,7 +504,6 @@ private val RowHeight = 64.dp
 /** One long-press action, indented under the row it belongs to. */
 @Composable
 private fun RowAction(label: String, subtitle: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -520,13 +514,13 @@ private fun RowAction(label: String, subtitle: String, onClick: () -> Unit) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+            color = LocalSeekerColors.current.accentInk,
             maxLines = 1,
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -536,7 +530,6 @@ private fun RowAction(label: String, subtitle: String, onClick: () -> Unit) {
 /** `[ This project │ All ]`, drawn only when the engine can answer both. */
 @Composable
 private fun ScopeControl(scope: SessionScope, onScopeChange: (SessionScope) -> Unit) {
-    val theme = LocalZedTheme.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -552,7 +545,7 @@ private fun ScopeControl(scope: SessionScope, onScopeChange: (SessionScope) -> U
                     .clip(RoundedCornerShape(8.dp))
                     .background(
                         if (selected) {
-                            theme.color("element.selected", Color.Transparent)
+                            MaterialTheme.colorScheme.secondaryContainer
                         } else {
                             Color.Transparent
                         },
@@ -563,9 +556,9 @@ private fun ScopeControl(scope: SessionScope, onScopeChange: (SessionScope) -> U
                     text = label,
                     style = MaterialTheme.typography.labelMedium,
                     color = if (selected) {
-                        theme.color("text", MaterialTheme.colorScheme.onSurface)
+                        MaterialTheme.colorScheme.onSurface
                     } else {
-                        theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 1,
                 )
@@ -577,9 +570,11 @@ private fun ScopeControl(scope: SessionScope, onScopeChange: (SessionScope) -> U
 /**
  * The picker's search field, for the host to pin at the bottom of the sheet.
  *
- * `BasicTextField` for the reason every field in this app is one: Material's
- * carries a 56 dp container and its own indicator colours, neither of which
- * survives contact with a Zed theme.
+ * [SeekerSearchField] is the app's one search pill — 20dp, `surfaceContainerHigh`,
+ * a hairline that warms to the accent while it holds the caret, and a clear
+ * button that appears only once there is something to clear. This file used to
+ * hand-roll an 8dp version of it with no focus state at all; every search field
+ * in the app is now the same control, which is the point of having one.
  */
 @Composable
 fun SessionSearchField(
@@ -587,46 +582,11 @@ fun SessionSearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val theme = LocalZedTheme.current
-    BasicTextField(
+    SeekerSearchField(
         value = query,
         onValueChange = onQueryChange,
-        singleLine = true,
-        textStyle = MaterialTheme.typography.bodyMedium.copy(
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-        ),
-        cursorBrush = SolidColor(theme.color("editor.foreground", MaterialTheme.colorScheme.primary)),
-        modifier = modifier
-            .fillMaxWidth()
-            .touchTarget()
-            .clip(RoundedCornerShape(8.dp))
-            .background(theme.color("editor.background", Color.Transparent))
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        decorationBox = { field ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SeekerIcon(
-                    icon = R.drawable.ic_ui_magnifying_glass,
-                    contentDescription = null,
-                    tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
-                    size = IconSize.Inline,
-                )
-                Spacer(Modifier.width(8.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    if (query.isEmpty()) {
-                        Text(
-                            text = "Search conversations",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = theme.color(
-                                "text.placeholder",
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            maxLines = 1,
-                        )
-                    }
-                    field()
-                }
-            }
-        },
+        placeholder = "Search conversations",
+        modifier = modifier,
     )
 }
 
@@ -638,11 +598,10 @@ fun SessionSearchField(
  */
 @Composable
 fun ReplayedSessionNotice(modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     Text(
         text = REPLAYED_SESSION_NOTICE,
         style = MaterialTheme.typography.labelSmall,
-        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -660,8 +619,7 @@ fun ReplayedSessionNotice(modifier: Modifier = Modifier) {
  */
 @Composable
 fun SessionReplaySkeleton(modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
-    val bar = theme.color("element.background", Color.Transparent)
+    val bar = MaterialTheme.colorScheme.surfaceContainerHigh
     Column(
         modifier = modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -669,7 +627,7 @@ fun SessionReplaySkeleton(modifier: Modifier = Modifier) {
         Text(
             text = "Replaying the conversation…",
             style = MaterialTheme.typography.labelSmall,
-            color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         for (fraction in listOf(0.9f, 0.65f, 0.8f, 0.4f)) {
             Box(

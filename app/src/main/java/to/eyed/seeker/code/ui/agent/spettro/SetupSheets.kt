@@ -1,7 +1,6 @@
 package to.eyed.seeker.code.ui.agent.spettro
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,11 +31,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -46,13 +47,15 @@ import to.eyed.seeker.code.core.ConnectOutcome
 import to.eyed.seeker.code.core.LocalProbe
 import to.eyed.seeker.code.core.ProviderEntry
 import to.eyed.seeker.code.core.SpettroSetup
+import to.eyed.seeker.code.ui.components.SelectableCard
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.SelectionMark
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -78,7 +81,6 @@ fun SignInSheet(
     onDismiss: () -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val login = SpettroSetup.login
 
     // Started from the sheet rather than from the card, so a dismissed sheet
@@ -123,7 +125,7 @@ fun SignInSheet(
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                color = MaterialTheme.colorScheme.onSurface,
             )
             val url = login?.browserUrl
             if (url != null && login.isPending) {
@@ -131,7 +133,7 @@ fun SignInSheet(
                 Text(
                     text = "Open the link again",
                     style = MaterialTheme.typography.labelLarge,
-                    color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                    color = LocalSeekerColors.current.accentInk,
                     modifier = Modifier.touchTarget().clickable { onOpenUrl(url) },
                 )
             }
@@ -159,7 +161,6 @@ fun SignInSheet(
  */
 @Composable
 fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
-    val theme = LocalZedTheme.current
     val scope = rememberCoroutineScope()
     val grid = SpettroSetup.providers?.keyGrid.orEmpty()
 
@@ -192,7 +193,7 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                     Text(
                         text = message,
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("error", MaterialTheme.colorScheme.error),
+                        color = LocalSeekerColors.current.dangerInk,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
@@ -237,7 +238,7 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                 Text(
                     text = "Spettro has not said which providers it knows about yet.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             // A flow of chips rather than a fixed grid: provider names are two
@@ -261,19 +262,13 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                     SeekerIcon(
                         icon = R.drawable.ic_ui_chevron_down,
                         contentDescription = null,
-                        tint = theme.color(
-                            "text.muted",
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         size = IconSize.Marker,
                     )
                     Text(
                         text = moreLabel,
                         style = MaterialTheme.typography.labelMedium,
-                        color = theme.color(
-                            "text.muted",
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -283,14 +278,14 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                     text = provider.name,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "Your key is verified with ${provider.name}, then stored " +
                         "encrypted on this device. Seeker IDE never keeps a copy.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 provider.envKey?.let { env ->
                     Spacer(Modifier.height(4.dp))
@@ -298,7 +293,7 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                         text = "It will also be read from $env if that is set in the " +
                             "Linux userland.",
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -333,7 +328,6 @@ private fun keyPlaceholder(provider: ProviderEntry?): String = when (provider?.i
  */
 @Composable
 fun LocalModelSheet(state: ShellState, onDismiss: () -> Unit) {
-    val theme = LocalZedTheme.current
     val scope = rememberCoroutineScope()
 
     var endpoint by remember { mutableStateOf(DEFAULT_ENDPOINT) }
@@ -380,7 +374,7 @@ fun LocalModelSheet(state: ShellState, onDismiss: () -> Unit) {
                     Text(
                         text = message,
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("error", MaterialTheme.colorScheme.error),
+                        color = LocalSeekerColors.current.dangerInk,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
@@ -433,21 +427,21 @@ fun LocalModelSheet(state: ShellState, onDismiss: () -> Unit) {
                 text = "Ollama and LM Studio both speak the OpenAI API. Point Seeker IDE " +
                     "at the endpoint and it will list what is loaded there.",
                 style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             found?.let { models ->
                 Spacer(Modifier.height(12.dp))
                 Text(
                     text = "${models.size} model${if (models.size == 1) "" else "s"} there",
                     style = MaterialTheme.typography.labelMedium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(4.dp))
                 for (model in models.take(MAX_PREVIEW)) {
                     Text(
                         text = model,
                         style = MaterialTheme.typography.bodySmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
                 }
@@ -455,7 +449,7 @@ fun LocalModelSheet(state: ShellState, onDismiss: () -> Unit) {
                     Text(
                         text = "and ${models.size - MAX_PREVIEW} more",
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -502,7 +496,6 @@ fun PermissionChoiceSheet(
     onChoose: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     val suggestedId = options.firstOrNull { it.id == SUGGESTED_PERMISSION }?.id
         ?: options.firstOrNull()?.id
     var selected by remember(options) { mutableStateOf(suggestedId) }
@@ -543,7 +536,7 @@ fun PermissionChoiceSheet(
             Text(
                 text = "You can change this any time from the Permission chip.",
                 style = MaterialTheme.typography.bodySmall,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
         }
@@ -599,10 +592,9 @@ private val PERMISSION_COPY: Map<String, Pair<String, String>> = mapOf(
  */
 @Composable
 fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val scope = rememberCoroutineScope()
-    val text = theme.color("text", MaterialTheme.colorScheme.onSurface)
-    val muted = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+    val text = MaterialTheme.colorScheme.onSurface
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val providers = SpettroSetup.providers
     val account = SpettroSetup.account
 
@@ -615,7 +607,7 @@ fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(theme.color("editor.background", MaterialTheme.colorScheme.background))
+            .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
@@ -734,7 +726,7 @@ fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
                         // The row's click label says what the tap does; this
                         // says which of the two states it is in now.
                         contentDescription = if (model.favorite) "favourite" else null,
-                        tint = if (model.favorite) theme.color("created", muted) else muted,
+                        tint = if (model.favorite) LocalSeekerColors.current.addedInk else muted,
                         size = IconSize.Inline,
                     )
                 }
@@ -754,7 +746,7 @@ fun SpettroSettingsScreen(modifier: Modifier = Modifier) {
                     Text(
                         text = "ACTIVE",
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("text.accent", MaterialTheme.colorScheme.primary),
+                        color = LocalSeekerColors.current.accentInk,
                     )
                 }
             }
@@ -809,13 +801,12 @@ private fun SecretField(
     onToggleReveal: () -> Unit,
     secret: Boolean = true,
 ) {
-    val theme = LocalZedTheme.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                theme.color("editor.background", MaterialTheme.colorScheme.surface),
+                MaterialTheme.colorScheme.surfaceContainerHigh,
                 RoundedCornerShape(8.dp),
             )
             .heightIn(min = 44.dp)
@@ -838,10 +829,10 @@ private fun SecretField(
                     imeAction = ImeAction.Done,
                 ),
                 textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    color = MaterialTheme.colorScheme.onSurface,
                 ),
                 cursorBrush = SolidColor(
-                    theme.color("editor.foreground", MaterialTheme.colorScheme.onSurface),
+                    MaterialTheme.colorScheme.primary,
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -851,7 +842,7 @@ private fun SecretField(
                 Text(
                     text = placeholder,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -863,7 +854,7 @@ private fun SecretField(
                 description = if (reveal) "Hide" else "Reveal",
                 onClick = onToggleReveal,
                 enabled = enabled,
-                tint = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 size = IconSize.Inline,
                 modifier = Modifier.padding(start = 8.dp),
             )
@@ -871,7 +862,14 @@ private fun SecretField(
     }
 }
 
-/** The one button shape these sheets use, pinned under the field. */
+/**
+ * The one button shape these sheets use, pinned under the field.
+ *
+ * Stock `Button` and `OutlinedButton` rather than the `Box` with two
+ * backgrounds this was: the state layer, the real disabled colours and
+ * TalkBack's "button, disabled" all arrive with them, and the secondary
+ * action stops being a grey rectangle that looks disabled while it is not.
+ */
 @Composable
 private fun SheetButton(
     label: String,
@@ -879,74 +877,72 @@ private fun SheetButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
-    val theme = LocalZedTheme.current
-    val background = if (primary) {
-        theme.color("element.background", MaterialTheme.colorScheme.primary)
-    } else {
-        theme.color("ghost_element.background", MaterialTheme.colorScheme.surface)
-    }
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (enabled) background else background.copy(alpha = 0.4f))
-            .clickable(enabled = enabled, onClick = onClick),
-    ) {
+    val shape = RoundedCornerShape(MD.radiusSm)
+    val text: @Composable () -> Unit = {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = theme.color("text", MaterialTheme.colorScheme.onSurface)
-                .copy(alpha = if (enabled) 1f else 0.5f),
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+    if (primary) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            shape = shape,
+            modifier = Modifier.fillMaxWidth().height(ActionHeight),
+            content = { text() },
+        )
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            shape = shape,
+            modifier = Modifier.fillMaxWidth().height(ActionHeight),
+            content = { text() },
         )
     }
 }
 
-/** The provider chips, wrapped by hand — Compose's FlowRow is experimental. */
+/**
+ * The provider chips, wrapped by hand — Compose's FlowRow is experimental.
+ *
+ * SELECTION IS A BORDER, not a fill: [SelectableCard] swaps a 1dp
+ * `outlineVariant` for a 1.5dp `primary` at 70%, so the chosen provider is
+ * marked without becoming the loudest object on a sheet whose loudest object
+ * should be the button that finishes the job.
+ */
 @Composable
 private fun ChipFlow(
     providers: List<ProviderEntry>,
     chosenId: String?,
     onChoose: (ProviderEntry) -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     // Three per row is what fits at 400 dp with the longest provider name the
     // agent ships; a fourth truncates every one of them.
     for (row in providers.chunked(3)) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(MD.space2),
+            modifier = Modifier.fillMaxWidth().padding(vertical = MD.space1),
         ) {
             for (provider in row) {
-                val chosen = provider.id == chosenId
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            if (chosen) {
-                                theme.color("element.selected", MaterialTheme.colorScheme.primaryContainer)
-                            } else {
-                                theme.color("ghost_element.background", MaterialTheme.colorScheme.surface)
-                            },
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = theme.color("border", MaterialTheme.colorScheme.outline),
-                            shape = RoundedCornerShape(8.dp),
-                        )
-                        .clickable { onChoose(provider) },
+                SelectableCard(
+                    selected = provider.id == chosenId,
+                    onSelect = { onChoose(provider) },
+                    modifier = Modifier.weight(1f).height(ChipHeight),
                 ) {
-                    Text(
-                        text = provider.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = theme.color("text", MaterialTheme.colorScheme.onSurface),
-                        maxLines = 1,
-                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = MD.space2),
+                    ) {
+                        Text(
+                            text = provider.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             // Keeps a short last row the same width as a full one.
@@ -964,7 +960,6 @@ private fun RadioRow(
     badge: String?,
     onClick: () -> Unit,
 ) {
-    val theme = LocalZedTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -978,7 +973,7 @@ private fun RadioRow(
             SelectionMark(
                 selected = selected,
                 multi = false,
-                tint = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -987,7 +982,7 @@ private fun RadioRow(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
-                    color = theme.color("text", MaterialTheme.colorScheme.onSurface),
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 if (badge != null) {
@@ -995,7 +990,7 @@ private fun RadioRow(
                     Text(
                         text = badge,
                         style = MaterialTheme.typography.labelSmall,
-                        color = theme.color("created", MaterialTheme.colorScheme.primary),
+                        color = LocalSeekerColors.current.addedInk,
                     )
                 }
             }
@@ -1003,7 +998,7 @@ private fun RadioRow(
                 Text(
                     text = body,
                     style = MaterialTheme.typography.bodySmall,
-                    color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -1016,7 +1011,7 @@ private fun SectionTitle(title: String) {
         text = title,
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Medium,
-        color = LocalZedTheme.current.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 6.dp),
     )
 }
@@ -1026,7 +1021,13 @@ private fun LinkRow(label: String, onClick: () -> Unit) {
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
-        color = LocalZedTheme.current.color("text.accent", MaterialTheme.colorScheme.primary),
+        color = LocalSeekerColors.current.accentInk,
         modifier = Modifier.touchTarget().clickable(onClick = onClick).padding(horizontal = 4.dp),
     )
 }
+
+/** 48dp of action, which is also the touch floor. */
+private val ActionHeight = MD.rowMin
+
+/** A provider chip is a two-line-proof 40dp; the row of three sets the width. */
+private val ChipHeight = 40.dp

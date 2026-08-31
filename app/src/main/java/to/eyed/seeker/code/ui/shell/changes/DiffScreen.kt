@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package to.eyed.seeker.code.ui.shell.changes
 
 import androidx.compose.foundation.layout.Arrangement
@@ -9,8 +11,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -20,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.GitSession
@@ -30,9 +34,13 @@ import to.eyed.seeker.code.ui.git.DiffTarget
 import to.eyed.seeker.code.ui.git.GitOps
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.shell.build.CodeJump
-import to.eyed.seeker.code.ui.shell.build.FlatButton
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.ZedSurface
 import to.eyed.seeker.code.ui.workspace.Notifications
 
 /**
@@ -64,17 +72,26 @@ import to.eyed.seeker.code.ui.workspace.Notifications
  * the top-right corner of a 890dp phone is the furthest point from a thumb.
  *
  * Read-only. Editing happens in Code.
+ *
+ * **NO VISUAL CHANGE below the bar, and that is the decision** (docs/VISUAL.md,
+ * "Diff"). The panes keep every one of their Zed colour reads, their rem
+ * metrics, their no-ripple rule and their LTR pin, and this file wraps them in
+ * [ZedSurface] to say so out loud: the gutters, the hunk fills, the blame rows
+ * (`theme.playerColor(index)`) and the syntax spans have to agree with the same
+ * file open in the editor two taps away, and a Material-styled diff would put
+ * two different renderings of one hunk on two screens of one app. What is
+ * Material here is the chrome around it — the bar above, the hairline, and the
+ * two buttons at the bottom.
  */
 @Composable
 fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifier) {
-    val theme = LocalZedTheme.current
     val project = state.project
     if (project == null) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = "No project is open.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         return
@@ -94,58 +111,79 @@ fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifi
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        // OUTSIDE the wrapper, above it: the bar belongs to the app half even
+        // on the one screen whose body does not (docs/VISUAL.md, "Diff").
+        SeekerTopBar(
+            title = route.path.substringAfterLast('/'),
+            subtitle = route.path.substringBeforeLast('/', "").takeIf { it.isNotEmpty() },
+            onBack = { state.pop() },
+        )
+        HairlineDivider()
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            if (pending != null) {
-                // The agent's own diff, not git's: git would compare against
-                // the last commit and fold every earlier edit of this thread
-                // into the answer, which is not what Keep and Reject are about.
-                DiffBody(files = listOf(pending.diff), onOpenFile = ::openInCode)
-            } else {
-                DiffPane(
-                    project = project,
-                    target = DiffTarget(path = route.path, staged = route.staged),
-                    onOpenFile = ::openInCode,
-                )
+            ZedSurface {
+                if (pending != null) {
+                    // The agent's own diff, not git's: git would compare
+                    // against the last commit and fold every earlier edit of
+                    // this thread into the answer, which is not what Keep and
+                    // Reject are about.
+                    DiffBody(files = listOf(pending.diff), onOpenFile = ::openInCode)
+                } else {
+                    DiffPane(
+                        project = project,
+                        target = DiffTarget(path = route.path, staged = route.staged),
+                        onOpenFile = ::openInCode,
+                    )
+                }
             }
         }
-        HorizontalDivider(color = theme.color("border", MaterialTheme.colorScheme.outlineVariant))
+        HairlineDivider()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = MD.space4, vertical = MD.space2),
+            horizontalArrangement = Arrangement.spacedBy(MD.space3),
         ) {
             if (pending != null) {
-                FlatButton(
-                    label = "Reject",
-                    icon = R.drawable.ic_ui_close,
+                OutlinedButton(
+                    onClick = {
+                        AgentSessions.rejectEdits(listOf(route.path))
+                        // The bytes this screen is drawing are about to stop
+                        // existing; staying here would show a diff of nothing.
+                        state.pop()
+                    },
                     modifier = Modifier.weight(1f),
                 ) {
-                    AgentSessions.rejectEdits(listOf(route.path))
-                    // The bytes this screen is drawing are about to stop
-                    // existing; staying here would show a diff of nothing.
-                    state.pop()
+                    ButtonMark(R.drawable.ic_ui_close)
+                    Text("Reject")
                 }
-                FlatButton(
-                    label = "Keep",
-                    icon = R.drawable.ic_ui_check,
-                    emphasis = true,
+                Button(
+                    onClick = {
+                        AgentSessions.keepEdits(listOf(route.path))
+                        state.pop()
+                    },
                     modifier = Modifier.weight(1f),
                 ) {
-                    AgentSessions.keepEdits(listOf(route.path))
-                    state.pop()
+                    ButtonMark(R.drawable.ic_ui_check)
+                    Text("Keep")
                 }
             } else {
-                FlatButton(label = "Discard…", modifier = Modifier.weight(1f)) {
-                    discardAsk = true
-                }
-                FlatButton(label = "Stage", emphasis = true, modifier = Modifier.weight(1f)) {
-                    val started = GitOps.run(project.id, { session.stage(listOf(route.path)) })
-                    if (!started) {
-                        Notifications.info("Still running the last git command…", key = "git:busy")
-                    }
-                }
+                OutlinedButton(
+                    onClick = { discardAsk = true },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Discard…") }
+                Button(
+                    onClick = {
+                        val started = GitOps.run(project.id, { session.stage(listOf(route.path)) })
+                        if (!started) {
+                            Notifications.info(
+                                "Still running the last git command…",
+                                key = "git:busy",
+                            )
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Stage") }
             }
         }
     }
@@ -182,4 +220,22 @@ fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifi
             },
         )
     }
+}
+
+/**
+ * The glyph before a button's label, at Material's own icon-to-label gap.
+ *
+ * Decoration: `Keep` and `Reject` are words, and the button already reads them
+ * out. `ButtonDefaults.IconSpacing` rather than [MD.iconGap] because this one
+ * belongs to the stock component's metrics, not to the app's rhythm.
+ */
+@Composable
+private fun ButtonMark(icon: Int) {
+    SeekerIcon(
+        icon = icon,
+        contentDescription = null,
+        tint = LocalContentColor.current,
+        size = IconSize.Inline,
+        modifier = Modifier.padding(end = ButtonDefaults.IconSpacing),
+    )
 }

@@ -1,13 +1,13 @@
 package to.eyed.seeker.code.ui.shell.code
 
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -27,16 +27,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.theme.IconSize
-import to.eyed.seeker.code.ui.theme.LocalZedTheme
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
-import to.eyed.seeker.code.ui.theme.touchTarget
+import to.eyed.seeker.code.ui.theme.SeekerIconButton
+import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.workspace.OpenFilesState
 
 /**
@@ -48,7 +51,16 @@ import to.eyed.seeker.code.ui.workspace.OpenFilesState
  * old shell put the tab strip at the top and the rarely-pressed ⋮ within easy
  * reach at the bottom, which is the reachability inversion the spec names as
  * defect 3 (docs/UI.md, "Why"). Switching files is the single most frequent
- * navigation in an editor; it goes at the bottom.
+ * navigation in an editor; it goes at the bottom. docs/VISUAL.md's wireframe
+ * sketches this row under the top bar, and it stays here anyway: that drawing
+ * is an inventory of the chrome, and moving the most-pressed control in the
+ * destination out of the thumb zone is not a colour change.
+ *
+ * It IS a Material row now, on the app side of the seam: the fill is
+ * `surfaceContainer`, the seam over it is a [HairlineDivider], the active chip
+ * is a `surfaceContainerHigh` pill and the tap has its ripple back. What it is
+ * *not* is Zed's tab strip — the buffer below the hairline keeps every one of
+ * its own colours, and this bar is the boundary.
  *
  * What went with the tab strip and is *not* here: preview tabs, pinning,
  * drag-to-reorder, `max_tabs`, the split menu, the close-others menu and the
@@ -85,7 +97,6 @@ fun FileBar(
     modifier: Modifier = Modifier,
 ) {
     if (WindowInsets.isImeVisible) return
-    val theme = LocalZedTheme.current
     val haptics = LocalHapticFeedback.current
     val listState = rememberLazyListState()
     val activeIndex = files.activeIndex
@@ -102,122 +113,138 @@ fun FileBar(
         }
     }
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(FileBarHeight)
-            .background(theme.color("tab_bar.background", MaterialTheme.colorScheme.surface)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        LazyRow(
-            state = listState,
-            modifier = Modifier.weight(1f, fill = true).fillMaxHeight(),
+    Column(modifier = modifier.fillMaxWidth()) {
+        // The boundary itself, drawn: everything above this line is the Zed
+        // half and everything below it is Material (docs/VISUAL.md, "Code
+        // destination — chrome only", the double rule in the wireframe).
+        HairlineDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(FileBarHeight)
+                .background(MaterialTheme.colorScheme.surfaceContainer),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp),
         ) {
-            itemsIndexed(files.tabs, key = { _, file -> file.path }) { index, file ->
-                val isActive = index == activeIndex
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            if (isActive) {
-                                theme.color("tab.active_background", MaterialTheme.colorScheme.surfaceVariant)
-                            } else {
-                                androidx.compose.ui.graphics.Color.Transparent
-                            }
-                        )
-                        .combinedClickable(
-                            onClick = { onSelect(index) },
-                            onLongClick = {
-                                // A close is destructive and it has no visible
-                                // affordance, so it gets the same confirmation
-                                // by feel that a long-press-to-delete does
-                                // everywhere else on the platform.
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onRequestClose(index)
-                            },
-                            onLongClickLabel = "Close ${file.name}",
-                        )
-                        .padding(horizontal = 10.dp),
-                ) {
-                    Text(
-                        text = file.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                        color = if (isActive) {
-                            theme.color("text", MaterialTheme.colorScheme.onSurface)
-                        } else {
-                            theme.color("text.muted", MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyRow(
+                state = listState,
+                modifier = Modifier.weight(1f, fill = true).fillMaxHeight(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.space1),
+                contentPadding = PaddingValues(horizontal = MD.space2),
+            ) {
+                itemsIndexed(files.tabs, key = { _, file -> file.path }) { index, file ->
+                    FileChip(
+                        name = file.name,
+                        dirty = file.isDirty,
+                        active = index == activeIndex,
+                        onClick = { onSelect(index) },
+                        onLongClick = {
+                            // A close is destructive and it has no visible
+                            // affordance, so it gets the same confirmation by
+                            // feel that a long-press-to-delete does everywhere
+                            // else on the platform.
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onRequestClose(index)
                         },
-                        maxLines = 1,
-                        overflow = TextOverflow.MiddleEllipsis,
                     )
-                    if (file.isDirty) {
-                        // The dot, not a close button: closing is the long
-                        // press, and a tiny ✕ next to a tiny label on a 400dp
-                        // row is two targets inside one thumb.
-                        SeekerIcon(
-                            icon = R.drawable.ic_ui_dot,
-                            contentDescription = "unsaved",
-                            tint = theme.color("text.accent", MaterialTheme.colorScheme.primary),
-                            size = DirtyDotSize,
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
-                    }
                 }
             }
+            // The fixed end. Drawn after the list and outside it, so no length
+            // of file names can push either off the screen.
+            Box(
+                modifier = Modifier
+                    .width(MD.hairline)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_magnifying_glass,
+                description = "Search in files",
+                onClick = onFind,
+                tint = mutedIcon,
+                modifier = Modifier.width(FileBarHeight),
+            )
+            SeekerIconButton(
+                icon = R.drawable.ic_ui_file_tree,
+                description = "Files",
+                onClick = onFiles,
+                tint = mutedIcon,
+                modifier = Modifier.width(FileBarHeight),
+            )
         }
-        // The fixed end. Drawn after the list and outside it, so no length of
-        // file names can push either off the screen.
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .fillMaxHeight()
-                .background(theme.color("border", MaterialTheme.colorScheme.outline)),
-        )
-        FileBarAction(R.drawable.ic_ui_magnifying_glass, "Search in files", onFind)
-        FileBarAction(R.drawable.ic_ui_menu, "Files", onFiles)
     }
 }
 
 /**
- * One of the two fixed buttons.
+ * One buffer's chip: a pill at [MD.pill], filled a step up the ladder when it
+ * is the buffer on screen and transparent when it is not.
  *
- * 44dp of drawn width — the bar's height, so the two are square — and
- * `touchTarget()` widens the *hit box* to 48dp on top of that. The height
- * cannot grow past the bar's own 44dp and does not try to; widening what can
- * be widened is still the difference between a thumb landing on this and a
- * thumb landing on the last file chip.
+ * Selection is a fill here rather than the border change the rest of the
+ * design uses, and that is the one place the rule bends on purpose: these are
+ * chips in a scrolling row where only one is ever selected, so the reading is
+ * "which of these" rather than "is this one on" — the same argument the nav
+ * bar's indicator pill makes one row below it.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FileBarAction(@DrawableRes icon: Int, description: String, onClick: () -> Unit) {
-    val theme = LocalZedTheme.current
-    Box(
-        contentAlignment = Alignment.Center,
+private fun FileChip(
+    name: String,
+    dirty: Boolean,
+    active: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .width(FileBarHeight)
-            .fillMaxHeight()
-            .clickable(onClickLabel = description, onClick = onClick)
-            .touchTarget(),
+            .height(ChipHeight)
+            .clip(RoundedCornerShape(MD.pill))
+            .background(
+                if (active) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = "Close $name",
+            )
+            .padding(horizontal = MD.space3),
     ) {
-        SeekerIcon(
-            icon = icon,
-            contentDescription = description,
-            tint = theme.color("text", MaterialTheme.colorScheme.onSurface),
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+            color = if (active) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.MiddleEllipsis,
         )
+        if (dirty) {
+            // The dot, not a close button: closing is the long press, and a
+            // tiny ✕ next to a tiny label on a 400dp row is two targets inside
+            // one thumb.
+            SeekerIcon(
+                icon = R.drawable.ic_ui_dot,
+                contentDescription = "unsaved",
+                tint = MaterialTheme.colorScheme.primary,
+                size = DirtyDotSize,
+                modifier = Modifier.padding(start = MD.space1),
+            )
+        }
     }
 }
 
-/** 44dp, the same as the header and the action row — see docs/UI.md's budget. */
+/** 44dp, the same as the action row — see docs/UI.md's budget. */
 internal val FileBarHeight = 44.dp
+
+/** The chip inside the 44dp bar, leaving 6dp of ground above and below it. */
+private val ChipHeight = 32.dp
 
 /**
  * The unsaved mark, smaller than [IconSize.Marker] on purpose: it sits inside
- * a chip beside a `labelMedium` filename, and at 14dp it would be the biggest
+ * a chip beside a `labelLarge` filename, and at 14dp it would be the biggest
  * thing on the chip.
  */
 private val DirtyDotSize = 8.dp

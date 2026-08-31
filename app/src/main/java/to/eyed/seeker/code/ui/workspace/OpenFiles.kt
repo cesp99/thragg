@@ -957,3 +957,34 @@ class OpenFilesState {
         if (closedPaths.size > REOPEN_HISTORY) closedPaths.removeAt(0)
     }
 }
+
+/**
+ * The tabs in most-recently-used order, newest first.
+ *
+ * [history] is the pane's activation history, oldest first — Zed's
+ * `Pane::activation_history`, which its tab switcher read in reverse
+ * (tab_switcher/src/tab_switcher.rs). Tabs the history has never heard of —
+ * opened before tracking started, or restored from a session — come last, in
+ * strip order, rather than being dropped: an order that hid one would be
+ * worse than an imperfect one.
+ *
+ * Pure, and the reason it lives outside [OpenFilesState]: this is the part
+ * worth testing (`MruOrderTest`).
+ *
+ * It arrived here from ui/workspace/TabSwitcher.kt, which went with the tab
+ * strip and the Ctrl+Tab overlay (docs/UI.md, "What is removed"). The
+ * switcher is gone; the ordering is not, because [OpenFilesState] evicts by
+ * it — the tab a `max_tabs` overflow closes is the one you have been away
+ * from longest, and that decision has to outlive the UI that displayed it.
+ */
+fun mruOrder(paths: List<String>, history: List<String>): List<String> {
+    val open = paths.toHashSet()
+    val ordered = ArrayList<String>(paths.size)
+    val seen = HashSet<String>(paths.size)
+    for (index in history.indices.reversed()) {
+        val path = history[index]
+        if (path in open && seen.add(path)) ordered += path
+    }
+    for (path in paths) if (seen.add(path)) ordered += path
+    return ordered
+}
