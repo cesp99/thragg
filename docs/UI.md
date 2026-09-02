@@ -620,7 +620,7 @@ The one full-screen takeover, and on a fresh install the gate. It is the honest 
 └──────────────────────────────────────────┘
 ```
 
-The gate has no text link under the button while the install runs. Once the required rows are in the button reads Continue; reached from Settings afterwards the same screen has Close and "Remove the toolchain — frees 2.1 GB".
+The gate has no text link under the button while the install runs. Once the required rows are in the button reads Continue; reached from Settings afterwards the same screen has "Check for updates", Close and "Remove the toolchain — frees 2.1 GB". A check that finds rows behind the published manifest marks them "installed · update available" and turns the primary button into "Update (N MB)", which reinstalls only those rows (docs/SOLANA.md, "Updating the toolchain").
 
 **Reuses:**
 

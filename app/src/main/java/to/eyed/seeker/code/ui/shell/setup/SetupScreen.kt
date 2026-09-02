@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -53,6 +54,8 @@ import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
 import to.eyed.seeker.code.solana.toolchain.ToolchainInstaller
 import to.eyed.seeker.code.solana.toolchain.ToolchainManifest
 import to.eyed.seeker.code.solana.toolchain.ToolchainPhase
+import to.eyed.seeker.code.solana.toolchain.ToolchainUpdates
+import to.eyed.seeker.code.solana.toolchain.UpdateStatus
 import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.terminal.Userland
 import to.eyed.seeker.code.ui.components.BottomActions
@@ -134,6 +137,9 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
     val supported = Userland.backend.isSupported
 
     LaunchedEffect(Unit) { ToolchainInstaller.refresh(context) }
+    // The last update check's line is this page's; it does not follow the
+    // user to Settings.
+    DisposableEffect(Unit) { onDispose { ToolchainUpdates.reset() } }
 
     val manifest = remember(context) {
         runCatching { ToolchainManifest.load(context) }.getOrNull()
@@ -231,6 +237,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 textAlign = TextAlign.Center,
             )
             val timeLine = timeLine(phase, estimate, ToolchainInstaller.runStartedAt, now)
+                ?: manifest?.takeIf { !gated }?.let { "Toolchain manifest of ${it.released}." }
             if (timeLine != null) {
                 Spacer(Modifier.height(MD.space1))
                 Text(
@@ -268,6 +275,8 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                     body = message,
                 )
             }
+
+            UpdateNotice(ToolchainUpdates.status)
 
             if (gated && phase == ToolchainPhase.Running) {
                 Spacer(Modifier.height(MD.space2))
@@ -786,6 +795,13 @@ private fun StateMark(state: ComponentState) {
             size = IconSize.Marker,
         )
 
+        is ComponentState.Outdated -> SeekerIcon(
+            icon = R.drawable.ic_ui_arrow_circle,
+            contentDescription = "update available",
+            tint = scheme.primary,
+            size = IconSize.Marker,
+        )
+
         is ComponentState.Failed -> SeekerIcon(
             icon = R.drawable.ic_ui_close,
             contentDescription = "failed",
@@ -840,6 +856,7 @@ private fun detail(row: ComponentRow, now: Long): String = when (val state = row
             state.step
         }
     is ComponentState.Staged -> "downloaded · waiting for its turn"
+    is ComponentState.Outdated -> "installed · update available"
     is ComponentState.Failed -> state.message
     is ComponentState.Cancelled -> "stopped — the bytes already fetched are kept"
     else -> row.component.summary
@@ -852,6 +869,30 @@ private fun elapsedFrom(startedAt: Long, now: Long): String {
 }
 
 private fun elapsed(startedAt: Long): String = elapsedFrom(startedAt, System.currentTimeMillis())
+
+/**
+ * What the last update check said, under the list. Nothing while idle or
+ * checking — the link under the button already says "Checking" — and one
+ * card otherwise: an info card naming the rows that are behind, a plain one
+ * for up to date, an error card for a check that could not reach GitHub.
+ */
+@Composable
+private fun UpdateNotice(status: UpdateStatus) {
+    val (severity, title, body) = when (status) {
+        is UpdateStatus.Idle, is UpdateStatus.Checking -> return
+        is UpdateStatus.UpToDate ->
+            Triple(Severity.Info, "Up to date", "Everything is at the toolchain manifest of ${status.released}.")
+        is UpdateStatus.Available -> Triple(
+            Severity.Info,
+            "Update available",
+            "${status.names.joinToString(", ")} — ${formatBytes(status.downloadBytes)} " +
+                "to download, from the manifest of ${status.released}. Update installs only those.",
+        )
+        is UpdateStatus.Failed -> Triple(Severity.Error, "Could not check for updates", status.message)
+    }
+    Spacer(Modifier.height(MD.space2))
+    NoticeCard(severity = severity, title = title, body = body)
+}
 
 // --- the actions ----------------------------------------------------------------
 
@@ -903,6 +944,7 @@ private fun Actions(
     val allInstalled = ToolchainInstaller.rows.isNotEmpty() &&
         ToolchainInstaller.rows.all { it.state is ComponentState.Installed }
     val running = phase == ToolchainPhase.Running
+    val updates = ToolchainInstaller.hasUpdates
 
     val label = when {
         !supported -> "Continue without a toolchain"
@@ -912,6 +954,10 @@ private fun Actions(
         gated && complete && running -> "Continue — Anchor keeps installing"
         gated && complete -> "Continue"
         running -> "Pause"
+        // Behind the manifest: the primary action is the update, and it is
+        // exactly a Start over the rows that are not at this revision.
+        updates && phase != ToolchainPhase.Failed ->
+            "Update (${formatBytes(ToolchainInstaller.updateDownloadBytes)})"
         complete && allInstalled -> "Done"
         phase == ToolchainPhase.Failed -> "Retry"
         metered -> "Download over mobile data (${formatBytes(remaining)})"
@@ -929,15 +975,18 @@ private fun Actions(
         Button(
             onClick = {
                 when {
-                    !supported || (complete && (allInstalled || gated)) -> {
+                    !supported || (!updates && complete && (allInstalled || gated)) -> {
                         // From the rows, not from disk: this runs on the main
                         // thread and the rows already are the answer.
-                        state.toolchainReady = ToolchainInstaller.isComplete
+                        state.toolchainReady = ToolchainInstaller.isUsable
                         state.pop()
                     }
                     running -> ToolchainInstaller.cancel()
-                    else -> ToolchainInstaller.start(context) { ready ->
-                        state.toolchainReady = ready
+                    else -> {
+                        ToolchainUpdates.reset()
+                        ToolchainInstaller.start(context) { ready ->
+                            state.toolchainReady = ready
+                        }
                     }
                 }
             },
@@ -961,9 +1010,24 @@ private fun Actions(
             }
         }
         if (!gated) {
+            // The update check: fetch the published manifest, adopt it if it
+            // is newer, and say which rows are behind. A text link, because
+            // the primary button becomes the Update the moment there is one.
+            if (!running) {
+                TextButton(
+                    onClick = { ToolchainUpdates.check(context) },
+                    enabled = !ToolchainUpdates.isChecking,
+                ) {
+                    Text(
+                        text = if (ToolchainUpdates.isChecking) "Checking for updates…" else "Check for updates",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.primary,
+                    )
+                }
+            }
             TextButton(
                 onClick = {
-                    state.toolchainReady = ToolchainInstaller.isComplete
+                    state.toolchainReady = ToolchainInstaller.isUsable
                     state.pop()
                 },
             ) {
@@ -981,7 +1045,7 @@ private fun Actions(
         // under a running compile deletes the compiler out from under it —
         // and it leaves the Debian userland standing, because the terminal
         // and git are useful without a compiler.
-        if (!gated && complete && !running) {
+        if (!gated && complete && !running && !updates) {
             val scope = rememberCoroutineScope()
             var confirmRemove by remember { mutableStateOf(false) }
             TextButton(onClick = { confirmRemove = true }) {

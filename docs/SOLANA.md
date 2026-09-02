@@ -161,6 +161,51 @@ below already in:
 The fetch lane finished everything it had at 3 min 43 s, well inside apt;
 the guest lane never waited on a byte.
 
+**The cheap tier.** Four changes measured together on 2026-09-02, after the
+drivers went prebuilt: the platform-tools unpack no longer waits for the
+userland — every archive unpacks into `files/toolchain-stage/<id>` and is
+moved into the rootfs with a rename once Debian has landed — so the 2 min
+bzip2 runs from t≈0; dpkg runs with `--force-unsafe-io`, since a retried
+apt protects nothing an fsync would; apt installs `gcc libc6-dev make`
+instead of `build-essential`, dropping g++ and dpkg-dev; and Debian's own
+image is unpacked with the host's tar beside proot, as the reference script
+always did, instead of through a JVM gzip pipe into a ptraced tar.
+Measured from a wiped rootfs, same phone, same Wi-Fi:
+
+| Cheap tier | Time |
+|---|---|
+| Debian userland | 22 s — was 1 min 21 s |
+| Build tools (apt) | 2 min 00 s — was 2 min 24 s |
+| platform-tools download + unpack, from t≈0 | 1 min 00 s + 2 min 09 s, now the critical path |
+| **Total** | **3 min 20 s** — was 4 min 44 s |
+
+Debian's 81 s was mostly the ptraced tar. apt's saving is smaller than the
+package list suggests because `apt-get update` and the fetch are on the
+network. The install is now bounded by platform-tools alone: a 60 s
+download followed by 129 s of bzip2 that the guest lane finishes waiting
+for. 
+
+**Streaming the tarball into tar.** The last serial pair on the critical
+path was platform-tools' own download and unpack. The fetch lane now pipes
+every chunk of a fresh tarball download into the host's tar as it arrives,
+while still writing the `.part` file and the digest, so the pair takes
+about as long as the slower of the two; a drop mid-stream kills tar, throws
+the staging tree away and leaves the `.part` for the plain resume path.
+Measured from a wiped rootfs on a slower, metered Wi-Fi (about 3.4 MB/s,
+against the router's 8–12 MB/s earlier in the day):
+
+| Streaming | Time |
+|---|---|
+| Debian userland | 8 s |
+| Build tools (apt) | 2 min 06 s |
+| platform-tools, download and unpack together | 2 min 35 s, download-bound; bzip2 finished 73 ms after the last byte |
+| **Total** | **2 min 48 s** — was 3 min 20 s on the faster network |
+
+On the router's bandwidth the same pair is bounded by the 129 s of bzip2,
+and the guest lane (8 s + 126 s) finishes first: the install is then about
+2 min 20 s, and the next lever is upstream's choice of bzip2 (the "repack"
+tier), or apt.
+
 **The compiles left the phone.** Nine of those thirteen minutes were the two
 `cargo install`s. They now come prebuilt from cesp99/solana-tools-arm64 (see
 "The two with no arm64 build" above), which leaves the userland, apt and
@@ -220,6 +265,31 @@ itself costs about half a core while it is on screen (the main thread at
 indeterminate bar moving on a 120 Hz panel) — locking the phone gives that
 core to rustc; and the platform-tools unpack is bzip2-bound at 2 min for
 1.4 GB, which is upstream's choice of archive and not ours to change.
+
+## Updating the toolchain
+
+A toolchain bump is a manifest edit and no app release, and since 2026-09-02
+that is literally true: the same `manifest.json` is published at
+`https://raw.githubusercontent.com/cesp99/solana-tools-arm64/main/manifest.json`,
+and the toolchain page (Settings → Toolchain) has **Check for updates**. The
+check fetches that file, adopts it if its `released` date is later than the
+manifest in use (the APK's asset, or a remote one adopted earlier — a newer
+asset from an app update wins back), and compares every component's
+recorded revision with the manifest's. Rows that differ show "installed ·
+update available", the primary button becomes **Update (N MB)**, and
+pressing it is a Start over exactly those rows: an outdated tarball's own
+directory is cleared and unpacked afresh (a shared one, `/opt/solana/cli`,
+is overwritten in place), an outdated apt list is re-run, and everything at
+the current revision is untouched. Build keeps working throughout: the gate
+and `toolchainReady` ask the lenient question — present at *any* recorded
+revision — and only the rows and the Update button ask the strict one.
+
+The remote manifest is an index, not the trust: every archive it names still
+has to match the sha256 pinned beside it, and the manifest itself comes over
+HTTPS from a repository whose every release carries a provenance
+attestation. Bumping is: edit the asset here, bump `released`, copy the file
+to the build repository, one commit each. `ToolchainManifestTest` refuses an
+undated manifest.
 
 ## Living with proot
 

@@ -45,7 +45,19 @@ class TerminalService : Service() {
             return START_NOT_STICKY
         }
         val sessions = intent?.getIntExtra(EXTRA_SESSIONS, 1) ?: 1
-        startForeground(NOTIFICATION_ID, buildNotification(sessions))
+        if (pendingStarts > 0) pendingStarts--
+        // Always, and first: a service begun with startForegroundService()
+        // that never reaches this call is a crash — "did not then call
+        // Service.startForeground()" — and a run that failed within the same
+        // moment it started (an offline phone, 2026-09-02) used to stop the
+        // service before this line ran. With zero sessions it shows the
+        // notification for one frame and takes it straight down again.
+        startForeground(NOTIFICATION_ID, buildNotification(maxOf(sessions, 1)))
+        if (sessions <= 0) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // The session state lives elsewhere and is not recoverable from an
         // Intent, so a restart after the process dies would be a lie.
         return START_NOT_STICKY
@@ -135,16 +147,25 @@ class TerminalService : Service() {
             )
         }
 
+        /**
+         * startForegroundService() calls that have not reached
+         * [onStartCommand] yet. Both sides run on the main thread, so this
+         * is a plain counter: while it is positive a stop must go *through*
+         * the service (a start with zero sessions) rather than around it.
+         */
+        private var pendingStarts = 0
+
         /** Start or update the notification. Safe to call repeatedly. */
         fun sync(context: Context, sessionCount: Int) {
             val app = context.applicationContext
-            if (sessionCount <= 0) {
+            if (sessionCount <= 0 && pendingStarts == 0) {
                 app.stopService(Intent(app, TerminalService::class.java))
                 return
             }
             val intent = Intent(app, TerminalService::class.java)
-                .putExtra(EXTRA_SESSIONS, sessionCount)
+                .putExtra(EXTRA_SESSIONS, maxOf(sessionCount, 0))
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                pendingStarts++
                 app.startForegroundService(intent)
             } else {
                 app.startService(intent)

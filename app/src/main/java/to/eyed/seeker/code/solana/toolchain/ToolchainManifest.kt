@@ -36,6 +36,14 @@ data class ToolchainManifest(
     /** Bumped only when the *shape* changes; a component edit is not a bump. */
     val schema: Int,
     /**
+     * The date this manifest was published, ISO `yyyy-mm-dd`, and what the
+     * Update button compares: a remote manifest with a later date replaces
+     * the one in use (the APK's asset, or a remote one adopted earlier).
+     * Lexical order on this format is date order, which is the only reason
+     * it is a string and not a number nobody would type right.
+     */
+    val released: String,
+    /**
      * What `cargo-build-sbf --tools-version` is told. It is the platform-tools
      * release tag and it has to agree with that component's URL, which
      * [ToolchainManifestTest] asserts rather than trusts.
@@ -109,23 +117,61 @@ data class ToolchainManifest(
         /** The shape this build understands. */
         const val SCHEMA = 1
 
+        /**
+         * Where a newer manifest is looked for. The same file as the asset,
+         * published from the repository that builds the two drivers, so a
+         * toolchain bump is one commit there and no app release: the Update
+         * button fetches this, and a later `released` wins. HTTPS to GitHub,
+         * and every archive it names still has to match its pinned sha256 —
+         * the manifest is the index, never the trust.
+         */
+        const val REMOTE_URL =
+            "https://raw.githubusercontent.com/cesp99/solana-tools-arm64/main/manifest.json"
+
+        private const val ADOPTED_FILE = "solana-toolchain-manifest.json"
+
         private var cached: ToolchainManifest? = null
 
         /**
-         * The manifest, parsed once per process.
+         * The manifest in use, parsed once per process.
          *
-         * Cached because every Build press and every Setup recomposition asks
-         * for it, and because a manifest that changed under a running install
-         * would be a component list disagreeing with the rows on screen. Reads
-         * a ~6 KB asset on the first call — cheap enough for the main thread,
-         * and it is the only file read on the path that decides whether the
-         * Build buttons are live.
+         * The APK's asset, unless a remote manifest with a later `released`
+         * was adopted by the Update button and is still newer than the asset
+         * — an app update that ships a newer asset wins back, and an adopted
+         * file this build cannot parse (a schema from the future) is ignored
+         * rather than fatal. Cached because every Build press and every Setup
+         * recomposition asks for it; [adopt] is the one writer and resets it.
          */
-        fun load(context: Context): ToolchainManifest =
-            cached ?: parse(
-                context.applicationContext.assets.open(ASSET_PATH)
-                    .bufferedReader().use { it.readText() }
-            ).also { cached = it }
+        fun load(context: Context): ToolchainManifest {
+            cached?.let { return it }
+            val app = context.applicationContext
+            val asset = parse(app.assets.open(ASSET_PATH).bufferedReader().use { it.readText() })
+            val adopted = runCatching {
+                val file = adoptedFile(app)
+                if (file.isFile) parse(file.readText()) else null
+            }.getOrNull()
+            val chosen = if (adopted != null && adopted.released > asset.released) adopted else asset
+            cached = chosen
+            return chosen
+        }
+
+        /**
+         * Take [text] as the manifest from now on, if it parses and is newer
+         * than what is in use. Returns the manifest in use afterwards. Called
+         * by the update check, off the main thread.
+         */
+        fun adopt(context: Context, text: String): ToolchainManifest {
+            val app = context.applicationContext
+            val remote = parse(text)
+            val current = load(app)
+            if (remote.released <= current.released) return current
+            adoptedFile(app).writeText(text)
+            cached = remote
+            return remote
+        }
+
+        private fun adoptedFile(context: Context): java.io.File =
+            java.io.File(context.filesDir, ADOPTED_FILE)
 
         fun parse(text: String): ToolchainManifest {
             val root = JSONObject(text)
@@ -142,8 +188,13 @@ data class ToolchainManifest(
                 "the toolchain manifest has two components with the same id"
             }
             checkNeeds(components)
+            val released = root.optString("released", "")
+            require(Regex("\\d{4}-\\d{2}-\\d{2}").matches(released)) {
+                "the toolchain manifest has no 'released' date (yyyy-mm-dd)"
+            }
             return ToolchainManifest(
                 schema = schema,
+                released = released,
                 platformToolsVersion = root.getString("platformToolsVersion"),
                 toolsCacheSeeds = root.optStringList("toolsCacheSeeds"),
                 guestRoot = root.optString("guestRoot", "/opt/solana"),

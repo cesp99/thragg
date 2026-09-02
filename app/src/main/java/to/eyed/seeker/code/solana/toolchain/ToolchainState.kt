@@ -73,6 +73,14 @@ sealed interface ComponentState {
 
     /** The user cancelled while this row was the one running. */
     data object Cancelled : ComponentState
+
+    /**
+     * Installed at an earlier revision than the manifest now names: the
+     * binary is there and Build still works, and an Update fetches the new
+     * one. The distinction from [Pending] is the whole update story — an
+     * outdated required row must not put the gate back up.
+     */
+    data object Outdated : ComponentState
 }
 
 /** A component and what it is doing — the unit the Setup screen draws. */
@@ -173,7 +181,11 @@ object SolanaToolchain {
         if (!Userland.backend.isSupported) return false
         if (Userland.backend.state(app) !is UserlandState.Ready) return false
         val manifest = runCatching { ToolchainManifest.load(app) }.getOrNull() ?: return false
-        return manifest.components.filter { it.required }.all { isInstalled(app, it) }
+        // Present at *any* recorded revision: a manifest bump — from an app
+        // update or from a remote manifest the Update button adopted — must
+        // not turn a working phone into a gated one. The strict check,
+        // [isInstalled], is what the rows and the Update button read.
+        return manifest.components.filter { it.required }.all { isPresent(app, it) }
     }
 
     /** Whether one component is recorded at this manifest's revision and present. */
@@ -184,6 +196,28 @@ object SolanaToolchain {
         // check that `cargo install` under --link2symlink would otherwise slip
         // past — see ToolchainComponent.marker.
         return hostPath(app, component.marker).exists()
+    }
+
+    /** Whether one component is recorded at some revision and its marker exists. */
+    fun isPresent(context: Context, component: ToolchainComponent): Boolean {
+        val app = context.applicationContext
+        if (component.id !in record(app)) return false
+        return hostPath(app, component.marker).exists()
+    }
+
+    /** Present, but at a revision other than the manifest's: an Update fetches it. */
+    fun isOutdated(context: Context, component: ToolchainComponent): Boolean =
+        isPresent(context, component) && !isInstalled(context, component)
+
+    /**
+     * Whether another component unpacks into the same directory — the two
+     * drivers both land in `/opt/solana/cli` — in which case an update must
+     * overwrite rather than clear the directory first.
+     */
+    fun sharesInstallPath(context: Context, component: ToolchainComponent): Boolean {
+        val manifest = runCatching { ToolchainManifest.load(context.applicationContext) }.getOrNull()
+            ?: return true
+        return manifest.components.any { it.id != component.id && it.installPath == component.installPath }
     }
 
     /**

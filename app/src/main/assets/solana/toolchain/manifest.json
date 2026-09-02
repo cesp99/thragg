@@ -36,6 +36,14 @@
     "component's revision: change the hash and that one row re-installs, while",
     "every other row stays where it is."
   ],
+  "released": "2026-09-02",
+  "releasedNote": [
+    "Bump this date with every edit. The Update button fetches this same file",
+    "from github.com/cesp99/solana-tools-arm64 (main branch, manifest.json) and",
+    "adopts it when its date is later than the one in use; the APK's copy wins",
+    "back the moment an app update ships a newer one. Keep the two identical:",
+    "a bump is an edit here, a copy there, one commit each."
+  ],
   "platformToolsVersion": "v1.57",
   "toolsCacheSeeds": ["v1.57", "v1.56", "v1.52"],
   "toolsCacheSeedsNote": [
@@ -97,7 +105,7 @@
       "marker": "/bin/sh",
       "required": true,
       "needs": [],
-      "estimatedSeconds": 81
+      "estimatedSeconds": 15
     },
     {
       "id": "rustup",
@@ -158,7 +166,7 @@
       "verify": ["/opt/solana/platform-tools/rust/bin/rustc", "--version"],
       "required": true,
       "needs": ["rustup"],
-      "estimatedSeconds": 168
+      "estimatedSeconds": 140
     },
     {
       "id": "rust-analyzer",
@@ -203,7 +211,7 @@
     {
       "id": "apt-build-tools",
       "name": "Build tools (apt)",
-      "summary": "gcc, git, pkg-config, OpenSSL headers — what building a crate needs.",
+      "summary": "gcc, git, pkg-config, OpenSSL headers — what building a program needs.",
       "method": "apt",
       "note": [
         "The one step that runs under proot's --link2symlink, because dpkg unpacks",
@@ -211,12 +219,18 @@
         "under it cargo install hard-links its finished binary out of a scratch",
         "directory it then deletes, reports success, and leaves a dangling symlink",
         "(docs/SOLANA.md, 'Living with proot').",
+        "gcc + libc6-dev + make, not build-essential: a Solana program's host",
+        "half (build scripts, proc-macros, `cargo test`) needs a C compiler, a",
+        "linker and crt files, and nothing here compiles C++ — build-essential's",
+        "g++, dpkg-dev and their perl came to ~40 % of what dpkg unpacked.",
         "Sizes are apt's, not ours, so they are estimates and the row says so."
       ],
       "packages": [
         "curl",
         "ca-certificates",
-        "build-essential",
+        "gcc",
+        "libc6-dev",
+        "make",
         "pkg-config",
         "libssl-dev",
         "git",
@@ -232,7 +246,7 @@
       "verify": ["/usr/bin/gcc", "--version"],
       "required": true,
       "needs": ["debian"],
-      "estimatedSeconds": 144
+      "estimatedSeconds": 125
     },
     {
       "id": "cargo-build-sbf",

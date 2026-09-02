@@ -192,7 +192,7 @@ class ToolchainManifestTest {
             assertTrue("$id does not wait for apt", "apt-build-tools" in needs)
             assertTrue("$id does not wait for platform-tools", "platform-tools" in needs)
         }
-        assertTrue(manifest.component("apt-build-tools")!!.packages.contains("build-essential"))
+        assertTrue(manifest.component("apt-build-tools")!!.packages.contains("gcc"))
     }
 
     /**
@@ -367,6 +367,33 @@ class ToolchainManifestTest {
             manifest.components.filter { it.id in lane }.sumOf { it.estimatedSeconds },
             manifest.estimatedWallSeconds,
         )
+    }
+
+    // ---- Updates -------------------------------------------------------------
+
+    /**
+     * The manifest carries the date the Update button compares, in a form
+     * whose lexical order is date order, and the remote copy it fetches is
+     * the same file over https from the repository that builds the drivers.
+     * A manifest without a date must fail to parse: an undated remote could
+     * never be told apart from the asset.
+     */
+    @Test
+    fun `the manifest is dated, and the remote copy is fetched over https`() {
+        assertTrue(Regex("\\d{4}-\\d{2}-\\d{2}").matches(manifest.released))
+        assertTrue("2026-09-02" <= manifest.released)
+        assertTrue(ToolchainManifest.REMOTE_URL.startsWith("https://raw.githubusercontent.com/cesp99/solana-tools-arm64/"))
+        assertTrue(ToolchainManifest.REMOTE_URL.endsWith("/manifest.json"))
+        val undated = manifestText().replaceFirst(Regex("\"released\": \"[^\"]*\","), "")
+        assertNotNull(runCatching { ToolchainManifest.parse(undated) }.exceptionOrNull())
+    }
+
+    /** apt installs a C toolchain, not a C++ one: g++ was 40 % of dpkg's work for nothing. */
+    @Test
+    fun `apt installs gcc and the crt files, not build-essential`() {
+        val packages = manifest.component("apt-build-tools")!!.packages
+        assertTrue(packages.containsAll(listOf("gcc", "libc6-dev", "make", "git", "libssl-dev", "pkg-config")))
+        assertFalse(packages.contains("build-essential"))
     }
 
     /** Sizes read the way a download page writes them. */

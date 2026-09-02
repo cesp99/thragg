@@ -362,39 +362,55 @@ private object DebianUserland : UserlandBackend {
     }
 
     /**
-     * Unpack under proot, so that the ownership and permissions inside the
-     * rootfs come out right — we are not root, but the guest believes it is.
-     * The tar is Android's own; only its view of the filesystem is faked.
+     * Unpack with the host's own tar, beside proot rather than through it —
+     * the same way tools/device-toolchain.sh has always done it, and the way
+     * the toolchain installer unpacks its 1.4 GB of platform-tools.
+     *
+     * It used to run *under* proot `-0`, so that tar believed it was root.
+     * Measured on a Seeker (2026-09-02) that bought nothing: proot only
+     * *fakes* the chown calls, and toybox tar run as an ordinary user simply
+     * does not make them — either way every file lands owned by the app's
+     * uid, which is what the session proot's `-0` then presents as root. What
+     * the ptrace pass did cost was time on every one of the image's files,
+     * plus a JVM gzip stream feeding tar through a pipe; toybox's own `-z` is
+     * a native zlib. The permission bits tar *does* set are the archive's, in
+     * both cases.
      *
      * What this does NOT deliver, learned on a Seeker (2026-08): the image's
      * hard-link entries. The tar here is toybox, whose hard-link case is a
      * bare `link(2)`, and Android SELinux denies `link(2)`/`linkat(2)` to app
-     * processes. `--link2symlink` is on this invocation and still cannot
-     * save it: the rewrite runs on already-translated paths, and with no
-     * `-r` here the symlinks it fabricates carry absolute *host* text that
-     * dangles under the session proot's `-r`. On the device the entry for
-     * `/usr/bin/perl` simply never appeared while tar exited 0, and the
-     * failure surfaced days later as debconf's perl frontend exec-127,
-     * ca-certificates' postinst dying, and apt exiting 100. The caller's
-     * [heal] pass over [TarHardLinks.index] is what actually makes those
-     * entries exist; this unpack is trusted for everything else.
+     * processes; under proot `--link2symlink` the rewrite could not save it
+     * either. On the device the entry for `/usr/bin/perl` simply never
+     * appeared while tar exited 0, and the failure surfaced days later as
+     * debconf's perl frontend exec-127, ca-certificates' postinst dying, and
+     * apt exiting 100. The caller's [heal] pass over [TarHardLinks.index] is
+     * what actually makes those entries exist; this unpack is trusted for
+     * everything else. tar's own complaint about the link is expected and is
+     * why a non-zero exit is checked against the log rather than trusted.
      */
     private fun unpack(context: Context, blob: File, root: File) {
         val log = File(context.cacheDir, "unpack.log")
         val process = ProcessBuilder(
-            proot(context).absolutePath, "-0", "--link2symlink",
-            "/system/bin/tar", "-x", "-f", "-", "-C", root.absolutePath,
+            "/system/bin/tar", "-x", "-z", "-f", blob.absolutePath, "-C", root.absolutePath,
         )
             .redirectErrorStream(true)
             .redirectOutput(log)
-            .also { it.environment()["PROOT_TMP_DIR"] = prootScratch(context).absolutePath }
             .start()
-
-        GZIPInputStream(blob.inputStream().buffered()).use { source ->
-            process.outputStream.use { source.copyTo(it) }
-        }
         val exit = process.waitFor()
-        if (exit != 0) error("unpacking failed (exit $exit): ${log.readText().take(400)}")
+        if (exit != 0) {
+            val text = runCatching { log.readText() }.getOrDefault("")
+            // The one failure that is expected: the hard link SELinux refuses,
+            // which [heal] materialises afterwards. Anything else is real.
+            // Seen verbatim on the Seeker: "tar: can't link 'usr/bin/perl5.40.1'
+            // -> 'usr/bin/perl': Permission denied" and then the trailer
+            // "tar: had errors". Both are the hard link; nothing else may be.
+            val onlyLinks = text.lines().filter { it.isNotBlank() }
+                .all { it.contains("link", ignoreCase = true) || it.trim() == "tar: had errors" }
+            if (!onlyLinks || !File(root, "bin/sh").exists()) {
+                error("unpacking failed (exit $exit): ${text.take(400)}")
+            }
+            Log.w(TAG, "tar exited $exit on the archive's hard links; healing them: ${text.take(200)}")
+        }
     }
 
     // --- hard links, made real -------------------------------------------------

@@ -135,15 +135,34 @@ object ToolchainInstaller {
 
     val isRunning: Boolean get() = phase == ToolchainPhase.Running
 
-    /** Whether every *required* row is in — the same question P4 asks. */
+    /** Whether every *required* row is in at the manifest's revision. */
     val isComplete: Boolean
         get() = rows.isNotEmpty() &&
             rows.filter { it.component.required }.all { it.state is ComponentState.Installed }
+
+    /**
+     * Whether Build can run: every required row present, at this revision or
+     * an earlier one. This is what [to.eyed.seeker.code.ui.shell.ShellState.toolchainReady]
+     * follows — the same lenient question [SolanaToolchain.isReady] answers
+     * from disk — so an available update never disables Build.
+     */
+    val isUsable: Boolean
+        get() = rows.isNotEmpty() &&
+            rows.filter { it.component.required }
+                .all { it.state is ComponentState.Installed || it.state is ComponentState.Outdated }
+
+    /** Whether any row is behind the manifest — the Update button's condition. */
+    val hasUpdates: Boolean
+        get() = rows.any { it.state is ComponentState.Outdated }
 
     /** Bytes still to fetch, for the headline while a run is part-way through. */
     val remainingDownloadBytes: Long
         get() = rows.filter { it.state !is ComponentState.Installed && it.state !is ComponentState.Staged }
             .sumOf { it.component.downloadBytes }
+
+    /** Bytes an Update would fetch: the outdated rows only. */
+    val updateDownloadBytes: Long
+        get() = rows.filter { it.state is ComponentState.Outdated }.sumOf { it.component.downloadBytes }
 
     /**
      * Rebuild the rows from the manifest and the install record.
@@ -168,6 +187,7 @@ object ToolchainInstaller {
                     state = when {
                         SolanaToolchain.isInstalled(app, component) -> ComponentState.Installed
                         SolanaToolchain.isStaged(app, component) -> ComponentState.Staged
+                        SolanaToolchain.isOutdated(app, component) -> ComponentState.Outdated
                         else -> ComponentState.Pending
                     },
                 )
@@ -218,7 +238,8 @@ object ToolchainInstaller {
         terminateProcesses()
         updateRows { row ->
             when (row.state) {
-                is ComponentState.Installed, is ComponentState.Pending, is ComponentState.Staged -> row
+                is ComponentState.Installed, is ComponentState.Pending, is ComponentState.Staged,
+                is ComponentState.Outdated -> row
                 else -> row.copy(state = ComponentState.Cancelled)
             }
         }
@@ -260,7 +281,7 @@ object ToolchainInstaller {
                 updateRows { row ->
                     when (row.state) {
                         is ComponentState.Installed, is ComponentState.Failed, is ComponentState.Staged,
-                        is ComponentState.Pending, is ComponentState.Cancelled -> row
+                        is ComponentState.Pending, is ComponentState.Cancelled, is ComponentState.Outdated -> row
                         else -> row.copy(state = ComponentState.Pending)
                     }
                 }
@@ -284,7 +305,7 @@ object ToolchainInstaller {
             // service holding a notification for work that has stopped.
             withContext(NonCancellable + Dispatchers.Main) {
                 syncForegroundService(app)
-                onFinished(isComplete)
+                onFinished(isUsable)
             }
         }
         // The notification that keeps Android from reaping proot while the
@@ -312,6 +333,9 @@ object ToolchainInstaller {
         }
         val queue = manifest.components.filterNot { SolanaToolchain.isInstalled(app, it) }
         checkSpace(app, queue)
+        // A staging directory left by a run that died mid-unpack is worth
+        // nothing: the archive it came from is still the resume.
+        to.eyed.seeker.code.core.SafeDelete.deleteTree(File(app.filesDir, "toolchain-stage"))
         val runStarted = now()
 
         // Completed when a fetched component's bytes are unpacked in place.
@@ -356,11 +380,16 @@ object ToolchainInstaller {
     /**
      * Everything that comes over the network, in turn, and into the rootfs.
      *
-     * Smallest first, deliberately: rustup, rust-analyzer and Spettro are a
-     * few seconds each and the guest lane can register them while the
-     * gigabyte is still arriving. Unpacking needs the rootfs to exist, so the
-     * lane waits for the userland — and only for that — before its first
-     * unpack; the download itself started at t=0 into the cache.
+     * Largest first, deliberately: platform-tools is the one download whose
+     * unpack can outlast the guest lane's userland-plus-apt, and nothing on
+     * that lane needs any of the small ones before apt is done. Unpacking
+     * does not wait for the rootfs either: the userland install starts by
+     * wiping its directory, so every archive is unpacked into a *staging*
+     * directory beside it and moved in with a rename — O(1) for a directory
+     * on the same filesystem — the moment the userland has landed. Measured
+     * on the Seeker: with the wait, the 2 min 09 s bzip2 unpack could only
+     * start after Debian's 81 s and finished a minute after apt; without it,
+     * it starts at t≈0 and is in before apt is.
      */
     private suspend fun fetchLane(
         app: Context,
@@ -369,7 +398,7 @@ object ToolchainInstaller {
         landed: Map<String, CompletableDeferred<Unit>>,
     ) {
         val userland = queue.firstOrNull { it.method == InstallMethod.Userland }
-        for (component in queue.filter { it.url != null }.sortedBy { it.downloadBytes }) {
+        for (component in queue.filter { it.url != null }.sortedByDescending { it.downloadBytes }) {
             ensureActive()
             // Already in the rootfs from a run that was interrupted after this
             // unpack: nothing to fetch, and above all nothing to fetch *again*.
@@ -379,16 +408,226 @@ object ToolchainInstaller {
                 continue
             }
             guard(component) {
-                val file = download(app, component)
+                val stagingRoot = stagingRoot(app, component)
+                val file = if (canStream(app, component)) {
+                    streamTarball(app, component, File(stagingRoot, component.installPath.trimStart('/')))
+                } else {
+                    download(app, component).also { stage(app, component, it, stagingRoot) }
+                }
                 userland?.let { landed.getValue(it.id).await() }
                 ensureActive()
-                stage(app, component, file)
+                setState(component.id, ComponentState.Working("Moving into place", now()))
+                moveIntoRootfs(app, component, stagingRoot)
+                // Only now: the bytes are in the rootfs, and the archive was
+                // the resume until they were.
+                file.delete()
                 SolanaToolchain.markStaged(app, component)
             }
             setState(component.id, ComponentState.Staged)
             staged.getValue(component.id).complete(Unit)
         }
     }
+
+    /**
+     * Whether a tarball can be unpacked *as it downloads*.
+     *
+     * Only from byte zero: a partial file on disk is a resume, and a resume
+     * is served by the plain path — finish the download with a `Range`, hash
+     * the file, unpack it. Only for a compression tar can be told about on
+     * a pipe (no seeking back to sniff the magic), and only when nothing has
+     * yet been unpacked for it.
+     */
+    private fun canStream(app: Context, component: ToolchainComponent): Boolean {
+        if (component.method != InstallMethod.Tarball) return false
+        if (compressionFlag(component.url.orEmpty()) == null) return false
+        val partial = partFile(app, component)
+        return !partial.isFile || partial.length() == 0L
+    }
+
+    private fun compressionFlag(url: String): String? = when {
+        url.endsWith(".tar.bz2") || url.endsWith(".tbz2") -> "-j"
+        url.endsWith(".tar.gz") || url.endsWith(".tgz") -> "-z"
+        url.endsWith(".tar.xz") || url.endsWith(".txz") -> "-J"
+        else -> null
+    }
+
+    private fun partFile(app: Context, component: ToolchainComponent): File =
+        File(app.cacheDir, "solana-toolchain").apply { mkdirs() }
+            .let { File(it, "${component.id}.part") }
+
+    /**
+     * Download a tarball and unpack it in the same pass: every chunk goes to
+     * the `.part` file, to the digest, and down a pipe into the host's tar.
+     *
+     * Measured on the Seeker (2026-09-02) for platform-tools: 60 s of
+     * download and 2 min 09 s of bzip2 in series were the whole critical path
+     * of the install once everything else overlapped; streamed, the unpack
+     * runs *during* the download and the pair takes about as long as the
+     * slower of the two. The archive is still written to disk, so a drop
+     * mid-stream costs nothing the plain path would not have paid: tar is
+     * killed, the half-unpacked staging directory is thrown away, and the
+     * next run resumes the download with a `Range` and unpacks the file —
+     * "nothing ever restarts the gigabyte" still holds. The hash is checked
+     * at the end exactly as the plain path checks it; a mismatch deletes
+     * both the bytes and what they unpacked to.
+     */
+    private fun streamTarball(app: Context, component: ToolchainComponent, target: File): File {
+        val url = component.url ?: error("${component.id} has no url")
+        val sha256 = component.sha256 ?: error("${component.id} has no sha256")
+        val flag = compressionFlag(url) ?: error("${component.id} is not a streamable tarball")
+        val partial = partFile(app, component)
+        partial.delete()
+        target.mkdirs()
+        val started = now()
+
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = 30_000
+            readTimeout = 60_000
+        }
+        val code = connection.responseCode
+        if (code != HttpURLConnection.HTTP_OK) error("$url answered HTTP $code")
+        val total = connection.contentLengthLong.takeIf { it > 0L } ?: component.downloadBytes
+
+        val log = File(app.cacheDir, "toolchain-unpack.log")
+        val process = ProcessBuilder("/system/bin/tar", "-x", flag, "-f", "-")
+            .directory(target)
+            .redirectErrorStream(true)
+            .redirectOutput(log)
+            .start()
+        processes.add(process)
+        val digest = MessageDigest.getInstance("SHA-256")
+        var received = 0L
+        var lastReport = 0L
+        var windowBytes = 0L
+        var windowStart = now()
+        try {
+            connection.inputStream.use { source ->
+                FileOutputStream(partial).use { sink ->
+                    process.outputStream.buffered(BUFFER).use { pipe ->
+                        val buffer = ByteArray(BUFFER)
+                        while (true) {
+                            ensureActive()
+                            val read = source.read(buffer)
+                            if (read < 0) break
+                            sink.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
+                            pipe.write(buffer, 0, read)
+                            received += read
+                            windowBytes += read
+                            val stamp = now()
+                            if (stamp - lastReport >= PROGRESS_INTERVAL_MS) {
+                                val elapsed = stamp - windowStart
+                                setState(
+                                    component.id,
+                                    ComponentState.Downloading(
+                                        received = received,
+                                        total = total,
+                                        bytesPerSecond = if (elapsed > 0L) windowBytes * 1000L / elapsed else null,
+                                    ),
+                                )
+                                lastReport = stamp
+                                windowBytes = 0L
+                                windowStart = stamp
+                            }
+                        }
+                    }
+                }
+            }
+            Log.i(TAG, "timing ${component.id} download took ${now() - started} ms (streamed)")
+            // The pipe is closed; tar has whatever the network was ahead of
+            // it still to unpack — on the Seeker about a minute of bzip2.
+            setState(component.id, ComponentState.Working("Unpacking", now()))
+            val exit = process.waitFor()
+            processes.remove(process)
+            Log.i(TAG, "timing ${component.id} download+unpack took ${now() - started} ms (streamed)")
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            if (!actual.equals(sha256, ignoreCase = true)) {
+                to.eyed.seeker.code.core.SafeDelete.deleteTree(target)
+                partial.delete()
+                error("the download does not match its pinned sha256 — refusing to install it")
+            }
+            if (exit != 0) {
+                to.eyed.seeker.code.core.SafeDelete.deleteTree(target)
+                error("unpacking failed (exit $exit): ${log.takeIf { it.isFile }?.readText()?.take(300)}")
+            }
+            return partial
+        } catch (error: Throwable) {
+            // A dropped connection, a cancel, a failure on the other lane:
+            // tar dies with its pipe, the staging tree is worthless, and the
+            // .part keeps every byte received for the resume.
+            processes.remove(process)
+            runCatching { GuestProcess.terminate(process) }
+            to.eyed.seeker.code.core.SafeDelete.deleteTree(target)
+            throw error
+        }
+    }
+
+    /** Where a component is unpacked before the rootfs is ready for it. */
+    private fun stagingRoot(app: Context, component: ToolchainComponent): File =
+        File(app.filesDir, "toolchain-stage/${component.id}").also {
+            to.eyed.seeker.code.core.SafeDelete.deleteTree(it)
+            it.mkdirs()
+        }
+
+    /**
+     * Move a staged tree into the rootfs.
+     *
+     * A directory that does not exist yet in the rootfs is one `rename(2)`.
+     * One that does — `/opt/solana/cli`, shared by the two drivers — is
+     * merged a level down, so the second driver's `bin/` lands beside the
+     * first's rather than replacing it. A component whose *previous*
+     * revision is still on disk under a directory nothing else shares is
+     * cleared first, so an update never leaves a stale file from the old
+     * release beside the new ones.
+     */
+    private fun moveIntoRootfs(app: Context, component: ToolchainComponent, stagingRoot: File) {
+        val rootfs = SolanaToolchain.rootfs(app)
+        if (SolanaToolchain.isOutdated(app, component) && !SolanaToolchain.sharesInstallPath(app, component)) {
+            val old = SolanaToolchain.hostPath(app, component.installPath)
+            if (old.isDirectory) to.eyed.seeker.code.core.SafeDelete.deleteTree(old)
+        }
+        moveTree(stagingRoot, rootfs)
+        to.eyed.seeker.code.core.SafeDelete.deleteTree(stagingRoot)
+    }
+
+    private fun moveTree(source: File, target: File) {
+        val children = source.listFiles() ?: return
+        for (child in children) {
+            val destination = File(target, child.name)
+            val lstat = runCatching { Os.lstat(destination.absolutePath) }.getOrNull()
+            when {
+                lstat == null -> renameOrCopy(child, destination)
+                child.isDirectory && destination.isDirectory && !isSymlink(destination) -> moveTree(child, destination)
+                else -> {
+                    if (destination.isDirectory && !isSymlink(destination)) {
+                        to.eyed.seeker.code.core.SafeDelete.deleteTree(destination)
+                    } else {
+                        destination.delete()
+                    }
+                    renameOrCopy(child, destination)
+                }
+            }
+        }
+    }
+
+    private fun renameOrCopy(source: File, destination: File) {
+        destination.parentFile?.mkdirs()
+        if (source.renameTo(destination)) return
+        // Different filesystem — not the case on any device this ships to,
+        // but a rename that fails must not lose the bytes.
+        if (source.isDirectory && !isSymlink(source)) {
+            destination.mkdirs()
+            moveTree(source, destination)
+            source.delete()
+        } else {
+            source.copyTo(destination, overwrite = true)
+            source.delete()
+        }
+    }
+
+    private fun isSymlink(file: File): Boolean =
+        runCatching { android.system.OsConstants.S_ISLNK(Os.lstat(file.absolutePath).st_mode) }.getOrDefault(false)
 
     /**
      * Run one lane's step for [component], turning whatever it throws into
@@ -465,12 +704,17 @@ object ToolchainInstaller {
         verify(app, component)
     }
 
-    /** The host half of a fetched component: the downloaded [file] into the rootfs. */
-    private fun stage(app: Context, component: ToolchainComponent, file: File) {
+    /**
+     * The host half of a fetched component: the downloaded [file], unpacked
+     * under [root] at the component's install path. [root] is a staging
+     * directory, never the rootfs — see [fetchLane].
+     */
+    private fun stage(app: Context, component: ToolchainComponent, file: File, root: File) {
+        val target = File(root, component.installPath.trimStart('/'))
         when (component.method) {
-            InstallMethod.Binary -> installBinary(app, component, file)
-            InstallMethod.GzSingleBinary -> installGzBinary(app, component, file)
-            InstallMethod.Tarball -> installTarball(app, component, file)
+            InstallMethod.Binary -> installBinary(app, component, file, target)
+            InstallMethod.GzSingleBinary -> installGzBinary(app, component, file, target)
+            InstallMethod.Tarball -> installTarball(app, component, file, target)
             else -> error("${component.id} has a url but is not a fetched component")
         }
     }
@@ -520,10 +764,16 @@ object ToolchainInstaller {
      */
     private fun installApt(app: Context, component: ToolchainComponent) {
         val started = now()
+        // --force-unsafe-io: dpkg fsyncs every file it unpacks, and on a
+        // phone's flash under ptrace that was a large share of the step. An
+        // interrupted apt is re-run from the top by the row's Retry, so the
+        // durability it buys protects nothing here — the same reasoning as
+        // every container build that sets it.
         val script = buildString {
             append("export DEBIAN_FRONTEND=noninteractive; ")
             append("apt-get update -qq && ")
-            append("apt-get install -y --no-install-recommends ")
+            append("apt-get -o Dpkg::Options::=--force-unsafe-io ")
+            append("install -y --no-install-recommends ")
             append(component.packages.joinToString(" "))
         }
         val exit = runInGuest(app, listOf("/bin/bash", "-c", script), apt = true, onLine = workingStep(component.id, started))
@@ -531,25 +781,21 @@ object ToolchainInstaller {
     }
 
     /** One downloaded file, copied in as it came and made executable. */
-    private fun installBinary(app: Context, component: ToolchainComponent, file: File) {
-        val target = SolanaToolchain.hostPath(app, component.installPath)
+    private fun installBinary(app: Context, component: ToolchainComponent, file: File, target: File) {
         target.parentFile?.mkdirs()
         setState(component.id, ComponentState.Working("Installing", now()))
         file.copyTo(target, overwrite = true)
         chmodExecutable(target)
-        file.delete()
     }
 
     /** A gzipped ELF — how rust-analyzer ships its server. */
-    private fun installGzBinary(app: Context, component: ToolchainComponent, file: File) {
-        val target = SolanaToolchain.hostPath(app, component.installPath)
+    private fun installGzBinary(app: Context, component: ToolchainComponent, file: File, target: File) {
         target.parentFile?.mkdirs()
         setState(component.id, ComponentState.Working("Unpacking", now()))
         GZIPInputStream(file.inputStream().buffered()).use { source ->
             target.outputStream().use { sink -> source.copyTo(sink, BUFFER) }
         }
         chmodExecutable(target)
-        file.delete()
     }
 
     /**
@@ -562,8 +808,7 @@ object ToolchainInstaller {
      * this same unpack takes many times longer: ptrace pays per syscall and
      * platform-tools is 1.4 GB of small files.
      */
-    private fun installTarball(app: Context, component: ToolchainComponent, file: File) {
-        val target = SolanaToolchain.hostPath(app, component.installPath)
+    private fun installTarball(app: Context, component: ToolchainComponent, file: File, target: File) {
         target.mkdirs()
         setState(component.id, ComponentState.Working("Unpacking", now()))
         val log = File(app.cacheDir, "toolchain-unpack.log")
@@ -577,9 +822,6 @@ object ToolchainInstaller {
         val exit = process.waitFor()
         processes.remove(process)
         Log.i(TAG, "timing ${component.id} unpack took ${now() - unpackStarted} ms")
-        // The bytes are worth more than the disk: keep the archive only long
-        // enough to unpack it, then give 505 MB back before the next component.
-        file.delete()
         if (exit != 0) {
             error("unpacking failed (exit $exit): ${log.takeIf { it.isFile }?.readText()?.take(300)}")
         }
@@ -726,8 +968,7 @@ object ToolchainInstaller {
     private fun download(app: Context, component: ToolchainComponent): File {
         val url = component.url ?: error("${component.id} has no url")
         val sha256 = component.sha256 ?: error("${component.id} has no sha256")
-        val partial = File(app.cacheDir, "solana-toolchain").apply { mkdirs() }
-            .let { File(it, "${component.id}.part") }
+        val partial = partFile(app, component)
 
         var attempt = 0
         val downloadStarted = now()
