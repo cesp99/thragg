@@ -49,6 +49,15 @@ fn engine() -> &'static Engine {
         );
         install_panic_hook();
         log::info!("engine initialized, version {}", engine::ENGINE_VERSION);
+        // Every grammar's queries, compiled off this thread and ahead of the
+        // first buffer. The first `open_file` used to do this itself and
+        // held Code's empty state for ~1.5 s on the phone (highlight.rs,
+        // `LanguageEntry`). Nothing waits on the thread: a buffer whose
+        // grammar it has not reached yet compiles that one grammar itself.
+        std::thread::Builder::new()
+            .name("grammar-warm".to_owned())
+            .spawn(engine::warm_languages)
+            .ok();
         Engine::new()
     })
 }

@@ -112,7 +112,7 @@ pub use git_hunks::HunkState;
 pub use git_stash::{StashEntry, StashKind};
 pub use highlight::{
     HighlightSpan, LanguageInfo, OutlineItem, STYLE_NAMES, TextRange, available_languages,
-    language_for_path,
+    language_for_path, warm_languages,
 };
 pub use language_config::config_json as language_config_json;
 // `crate::` spelled out: the module and the vendored crate it wraps share a

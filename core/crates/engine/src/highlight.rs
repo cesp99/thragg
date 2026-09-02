@@ -11,7 +11,7 @@
 //! colors — keep the two lists in sync (`ui/editor/SyntaxPalette.kt`).
 
 use std::collections::HashMap;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::sync::{Mutex, OnceLock};
 
 use rope::{Point, Rope};
@@ -104,8 +104,44 @@ pub struct HighlightSpan {
     pub style: u16,
 }
 
+/// One vendored grammar: its tree-sitter language, and its queries compiled
+/// **on first use** rather than when the registry is built.
+///
+/// The registry used to compile every query of every grammar — thirty
+/// grammars, up to six `.scm` files each — inside the first `open_file` of
+/// the process, and on the phone that first open paid ~1.5 s for a
+/// twenty-line TOML file it would then parse in under a millisecond. A
+/// buffer only ever needs its own grammar's queries (plus its injections',
+/// which reach this same path), so each grammar compiles its own the first
+/// time something asks, and [`warm_languages`] asks for all of them from a
+/// background thread at boot so that in practice nothing on the open path
+/// ever compiles at all.
+///
+/// The queries are reached through [`Deref`], so `entry.outline` and the
+/// rest read exactly as they did when they were fields.
 struct LanguageEntry {
+    name: &'static str,
     language: tree_sitter::Language,
+    queries: OnceLock<LanguageQueries>,
+}
+
+impl LanguageEntry {
+    fn queries(&self) -> &LanguageQueries {
+        self.queries
+            .get_or_init(|| compile_queries(self.name, &self.language))
+    }
+}
+
+impl Deref for LanguageEntry {
+    type Target = LanguageQueries;
+
+    fn deref(&self) -> &LanguageQueries {
+        self.queries()
+    }
+}
+
+/// A grammar's compiled queries — see [`LanguageEntry`].
+struct LanguageQueries {
     /// Compiled highlights query and per-capture-index style (None for
     /// captures we don't map, e.g. locals or `_`-prefixed).
     highlights: Option<(Query, Vec<Option<u16>>)>,
@@ -256,171 +292,207 @@ struct BracketQuery {
 fn registry() -> &'static HashMap<&'static str, LanguageEntry> {
     static REGISTRY: OnceLock<HashMap<&'static str, LanguageEntry>> = OnceLock::new();
     REGISTRY.get_or_init(|| {
-        let mut map = HashMap::new();
-        for (name, language) in grammars::native_grammars() {
-            let queries = grammars::load_queries(name);
-            let highlights = queries.highlights.and_then(|source| {
-                match Query::new(&language, source.as_ref()) {
-                    Ok(query) => {
-                        let styles = query
-                            .capture_names()
-                            .iter()
-                            .map(|capture| style_for_capture(capture))
-                            .collect();
-                        Some((query, styles))
-                    }
-                    Err(err) => {
-                        log::warn!("failed to compile highlights query for {name}: {err}");
-                        None
-                    }
+        grammars::native_grammars()
+            .into_iter()
+            .map(|(name, language)| {
+                (
+                    name,
+                    LanguageEntry {
+                        name,
+                        language,
+                        queries: OnceLock::new(),
+                    },
+                )
+            })
+            .collect()
+    })
+}
+
+/// Compile one grammar's queries. Milliseconds to tens of milliseconds per
+/// grammar on the phone; the reason it is per grammar and lazy is written on
+/// [`LanguageEntry`].
+fn compile_queries(name: &str, language: &tree_sitter::Language) -> LanguageQueries {
+    let queries = grammars::load_queries(name);
+    let highlights =
+        queries
+            .highlights
+            .and_then(|source| match Query::new(language, source.as_ref()) {
+                Ok(query) => {
+                    let styles = query
+                        .capture_names()
+                        .iter()
+                        .map(|capture| style_for_capture(capture))
+                        .collect();
+                    Some((query, styles))
+                }
+                Err(err) => {
+                    log::warn!("failed to compile highlights query for {name}: {err}");
+                    None
                 }
             });
-            let outline =
-                queries
-                    .outline
-                    .and_then(|source| match Query::new(&language, source.as_ref()) {
-                        Ok(query) => {
-                            let index = |wanted: &str| {
-                                query
-                                    .capture_names()
-                                    .iter()
-                                    .position(|name| *name == wanted)
-                                    .map(|i| i as u32)
-                            };
-                            match (index("item"), index("name")) {
-                                (Some(item), Some(name)) => Some(OutlineQuery {
-                                    item,
-                                    name,
-                                    context: index("context"),
-                                    query,
-                                }),
-                                _ => None,
-                            }
-                        }
-                        Err(err) => {
-                            log::warn!("failed to compile outline query for {name}: {err}");
-                            None
-                        }
-                    });
-            let runnables = queries
-                .runnables
-                .and_then(|source| match Query::new(&language, source.as_ref()) {
-                    Ok(query) => {
-                        let names: Vec<String> =
-                            query.capture_names().iter().map(|n| n.to_string()).collect();
+    let outline = queries
+        .outline
+        .and_then(|source| match Query::new(language, source.as_ref()) {
+            Ok(query) => {
+                let index = |wanted: &str| {
+                    query
+                        .capture_names()
+                        .iter()
+                        .position(|name| *name == wanted)
+                        .map(|i| i as u32)
+                };
+                match (index("item"), index("name")) {
+                    (Some(item), Some(name)) => Some(OutlineQuery {
+                        item,
+                        name,
+                        context: index("context"),
+                        query,
+                    }),
+                    _ => None,
+                }
+            }
+            Err(err) => {
+                log::warn!("failed to compile outline query for {name}: {err}");
+                None
+            }
+        });
+    let runnables =
+        queries
+            .runnables
+            .and_then(|source| match Query::new(language, source.as_ref()) {
+                Ok(query) => {
+                    let names: Vec<String> = query
+                        .capture_names()
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect();
+                    names
+                        .iter()
+                        .position(|n| n == "run")
+                        .map(|run| RunnableQuery {
+                            run: run as u32,
+                            names,
+                            query,
+                        })
+                }
+                Err(err) => {
+                    log::warn!("failed to compile runnables query for {name}: {err}");
+                    None
+                }
+            });
+    let indents = queries
+        .indents
+        .and_then(|source| match Query::new(language, source.as_ref()) {
+            Ok(query) => {
+                let names = query.capture_names();
+                let index = |wanted: &str| {
+                    names
+                        .iter()
+                        .position(|name| *name == wanted)
+                        .map(|i| i as u32)
+                };
+                let starts = names
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, name)| **name == "start" || name.starts_with("start."))
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                Some(IndentQuery {
+                    indent: index("indent"),
+                    end: index("end"),
+                    starts,
+                    query,
+                })
+            }
+            Err(err) => {
+                log::warn!("failed to compile indents query for {name}: {err}");
+                None
+            }
+        });
+    let injections =
+        queries
+            .injections
+            .and_then(|source| match Query::new(language, source.as_ref()) {
+                Ok(query) => {
+                    let names = query.capture_names();
+                    let index = |wanted: &str| {
                         names
                             .iter()
-                            .position(|n| n == "run")
-                            .map(|run| RunnableQuery {
-                                run: run as u32,
-                                names,
-                                query,
-                            })
-                    }
-                    Err(err) => {
-                        log::warn!("failed to compile runnables query for {name}: {err}");
-                        None
-                    }
-                });
-            let indents =
-                queries
-                    .indents
-                    .and_then(|source| match Query::new(&language, source.as_ref()) {
-                        Ok(query) => {
-                            let names = query.capture_names();
-                            let index = |wanted: &str| {
-                                names.iter().position(|name| *name == wanted).map(|i| i as u32)
-                            };
-                            let starts = names
+                            .position(|name| *name == wanted)
+                            .map(|i| i as u32)
+                    };
+                    let content = index("injection.content")?;
+                    let language_capture = index("injection.language");
+                    // Resolving the `#set!` value here — not per parse
+                    // — is what keeps an injection lookup a vector
+                    // index rather than a string comparison per match.
+                    let language_by_pattern = (0..query.pattern_count())
+                        .map(|pattern| {
+                            query
+                                .property_settings(pattern)
                                 .iter()
-                                .enumerate()
-                                .filter(|(_, name)| **name == "start" || name.starts_with("start."))
-                                .map(|(i, _)| i as u32)
-                                .collect();
-                            Some(IndentQuery {
-                                indent: index("indent"),
-                                end: index("end"),
-                                starts,
-                                query,
-                            })
-                        }
-                        Err(err) => {
-                            log::warn!("failed to compile indents query for {name}: {err}");
-                            None
-                        }
-                    });
-            let injections =
-                queries
-                    .injections
-                    .and_then(|source| match Query::new(&language, source.as_ref()) {
-                        Ok(query) => {
-                            let names = query.capture_names();
-                            let index = |wanted: &str| {
-                                names.iter().position(|name| *name == wanted).map(|i| i as u32)
-                            };
-                            let content = index("injection.content")?;
-                            let language_capture = index("injection.language");
-                            // Resolving the `#set!` value here — not per parse
-                            // — is what keeps an injection lookup a vector
-                            // index rather than a string comparison per match.
-                            let language_by_pattern = (0..query.pattern_count())
-                                .map(|pattern| {
-                                    query
-                                        .property_settings(pattern)
-                                        .iter()
-                                        .find(|property| &*property.key == "injection.language")
-                                        .and_then(|property| property.value.as_deref())
-                                        .and_then(grammar_for_injection)
-                                })
-                                .collect();
-                            Some(InjectionQuery {
-                                content,
-                                language: language_capture,
-                                language_by_pattern,
-                                query,
-                            })
-                        }
-                        Err(err) => {
-                            log::warn!("failed to compile injections query for {name}: {err}");
-                            None
-                        }
-                    });
-            let brackets =
-                queries
-                    .brackets
-                    .and_then(|source| match Query::new(&language, source.as_ref()) {
-                        Ok(query) => {
-                            let names = query.capture_names();
-                            let index = |wanted: &str| {
-                                names.iter().position(|name| *name == wanted).map(|i| i as u32)
-                            };
-                            match (index("open"), index("close")) {
-                                (Some(open), Some(close)) => {
-                                    Some(BracketQuery { query, open, close })
-                                }
-                                _ => None,
-                            }
-                        }
-                        Err(err) => {
-                            log::warn!("failed to compile brackets query for {name}: {err}");
-                            None
-                        }
-                    });
-            map.insert(
-                name,
-                LanguageEntry {
-                    language,
-                    highlights,
-                    outline,
-                    runnables,
-                    indents,
-                    injections,
-                    brackets,
-                },
-            );
-        }
-        map
-    })
+                                .find(|property| &*property.key == "injection.language")
+                                .and_then(|property| property.value.as_deref())
+                                .and_then(grammar_for_injection)
+                        })
+                        .collect();
+                    Some(InjectionQuery {
+                        content,
+                        language: language_capture,
+                        language_by_pattern,
+                        query,
+                    })
+                }
+                Err(err) => {
+                    log::warn!("failed to compile injections query for {name}: {err}");
+                    None
+                }
+            });
+    let brackets =
+        queries
+            .brackets
+            .and_then(|source| match Query::new(language, source.as_ref()) {
+                Ok(query) => {
+                    let names = query.capture_names();
+                    let index = |wanted: &str| {
+                        names
+                            .iter()
+                            .position(|name| *name == wanted)
+                            .map(|i| i as u32)
+                    };
+                    match (index("open"), index("close")) {
+                        (Some(open), Some(close)) => Some(BracketQuery { query, open, close }),
+                        _ => None,
+                    }
+                }
+                Err(err) => {
+                    log::warn!("failed to compile brackets query for {name}: {err}");
+                    None
+                }
+            });
+    LanguageQueries {
+        highlights,
+        outline,
+        runnables,
+        indents,
+        injections,
+        brackets,
+    }
+}
+
+/// Compile every grammar's queries, and read every `config.toml`, now.
+///
+/// Meant for a background thread at boot (jni-bridge's `engine()`): the work
+/// is the same ~1.5 s the first `open_file` of the process used to pay on the
+/// main path, moved to where nobody is waiting on it. A buffer opened while
+/// this is still running waits only for its own grammar — `OnceLock` blocks a
+/// second initializer of the *same* entry and nothing else.
+pub fn warm_languages() {
+    let _ = extension_map();
+    crate::language_config::warm();
+    for entry in registry().values() {
+        entry.queries();
+    }
 }
 
 /// The tree-sitter language behind a grammar name, for the queries that live

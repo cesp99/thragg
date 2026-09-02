@@ -77,6 +77,12 @@ impl Entry {
     }
 }
 
+/// Build the registry now — every `config.toml` parsed — so the first buffer
+/// does not. See `highlight::warm_languages`.
+pub(crate) fn warm() {
+    let _ = registry();
+}
+
 fn registry() -> &'static HashMap<&'static str, Entry> {
     static REGISTRY: OnceLock<HashMap<&'static str, Entry>> = OnceLock::new();
     REGISTRY.get_or_init(|| {
