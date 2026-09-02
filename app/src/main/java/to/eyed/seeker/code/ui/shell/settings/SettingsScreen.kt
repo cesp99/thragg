@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.AppSettings
+import to.eyed.seeker.code.BuildConfig
 import to.eyed.seeker.code.core.Autosave
 import to.eyed.seeker.code.core.FormatOnSave
 import to.eyed.seeker.code.core.SpettroSetup
@@ -456,6 +457,18 @@ private fun LinkRow(
             Text(
                 text = detail,
                 style = MaterialTheme.typography.labelSmall,
+            HairlineDivider()
+            // The app's own version, as a statement rather than behind About:
+            // "which build am I on" is the question a user asks before
+            // reporting anything, and it should not cost a tap and a dialog.
+            // `versionName` in app/build.gradle.kts is the single source;
+            // it moves with every release (0.0.6 → 0.0.7 → …).
+            LinkRow(
+                label = "Version",
+                detail = BuildConfig.VERSION_NAME,
+                description = "Seeker IDE",
+                onClick = null,
+            )
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
