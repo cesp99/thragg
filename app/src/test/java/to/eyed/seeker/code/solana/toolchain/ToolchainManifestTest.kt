@@ -39,14 +39,17 @@ class ToolchainManifestTest {
     }
 
     /**
-     * Eight rows: six sized and two built here, which is what the Setup screen
-     * promises in words (docs/UI.md, "First run"). A ninth appearing without
-     * the screen's copy changing would be a silent lie.
+     * Eight rows, every one of them a sized download, which is what the Setup
+     * screen promises in words (docs/UI.md, "First run"). The two build
+     * drivers used to compile on the phone; since 2026-09-02 they come
+     * prebuilt from cesp99/solana-tools-arm64, and a row going back to
+     * `cargo-install` without the screen's copy changing would be a silent
+     * nine-minute lie.
      */
     @Test
-    fun `lists eight components, two of them on-device compiles`() {
+    fun `lists eight components, none of them compiled on the device`() {
         assertEquals(8, manifest.components.size)
-        assertEquals(2, manifest.components.count { it.isCompiled })
+        assertEquals(0, manifest.components.count { it.isCompiled })
     }
 
     /**
@@ -54,12 +57,13 @@ class ToolchainManifestTest {
      *
      * The two that pin nothing are the two that fetch nothing this way: the
      * Debian rootfs verifies the registry's own digest as it streams, and the
-     * apt step is Debian's package signing, not ours.
+     * apt step is Debian's package signing, not ours. Six fetch: the four
+     * upstream binaries and the two drivers from our own build repository.
      */
     @Test
     fun `every downloaded component pins a sha256 and an https url`() {
         val fetched = manifest.components.filter { it.url != null }
-        assertEquals(4, fetched.size)
+        assertEquals(6, fetched.size)
         for (component in fetched) {
             val sha = component.sha256
             assertNotNull("${component.id} has no sha256", sha)
@@ -106,8 +110,8 @@ class ToolchainManifestTest {
         val ids = manifest.components.map { it.id }
         assertTrue(ids.indexOf("rustup") < ids.indexOf("platform-tools"))
         val links = manifest.component("platform-tools")!!.postInstall
-        assertTrue(links.any { it.contains("link") && it.contains("solana") })
-        assertTrue(links.any { it.contains("default") && it.contains("solana") })
+        assertTrue(links.any { it.contains("link") && it.contains("seeker") })
+        assertTrue(links.any { it.contains("default") && it.contains("seeker") })
     }
 
     /**
@@ -143,6 +147,25 @@ class ToolchainManifestTest {
     }
 
     /**
+     * Every tag a driver can ask for is seeded, and each one is owned: the
+     * manifest's own version, cargo-build-sbf 4.2.0's pin, and the v1.52
+     * anchor-cli 1.1.2 hard-codes (`BUILD_SUBCOMMAND` in its src/lib.rs). The
+     * day this failed on the phone, `anchor build` spent 5 min 51 s pulling
+     * 1.6 GB it already had and then lost its IDL step to a relinked rustup.
+     * Anchor's own postInstall seeds its tag too, for the install-time half.
+     */
+    @Test
+    fun `every platform-tools tag a driver asks for is seeded`() {
+        val seeds = manifest.toolsCacheSeeds
+        assertTrue(manifest.platformToolsVersion in seeds)
+        assertTrue("cargo-build-sbf 4.2.0's pin (v1.56) is not seeded", "v1.56" in seeds)
+        assertTrue("anchor-cli 1.1.2's --tools-version (v1.52) is not seeded", "v1.52" in seeds)
+        val anchorSeed = manifest.component("anchor")!!.postInstall.flatten().joinToString(" ")
+        assertTrue(anchorSeed.contains("ln -sfn /opt/solana/platform-tools /root/.cache/solana/"))
+        assertTrue(anchorSeed.contains("v1.52"))
+    }
+
+    /**
      * rustup is the *manager*, never a compiler: platform-tools already
      * carries a host toolchain, and a second Rust would be a gigabyte of
      * download nothing ever runs.
@@ -156,19 +179,18 @@ class ToolchainManifestTest {
     }
 
     /**
-     * apt is before the two compiles, because `cargo install` needs a C
-     * compiler and a linker, and the row order is also the install order.
+     * The two drivers wait for apt and platform-tools: both link libssl,
+     * which apt brings, and cargo-build-sbf execs rustup's `seeker`
+     * toolchain, which platform-tools' postInstall links. Their verify runs
+     * the binary, so it must not run before either is in. apt still carries
+     * build-essential, because a *user's* program needs a C linker.
      */
     @Test
-    fun `apt lands before anything is compiled on the device`() {
-        val ids = manifest.components.map { it.id }
-        val apt = ids.indexOf("apt-build-tools")
-        assertTrue(apt >= 0)
-        for (component in manifest.components.filter { it.isCompiled }) {
-            assertTrue(
-                "${component.id} is compiled before apt has installed a compiler",
-                apt < ids.indexOf(component.id),
-            )
+    fun `the prebuilt drivers wait for apt and platform-tools`() {
+        for (id in listOf("cargo-build-sbf", "anchor")) {
+            val needs = manifest.component(id)!!.needs.toSet()
+            assertTrue("$id does not wait for apt", "apt-build-tools" in needs)
+            assertTrue("$id does not wait for platform-tools", "platform-tools" in needs)
         }
         assertTrue(manifest.component("apt-build-tools")!!.packages.contains("build-essential"))
     }
@@ -190,18 +212,24 @@ class ToolchainManifestTest {
     }
 
     /**
-     * The compiles carry a crate and a pinned version and no size to download.
-     * A `downloadBytes` on a compile row would put a MB bar on a four-minute
-     * build, which the progress model forbids (docs/UI.md, "Setup").
+     * The two drivers come from our own build repository, and from the
+     * release whose tag names the version the row pins — so a bump that
+     * edits the version and forgets the URL, or the other way round, fails
+     * here rather than installing the wrong binary under the right name.
      */
     @Test
-    fun `compiled components name a crate and download nothing`() {
-        val compiled = manifest.components.filter { it.isCompiled }
-        for (component in compiled) {
-            assertNotNull("${component.id} names no crate", component.crate)
-            assertNotNull("${component.id} pins no version", component.version)
-            assertEquals(0L, component.downloadBytes)
-            assertTrue("${component.id} installs to nowhere", component.installBytes > 0L)
+    fun `the prebuilt drivers come from the build repository, tagged with their version`() {
+        val repo = "https://github.com/cesp99/solana-tools-arm64/releases/download/"
+        for ((id, tool) in listOf("cargo-build-sbf" to "cargo-build-sbf", "anchor" to "anchor-cli")) {
+            val component = manifest.component(id)!!
+            assertEquals(InstallMethod.Tarball, component.method)
+            val version = component.version ?: error("$id pins no version")
+            assertEquals(
+                "$repo$tool-v$version/$tool-v$version-aarch64-unknown-linux-gnu.tar.gz",
+                component.url,
+            )
+            assertEquals("/opt/solana/cli", component.installPath)
+            assertTrue("${component.id} has no download size", component.downloadBytes > 0L)
         }
     }
 
@@ -261,19 +289,20 @@ class ToolchainManifestTest {
     // ---- The dependency graph ----------------------------------------------
 
     /**
-     * The install is a graph now, and these are the three edges that were
-     * paid for on the device: platform-tools' postInstall execs rustup, the
-     * two compiles need both the compiler and apt's C linker, and the second
-     * compile shares the first one's cargo scratch and must not race it.
+     * The install is a graph now, and these are the edges that were paid for
+     * on the device: platform-tools' postInstall execs rustup, and the two
+     * drivers' verify runs a binary that links apt's libssl and (for
+     * cargo-build-sbf) execs the rustup toolchain platform-tools links.
      */
     @Test
     fun `the load-bearing edges are in the graph`() {
         assertEquals(listOf("rustup"), manifest.component("platform-tools")!!.needs)
-        assertEquals(
-            setOf("platform-tools", "apt-build-tools"),
-            manifest.component("cargo-build-sbf")!!.needs.toSet(),
-        )
-        assertEquals(listOf("cargo-build-sbf"), manifest.component("anchor")!!.needs)
+        for (id in listOf("cargo-build-sbf", "anchor")) {
+            assertEquals(
+                setOf("platform-tools", "apt-build-tools"),
+                manifest.component(id)!!.needs.toSet(),
+            )
+        }
     }
 
     /** Everything but the userland waits for the userland, one way or another. */
@@ -323,8 +352,8 @@ class ToolchainManifestTest {
 
     /**
      * Every row carries a measured time, and the wall estimate is the guest
-     * lane's sum — the userland, apt and the two compiles — not the serial
-     * total, because the fetch lane hides the downloads behind them.
+     * lane's sum — the userland and apt — not the serial total, because the
+     * fetch lane hides every download behind them.
      */
     @Test
     fun `every component is measured and the wall estimate is the guest lane`() {
@@ -332,7 +361,7 @@ class ToolchainManifestTest {
             assertTrue("${component.id} has no estimatedSeconds", component.estimatedSeconds > 0L)
         }
         val lane = manifest.components.filter { it.onGuestLane }.map { it.id }.toSet()
-        assertEquals(setOf("debian", "apt-build-tools", "cargo-build-sbf", "anchor"), lane)
+        assertEquals(setOf("debian", "apt-build-tools"), lane)
         assertTrue(manifest.estimatedWallSeconds < manifest.totalEstimatedSeconds)
         assertEquals(
             manifest.components.filter { it.id in lane }.sumOf { it.estimatedSeconds },

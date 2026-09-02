@@ -106,7 +106,7 @@ step_platform_tools() {
 }
 
 step_rustup() {
-  say "rustup (manager only) + link platform-tools as the 'solana' toolchain"
+  say "rustup (manager only) + link platform-tools as the 'seeker' toolchain"
   # cargo-build-sbf execs rustup and dies with "Failed to execute rustup"
   # otherwise. We want the manager, never a compiler: --default-toolchain none
   # downloads no rustc at all. Then the toolchain we already have is linked in
@@ -114,8 +114,12 @@ step_rustup() {
   adbsh "$LAB/guest.sh /bin/bash -c '
     curl -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
     sh /tmp/rustup-init.sh -y --default-toolchain none --no-modify-path >/dev/null
-    rustup toolchain link solana /opt/solana/platform-tools/rust
-    rustup default solana
+    # Named 'seeker', NOT 'solana': cargo-build-sbf uninstalls the first rustup
+    # toolchain whose name contains "solana" unless it is its own
+    # <rustc>-sbpf-solana-<tag> entry (src/toolchain.rs, link_solana_toolchain),
+    # which took the default toolchain out from under anchor's IDL step.
+    rustup toolchain link seeker /opt/solana/platform-tools/rust
+    rustup default seeker
     rustup toolchain list'"
 }
 
@@ -179,9 +183,7 @@ step_verify() {
   # fails both when the link is gone and when it dangles; relinking is
   # idempotent, so running it before every build costs nothing.
   adbsh "$LAB/guest.sh /bin/bash -c '
-    rustup which --toolchain solana rustc >/dev/null 2>&1 || {
-      rustup toolchain link solana /opt/solana/platform-tools/rust && rustup default solana
-    }
+    rustup toolchain link seeker /opt/solana/platform-tools/rust && rustup default seeker
     cd /projects/hello_solana
     time cargo-build-sbf --tools-version $PLATFORM_TOOLS_VERSION 2>&1 | tail -5
     ls -la target/deploy/

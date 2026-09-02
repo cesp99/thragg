@@ -48,6 +48,15 @@ data class ToolchainManifest(
      * driver's cache as the second line of defence.
      */
     val platformToolsVersion: String,
+    /**
+     * Every platform-tools tag an installed driver can ask for, each of which
+     * gets a symlink to the one installed platform-tools under
+     * cargo-build-sbf's cache — at setup (the drivers' postInstall) and
+     * before every build (`BuildTasks.toolchainGuard`). A tag missing from
+     * this list is a 450 MB download and a relinked rustup in the middle of
+     * a build; the manifest's `toolsCacheSeedsNote` names each one's owner.
+     */
+    val toolsCacheSeeds: List<String>,
     /** Where the toolchain lives inside the guest — `/opt/solana`. */
     val guestRoot: String,
     /**
@@ -136,6 +145,7 @@ data class ToolchainManifest(
             return ToolchainManifest(
                 schema = schema,
                 platformToolsVersion = root.getString("platformToolsVersion"),
+                toolsCacheSeeds = root.optStringList("toolsCacheSeeds"),
                 guestRoot = root.optString("guestRoot", "/opt/solana"),
                 cargoScratch = root.optString("cargoScratch", "/opt/solana/build"),
                 components = components,
@@ -335,7 +345,7 @@ data class ToolchainComponent(
      * Guest argv lines run after the payload is in place, in order.
      *
      * This is how platform-tools registers itself with rustup — `rustup
-     * toolchain link solana …` then `rustup default solana` — rather than that
+     * toolchain link seeker …` then `rustup default seeker` — rather than that
      * pair being two lines of Kotlin nobody would find when the path changes.
      */
     val postInstall: List<List<String>>,

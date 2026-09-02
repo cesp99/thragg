@@ -3,8 +3,13 @@
   "note": [
     "The Solana toolchain as DATA. A toolchain bump is an edit to this file and",
     "nothing else: no Kotlin changes, no release. Every component is fetched from",
-    "its own upstream (docs/SOLANA.md, 'Where the toolchain comes from') — we host",
-    "nothing and mirror nothing.",
+    "its own upstream (docs/SOLANA.md, 'Where the toolchain comes from'), with",
+    "two exceptions we build ourselves: cargo-build-sbf and anchor-cli have no",
+    "arm64 Linux binary anywhere, so github.com/cesp99/solana-tools-arm64 builds",
+    "them from crates.io on GitHub's arm64 runner, inside the same",
+    "debian:stable-slim this manifest installs, with a signed provenance",
+    "attestation per archive. Compiling them on the phone instead is still a",
+    "manifest edit away (method 'cargo-install'); it costs nine minutes.",
     "",
     "Order is the order the Setup screen lists, and the order the guest lane",
     "prefers when more than one row is ready. It is NOT the install order any",
@@ -13,11 +18,10 @@
     "guest — and a row starts the moment every id in its 'needs' is installed",
     "and its own bytes are on disk. Two edges are load-bearing:",
     "  * platform-tools needs rustup, because its own postInstall links it into",
-    "    rustup as the 'solana' toolchain;",
-    "  * the two crates need platform-tools (the compiler) AND apt (the C",
-    "    linker, OpenSSL headers), and anchor needs cargo-build-sbf so the two",
-    "    compiles share one cargo scratch in series rather than fighting for",
-    "    eight cores and 8 GB at once.",
+    "    rustup as the 'seeker' toolchain;",
+    "  * the two prebuilt drivers need platform-tools (rustup's 'solana'",
+    "    toolchain, which cargo-build-sbf execs) AND apt (libssl, which both",
+    "    link) before their verify can run.",
     "",
     "estimatedSeconds is what the row took on a Solana Seeker (8 cores, 4 of",
     "them A76) over a home Wi-Fi, measured 2026-09-02 with the timings the",
@@ -33,6 +37,32 @@
     "every other row stays where it is."
   ],
   "platformToolsVersion": "v1.57",
+  "toolsCacheSeeds": ["v1.57", "v1.56", "v1.52"],
+  "toolsCacheSeedsNote": [
+    "Every platform-tools tag any installed driver can ask cargo-build-sbf for.",
+    "cargo-build-sbf resolves a --tools-version through /root/.cache/solana/<tag>/",
+    "platform-tools; a tag with no entry makes it download that release (~450 MB,",
+    "1.6 GB unpacked). A symlink to /opt/solana/platform-tools under each tag",
+    "makes that a no-op.",
+    "The default toolchain is linked as 'seeker', and the name is load-bearing:",
+    "cargo-build-sbf 4.2.0 (src/toolchain.rs, link_solana_toolchain) takes the",
+    "first rustup toolchain whose NAME CONTAINS 'solana' and, unless it is the",
+    "'<rustc>-sbpf-solana-<tag>' entry it wants, UNINSTALLS it. Linked as",
+    "'solana' — as it was until 2026-09-02 — the default was deleted by every",
+    "build, and the IDL step of the same `anchor build` (which runs on the",
+    "default toolchain) died with \"override toolchain 'solana' is not",
+    "installed\". Named 'seeker', it is never looked at; the driver links and",
+    "relinks its own '1.95.0-sbpf-solana-<tag>' entries beside it, into the",
+    "seeded symlinks, and nothing else moves.",
+    "  v1.57 — platformToolsVersion, what BuildTasks passes to a Native build;",
+    "  v1.56 — what cargo-build-sbf 4.2.0 pins when given no --tools-version;",
+    "  v1.52 — what anchor-cli 1.1.2 passes: its BUILD_SUBCOMMAND constant is",
+    "          `build-sbf --tools-version v1.52` (src/lib.rs), found on the phone",
+    "          2026-09-02 as a 5 min 51 s `anchor build` with a failed IDL step.",
+    "Seeded twice on purpose: by the drivers' postInstall at setup, and by",
+    "BuildTasks.toolchainGuard before every build, for phones set up earlier.",
+    "A bump of either driver must revisit this list."
+  ],
   "guestRoot": "/opt/solana",
   "components": [
     {
@@ -67,7 +97,7 @@
       "marker": "/bin/sh",
       "required": true,
       "needs": [],
-      "estimatedSeconds": 68
+      "estimatedSeconds": 81
     },
     {
       "id": "rustup",
@@ -111,7 +141,8 @@
         "has no hard link to trip over.",
         "postInstall is where rustup is pointed at it. Without the link and the",
         "default, rustup's cargo shim resolves to nothing and every build fails",
-        "with a message about a missing toolchain."
+        "with a message about a missing toolchain. The link is named 'seeker'",
+        "and must not contain the word 'solana' — see toolsCacheSeedsNote."
       ],
       "url": "https://github.com/anza-xyz/platform-tools/releases/download/v1.57/platform-tools-linux-aarch64.tar.bz2",
       "sha256": "f2f31c9325cb2d00244df23b4a1a0904e51819cec49d39235a3ed3ee2320375d",
@@ -121,8 +152,8 @@
       "installPath": "/opt/solana/platform-tools",
       "marker": "/opt/solana/platform-tools/rust/bin/rustc",
       "postInstall": [
-        ["/root/.cargo/bin/rustup", "toolchain", "link", "solana", "/opt/solana/platform-tools/rust"],
-        ["/root/.cargo/bin/rustup", "default", "solana"]
+        ["/root/.cargo/bin/rustup", "toolchain", "link", "seeker", "/opt/solana/platform-tools/rust"],
+        ["/root/.cargo/bin/rustup", "default", "seeker"]
       ],
       "verify": ["/opt/solana/platform-tools/rust/bin/rustc", "--version"],
       "required": true,
@@ -201,21 +232,22 @@
       "verify": ["/usr/bin/gcc", "--version"],
       "required": true,
       "needs": ["debian"],
-      "estimatedSeconds": 134
+      "estimatedSeconds": 144
     },
     {
       "id": "cargo-build-sbf",
       "name": "cargo-build-sbf",
-      "summary": "The build driver. No arm64 binary exists upstream, so the phone builds it.",
-      "method": "cargo-install",
+      "summary": "The build driver. Prebuilt for arm64 by our public GitHub Actions workflow.",
+      "method": "tarball",
       "note": [
-        "Measured on the device: 3 min 45 s wall, 21 min CPU. There is no arm64",
-        "Linux binary of this anywhere, and this is the one step that removes the",
-        "need for us to host one.",
-        "Runs through proot WITHOUT --link2symlink. Under that flag it finishes,",
-        "says 'Installed package', and leaves a symlink to a scratch directory that",
-        "no longer exists — which is why 'marker' is checked as a real file on this",
-        "side afterwards and 'verify' is then run in the guest.",
+        "No arm64 Linux binary of this exists upstream. It used to be built on",
+        "the phone (`cargo install`, 2 min 38 s at opt-level 0 after the crate",
+        "fetch; 3 min 34 s before) — now github.com/cesp99/solana-tools-arm64",
+        "builds it from crates.io on GitHub's ubuntu-24.04-arm runner inside",
+        "debian:stable-slim, strips it, and publishes bin/ as this tarball with",
+        "a sha256 and a signed provenance attestation (`gh attestation verify`).",
+        "Unpacked with the host's tar over /opt/solana/cli, so the marker and",
+        "the PATH entry are exactly what the on-device build produced.",
         "",
         "postInstall seeds the driver's own tools cache, and it is BUG-1",
         "insurance from the 2026-08 device rehearsal: run without a populated",
@@ -225,22 +257,18 @@
         "27 min 39 s). A symlink into the cache makes that downloader a no-op.",
         "Three versions are seeded: platformToolsVersion (v1.57 — what",
         "--tools-version asks for; ToolchainManifestTest keeps the two in",
-        "agreement), whatever the just-built driver reports as its pin",
-        "(discovered from its --version output, which does NOT trigger the",
-        "download — the rehearsal's install verify proved that), and v1.56 as",
-        "the rehearsal-proven pin of 4.2.0 in case that output ever stops",
-        "parsing. Duplicates are harmless: ln -sfn is idempotent, including",
-        "over the hand-made symlinks on devices repaired by hand before this",
-        "seeding existed. BuildTasks.toolchainGuard repeats the seeding before",
-        "every build, for devices whose install predates this postInstall."
+        "agreement), whatever the driver reports as its pin (discovered from",
+        "its --version output, which does NOT trigger the download), and v1.56",
+        "as the rehearsal-proven pin of 4.2.0 in case that output ever stops",
+        "parsing. Duplicates are harmless: ln -sfn is idempotent.",
+        "BuildTasks.toolchainGuard repeats the seeding before every build."
       ],
-      "crate": "cargo-build-sbf",
+      "url": "https://github.com/cesp99/solana-tools-arm64/releases/download/cargo-build-sbf-v4.2.0/cargo-build-sbf-v4.2.0-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "e2ee11b1937a5baa4788b17d4f740fb965a783b89cd76faad9990aa205fc2dcf",
       "version": "4.2.0",
-      "root": "/opt/solana/cli",
-      "targetDir": "/opt/solana/build",
-      "locked": false,
+      "downloadBytes": 5117835,
       "installBytes": 30000000,
-      "installPath": "/opt/solana/cli/bin",
+      "installPath": "/opt/solana/cli",
       "marker": "/opt/solana/cli/bin/cargo-build-sbf",
       "postInstall": [
         ["/bin/sh", "-c", "for v in v1.57 $(/opt/solana/cli/bin/cargo-build-sbf --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+' | head -n1) v1.56; do mkdir -p /root/.cache/solana/$v && ln -sfn /opt/solana/platform-tools /root/.cache/solana/$v/platform-tools; done"]
@@ -248,31 +276,38 @@
       "verify": ["/opt/solana/cli/bin/cargo-build-sbf", "--version"],
       "required": true,
       "needs": ["platform-tools", "apt-build-tools"],
-      "estimatedSeconds": 158
+      "estimatedSeconds": 3
     },
     {
       "id": "anchor",
       "name": "Anchor",
-      "summary": "The Anchor CLI. Also built here: it ships no release binaries at all.",
-      "method": "cargo-install",
+      "summary": "The Anchor CLI. It ships no release binaries; ours come from the same workflow.",
+      "method": "tarball",
       "note": [
-        "--locked, because anchor-cli's own Cargo.lock is the only combination its",
-        "releases are tested against. Same proot rule as cargo-build-sbf.",
-        "Not required: a Native program builds without it, and Setup must not make",
-        "the whole toolchain hostage to the longest compile in it."
+        "Built by github.com/cesp99/solana-tools-arm64 with `cargo install",
+        "anchor-cli --locked` — anchor-cli's own Cargo.lock is the only",
+        "combination its releases are tested against. On the phone this was the",
+        "long pole: 10 min 26 s, 6 min 23 s at opt-level 0.",
+        "Still not required: a Native program builds without it, and the gate",
+        "must not be hostage to the largest download in the list.",
+        "postInstall seeds the tools cache for v1.52, the platform-tools tag",
+        "anchor-cli 1.1.2 hard-codes into every `cargo build-sbf` it runs —",
+        "see toolsCacheSeedsNote for what happens without it."
       ],
-      "crate": "anchor-cli",
+      "url": "https://github.com/cesp99/solana-tools-arm64/releases/download/anchor-cli-v1.1.2/anchor-cli-v1.1.2-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "a2d5ba06e7fdcb3dedb82948a1d1e9cbe7a224b0cb9e632133a9f12d8de1a0d7",
       "version": "1.1.2",
-      "root": "/opt/solana/cli",
-      "targetDir": "/opt/solana/build",
-      "locked": true,
+      "downloadBytes": 11082778,
       "installBytes": 90000000,
-      "installPath": "/opt/solana/cli/bin",
+      "installPath": "/opt/solana/cli",
       "marker": "/opt/solana/cli/bin/anchor",
+      "postInstall": [
+        ["/bin/sh", "-c", "for v in v1.52; do mkdir -p /root/.cache/solana/$v && ln -sfn /opt/solana/platform-tools /root/.cache/solana/$v/platform-tools; done"]
+      ],
       "verify": ["/opt/solana/cli/bin/anchor", "--version"],
       "required": false,
-      "needs": ["cargo-build-sbf"],
-      "estimatedSeconds": 383
+      "needs": ["platform-tools", "apt-build-tools"],
+      "estimatedSeconds": 3
     }
   ],
   "cargoScratch": "/opt/solana/build"

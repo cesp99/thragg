@@ -216,7 +216,7 @@ object BuildTasks {
      *
      * platform-tools' *rust* bin is deliberately **not** on this path.
      * `cargo-build-sbf` reaches that toolchain through rustup — it is linked
-     * as the `solana` toolchain (`rustup toolchain link solana …`) — and a
+     * as the `seeker` toolchain (`rustup toolchain link seeker …`) — and a
      * second `cargo` earlier on the path than `$CARGO_HOME/bin` would shadow
      * the `cargo-build-sbf` shim that the `cargo build-sbf` subcommand form
      * depends on. The fallback in [buildCommand] names that cargo by its
@@ -445,14 +445,18 @@ object BuildTasks {
      * (directly, or through `anchor`). Two repairs, both learned in the same
      * device rehearsal (2026-08) and both idempotent:
      *
-     *  1. **Relink rustup's `solana` toolchain.** `cargo-build-sbf`'s
-     *     tools-install step *uninstalls* the linked `solana` toolchain and
-     *     links its own (e.g. `1.89.0-sbpf-solana-v1.56`); the next `cargo`
-     *     through rustup's shim then dies with "override toolchain 'solana'
-     *     is not installed". `rustup which --toolchain solana rustc` is the
-     *     probe — it fails both when the link is gone and when it dangles —
-     *     and the repair is the same link+default pair platform-tools'
-     *     manifest postInstall ran at setup.
+     *  1. **Relink rustup's default toolchain, named `seeker`.**
+     *     `cargo-build-sbf` (4.2.0, src/toolchain.rs) takes the first rustup
+     *     toolchain whose *name contains "solana"* and, unless it is the
+     *     `<rustc>-sbpf-solana-<tag>` entry it wants, *uninstalls* it before
+     *     linking its own. Linked as `solana` — as it was until 2026-09-02 —
+     *     the default was deleted by every build, and the IDL step of the
+     *     same `anchor build` (which runs on the default toolchain) died
+     *     with "override toolchain 'solana' is not installed". Named
+     *     `seeker`, the driver never looks at it. The link+default pair is
+     *     re-run unconditionally — both are idempotent, ~100 ms under proot
+     *     — so a phone set up while the name was `solana`, or one whose
+     *     default was left dangling, is repaired by its next build.
      *  2. **Seed the tools cache.** Without a populated
      *     `$TOOLS_CACHE/<v>/platform-tools`, `cargo-build-sbf` downloads its
      *     own platform-tools (~450 MB) for `<v>` — on the rehearsal device
@@ -469,14 +473,17 @@ object BuildTasks {
      * make re-running it — and running it over the hand-made symlinks that
      * exist on devices set up before this guard did — a no-op.
      */
-    fun toolchainGuard(platformToolsVersion: String?): String {
+    fun toolchainGuard(platformToolsVersion: String?, seeds: List<String> = emptyList()): String {
         val versions = buildString {
             platformToolsVersion?.let { append(it).append(' ') }
+            // The manifest's toolsCacheSeeds: the tags the installed drivers
+            // hard-code (anchor-cli 1.1.2 asks for v1.52 on every build and
+            // prints it nowhere, so it cannot be discovered like the next one).
+            for (seed in seeds) append(seed).append(' ')
             append("\$(cargo-build-sbf --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+' | head -n1)")
         }
         return "{ [ -d $PLATFORM_TOOLS/rust ] && { " +
-            "rustup which --toolchain solana rustc || " +
-            "{ rustup toolchain link solana $PLATFORM_TOOLS/rust && rustup default solana; }; " +
+            "rustup toolchain link seeker $PLATFORM_TOOLS/rust; rustup default seeker; " +
             "for v in $versions; do " +
             "mkdir -p $TOOLS_CACHE/\$v && ln -sfn $PLATFORM_TOOLS $TOOLS_CACHE/\$v/platform-tools; " +
             "done; }; } >/dev/null 2>&1; "
@@ -517,6 +524,7 @@ object BuildTasks {
         layout: ProjectLayout,
         tools: GuestTools,
         platformToolsVersion: String? = null,
+        seeds: List<String> = emptyList(),
     ): BuildCommand? = when {
         layout.framework == ProjectFramework.Unknown -> null
 
@@ -525,14 +533,14 @@ object BuildTasks {
         // seeded cache is what keeps their tools download from happening.
         layout.framework == ProjectFramework.Seahorse ->
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion) + "seahorse build",
+                line = toolchainGuard(platformToolsVersion, seeds) + "seahorse build",
                 display = "seahorse build",
                 jsonDiagnostics = false,
             )
 
         layout.framework == ProjectFramework.Anchor ->
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion) + "anchor build",
+                line = toolchainGuard(platformToolsVersion, seeds) + "anchor build",
                 display = "anchor build",
                 jsonDiagnostics = false,
             )
@@ -542,7 +550,7 @@ object BuildTasks {
         tools.cargoBuildSbf -> {
             val versionFlag = platformToolsVersion?.let { " --tools-version $it" }.orEmpty()
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion) +
+                line = toolchainGuard(platformToolsVersion, seeds) +
                     "cargo build-sbf$versionFlag -- --message-format=json-diagnostic-rendered-ansi",
                 display = "cargo build-sbf$versionFlag",
                 jsonDiagnostics = true,
@@ -579,16 +587,17 @@ object BuildTasks {
     fun testCommand(
         layout: ProjectLayout,
         platformToolsVersion: String? = null,
+        seeds: List<String> = emptyList(),
     ): BuildCommand? = when (layout.framework) {
         ProjectFramework.Unknown -> null
-        ProjectFramework.Native -> cargoTestCommand(platformToolsVersion)
+        ProjectFramework.Native -> cargoTestCommand(platformToolsVersion, seeds)
         // `anchor test` builds first, so it reaches cargo-build-sbf and needs
         // the same guard a Build does. Native's `cargo test` is a host build
         // through platform-tools' own cargo and touches neither rustup's
         // `solana` link nor the tools cache.
         ProjectFramework.Anchor, ProjectFramework.Seahorse ->
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion) + "anchor test --skip-local-validator",
+                line = toolchainGuard(platformToolsVersion, seeds) + "anchor test --skip-local-validator",
                 display = "anchor test --skip-local-validator",
                 jsonDiagnostics = false,
             )
@@ -597,12 +606,12 @@ object BuildTasks {
     /**
      * The Rust half of an Anchor project's tests, which needs no Node.
      * Guarded too: a bare `cargo` here is rustup's shim resolving the
-     * `solana` toolchain, which is exactly what `cargo-build-sbf`'s tools
+     * default toolchain, which is exactly what `cargo-build-sbf`'s tools
      * step un-links (see [toolchainGuard]) — so a `cargo test` pressed right
      * after a Build is the second victim of that vandalism.
      */
-    fun cargoTestCommand(platformToolsVersion: String? = null): BuildCommand = BuildCommand(
-        line = toolchainGuard(platformToolsVersion) +
+    fun cargoTestCommand(platformToolsVersion: String? = null, seeds: List<String> = emptyList()): BuildCommand = BuildCommand(
+        line = toolchainGuard(platformToolsVersion, seeds) +
             "cargo test --message-format=json-diagnostic-rendered-ansi",
         display = "cargo test",
         jsonDiagnostics = true,

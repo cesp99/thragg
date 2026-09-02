@@ -276,7 +276,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                     title = null,
                     body = "You can lock the phone or switch apps — the install keeps " +
                         "going under its notification and this screen picks up where " +
-                        "it was. Keep the phone plugged in: two of the parts compile here.",
+                        "it was. Keep it on Wi-Fi: most of this is a download.",
                 )
             }
 
@@ -432,17 +432,18 @@ private fun ExpectPage(manifest: ToolchainManifest?, estimateSeconds: Long?) {
         headline = "One setup, once",
         body = if (minutes != null) {
             "About $minutes minutes on a Seeker, then the phone builds offline. " +
-                "Two of the parts are compiled here, because nobody ships arm64 builds of them."
+                "Two of the parts have no arm64 build upstream; ours come prebuilt " +
+                "from a public GitHub Actions workflow."
         } else {
-            "Then the phone builds offline. Two of the parts are compiled here, " +
-                "because nobody ships arm64 builds of them."
+            "Then the phone builds offline. Two of the parts have no arm64 build " +
+                "upstream; ours come prebuilt from a public GitHub Actions workflow."
         },
     )
     PointList(
         listOf(
             R.drawable.ic_ui_download to ("Wi-Fi and a charger" to
-                "${manifest?.let { formatBytes(it.totalDownloadBytes) } ?: "About 680 MB"} " +
-                    "over the network, then all eight cores for a while. Plug in. On mobile " +
+                "${manifest?.let { formatBytes(it.totalDownloadBytes) } ?: "About 700 MB"} " +
+                    "over the network and a few minutes of unpacking. Plug in. On mobile " +
                     "data the button says what it costs."),
             R.drawable.ic_ui_lock to ("You can leave" to
                 "It runs under a notification. Lock the phone, switch apps, come back — " +
@@ -908,7 +909,7 @@ private fun Actions(
         // The gate opens on the required rows. Anchor may still be compiling
         // — and it keeps compiling, outside the composition, under the
         // notification — but Build, the agent and the editor are all real now.
-        gated && complete && running -> "Continue — Anchor keeps building"
+        gated && complete && running -> "Continue — Anchor keeps installing"
         gated && complete -> "Continue"
         running -> "Pause"
         complete && allInstalled -> "Done"

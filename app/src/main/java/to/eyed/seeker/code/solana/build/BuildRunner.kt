@@ -90,6 +90,9 @@ object BuildRunner {
      */
     private var platformToolsVersion: String? = null
 
+    /** The manifest's `toolsCacheSeeds`, for the guard — see [BuildTasks.toolchainGuard]. */
+    private var toolsCacheSeeds: List<String> = emptyList()
+
     /** Whether [refresh] has answered once for the current project. */
     var probed: Boolean by mutableStateOf(false)
         private set
@@ -178,9 +181,12 @@ object BuildRunner {
         freshness = BuildTasks.freshness(root, detected.primary)
         // The probe is the expensive half and it says nothing about a project
         // that has nothing to build.
-        if (detected.isBuildable) tools = BuildTasks.probe(context)
-        platformToolsVersion =
-            runCatching { ToolchainManifest.load(context).platformToolsVersion }.getOrNull()
+        if (detected.isBuildable) {
+            tools = BuildTasks.probe(context)
+        }
+        val manifest = runCatching { ToolchainManifest.load(context) }.getOrNull()
+        platformToolsVersion = manifest?.platformToolsVersion
+        toolsCacheSeeds = manifest?.toolsCacheSeeds.orEmpty()
         probed = true
     }
 
@@ -209,8 +215,8 @@ object BuildRunner {
         if (isRunning) return
         val current = layout ?: return
         val chosen = command ?: when (action) {
-            BuildAction.Build -> BuildTasks.buildCommand(current, tools, platformToolsVersion)
-            BuildAction.Test -> BuildTasks.testCommand(current, platformToolsVersion)
+            BuildAction.Build -> BuildTasks.buildCommand(current, tools, platformToolsVersion, toolsCacheSeeds)
+            BuildAction.Test -> BuildTasks.testCommand(current, platformToolsVersion, toolsCacheSeeds)
             BuildAction.Deploy -> null
         }
         if (action == BuildAction.Deploy) {

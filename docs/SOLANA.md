@@ -67,25 +67,48 @@ installer runs `rustup-init -y --default-toolchain none`, which downloads no
 compiler at all, and then points it at the toolchain we already have:
 
 ```sh
-rustup toolchain link solana /opt/solana/platform-tools/rust
+rustup toolchain link seeker /opt/solana/platform-tools/rust
+rustup default seeker
 ```
+
+The name is load-bearing. `cargo-build-sbf` 4.2.0 (`src/toolchain.rs`,
+`link_solana_toolchain`) takes the first rustup toolchain whose *name
+contains "solana"* and, unless it is the `<rustc>-sbpf-solana-<tag>` entry
+it wants for the `--tools-version` it was given, uninstalls it before
+linking its own. Until 2026-09-02 the default was linked as `solana`, so
+every build deleted it, and `anchor build` — whose IDL step runs `cargo
+test` on the *default* toolchain after `cargo build-sbf` returns — failed
+with "override toolchain 'solana' is not installed" on every phone. Named
+`seeker` it is invisible to the driver, which links and relinks its own
+`1.95.0-sbpf-solana-v1.52`-style entries beside it into the seeded cache
+symlinks (see the manifest's `toolsCacheSeedsNote` for why each tag is
+seeded). `BuildTasks.toolchainGuard` re-runs the link+default pair before
+every build, so a phone set up under the old name heals on its next build.
 
 There is no Node — Spettro is a single static binary, which is part of why it
 is the bundled agent.
 
-### The two with no arm64 build: built on the phone, once
+### The two with no arm64 build: built by our own workflow
 
-`cargo-build-sbf` and `anchor` have no arm64 Linux binary anywhere upstream —
-but both are on crates.io, and the phone can simply build them. Measured:
+`cargo-build-sbf` and `anchor` have no arm64 Linux binary anywhere upstream.
+Both are on crates.io, and the phone *can* build them — measured 3 min 34 s
+and 10 min 26 s cold, 2 min 38 s and 6 min 23 s at opt-level 0 — but that
+was nine of the thirteen minutes of setup. So they are the one thing we
+build ourselves: [cesp99/solana-tools-arm64](https://github.com/cesp99/solana-tools-arm64)
+is a public repository whose only job is a GitHub Actions workflow on
+GitHub's `ubuntu-24.04-arm` runner that runs `cargo install <crate>
+--version <v>` inside `debian:stable-slim` — the same image the phone
+unpacks, so glibc and OpenSSL match — strips the result, and publishes it
+as a release tagged `<tool>-v<version>` with a `.sha256`, a `build-info.txt`
+(image, rustc, exact command, run URL) and a signed provenance attestation.
+The manifest pins the URL and the hash; the installer unpacks the tarball
+with the host's tar over `/opt/solana/cli`, which is exactly where the
+on-device build used to put them.
 
-```
-cargo install cargo-build-sbf   →  3 min 45 s   (21 min CPU across the cores)
-```
-
-That is a one-time cost inside the toolchain setup, and it removes the need to
-cross-compile anything on a workstation or to host binaries of our own. The
-installer runs the two compiles last, in series, once the compiler and apt's
-C linker are in.
+Bumping either tool is: edit `versions.json` there, push, wait for the
+release, copy the hash into this manifest. Compiling on the phone is still
+supported — the installer's `cargo-install` method was kept — and is a
+manifest edit away if the workflow is ever unavailable.
 
 Verified afterwards on the device: `cargo-build-sbf 4.2.0`, driving
 `platform-tools`, producing `target/deploy/`.
@@ -110,7 +133,7 @@ has a full set of its own).
 | Anchor | 10 min 26 s | the long pole; ~5 min 20 s of it at opt-level 0 (below) |
 | **Total** | **21 min 12 s** | wall, Start to Done |
 
-Two things in that table were changed on the strength of it.
+Three things were changed on the strength of that table, in this order.
 
 **The installer runs two lanes.** The serial loop spent about three minutes
 downloading and unpacking while the guest sat idle, and then three minutes in
@@ -137,6 +160,28 @@ below already in:
 
 The fetch lane finished everything it had at 3 min 43 s, well inside apt;
 the guest lane never waited on a byte.
+
+**The compiles left the phone.** Nine of those thirteen minutes were the two
+`cargo install`s. They now come prebuilt from cesp99/solana-tools-arm64 (see
+"The two with no arm64 build" above), which leaves the userland, apt and
+~700 MB of downloads. Measured, same phone, from a wiped rootfs:
+
+| Prebuilt-driver run | Time |
+|---|---|
+| Debian userland | 1 min 21 s |
+| Build tools (apt) | 2 min 24 s |
+| platform-tools download + unpack, on the fetch lane | 1 min 02 s + 2 min 09 s, finishing 59 s after apt |
+| cargo-build-sbf, Anchor | 2–3 s each to download, under 1 s to verify |
+| **Total** | **4 min 44 s** — was 21 min 12 s at the start of the day |
+
+The critical path is now the userland, apt, and the tail of the
+platform-tools unpack; the only compile left anywhere is upstream's bzip2.
+
+Proven afterwards on the same phone with the prebuilt drivers: `anchor
+build` on the escrow project produced `target/deploy/escrow.so` (Solana
+Bytecode Format) *and* `target/idl/escrow.json` in 4 min 30 s — the IDL
+half being the step that had failed on every phone until the toolchain
+link was renamed (see "Where the toolchain comes from", rustup).
 
 **The compiles are tuned for a phone under ptrace.** `cargo install` builds
 with the release profile, whose opt-level 3 and single codegen unit per crate

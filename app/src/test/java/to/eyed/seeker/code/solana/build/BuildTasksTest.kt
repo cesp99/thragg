@@ -199,15 +199,14 @@ class BuildTasksTest {
         for (command in guarded) {
             val line = command.line
             assertTrue(
-                "$line does not probe the solana toolchain",
-                line.contains("rustup which --toolchain solana rustc"),
-            )
-            assertTrue(
-                "$line does not relink platform-tools",
+                "$line does not relink platform-tools as the default",
                 line.contains(
-                    "rustup toolchain link solana ${BuildTasks.PLATFORM_TOOLS}/rust"
+                    "rustup toolchain link seeker ${BuildTasks.PLATFORM_TOOLS}/rust; rustup default seeker"
                 ),
             )
+            // The name must never contain "solana": cargo-build-sbf uninstalls
+            // the first rustup toolchain whose name does (BuildTasks, guard).
+            assertFalse(line.contains("toolchain link solana"))
             assertTrue(
                 "$line seeds no tools cache",
                 line.contains(
@@ -222,10 +221,22 @@ class BuildTasksTest {
             )
             assertTrue(
                 "$line runs the guard after the build",
-                line.indexOf("rustup which") <
+                line.indexOf("rustup toolchain link seeker") <
                     line.indexOf(command.display.substringBefore(' ')),
             )
         }
+    }
+
+    /**
+     * The manifest's seeds reach the guard, each as a `mkdir -p` + `ln -sfn`
+     * pair — this is the line that keeps anchor-cli's hard-coded v1.52 from
+     * turning every Anchor build into a 450 MB download.
+     */
+    @Test
+    fun `the guard seeds every tag the manifest lists`() {
+        val line = BuildTasks.toolchainGuard("v1.57", listOf("v1.56", "v1.52"))
+        assertTrue(line.contains("for v in v1.57 v1.56 v1.52 \$(cargo-build-sbf --version"))
+        assertTrue(line.contains("ln -sfn ${BuildTasks.PLATFORM_TOOLS} ${BuildTasks.TOOLS_CACHE}/\$v/platform-tools"))
     }
 
     @Test
@@ -238,7 +249,7 @@ class BuildTasksTest {
             platformToolsVersion = null,
         )!!
         assertFalse(command.line.contains("--tools-version"))
-        assertTrue(command.line.contains("rustup which --toolchain solana rustc"))
+        assertTrue(command.line.contains("rustup toolchain link seeker"))
         assertTrue(command.line.contains("cargo-build-sbf --version"))
     }
 
