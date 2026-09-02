@@ -57,7 +57,7 @@ Notably absent: back does not close a dock (there are none), does not unfocus th
 
 NO KEYBOARD PATH AT ALL. There is no command palette, no chord dispatcher, no which-key, no keymap.json, no base_keymap. Every surviving capability has a touch target on a screen, in a sheet, in the editor action row, or on the selection/hover card. A capability with no touch target is a capability that was cut, and it is named in "removed". A paired Bluetooth keyboard still types and still gets Enter/Tab/arrows/Ctrl+S/Ctrl+Z/Ctrl+Y/Ctrl+C/V/X/Ctrl+F/Escape — nine bindings hard-coded in EditorInput.kt, not configurable, not documented as a feature.
 
-LAUNCH. Cold start restores the last project, the open-file MRU with carets and scroll, and the destination you left. No splash, no picker. If there is no project: the Projects sheet opens over an empty Code. If there is no agent installed: Agent shows a single card offering Setup and the composer is disabled — the other two destinations are complete without it. If there is no toolchain: everything works except the three Build buttons, which are replaced by one "Set up the toolchain" card.
+LAUNCH. Cold start restores the last project, the open-file MRU with carets and scroll, and the destination you left. No splash, no picker. If there is no project: the Projects sheet opens over an empty Code. If there is no agent installed: Agent shows a single card offering Setup and the composer is disabled — the other two destinations are complete without it. If there is no toolchain: the Setup takeover is on top of Code and stays there until the required components are in — it is the gate, see "First run".
 
 ## Orientation
 
@@ -82,13 +82,13 @@ What is deliberately abandoned: DeX, foldable inner/outer transitions, external 
 
 "Fresh install, no toolchain, no project, no agent." Exactly what happens, in order:
 
-1. THE APP OPENS. It does not open a splash, a tour, a theme picker or a project wizard. It opens the Setup takeover (Screen 13) because on a fresh install there is nothing else honest to show — a Solana IDE that cannot compile is not the product. Setup states the cost in two numbers that are not the same number: ~600 MB over the network, ~1.4 GB on disk. It lists eight components, six as sized downloads and two — `cargo-build-sbf` and `anchor` — as on-device compiles with elapsed timers, because neither has an arm64 binary anywhere upstream and both are built from crates.io on the phone (measured 3 min 45 s wall, 21 min CPU for the first).
+1. THE APP OPENS ON THE GATE. It does not open a splash, a theme picker or a project wizard. It opens the Setup takeover (Screen 13) over Code, because on a fresh install there is nothing else honest to show — a Solana IDE that cannot compile is not the product, and without the toolchain there is no Build, no deploy and an agent that can only read. The gate is mandatory: there is no Skip, the back gesture leaves the app rather than popping it (ShellBackHandler, `gated`), and it goes back up on the next launch until the *required* components are in. On a fresh phone the takeover is a three-page onboarding — why the phone needs a compiler, what to expect while it installs (minutes, Wi-Fi, a charger, that it survives locking the phone, that a failed row retries alone), and the parts with their sizes — with Next on the first two pages and Start on the third. Setup states the cost in THREE numbers that are not the same number: ~680 MB over the network, ~2.1 GB on disk, and about N minutes, where N is measured (the manifest's `estimatedSeconds` from the reference Seeker, or this phone's own recorded timings once it has a full set) and rounded up, never down. It lists eight components, six as sized downloads and two — `cargo-build-sbf` and `anchor` — as on-device compiles with elapsed timers, because neither has an arm64 binary anywhere upstream and both are built from crates.io on the phone.
 
-2. THE USER TAPS START (or, on a metered connection, "Download over mobile data (~600 MB)", which is not the default focus). The install runs under the existing TerminalService foreground notification, so locking the phone or backgrounding the app is safe, and the notification carries the same percentage. Each component verifies against a pinned SHA-256 from solana/toolchain/manifest.json and resumes a partial download rather than restarting. A failed component gets a Retry on its own row; it never restarts the gigabyte. Leaving the screen keeps it running; coming back re-attaches.
+2. THE USER TAPS START (or, on a metered connection, "Download over mobile data (~680 MB)", which is not the default focus). The install runs under the existing TerminalService foreground notification, so locking the phone or backgrounding the app is safe. It runs as two lanes — one fetching and unpacking, one working inside the guest — so the 505 MB is off the critical path (docs/SOLANA.md, "How long it takes"). Each component verifies against a pinned SHA-256 from solana/toolchain/manifest.json and resumes a partial download rather than restarting. A failed component gets a Retry on its own row; it never restarts the gigabyte. Leaving the screen keeps it running; coming back re-attaches. The headline shows elapsed against the estimate.
 
-3. OR THE USER TAPS SKIP. "Skip — I only want to edit code" is a text link, not a button, because it is the minority path — but it is a real one and it leaves a genuinely good product: the editor, tree-sitter highlighting, the file tree, fuzzy find, project search, git and (once an agent is installed) the agent all work with no toolchain at all. Setup returns any time from Projects → Toolchain, and the Build destination shows one "Set up the toolchain" card where the three buttons would be.
+3. THE GATE OPENS ON THE REQUIRED ROWS. Anchor is optional in the manifest and the longest compile; the moment everything Build needs is in, the button reads "Continue — Anchor keeps building" and the user is let through while it finishes under the notification. Setup returns any time from Projects → Toolchain and Settings → Toolchain, where the same screen is the repair and free-the-disk page and has a Close.
 
-4. WHEN SETUP FINISHES (or is skipped), the Projects sheet opens over an empty Code destination. Empty Code is a single line of body text and one button that opens that same sheet — it is never a blank screen with nothing to press.
+4. WHEN THE GATE OPENS, the Projects sheet opens over an empty Code destination. Empty Code is a single line of body text and one button that opens that same sheet — it is never a blank screen with nothing to press.
 
 5. THE USER PICKS ONE OF THREE. "New program" pushes the New program route: name (with the crate/module/type preview live under the field from SolanaNames.kt), framework (Anchor default), cluster (devnet default), and a checkbox — on by default — "Open a thread and describe it to the agent afterwards". "Clone from GitHub" reuses GitClone.kt with its progress and credential prompts. "Import a folder" is SAF.
 
@@ -589,7 +589,7 @@ Shared by the agent's file-edit cards and by Changes. There is no second diff, n
 
 ### Setup — first run and the toolchain page thereafter
 
-The one full-screen takeover. It is the honest cost of a phone that compiles Solana programs, said plainly, once, with an honest Skip.
+The one full-screen takeover, and on a fresh install the gate. It is the honest cost of a phone that compiles Solana programs, said plainly, once, before the button — three onboarding pages, then this list. There is no Skip: everything that makes this an IDE rather than an editor is behind it.
 
 ```
 ┌──────────────────────────────────────────┐
@@ -616,9 +616,11 @@ The one full-screen takeover. It is the honest cost of a phone that compiles Sol
 │ ┌──────────────────────────────────────┐ │
 │ │               Pause                  │ │
 │ └──────────────────────────────────────┘ │
-│      Skip — I only want to edit code     │
+│                                          │
 └──────────────────────────────────────────┘
 ```
+
+The gate has no text link under the button while the install runs. Once the required rows are in the button reads Continue; reached from Settings afterwards the same screen has Close and "Remove the toolchain — frees 2.1 GB".
 
 **Reuses:**
 
@@ -632,7 +634,8 @@ The one full-screen takeover. It is the honest cost of a phone that compiles Sol
 - solana/toolchain/manifest.json — the component list as data: URL, SHA-256, unpacked size, install path. A toolchain bump is a manifest edit, not a release. This file does not exist yet.
 - solana/toolchain/ToolchainManifest.kt, ToolchainInstaller.kt, ToolchainState.kt — the fetch → verify → unpack loop with per-component resume across a dropped connection AND across app restarts, per-component Retry that never restarts the gigabyte, and the two proot rules from docs/SOLANA.md that cost real time to find: `--link2symlink` is used for apt and nothing else (it breaks `cargo install`'s hard-link-into-place, leaving a dangling symlink and a silent success), and large archives are unpacked with the host's tar directly into the rootfs rather than through proot, with the one hard-linked entry in Debian's rootfs handled specially.
 - ui/shell/setup/SetupScreen.kt — the takeover, and later the Settings → Toolchain page, where it doubles as the repair / uninstall / free-1.4-GB page.
-- The progress model has TWO kinds of row and says so. Downloads show bytes and a rate. `cargo-build-sbf` and `anchor` have no arm64 binary anywhere upstream and are compiled on the device (measured: 3 min 45 s wall, 21 min CPU for the first), so their rows show an elapsed timer and a spinner, never a MB bar. The headline separates transfer (~600 MB) from disk (~1.4 GB), because conflating them is the exact dishonesty a first-run screen cannot afford.
+- The progress model has TWO kinds of row and says so. Downloads show bytes and a rate. `cargo-build-sbf` and `anchor` have no arm64 binary anywhere upstream and are compiled on the device, so their rows show an elapsed timer and a spinner, never a MB bar — and, before they start, the minutes they took on the reference phone. A row whose bytes are in but whose turn on the guest lane has not come is "downloaded · waiting for its turn" with a dashed circle, not a spinner. The headline separates transfer (~680 MB) from disk (~2.1 GB) and adds minutes as a third figure, because conflating them is the exact dishonesty a first-run screen cannot afford.
+- ShellBackHandler's `gated` step: Setup on top with no toolchain is never popped by back. What is on top of it — a sheet, an overlay, the keyboard — still closes first.
 - Metered connections: the Start button reads 'Download over mobile data (~600 MB)' and is not the default focus.
 
 ### Projects & tools (sheet from the project chip)
@@ -718,7 +721,7 @@ Scaffold an Anchor, Native or Seahorse program and hand it straight to the agent
 **New:**
 
 - ui/shell/projects/NewProgramScreen.kt — the route. Create scaffolds, sets the cluster into Anchor.toml, opens the project, and with the checkbox on (the default) lands on Agent with the composer pre-seeded 'This is a new Anchor program called escrow. ' rather than on a file tree. That default is this design's thesis expressed as one checkbox.
-- The toolchain is NOT required to create. Scaffolding and editing work immediately; the Setup route appears only when Build is first pressed. Nobody waits on a gigabyte before seeing their code.
+- The toolchain gate comes before Create: on a fresh phone the takeover is up until the required components are in, and Anchor may still be compiling when the user gets here. Scaffolding and editing do not need it; the first `anchor build` does, and the Build tab says so while it is still going.
 - Seahorse honesty: selecting it shows a one-line caption that Seahorse builds through `anchor build` and needs Python in the guest, and the Build button installs it on first press. A framework you can create but cannot build is worse than one never offered.
 
 ### Settings

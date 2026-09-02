@@ -74,6 +74,14 @@ data class BackContext(
     val routePushed: Boolean = false,
     val jumpAvailable: Boolean = false,
     val destination: Destination = Destination.Code,
+    /**
+     * The route on top is the toolchain gate and the toolchain is not in.
+     * Back does not pop it — there is nothing usable underneath — and goes
+     * to the launcher instead, which is the honest reading of "I'm not doing
+     * this now": the install keeps running under the foreground service and
+     * the gate is there again when the app comes back.
+     */
+    val gated: Boolean = false,
 )
 
 /**
@@ -84,6 +92,9 @@ data class BackContext(
  * rather than chosen for convenience. The IME comes *third*, above the find
  * bar and above popping a route: with the keyboard up the screen the user is
  * looking at is half keyboard, and the first back has to give the screen back.
+ * The toolchain gate sits just above the route pop: an overlay, a sheet or the
+ * keyboard on top of Setup still closes first, but the gate itself is never
+ * popped by back while the toolchain is missing — the press leaves the app.
  * The jump stack comes *after* the route stack and only in Code, so following
  * a go-to-definition out of a diff and pressing back returns to the diff — the
  * surface you came from — before it starts walking the caret backwards.
@@ -93,6 +104,7 @@ fun backStep(context: BackContext): BackStep = when {
     context.sheetOpen -> BackStep.CloseSheet
     context.imeVisible -> BackStep.HideIme
     context.findBarOpen -> BackStep.CloseFindBar
+    context.gated -> BackStep.LeaveApp
     context.routePushed -> BackStep.PopRoute
     context.destination == Destination.Code && context.jumpAvailable -> BackStep.PopJump
     context.destination != Destination.Code -> BackStep.GoToCode
@@ -112,6 +124,7 @@ fun ShellState.backContext(imeVisible: Boolean): BackContext = BackContext(
     routePushed = !currentStack.isEmpty,
     jumpAvailable = jumpSeam?.isActive?.invoke() == true,
     destination = destination,
+    gated = isGated,
 )
 
 /**

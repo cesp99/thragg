@@ -272,7 +272,9 @@ fun SeekerShell(
  *     SetupScreen ever wrote it, so a cold start with a fully installed
  *     toolchain said "not installed" and `▶` pushed Setup over a toolchain
  *     that was already there. [SolanaToolchain.isReady] stats the rootfs, so
- *     it goes off the main thread.
+ *     it goes off the main thread. And when it answers *no*, the same effect
+ *     puts the gate up ([ShellState.gate]): Setup over Code, with no Skip,
+ *     until the required components are in.
  *  3. **The last project.** `ProjectsRoot.lastProject` returns null on a fresh
  *     install — the honest first-run state the shell draws — but on the second
  *     launch it names the project you were in, and nothing was reading it.
@@ -297,6 +299,13 @@ private fun ShellBootstrap(state: ShellState) {
             runCatching { SolanaToolchain.isReady(context) }.getOrDefault(false)
         }
         state.toolchainReady = ready
+        // The gate. Everything past this line is the app; with no toolchain
+        // there is no Build, no program that compiles, no deploy, and an
+        // agent that can only read — which is not the product. Setup goes up
+        // over Code and stays there until the required rows are in
+        // (docs/UI.md, "First run"). The last project is still restored
+        // underneath it, so Continue lands on real work.
+        if (!ready) state.gate()
         if (state.project != null) return@LaunchedEffect
         val path = withContext(Dispatchers.IO) { ProjectsRoot.lastProject(context) }
             ?: return@LaunchedEffect
@@ -546,7 +555,8 @@ private fun RouteHost(
  * from drawing two bars or none.
  */
 private val Route.ownsItsBar: Boolean
-    get() = this is Route.Changes || this is Route.Diff || this is Route.Problems
+    get() = this is Route.Changes || this is Route.Diff || this is Route.Problems ||
+        this is Route.Setup
 
 /** What a route's own top row prints, for the ones still on the shared bar. */
 private val Route.title: String

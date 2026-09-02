@@ -258,6 +258,88 @@ class ToolchainManifestTest {
         assertNotNull(failure)
     }
 
+    // ---- The dependency graph ----------------------------------------------
+
+    /**
+     * The install is a graph now, and these are the three edges that were
+     * paid for on the device: platform-tools' postInstall execs rustup, the
+     * two compiles need both the compiler and apt's C linker, and the second
+     * compile shares the first one's cargo scratch and must not race it.
+     */
+    @Test
+    fun `the load-bearing edges are in the graph`() {
+        assertEquals(listOf("rustup"), manifest.component("platform-tools")!!.needs)
+        assertEquals(
+            setOf("platform-tools", "apt-build-tools"),
+            manifest.component("cargo-build-sbf")!!.needs.toSet(),
+        )
+        assertEquals(listOf("cargo-build-sbf"), manifest.component("anchor")!!.needs)
+    }
+
+    /** Everything but the userland waits for the userland, one way or another. */
+    @Test
+    fun `every component but the userland depends on the userland`() {
+        val byId = manifest.components.associateBy { it.id }
+        fun reaches(id: String, target: String): Boolean =
+            byId.getValue(id).needs.any { it == target || reaches(it, target) }
+        for (component in manifest.components) {
+            if (component.id == "debian") assertTrue(component.needs.isEmpty())
+            else assertTrue("${component.id} does not reach debian", reaches(component.id, "debian"))
+        }
+    }
+
+    @Test
+    fun `a need that names no component is refused`() {
+        val text = manifestText().replaceFirst("\"needs\": [\"rustup\"]", "\"needs\": [\"rustop\"]")
+        val failure = runCatching { ToolchainManifest.parse(text) }.exceptionOrNull()
+        assertNotNull(failure)
+        assertTrue(failure!!.message!!.contains("rustop"))
+    }
+
+    @Test
+    fun `a dependency cycle is refused`() {
+        // rustup needs platform-tools, and platform-tools already needs rustup.
+        val text = manifestText().replaceFirst("\"needs\": [\"debian\"]", "\"needs\": [\"platform-tools\"]")
+        val failure = runCatching { ToolchainManifest.parse(text) }.exceptionOrNull()
+        assertNotNull(failure)
+        assertTrue(failure!!.message!!.contains("cycle"))
+    }
+
+    /** The gate opens on the required rows; none of them may wait on Anchor. */
+    @Test
+    fun `a required component never waits on an optional one`() {
+        val byId = manifest.components.associateBy { it.id }
+        for (component in manifest.components.filter { it.required }) {
+            for (need in component.needs) assertTrue(byId.getValue(need).required)
+        }
+        val text = manifestText().replaceFirst(
+            "\"needs\": [\"platform-tools\", \"apt-build-tools\"]",
+            "\"needs\": [\"platform-tools\", \"apt-build-tools\", \"anchor\"]",
+        )
+        assertNotNull(runCatching { ToolchainManifest.parse(text) }.exceptionOrNull())
+    }
+
+    // ---- The estimate ------------------------------------------------------
+
+    /**
+     * Every row carries a measured time, and the wall estimate is the guest
+     * lane's sum — the userland, apt and the two compiles — not the serial
+     * total, because the fetch lane hides the downloads behind them.
+     */
+    @Test
+    fun `every component is measured and the wall estimate is the guest lane`() {
+        for (component in manifest.components) {
+            assertTrue("${component.id} has no estimatedSeconds", component.estimatedSeconds > 0L)
+        }
+        val lane = manifest.components.filter { it.onGuestLane }.map { it.id }.toSet()
+        assertEquals(setOf("debian", "apt-build-tools", "cargo-build-sbf", "anchor"), lane)
+        assertTrue(manifest.estimatedWallSeconds < manifest.totalEstimatedSeconds)
+        assertEquals(
+            manifest.components.filter { it.id in lane }.sumOf { it.estimatedSeconds },
+            manifest.estimatedWallSeconds,
+        )
+    }
+
     /** Sizes read the way a download page writes them. */
     @Test
     fun `formats bytes the way the screen quotes them`() {

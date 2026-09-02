@@ -84,16 +84,117 @@ cargo install cargo-build-sbf   →  3 min 45 s   (21 min CPU across the cores)
 
 That is a one-time cost inside the toolchain setup, and it removes the need to
 cross-compile anything on a workstation or to host binaries of our own. The
-installer runs it as the last setup step, in the background, with the rest of
-the toolchain already usable.
+installer runs the two compiles last, in series, once the compiler and apt's
+C linker are in.
 
 Verified afterwards on the device: `cargo-build-sbf 4.2.0`, driving
 `platform-tools`, producing `target/deploy/`.
 
+## How long it takes
+
+Measured on a Solana Seeker (MediaTek, 4×A76 + 4×A55, 7.4 GB) over a home
+Wi-Fi on 2026-09-02, from a wiped rootfs, with the timings the installer logs
+(`adb logcat -s seeker-toolchain`; they are also written to
+`files/solana-toolchain.json` and are what the onboarding quotes once a phone
+has a full set of its own).
+
+| Component | Serial installer | Where the time goes |
+|---|---|---|
+| Debian userland | 1 min 20 s | registry pull + unpack through proot |
+| rustup | 3 s | |
+| SBF platform-tools | 2 min 48 s | 42 s download at ~12 MB/s, **2 min 06 s** bzip2 unpack |
+| rust-analyzer | 2 s | |
+| Spettro | 2 s | |
+| Build tools (apt) | 2 min 57 s | dpkg, single-threaded |
+| cargo-build-sbf | 3 min 34 s | crates fetch + compile |
+| Anchor | 10 min 26 s | the long pole; ~5 min 20 s of it at opt-level 0 (below) |
+| **Total** | **21 min 12 s** | wall, Start to Done |
+
+Two things in that table were changed on the strength of it.
+
+**The installer runs two lanes.** The serial loop spent about three minutes
+downloading and unpacking while the guest sat idle, and then three minutes in
+apt while the network sat idle. Now a *fetch lane* pulls every download
+smallest-first and unpacks it with the host's tar, and a *guest lane* runs
+the userland, apt, the postInstalls and the compiles; a component starts the
+moment every id in its manifest `needs` is installed and its own bytes are
+staged. platform-tools downloads and unpacks while apt runs, so the gigabyte
+is off the critical path. The compiles stay in series with each other: two
+`cargo install`s at once fight for eight cores and the phone's RAM, and the
+second one reuses the first one's dependencies from the shared scratch.
+Measured, same phone, same day, from a wiped rootfs, with the compile flags
+below already in:
+
+| Two-lane run | Time |
+|---|---|
+| Debian userland (guest lane) | 1 min 08 s |
+| Build tools, apt (guest lane) | 2 min 14 s — platform-tools downloaded (35 s) and unpacked (2 min 09 s) underneath it |
+| rustup, rust-analyzer, Spettro, platform-tools link | under 1 s each; their bytes were already staged |
+| cargo-build-sbf | 2 min 38 s |
+| **gate opens** (every required row in) | **6 min 40 s** |
+| Anchor | 6 min 23 s, in the background after Continue |
+| **Total** | **12 min 59 s** — was 21 min 12 s |
+
+The fetch lane finished everything it had at 3 min 43 s, well inside apt;
+the guest lane never waited on a byte.
+
+**The compiles are tuned for a phone under ptrace.** `cargo install` builds
+with the release profile, whose opt-level 3 and single codegen unit per crate
+buy nothing for two build *drivers* whose runtime is process-spawn noise. The
+installer used to export `CARGO_PROFILE_RELEASE_OPT_LEVEL=1`, `LTO=off`,
+`CODEGEN_UNITS=256`. Measured on the phone with the crate cache warm, one
+variant at a time (`cargo install cargo-build-sbf` unless noted):
+
+```
+opt 1, cgu 256, lto off                    2 min 49 s   16 min CPU
+  + -C link-arg=-fuse-ld=lld               2 min 45 s
+  + -Zthreads=4 (RUSTC_BOOTSTRAP=1)        3 min 02 s   slower: 8 rustcs × 4 threads on 8 cores
+opt 0 + lld + -Zthreads=4                  2 min 05 s    9 min CPU
+opt 0 + lld            (anchor-cli 1.1.2)  5 min 23 s   23 min CPU   — was 10 min 26 s cold at opt 1
+```
+
+So the installer now exports **opt-level 0** and lld, and not the parallel
+frontend. Opt 0 is safe for these two crates because they are build
+*drivers*: their slow path is waiting on the compiler they spawn, and
+nothing in them is hot. lld is kept because it is free — platform-tools
+ships it on the guest `PATH` — and a 500-rlib link is where bfd shows on an
+A76. What was *not* found: proot's
+tracer is not the cost it was thought to be — sampled during the Anchor
+compile, `libproot_exec.so` ran at 35–70 % of one core against five to six
+`rustc`s at 95 % each, roughly a tenth of the compile's CPU. The compile is
+CPU-bound on rustc, and the only lever left that moves it by more than a
+minute is not compiling on the phone at all: an arm64 build of both crates
+published from a GitHub Actions `ubuntu-24.04-arm` runner would turn
+~7–8 min of compile into a 30 s download. That is a policy change —
+the manifest's note says "we host nothing and mirror nothing" — and it is
+the one this document recommends if the number above is still too long.
+
+Two smaller findings, recorded so nobody re-measures them: the Setup screen
+itself costs about half a core while it is on screen (the main thread at
+~30 % and the render thread at ~20 %, keeping the spinner and the
+indeterminate bar moving on a 120 Hz panel) — locking the phone gives that
+core to rustc; and the platform-tools unpack is bzip2-bound at 2 min for
+1.4 GB, which is upstream's choice of archive and not ours to change.
+
 ## Living with proot
 
-Two things about the sandbox cost real time to find, and the installer has to
-respect both.
+Three things about the sandbox cost real time to find, and the installer has
+to respect all of them.
+
+**The guest's DNS is TCP-only, so every resolver in its `resolv.conf` must
+actually speak TCP.** `options use-vc` is load-bearing (engine-spawned
+processes hit an intermittent UDP-wide EPERM on the Seeker; see
+`GuestResolvers` in DebianUserland.kt for the A/B/A evidence) — but under it,
+glibc's TCP leg is a plain blocking `connect(2)` with no timeout of its own.
+A nameserver that drops the handshake on port 53, which a home router
+routinely does, therefore stalls **every** lookup in the guest for the
+kernel's full SYN retry cycle, about two minutes, before the next
+`nameserver` line is tried. Measured live: `cargo install cargo-build-sbf`
+sat eight minutes at zero CPU in SYN_SENT to the router before it had
+resolved a single name. The writer now probes each candidate with a short
+TCP connect (`ResolverReach`) and a resolver that fails the probe is left
+out of the file; when nothing passes — the phone is offline — the whole
+list is written anyway, so the failure stays a readable resolver error.
 
 **`--link2symlink` must not be used for `cargo install`.** proot's
 `--link2symlink` rewrites `hard_link()` into a symlink, which is what makes
@@ -120,9 +221,11 @@ handled or the unpack must go through proot for that one case.
 ## The manifest
 
 Components are data, not code. `solana/toolchain/manifest.json` lists each
-one with its URL, SHA-256, unpacked size and install path, so a toolchain
-bump is a manifest edit rather than a release. The installer is a plain
-fetch → verify → unpack loop with progress per component, and it resumes a
+one with its URL, SHA-256, unpacked size, install path, the ids it `needs`
+before it may start, and the seconds it took on the reference phone, so a
+toolchain bump is a manifest edit rather than a release. The installer is a
+two-lane fetch → verify → unpack / guest-side install loop over that graph
+(see "How long it takes"), with progress per component, and it resumes a
 partial download rather than starting over on a dropped connection — the
 first run pulls the better part of a gigabyte over a phone's Wi-Fi.
 

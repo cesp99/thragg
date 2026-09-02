@@ -27,6 +27,57 @@ class ShellBackHandlerTest {
         destination = Destination.Build,
     )
 
+    // ---- The toolchain gate ------------------------------------------------
+
+    /**
+     * Setup over Code with no toolchain is the gate, and back does not pop
+     * it: the press leaves the app (the handler is not registered, so the
+     * system backgrounds it) with the install still running underneath.
+     */
+    @Test
+    fun `the gate is never popped - back leaves the app`() {
+        val gate = BackContext(routePushed = true, gated = true)
+        assertEquals(BackStep.LeaveApp, backStep(gate))
+        // On Code, with a jump stack under it, still: nothing under the gate
+        // is reachable.
+        assertEquals(BackStep.LeaveApp, backStep(gate.copy(jumpAvailable = true)))
+    }
+
+    /** A sheet, an overlay or the keyboard on top of the gate still closes first. */
+    @Test
+    fun `what is on top of the gate closes before it`() {
+        val gate = BackContext(routePushed = true, gated = true)
+        assertEquals(BackStep.DismissOverlay, backStep(gate.copy(overlayShowing = true)))
+        assertEquals(BackStep.CloseSheet, backStep(gate.copy(sheetOpen = true)))
+        assertEquals(BackStep.HideIme, backStep(gate.copy(imeVisible = true)))
+    }
+
+    /** The shell reads the gate off its own state: Setup on top, toolchain out. */
+    @Test
+    fun `the gate is Setup on top with no toolchain, and nothing else`() {
+        val state = ShellState()
+        assertFalse(state.isGated)
+        state.gate()
+        assertTrue(state.isGated)
+        assertEquals(BackStep.LeaveApp, backStep(state.backContext(imeVisible = false)))
+        // The same route with the toolchain in is a page like any other.
+        state.toolchainReady = true
+        assertFalse(state.isGated)
+        assertEquals(BackStep.PopRoute, backStep(state.backContext(imeVisible = false)))
+    }
+
+    /** Putting the gate up twice — a rotation — stacks one Setup, on Code. */
+    @Test
+    fun `the gate goes up once, over Code`() {
+        val state = ShellState()
+        state.show(Destination.Agent)
+        state.gate()
+        state.gate()
+        assertEquals(Destination.Code, state.destination)
+        assertTrue(state.currentStack.top is Route.Setup)
+        assertEquals(1, state.currentStack.depth)
+    }
+
     @Test
     fun `step 1 - an editor overlay beats everything else`() {
         assertEquals(BackStep.DismissOverlay, backStep(everything))

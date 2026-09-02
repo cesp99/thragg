@@ -53,6 +53,14 @@ sealed interface ComponentState {
      */
     data class Working(val step: String, val startedAt: Long) : ComponentState
 
+    /**
+     * Bytes down and unpacked, waiting for the guest lane to register and
+     * verify it. Drawn as a pending row with a word under it, not as a
+     * spinner: nothing is happening to this one right now, and a bar that
+     * moved would say otherwise.
+     */
+    data object Staged : ComponentState
+
     /** Present, verified, recorded. `✓`. */
     data object Installed : ComponentState
 
@@ -178,6 +186,24 @@ object SolanaToolchain {
         return hostPath(app, component.marker).exists()
     }
 
+    /**
+     * Whether a fetched component's bytes are already unpacked in the rootfs
+     * at this revision, with only its guest half — postInstall, verify —
+     * still to run.
+     *
+     * Recorded separately from "installed" because the two lanes make it a
+     * state a run can be interrupted in: platform-tools is staged while apt
+     * is still running, and if apt fails, the next run must not fetch the
+     * 505 MB again. The marker is checked as well as the record, for the
+     * same reason [isInstalled] checks it.
+     */
+    fun isStaged(context: Context, component: ToolchainComponent): Boolean {
+        val app = context.applicationContext
+        if (component.url == null) return false
+        if (stagedRecord(app)[component.id] != component.revision) return false
+        return hostPath(app, component.marker).exists()
+    }
+
     /** Bytes the toolchain is holding, for Settings → Toolchain. Blocking. */
     fun diskBytes(context: Context): Long {
         val app = context.applicationContext
@@ -234,23 +260,91 @@ object SolanaToolchain {
         return parsed
     }
 
-    /** Note that [component] landed at its current revision. Blocking. */
-    fun markInstalled(context: Context, component: ToolchainComponent) {
-        write(context, record(context) + (component.id to component.revision))
+    /**
+     * Note that [component] landed at its current revision, and how long it
+     * took. Blocking.
+     *
+     * [tookMillis] is kept beside the revision, in the same file, because the
+     * install's own history is the only honest estimate of how long the next
+     * one will take on *this* phone: a Seeker on a good Wi-Fi and the same
+     * phone on a hotel network are the same manifest and very different
+     * afternoons. Read back by [timings].
+     */
+    fun markInstalled(context: Context, component: ToolchainComponent, tookMillis: Long? = null) {
+        val timings = if (tookMillis != null) timings(context) + (component.id to tookMillis) else timings(context)
+        write(
+            context,
+            record(context) + (component.id to component.revision),
+            timings,
+            stagedRecord(context) - component.id,
+        )
+    }
+
+    /** Note that [component]'s bytes are in the rootfs at its current revision. Blocking. */
+    fun markStaged(context: Context, component: ToolchainComponent) {
+        write(context, record(context), timings(context), stagedRecord(context) + (component.id to component.revision))
     }
 
     /** Forget one component — a failed verify, or a removal. Blocking. */
     fun forget(context: Context, id: String) {
-        write(context, record(context) - id)
+        write(context, record(context) - id, timings(context) - id, stagedRecord(context) - id)
     }
 
-    private fun write(context: Context, entries: Map<String, String>) {
+    @Volatile
+    private var cachedStaged: Map<String, String>? = null
+
+    private fun stagedRecord(context: Context): Map<String, String> {
+        cachedStaged?.let { return it }
+        val parsed = readMap(context, "staged") { it }
+        cachedStaged = parsed
+        return parsed
+    }
+
+    // --- timings ---------------------------------------------------------------
+
+    @Volatile
+    private var cachedTimings: Map<String, Long>? = null
+
+    /** How long each recorded component took to install, in milliseconds, by id. */
+    fun timings(context: Context): Map<String, Long> {
+        cachedTimings?.let { return it }
+        val parsed = readMap(context, "timings") { it.toLongOrNull() ?: 0L }
+        cachedTimings = parsed
+        return parsed
+    }
+
+    /** One object of the record file as a map, or empty when absent or unreadable. */
+    private fun <T> readMap(context: Context, key: String, value: (String) -> T): Map<String, T> {
+        val file = recordFile(context)
+        return runCatching {
+            if (!file.isFile) return@runCatching emptyMap<String, T>()
+            val json = JSONObject(file.readText()).optJSONObject(key)
+                ?: return@runCatching emptyMap<String, T>()
+            json.keys().asSequence().associateWith { value(json.get(it).toString()) }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun write(
+        context: Context,
+        entries: Map<String, String>,
+        timings: Map<String, Long>,
+        staged: Map<String, String>,
+    ) {
         val components = JSONObject()
         for ((id, revision) in entries) components.put(id, revision)
-        val json = JSONObject().put("components", components)
+        val took = JSONObject()
+        for ((id, millis) in timings) took.put(id, millis)
+        val stagedJson = JSONObject()
+        for ((id, revision) in staged) stagedJson.put(id, revision)
+        val json = JSONObject()
+            .put("components", components)
+            .put("timings", took)
+            .put("staged", stagedJson)
         runCatching { recordFile(context).writeText(json.toString()) }
             .onFailure { Log.e(TAG, "could not write the install record", it) }
         cachedRecord = entries
+        cachedTimings = timings
+        cachedStaged = staged
     }
 
     /**

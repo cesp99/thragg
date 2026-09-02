@@ -7,12 +7,15 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.terminal.GuestProcess
 import to.eyed.seeker.code.terminal.InstallCancelledMarker
@@ -62,6 +65,19 @@ import java.util.zip.GZIPInputStream
  *     platform-tools' own `postInstall` then links itself in as the `solana`
  *     toolchain and makes it the default. Both halves are in the manifest.
  *
+ * The install runs as **two lanes**, not one queue. The *fetch lane* pulls
+ * every download in turn (smallest first) and unpacks each one into the rootfs
+ * with the host's tar; the *guest lane* does everything that happens inside
+ * proot — the userland, apt, every postInstall, and the two compiles. A row
+ * starts on the guest lane the moment every id in its manifest `needs` is
+ * installed and its own bytes are staged, so apt runs while platform-tools is
+ * still downloading and unpacking, and the 505 MB is never on the critical
+ * path. Measured on the Seeker (docs/SOLANA.md, "How long it takes"): the
+ * serial run spent ~3 min on downloads and unpacks the guest lane sat through;
+ * the two-lane run hides all of it behind the apt step. The compiles stay in
+ * series with each other on purpose — two `cargo install`s at once would
+ * fight for eight cores and a phone's worth of RAM.
+ *
  * Resume is per component and it survives more than a dropped connection:
  * partial bytes live in the cache as `<id>.part` and are re-requested with an
  * HTTP `Range`, while *finished* components are recorded in
@@ -82,12 +98,21 @@ object ToolchainInstaller {
     private var job: Job? = null
 
     /**
-     * The guest process the current step is waiting on, so [cancel] can stop
-     * it. proot ignores SIGTERM and never sees SIGKILL, which is why this goes
-     * through [GuestProcess.terminate] rather than `Process.destroy`.
+     * The processes the two lanes are waiting on — a proot on one, the host's
+     * tar on the other — so [cancel] and a failure on the other lane can stop
+     * them. proot ignores SIGTERM and never sees SIGKILL, which is why this
+     * goes through [GuestProcess.terminate] rather than `Process.destroy`.
+     */
+    private val processes = java.util.Collections.synchronizedSet(mutableSetOf<Process>())
+
+    /**
+     * Set by the first lane to fail, read by the other in [ensureActive]. A
+     * failure on one lane must stop the other — a 505 MB download has no
+     * business finishing after apt has died — without the run reading as
+     * *cancelled*, which is what the user does and what keeps its own rows.
      */
     @Volatile
-    private var guest: Process? = null
+    private var aborting = false
 
     /** One row per component, in manifest order. Empty until [refresh]. */
     var rows: List<ComponentRow> by mutableStateOf(emptyList())
@@ -100,6 +125,14 @@ object ToolchainInstaller {
     var lastError: String? by mutableStateOf(null)
         private set
 
+    /**
+     * When the current run started, for the screen's elapsed figure; null
+     * between runs. Wall clock, because it is compared against the screen's
+     * own one-second tick.
+     */
+    var runStartedAt: Long? by mutableStateOf(null)
+        private set
+
     val isRunning: Boolean get() = phase == ToolchainPhase.Running
 
     /** Whether every *required* row is in — the same question P4 asks. */
@@ -109,7 +142,7 @@ object ToolchainInstaller {
 
     /** Bytes still to fetch, for the headline while a run is part-way through. */
     val remainingDownloadBytes: Long
-        get() = rows.filter { it.state !is ComponentState.Installed }
+        get() = rows.filter { it.state !is ComponentState.Installed && it.state !is ComponentState.Staged }
             .sumOf { it.component.downloadBytes }
 
     /**
@@ -132,10 +165,10 @@ object ToolchainInstaller {
             rows = manifest.components.map { component ->
                 ComponentRow(
                     component = component,
-                    state = if (SolanaToolchain.isInstalled(app, component)) {
-                        ComponentState.Installed
-                    } else {
-                        ComponentState.Pending
+                    state = when {
+                        SolanaToolchain.isInstalled(app, component) -> ComponentState.Installed
+                        SolanaToolchain.isStaged(app, component) -> ComponentState.Staged
+                        else -> ComponentState.Pending
                     },
                 )
             }
@@ -157,14 +190,17 @@ object ToolchainInstaller {
     }
 
     /**
-     * Retry at [componentId] and carry on from there.
+     * Retry from [componentId]'s row.
      *
-     * Rows above it are already recorded and are skipped in a stat, not a
-     * download; rows below it have not started. This is the "Retry on its own
-     * row" of docs/UI.md, and the reason it can resume rather than restart is
-     * that "installed" is recorded per component.
+     * With the install a graph rather than a list there is nothing "below" a
+     * row to skip: a run always installs exactly the components that are not
+     * recorded, in dependency order, so a Retry is a Start. Rows already in
+     * are skipped in a stat, not a download, and a partial download is
+     * resumed from its `.part` — this is the "Retry on its own row" of
+     * docs/UI.md, and the reason it never restarts the gigabyte.
      */
     fun retry(context: Context, componentId: String, onFinished: (Boolean) -> Unit = {}) {
+        Log.i(TAG, "retry requested from $componentId")
         launchRun(context, from = componentId, onFinished = onFinished)
     }
 
@@ -179,14 +215,19 @@ object ToolchainInstaller {
     fun cancel() {
         job?.cancel()
         job = null
-        guest?.let { process -> runCatching { GuestProcess.terminate(process) } }
-        guest = null
-        rows = rows.map { row ->
-            if (row.state is ComponentState.Installed) row
-            else if (row.state is ComponentState.Pending) row
-            else row.copy(state = ComponentState.Cancelled)
+        terminateProcesses()
+        updateRows { row ->
+            when (row.state) {
+                is ComponentState.Installed, is ComponentState.Pending, is ComponentState.Staged -> row
+                else -> row.copy(state = ComponentState.Cancelled)
+            }
         }
         phase = if (isComplete) ToolchainPhase.Complete else ToolchainPhase.Idle
+    }
+
+    private fun terminateProcesses() {
+        val doomed = synchronized(processes) { processes.toList().also { processes.clear() } }
+        for (process in doomed) runCatching { GuestProcess.terminate(process) }
     }
 
     // --- the run --------------------------------------------------------------
@@ -195,22 +236,43 @@ object ToolchainInstaller {
         if (job?.isActive == true) return
         val app = context.applicationContext
         lastError = null
+        aborting = false
+        runStartedAt = now()
         phase = ToolchainPhase.Running
         job = scope.launch {
             val self = coroutineContext[Job]
-            val ok = runCatching { run(app, from) }.getOrElse { error ->
-                if (error is InstallCancelledMarker) {
-                    Log.i(TAG, "toolchain install cancelled")
-                } else {
-                    Log.e(TAG, "toolchain install failed", error)
-                    lastError = error.message ?: error.javaClass.simpleName
+            val ok = runCatching { run(app) }.getOrElse { error ->
+                when (error) {
+                    is InstallCancelledMarker -> Log.i(TAG, "toolchain install cancelled")
+                    is ComponentFailed -> {
+                        // The row already says what went wrong; the line under
+                        // the button names it. Whatever the other lane had in
+                        // flight goes back to Pending — it did nothing wrong
+                        // and its bytes are kept.
+                        Log.e(TAG, "toolchain install failed at ${error.id}", error)
+                        lastError = "${error.name}: ${error.message}"
+                    }
+                    else -> {
+                        Log.e(TAG, "toolchain install failed", error)
+                        lastError = error.message ?: error.javaClass.simpleName
+                    }
+                }
+                updateRows { row ->
+                    when (row.state) {
+                        is ComponentState.Installed, is ComponentState.Failed, is ComponentState.Staged,
+                        is ComponentState.Pending, is ComponentState.Cancelled -> row
+                        else -> row.copy(state = ComponentState.Pending)
+                    }
                 }
                 false
             }
             // Only if this run is still the current one: a cancel followed
             // immediately by a Start hands `job` to the new run, and clearing
             // it from here would leave that one uncancellable.
-            if (job === self) job = null
+            if (job === self) {
+                job = null
+                runStartedAt = null
+            }
             phase = when {
                 isComplete || ok -> ToolchainPhase.Complete
                 lastError != null -> ToolchainPhase.Failed
@@ -231,54 +293,147 @@ object ToolchainInstaller {
         scope.launch(Dispatchers.Main) { holdForegroundService(app) }
     }
 
-    private fun run(app: Context, from: String?): Boolean {
+    /**
+     * The two lanes. See the class comment for why there are two and the
+     * manifest's own note for what depends on what.
+     *
+     * The *guest lane* is this coroutine: it loops over what is left, takes
+     * the first row (list order) whose `needs` are all installed and whose
+     * bytes are staged, and runs its guest half. When nothing is ready it
+     * waits on the staging of whatever is still being fetched — never busy,
+     * never asleep for a fixed interval. The *fetch lane* is the child
+     * coroutine: downloads smallest-first, so the three 15 MB binaries are in
+     * before the 505 MB one starts and the guest lane has work while it waits.
+     */
+    private suspend fun run(app: Context): Boolean {
         val manifest = ToolchainManifest.load(app)
         if (!Userland.backend.isSupported) {
             error("the Linux guest is not available, so it cannot install a Solana toolchain")
         }
-
-        val startIndex = from
-            ?.let { id -> manifest.components.indexOfFirst { it.id == id } }
-            ?.takeIf { it >= 0 }
-            ?: 0
-        val queue = manifest.components.drop(startIndex)
-            .filterNot { SolanaToolchain.isInstalled(app, it) }
+        val queue = manifest.components.filterNot { SolanaToolchain.isInstalled(app, it) }
         checkSpace(app, queue)
+        val runStarted = now()
 
-        for (component in queue) {
-            ensureActive()
-            setState(component.id, ComponentState.Working("Starting", now()))
-            try {
-                install(app, manifest, component)
-            } catch (cancelled: InstallCancelledMarker) {
-                setState(component.id, ComponentState.Cancelled)
-                throw cancelled
-            } catch (error: Throwable) {
-                Log.e(TAG, "${component.id} failed", error)
-                val message = error.message ?: error.javaClass.simpleName
-                setState(component.id, ComponentState.Failed(message))
-                lastError = "${component.name}: $message"
-                return false
+        // Completed when a fetched component's bytes are unpacked in place.
+        val staged = queue.filter { it.url != null }.associate { it.id to CompletableDeferred<Unit>() }
+        // Completed when a component is recorded — what `needs` waits on.
+        val landed = queue.associate { it.id to CompletableDeferred<Unit>() }
+        fun isLanded(id: String) = landed[id]?.isCompleted ?: true
+
+        coroutineScope {
+            launch { fetchLane(app, queue, staged, landed) }
+
+            val pending = queue.toMutableList()
+            while (pending.isNotEmpty()) {
+                ensureActive()
+                val ready = pending.firstOrNull { component ->
+                    component.needs.all(::isLanded) && (staged[component.id]?.isCompleted ?: true)
+                }
+                if (ready == null) {
+                    val waiting = pending.mapNotNull { staged[it.id] }.filterNot { it.isCompleted }
+                    check(waiting.isNotEmpty()) {
+                        "no component can start: ${pending.map { it.id }} — the manifest's needs are wrong"
+                    }
+                    select<Unit> { for (deferred in waiting) deferred.onAwait { } }
+                    continue
+                }
+                pending.remove(ready)
+                val started = now()
+                guard(ready) { installGuestSide(app, manifest, ready) }
+                val took = now() - started
+                Log.i(TAG, "timing ${ready.id} took $took ms")
+                SolanaToolchain.markInstalled(app, ready, took)
+                setState(ready.id, ComponentState.Installed)
+                landed.getValue(ready.id).complete(Unit)
             }
-            SolanaToolchain.markInstalled(app, component)
-            setState(component.id, ComponentState.Installed)
         }
 
+        Log.i(TAG, "timing run took ${now() - runStarted} ms for ${queue.map { it.id }}")
         cleanCargoScratch(app, manifest)
         return true
     }
 
     /**
+     * Everything that comes over the network, in turn, and into the rootfs.
+     *
+     * Smallest first, deliberately: rustup, rust-analyzer and Spettro are a
+     * few seconds each and the guest lane can register them while the
+     * gigabyte is still arriving. Unpacking needs the rootfs to exist, so the
+     * lane waits for the userland — and only for that — before its first
+     * unpack; the download itself started at t=0 into the cache.
+     */
+    private suspend fun fetchLane(
+        app: Context,
+        queue: List<ToolchainComponent>,
+        staged: Map<String, CompletableDeferred<Unit>>,
+        landed: Map<String, CompletableDeferred<Unit>>,
+    ) {
+        val userland = queue.firstOrNull { it.method == InstallMethod.Userland }
+        for (component in queue.filter { it.url != null }.sortedBy { it.downloadBytes }) {
+            ensureActive()
+            // Already in the rootfs from a run that was interrupted after this
+            // unpack: nothing to fetch, and above all nothing to fetch *again*.
+            if (SolanaToolchain.isStaged(app, component)) {
+                setState(component.id, ComponentState.Staged)
+                staged.getValue(component.id).complete(Unit)
+                continue
+            }
+            guard(component) {
+                val file = download(app, component)
+                userland?.let { landed.getValue(it.id).await() }
+                ensureActive()
+                stage(app, component, file)
+                SolanaToolchain.markStaged(app, component)
+            }
+            setState(component.id, ComponentState.Staged)
+            staged.getValue(component.id).complete(Unit)
+        }
+    }
+
+    /**
+     * Run one lane's step for [component], turning whatever it throws into
+     * the row's own state.
+     *
+     * A cancel is the user's and passes through with the row marked
+     * Cancelled. A failure marks the row, stops the *other* lane through
+     * [aborting] and [terminateProcesses], and surfaces as [ComponentFailed]
+     * so the run reports the right name. A step that dies *because* the
+     * other lane already failed — its process was just killed — is not a
+     * second failure: its row goes back to Pending and the run keeps the
+     * first error.
+     */
+    private inline fun guard(component: ToolchainComponent, step: () -> Unit) {
+        try {
+            step()
+        } catch (cancelled: InstallCancelledMarker) {
+            setState(component.id, ComponentState.Cancelled)
+            throw cancelled
+        } catch (error: Throwable) {
+            if (aborting || job?.isActive == false) {
+                setState(component.id, ComponentState.Pending)
+                throw ToolchainCancelled()
+            }
+            aborting = true
+            Log.e(TAG, "${component.id} failed", error)
+            val message = error.message ?: error.javaClass.simpleName
+            setState(component.id, ComponentState.Failed(message))
+            terminateProcesses()
+            throw ComponentFailed(component.id, component.name, message, error)
+        }
+    }
+
+    /**
      * Refuse before starting rather than fail halfway through an unpack.
      *
-     * The peak is what is left to install *plus* the largest single download,
-     * because a tarball sits in the cache while it is being unpacked into the
-     * rootfs beside it. Failing with two numbers is the only failure here a
-     * user can act on.
+     * The peak is what is left to install *plus* every download that can be
+     * sitting in the cache at once — with two lanes that is all of them,
+     * because the fetch lane may have the gigabyte on disk while the guest
+     * lane is still on apt. Failing with two numbers is the only failure here
+     * a user can act on.
      */
     private fun checkSpace(app: Context, queue: List<ToolchainComponent>) {
         if (queue.isEmpty()) return
-        val needed = queue.sumOf { it.installBytes } + queue.maxOf { it.downloadBytes }
+        val needed = queue.sumOf { it.installBytes } + queue.sumOf { it.downloadBytes }
         val free = app.filesDir.usableSpace
         if (free < needed) {
             error(
@@ -287,14 +442,19 @@ object ToolchainInstaller {
         }
     }
 
-    private fun install(app: Context, manifest: ToolchainManifest, component: ToolchainComponent) {
+    /**
+     * The guest half of a component: the work itself for the three kinds
+     * that *are* guest work, then the postInstall lines and the verify for
+     * all of them.
+     */
+    private fun installGuestSide(app: Context, manifest: ToolchainManifest, component: ToolchainComponent) {
+        setState(component.id, ComponentState.Working("Starting", now()))
         when (component.method) {
             InstallMethod.Userland -> installUserland(app, component)
             InstallMethod.Apt -> installApt(app, component)
-            InstallMethod.Binary -> installBinary(app, component)
-            InstallMethod.GzSingleBinary -> installGzBinary(app, component)
-            InstallMethod.Tarball -> installTarball(app, component)
             InstallMethod.CargoInstall -> installCrate(app, manifest, component)
+            // Already staged by the fetch lane; only the guest half is left.
+            InstallMethod.Binary, InstallMethod.GzSingleBinary, InstallMethod.Tarball -> Unit
         }
         for (line in component.postInstall) {
             ensureActive()
@@ -303,6 +463,16 @@ object ToolchainInstaller {
             if (exit != 0) error("`${line.joinToString(" ")}` exited $exit")
         }
         verify(app, component)
+    }
+
+    /** The host half of a fetched component: the downloaded [file] into the rootfs. */
+    private fun stage(app: Context, component: ToolchainComponent, file: File) {
+        when (component.method) {
+            InstallMethod.Binary -> installBinary(app, component, file)
+            InstallMethod.GzSingleBinary -> installGzBinary(app, component, file)
+            InstallMethod.Tarball -> installTarball(app, component, file)
+            else -> error("${component.id} has a url but is not a fetched component")
+        }
     }
 
     // --- the six install methods ---------------------------------------------
@@ -322,7 +492,7 @@ object ToolchainInstaller {
         val total = component.downloadBytes
         val result = Userland.backend.install(
             app,
-            isActive = { job?.isActive != false },
+            isActive = { job?.isActive != false && !aborting },
             onProgress = { step, fraction ->
                 setState(
                     component.id,
@@ -356,15 +526,12 @@ object ToolchainInstaller {
             append("apt-get install -y --no-install-recommends ")
             append(component.packages.joinToString(" "))
         }
-        val exit = runInGuest(app, listOf("/bin/bash", "-c", script), apt = true) { line ->
-            setState(component.id, ComponentState.Working(line.take(80), started))
-        }
+        val exit = runInGuest(app, listOf("/bin/bash", "-c", script), apt = true, onLine = workingStep(component.id, started))
         if (exit != 0) error("apt-get exited $exit")
     }
 
     /** One downloaded file, copied in as it came and made executable. */
-    private fun installBinary(app: Context, component: ToolchainComponent) {
-        val file = download(app, component)
+    private fun installBinary(app: Context, component: ToolchainComponent, file: File) {
         val target = SolanaToolchain.hostPath(app, component.installPath)
         target.parentFile?.mkdirs()
         setState(component.id, ComponentState.Working("Installing", now()))
@@ -374,8 +541,7 @@ object ToolchainInstaller {
     }
 
     /** A gzipped ELF — how rust-analyzer ships its server. */
-    private fun installGzBinary(app: Context, component: ToolchainComponent) {
-        val file = download(app, component)
+    private fun installGzBinary(app: Context, component: ToolchainComponent, file: File) {
         val target = SolanaToolchain.hostPath(app, component.installPath)
         target.parentFile?.mkdirs()
         setState(component.id, ComponentState.Working("Unpacking", now()))
@@ -396,8 +562,7 @@ object ToolchainInstaller {
      * this same unpack takes many times longer: ptrace pays per syscall and
      * platform-tools is 1.4 GB of small files.
      */
-    private fun installTarball(app: Context, component: ToolchainComponent) {
-        val file = download(app, component)
+    private fun installTarball(app: Context, component: ToolchainComponent, file: File) {
         val target = SolanaToolchain.hostPath(app, component.installPath)
         target.mkdirs()
         setState(component.id, ComponentState.Working("Unpacking", now()))
@@ -407,9 +572,11 @@ object ToolchainInstaller {
             .redirectErrorStream(true)
             .redirectOutput(log)
             .start()
-        guest = process
+        processes.add(process)
+        val unpackStarted = now()
         val exit = process.waitFor()
-        guest = null
+        processes.remove(process)
+        Log.i(TAG, "timing ${component.id} unpack took ${now() - unpackStarted} ms")
         // The bytes are worth more than the disk: keep the archive only long
         // enough to unpack it, then give 505 MB back before the next component.
         file.delete()
@@ -446,10 +613,62 @@ object ToolchainInstaller {
             add("--target-dir")
             add(component.targetDir ?: manifest.cargoScratch)
         }
-        val exit = runInGuest(app, listOf("/bin/bash", "-c", argv.joinToString(" ")), apt = false) { line ->
-            setState(component.id, ComponentState.Working(line.take(80), started))
-        }
+        // Both of these crates are *drivers*: they spawn the platform-tools
+        // compiler and shuffle files, and their own runtime is process-spawn
+        // noise. cargo's release profile — opt 3, one codegen unit's worth of
+        // waiting per big crate — buys nothing here and costs real minutes.
+        // Measured on the Seeker, 2026-09-02, cargo-build-sbf with a warm
+        // crate cache (docs/SOLANA.md, "How long it takes"):
+        //   opt 1, cgu 256, lto off              2 min 49 s   16 min CPU
+        //   + lld as the linker                  2 min 45 s
+        //   + -Zthreads=4 (parallel frontend)    3 min 02 s   — slower: eight
+        //                                        rustcs times four threads
+        //                                        oversubscribes eight cores
+        //   opt 0 + lld                          2 min 05 s    9 min CPU
+        // Opt 0 is the one that moves: LLVM does the least it can and the
+        // frontend is the whole cost. A driver at opt 0 is still a driver —
+        // its slowest path is waiting on the compiler it spawned. lld is kept
+        // because a 500-rlib link on an A76 is where bfd shows, and it costs
+        // nothing (platform-tools ships it on the guest PATH). The retry bump
+        // is for the same phone: cargo gives up a crate download after three
+        // tries, and a Wi-Fi that starves to bytes-per-second mid-install
+        // (seen live: "Less than 10 bytes/sec ... the last 30 seconds")
+        // deserves ten. Single-quoted for the shell: RUSTFLAGS has a space.
+        val tuning = "export CARGO_PROFILE_RELEASE_OPT_LEVEL=0 " +
+            "CARGO_PROFILE_RELEASE_LTO=off " +
+            "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256 " +
+            "RUSTFLAGS='-C link-arg=-fuse-ld=lld' " +
+            "CARGO_NET_RETRY=10; "
+        val exit = runInGuest(
+            app,
+            listOf("/bin/bash", "-c", tuning + argv.joinToString(" ")),
+            apt = false,
+            onLine = workingStep(component.id, started),
+        )
         if (exit != 0) error("cargo install $crate exited $exit")
+    }
+
+    /**
+     * A row updater that keeps up with a chatty process without redrawing the
+     * screen per line.
+     *
+     * apt and cargo print hundreds of progress lines a second in their busy
+     * stretches, and each [setState] call replaces the row list Compose is
+     * observing — measured on the Seeker as the Setup screen holding a whole
+     * core while cargo downloaded crates, CPU the compile itself wants.
+     * A phone need not see more than [PROGRESS_INTERVAL_MS] either way; the
+     * step after the last line is [ComponentState.Installed], so nothing a
+     * user must read is dropped.
+     */
+    private fun workingStep(id: String, started: Long): (String) -> Unit {
+        var lastReport = 0L
+        return { line ->
+            val stamp = now()
+            if (stamp - lastReport >= PROGRESS_INTERVAL_MS) {
+                lastReport = stamp
+                setState(id, ComponentState.Working(line.take(80), started))
+            }
+        }
     }
 
     // --- verification ---------------------------------------------------------
@@ -511,6 +730,7 @@ object ToolchainInstaller {
             .let { File(it, "${component.id}.part") }
 
         var attempt = 0
+        val downloadStarted = now()
         while (true) {
             ensureActive()
             attempt++
@@ -523,8 +743,9 @@ object ToolchainInstaller {
             if (complete && sha256Of(partial).equals(sha256, ignoreCase = true)) {
                 return partial
             }
-            fetch(component, url, partial)
+            fetchWithRetries(component, url, partial)
             val actual = sha256Of(partial)
+            Log.i(TAG, "timing ${component.id} download took ${now() - downloadStarted} ms")
             if (actual.equals(sha256, ignoreCase = true)) return partial
             // One retry: a truncated resume is far more likely than a bad
             // upstream, and starting clean fixes it. Twice in a row is a real
@@ -534,6 +755,38 @@ object ToolchainInstaller {
             partial.delete()
             if (attempt >= 2) {
                 error("the download does not match its pinned sha256 — refusing to install it")
+            }
+        }
+    }
+
+    /**
+     * [fetch], surviving the network a phone actually has.
+     *
+     * The design brief for this installer says the gigabyte "*will* be
+     * interrupted" — and then a single 30-second connect timeout to GitHub
+     * failed the whole run and sat waiting for a human to press Retry
+     * (seen live on the Seeker mid-reinstall). A transient `IOException`
+     * gets three more attempts with a short growing pause; the partial file
+     * is the resume, so a retry re-requests only the missing bytes. Anything
+     * that is not an I/O error — a bad HTTP status, cancellation — still
+     * fails straight through to the row's Retry.
+     */
+    private fun fetchWithRetries(component: ToolchainComponent, url: String, into: File) {
+        var failures = 0
+        while (true) {
+            ensureActive()
+            try {
+                return fetch(component, url, into)
+            } catch (error: java.io.IOException) {
+                failures++
+                if (failures > 3) throw error
+                Log.w(TAG, "${component.id} download interrupted (attempt $failures); retrying", error)
+                setState(component.id, ComponentState.Working("Reconnecting", now()))
+                // A sleep in slices, so Pause still lands within a beat.
+                repeat(failures * 4) {
+                    ensureActive()
+                    Thread.sleep(500L)
+                }
             }
         }
     }
@@ -629,11 +882,12 @@ object ToolchainInstaller {
             if (apt) Userland.backend.execCommand(app, null, argv, extras)
             else Userland.backend.execCommandRealLinks(app, null, argv, extras)
             ) ?: error("there is no userland to run `${argv.firstOrNull()}` in")
+        var started: Process? = null
         return GuestProcess.run(
             command,
-            onStart = { process -> guest = process },
+            onStart = { process -> started = process; processes.add(process) },
             onRecord = onLine,
-        ).also { guest = null }
+        ).also { started?.let(processes::remove) }
     }
 
     /**
@@ -675,12 +929,23 @@ object ToolchainInstaller {
 
     // --- plumbing --------------------------------------------------------------
 
+    /**
+     * Synchronized, because two lanes now write the rows from two threads and
+     * `rows = rows.map { … }` is a read-modify-write: unguarded, a download
+     * tick and an apt line landing together lost one of them.
+     */
+    @Synchronized
     private fun setState(id: String, state: ComponentState) {
         rows = rows.map { row -> if (row.component.id == id) row.copy(state = state) else row }
     }
 
+    @Synchronized
+    private fun updateRows(transform: (ComponentRow) -> ComponentRow) {
+        rows = rows.map(transform)
+    }
+
     private fun ensureActive() {
-        if (job?.isActive == false) throw ToolchainCancelled()
+        if (job?.isActive == false || aborting) throw ToolchainCancelled()
     }
 
     private fun now(): Long = System.currentTimeMillis()
@@ -700,3 +965,15 @@ object ToolchainInstaller {
  * the userland installer so both paths read the same on the way out.
  */
 class ToolchainCancelled : InstallCancelledMarker("Toolchain install cancelled")
+
+/**
+ * One component did not land. Carries the row's id and name so the run can
+ * report *which* one, after the other lane has been stopped and its rows put
+ * back to Pending.
+ */
+class ComponentFailed(
+    val id: String,
+    val name: String,
+    message: String,
+    cause: Throwable,
+) : RuntimeException(message, cause)

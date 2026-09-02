@@ -2,9 +2,11 @@ package to.eyed.seeker.code.ui.shell.setup
 
 import android.content.Context
 import android.net.ConnectivityManager
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -12,11 +14,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -53,9 +61,12 @@ import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.NoticeCard
 import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.components.SeekerChip
+import to.eyed.seeker.code.ui.components.SeekerIndeterminateBar
 import to.eyed.seeker.code.ui.components.SeekerSpinner
+import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.components.Severity
 import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
+import to.eyed.seeker.code.ui.workspace.ConfirmDeleteDialog
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
@@ -66,7 +77,7 @@ import to.eyed.seeker.code.ui.theme.touchTarget
 
 /**
  * The one full-screen takeover: the honest cost of a phone that compiles
- * Solana programs, said plainly, once, with an honest Skip.
+ * Solana programs, said plainly, once — and, on a fresh install, the gate.
  *
  * THE SHAPE IS VISUAL.md'S SETUP WIREFRAME, and it is the same shape the
  * agent's own provider gate takes: a static 40dp mark, a `headlineSmall`, two
@@ -79,9 +90,20 @@ import to.eyed.seeker.code.ui.theme.touchTarget
  *
  * It is a route like any other (Route.Setup) and it is reachable at any time
  * from Projects → Toolchain, where it doubles as the repair and free-the-disk
- * page. It is not, however, a gate: the toolchain download is deferred until
- * the first Build press rather than blocking first launch (docs/UI.md, "The
- * design chosen"), so nothing here runs until somebody presses a button.
+ * page. On a phone with no toolchain it is also **the gate**: the shell puts
+ * it over Code at launch ([ShellState.gate]), back does not pop it
+ * (ShellBackHandler, `gated`), and there is no Skip. Without the toolchain
+ * there is no Build, no deploy and no program that compiles — an IDE that
+ * can only edit is not the product, and a Skip that led there was an
+ * invitation to a dead end (docs/UI.md, "First run").
+ *
+ * Under the gate, before anything has started, the screen is an
+ * **onboarding pager** of three pages: why the phone needs this, what to
+ * expect while it runs, and the parts with their sizes and the Start button.
+ * The pages exist because the install is twenty-odd minutes of a phone's
+ * time and the user is owed the reasons before the button, not after. Once a
+ * run has started — or resumed from a previous session — the pager is gone
+ * and the step list is the screen, exactly as before.
  *
  * Three rules from docs/UI.md are enforced here rather than left to the
  * caller, because each one is a way a first-run screen can lie:
@@ -89,19 +111,22 @@ import to.eyed.seeker.code.ui.theme.touchTarget
  *  1. **Two numbers, not one.** Transfer and disk are different quantities and
  *     conflating them is the exact dishonesty this screen cannot afford. Both
  *     are summed from the manifest, so a toolchain bump moves them on its own.
+ *     The third number — minutes — is measured, on the reference phone or on
+ *     this one, and is called an estimate.
  *  2. **Two kinds of row.** A sized download counts bytes and a rate; an
  *     on-device compile counts *seconds*. `cargo-build-sbf` and `anchor` have
  *     no arm64 binary anywhere upstream and are built here, and a MB bar on a
  *     four-minute compile would be an invention.
- *  3. **Skip is a text link, not a button.** It is the minority path and it is
- *     a real one: the editor, highlighting, the file tree, search, git and the
- *     agent all work with no toolchain at all. A `TextButton` under a filled
- *     one is Material's own way of saying exactly that.
+ *  3. **The gate opens on the required rows.** Anchor is optional in the
+ *     manifest and is the longest compile; when everything Build needs is in
+ *     and Anchor is still going, the button says so and lets the user through
+ *     while it finishes in the background.
  *
  * Leaving the screen does not stop the install — [ToolchainInstaller] lives
  * outside the composition and holds the terminal's foreground notification
  * while it runs — and coming back re-attaches to the same rows.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -116,6 +141,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
     val rows = ToolchainInstaller.rows
     val phase = ToolchainInstaller.phase
     val complete = ToolchainInstaller.isComplete
+    val gated = state.isGated
 
     /**
      * One tick a second, and only while something is running — this is what
@@ -131,7 +157,38 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
         }
     }
 
+    // The pager shows only for a first run that has not started: rows loaded,
+    // none of them in, nothing running. A phone that already has half the
+    // toolchain has read the pages and wants the list.
+    val untouched = rows.isNotEmpty() && rows.all { it.state is ComponentState.Pending }
+    val onboarding = gated && supported && untouched && phase == ToolchainPhase.Idle
+    // Kept across the moment the first row leaves Pending, so a Start on the
+    // last page does not rebuild the whole screen under the thumb.
+    var pagerDismissed by remember { mutableStateOf(false) }
+    val showPager = onboarding && !pagerDismissed
+    val estimate = remember(manifest, rows) { estimateSeconds(context, manifest) }
+
     Column(modifier = modifier.fillMaxSize()) {
+        // The gate has no way back and draws no bar; the toolchain page
+        // reached from Settings is a drill page like any other and has one.
+        if (!gated) {
+            SeekerTopBar(title = "Toolchain", onBack = { state.pop() })
+            HairlineDivider()
+        }
+        if (showPager) {
+            OnboardingPager(
+                manifest = manifest,
+                rows = rows,
+                estimateSeconds = estimate,
+                metered = remember(context) { isMetered(context) },
+                onStart = {
+                    pagerDismissed = true
+                    ToolchainInstaller.start(context) { ready -> state.toolchainReady = ready }
+                },
+            )
+            return@Column
+        }
+
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -158,7 +215,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.height(MD.space4))
             Text(
-                text = headline(supported, complete),
+                text = headline(supported, complete, phase),
                 style = MaterialTheme.typography.headlineSmall,
                 color = scheme.onSurface,
                 textAlign = TextAlign.Center,
@@ -173,6 +230,16 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
             )
+            val timeLine = timeLine(phase, estimate, ToolchainInstaller.runStartedAt, now)
+            if (timeLine != null) {
+                Spacer(Modifier.height(MD.space1))
+                Text(
+                    text = timeLine,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TabularNums),
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                )
+            }
             Spacer(Modifier.height(MD.space6))
 
             if (!supported) {
@@ -187,7 +254,9 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 StepList(
                     rows = rows,
                     now = now,
-                    onRetry = { id -> ToolchainInstaller.retry(context, id) },
+                    onRetry = { id ->
+                        ToolchainInstaller.retry(context, id) { ready -> state.toolchainReady = ready }
+                    },
                 )
             }
 
@@ -197,6 +266,17 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                     severity = Severity.Error,
                     title = "The install stopped",
                     body = message,
+                )
+            }
+
+            if (gated && phase == ToolchainPhase.Running) {
+                Spacer(Modifier.height(MD.space2))
+                NoticeCard(
+                    severity = Severity.Info,
+                    title = null,
+                    body = "You can lock the phone or switch apps — the install keeps " +
+                        "going under its notification and this screen picks up where " +
+                        "it was. Keep the phone plugged in: two of the parts compile here.",
                 )
             }
 
@@ -210,14 +290,253 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
             context = context,
             supported = supported,
             manifest = manifest,
+            gated = gated,
         )
     }
 }
 
-/** What the screen is for, in four words, and it changes with the state. */
-private fun headline(supported: Boolean, complete: Boolean): String = when {
+// --- the onboarding pages ----------------------------------------------------
+
+private const val PAGES = 3
+
+/**
+ * Three pages and one Start. Swipeable, with dots, and a Next that walks them
+ * for a thumb that would rather tap. The third page IS the step list, so the
+ * last thing read before Start is the list of what Start does and what each
+ * part costs — the same list the screen then animates.
+ */
+@Composable
+private fun ColumnScope.OnboardingPager(
+    manifest: ToolchainManifest?,
+    rows: List<ComponentRow>,
+    estimateSeconds: Long?,
+    metered: Boolean,
+    onStart: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val pager = rememberPagerState(pageCount = { PAGES })
+    val scope = rememberCoroutineScope()
+    val last = pager.currentPage == PAGES - 1
+
+    HorizontalPager(
+        state = pager,
+        modifier = Modifier.fillMaxWidth().weight(1f),
+        // No fling past the edges into nothing; the pages have edges.
+        beyondViewportPageCount = 1,
+    ) { page ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .fadeUnderBottomActions()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = MD.space4),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(MD.space8))
+            SeekerIcon(
+                icon = R.drawable.ic_launcher_monochrome,
+                contentDescription = null,
+                tint = scheme.primary,
+                size = IconSize.Hero,
+            )
+            Spacer(Modifier.height(MD.space4))
+            when (page) {
+                0 -> WhyPage()
+                1 -> ExpectPage(manifest, estimateSeconds)
+                else -> PartsPage(manifest, rows, estimateSeconds)
+            }
+            Spacer(Modifier.height(BottomActionsGap))
+        }
+    }
+
+    BottomActions(horizontalAlignment = Alignment.CenterHorizontally) {
+        Dots(count = PAGES, current = pager.currentPage)
+        Spacer(Modifier.height(MD.space3))
+        val remaining = manifest?.totalDownloadBytes ?: 0L
+        Button(
+            onClick = {
+                if (last) onStart()
+                else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) }
+            },
+            modifier = Modifier.fillMaxWidth().height(MD.rowMin),
+            elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
+        ) {
+            Text(
+                text = when {
+                    !last -> "Next"
+                    metered -> "Download over mobile data (${formatBytes(remaining)})"
+                    else -> "Start"
+                },
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+        // A way to the button from page one for the reader who has done this
+        // before — a text link, because it is the minority path.
+        if (!last) {
+            TextButton(onClick = { scope.launch { pager.animateScrollToPage(PAGES - 1) } }) {
+                Text(
+                    text = "Skip to the parts",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageTitle(headline: String, body: String) {
+    val scheme = MaterialTheme.colorScheme
+    Text(
+        text = headline,
+        style = MaterialTheme.typography.headlineSmall,
+        color = scheme.onSurface,
+        textAlign = TextAlign.Center,
+    )
+    Spacer(Modifier.height(MD.space2))
+    Text(
+        text = body,
+        style = MaterialTheme.typography.bodyMedium,
+        color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+        textAlign = TextAlign.Center,
+    )
+    Spacer(Modifier.height(MD.space6))
+}
+
+/** Page 1: why a phone needs a compiler at all. */
+@Composable
+private fun WhyPage() {
+    PageTitle(
+        headline = "Seeker builds Solana programs on the phone",
+        body = "Not on a server. The compiler, the linker and the build driver run " +
+            "here, inside a Linux userland, so a build works on a plane and your " +
+            "code never leaves the device.",
+    )
+    PointList(
+        listOf(
+            R.drawable.ic_ui_hexagon to ("A real Debian, under proot" to
+                "apt works. git, gcc and the SBF compiler are ordinary packages in it."),
+            R.drawable.ic_ui_play to ("Build, test and deploy from the Build tab" to
+                "cargo-build-sbf and Anchor produce the same target/deploy/ a laptop does."),
+            R.drawable.ic_ui_sparkles to ("An agent that can run your build" to
+                "Spettro reads the errors and edits the code. Without a toolchain it can only read."),
+        )
+    )
+}
+
+/** Page 2: what the next half hour looks like. */
+@Composable
+private fun ExpectPage(manifest: ToolchainManifest?, estimateSeconds: Long?) {
+    val minutes = estimateSeconds?.let { minutesFor(it) }
+    PageTitle(
+        headline = "One setup, once",
+        body = if (minutes != null) {
+            "About $minutes minutes on a Seeker, then the phone builds offline. " +
+                "Two of the parts are compiled here, because nobody ships arm64 builds of them."
+        } else {
+            "Then the phone builds offline. Two of the parts are compiled here, " +
+                "because nobody ships arm64 builds of them."
+        },
+    )
+    PointList(
+        listOf(
+            R.drawable.ic_ui_download to ("Wi-Fi and a charger" to
+                "${manifest?.let { formatBytes(it.totalDownloadBytes) } ?: "About 680 MB"} " +
+                    "over the network, then all eight cores for a while. Plug in. On mobile " +
+                    "data the button says what it costs."),
+            R.drawable.ic_ui_lock to ("You can leave" to
+                "It runs under a notification. Lock the phone, switch apps, come back — " +
+                    "the list is where you left it. Pause keeps every byte already fetched."),
+            R.drawable.ic_ui_rotate_ccw to ("If a part fails" to
+                "Its row gets a Retry. Nothing already installed is downloaded again, " +
+                    "and a half-finished download resumes from where it stopped."),
+            R.drawable.ic_ui_server to ("${manifest?.let { formatBytes(it.totalInstallBytes) } ?: "About 2 GB"} on disk" to
+                "Settings, then Toolchain, shows what it holds and frees it in one tap."),
+        )
+    )
+}
+
+/** Page 3: the parts — the same list the install then animates. */
+@Composable
+private fun PartsPage(manifest: ToolchainManifest?, rows: List<ComponentRow>, estimateSeconds: Long?) {
+    PageTitle(
+        headline = "The parts",
+        body = costLine(supported = true, manifest = manifest) +
+            (estimateSeconds?.let { " About ${minutesFor(it)} minutes." } ?: ""),
+    )
+    StepList(rows = rows, now = System.currentTimeMillis(), onRetry = {})
+}
+
+/** A card of icon + title + one line, the shape every page's body takes. */
+@Composable
+private fun PointList(points: List<Pair<Int, Pair<String, String>>>) {
+    val scheme = MaterialTheme.colorScheme
+    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            points.forEachIndexed { index, (icon, text) ->
+                if (index > 0) HairlineDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = MD.rowMin)
+                        .padding(horizontal = MD.space3, vertical = MD.space3),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(MD.space3),
+                ) {
+                    Box(modifier = Modifier.width(20.dp).padding(top = MD.space05)) {
+                        SeekerIcon(
+                            icon = icon,
+                            contentDescription = null,
+                            tint = scheme.primary,
+                            size = IconSize.Marker,
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = text.first,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurface,
+                        )
+                        Text(
+                            text = text.second,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = MD.space05),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Page dots: the current one at full primary, the rest at the muted ink. */
+@Composable
+private fun Dots(count: Int, current: Int) {
+    val scheme = MaterialTheme.colorScheme
+    Row(horizontalArrangement = Arrangement.spacedBy(MD.space2)) {
+        repeat(count) { index ->
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(
+                        color = if (index == current) scheme.primary
+                        else scheme.onSurfaceVariant.copy(alpha = 0.3f),
+                        shape = CircleShape,
+                    ),
+            )
+        }
+    }
+}
+
+// --- the headline -------------------------------------------------------------
+
+/** What the screen is for, in a few words, and it changes with the state. */
+private fun headline(supported: Boolean, complete: Boolean, phase: ToolchainPhase): String = when {
     !supported -> "No Linux userland"
+    phase == ToolchainPhase.Running -> "Setting up the toolchain"
     complete -> "The toolchain is installed"
+    phase == ToolchainPhase.Failed -> "The install stopped"
     else -> "Set up the toolchain"
 }
 
@@ -242,6 +561,46 @@ private fun costLine(supported: Boolean, manifest: ToolchainManifest?): String {
     return "One setup, once. ${formatBytes(manifest.totalDownloadBytes)} down, " +
         "${formatBytes(manifest.totalInstallBytes)} on disk, then the phone builds offline."
 }
+
+/**
+ * The third line: minutes. Elapsed against the estimate while running, the
+ * estimate alone before, nothing after — a finished install has no time left
+ * to talk about.
+ */
+private fun timeLine(phase: ToolchainPhase, estimateSeconds: Long?, startedAt: Long?, now: Long): String? {
+    val minutes = estimateSeconds?.let { minutesFor(it) }
+    return when {
+        phase == ToolchainPhase.Running && startedAt != null ->
+            "${elapsedFrom(startedAt, now)} elapsed" +
+                (minutes?.let { " · usually about $it min on a Seeker" } ?: "")
+        phase == ToolchainPhase.Idle || phase == ToolchainPhase.Failed ->
+            minutes?.let { "Usually about $it minutes on a Seeker." }
+        else -> null
+    }
+}
+
+/**
+ * The wall-clock estimate, in seconds: this phone's own history when it has
+ * a complete one, the manifest's reference measurement otherwise, null when
+ * the manifest has none.
+ *
+ * "Own history" is the sum over the *guest lane* rows of what they took
+ * here last time — the same critical path the manifest's number is — and it
+ * needs every one of them, because a phone that has only ever installed
+ * rustup knows nothing about how long its apt takes.
+ */
+private fun estimateSeconds(context: Context, manifest: ToolchainManifest?): Long? {
+    if (manifest == null) return null
+    val lane = manifest.components.filter { it.onGuestLane }
+    val own = SolanaToolchain.timings(context)
+    if (lane.all { it.id in own }) return lane.sumOf { own.getValue(it.id) } / 1000L
+    return manifest.estimatedWallSeconds.takeIf { it > 0L }
+}
+
+/** Seconds to a whole number of minutes, rounded *up* — never promise less. */
+private fun minutesFor(seconds: Long): Long = (seconds + 59L) / 60L
+
+// --- the step list --------------------------------------------------------------
 
 /**
  * Every component in one card, divided by hairlines.
@@ -372,7 +731,10 @@ private fun Bar(fraction: Float? = null) {
     val scheme = MaterialTheme.colorScheme
     val modifier = Modifier.fillMaxWidth().padding(top = MD.space2)
     if (fraction == null) {
-        LinearProgressIndicator(
+        // Not the stock indeterminate indicator: that one invalidates every
+        // frame of a 120 Hz panel for the length of a compile, and the CPU it
+        // held came straight out of rustc's share (see SeekerIndeterminateBar).
+        SeekerIndeterminateBar(
             modifier = modifier,
             color = scheme.primary,
             trackColor = scheme.surfaceVariant,
@@ -397,7 +759,9 @@ private fun Bar(fraction: Float? = null) {
  *
  * A pending row draws an empty circle at half strength — "not yet" has a
  * shape, and the middle dot that used to sit there was a glyph carrying no
- * meaning a screen reader could read.
+ * meaning a screen reader could read. A staged row — bytes in, waiting for
+ * the guest lane — draws the dotted circle: further along than pending,
+ * and standing still.
  */
 @Composable
 private fun StateMark(state: ComponentState) {
@@ -413,6 +777,13 @@ private fun StateMark(state: ComponentState) {
 
         is ComponentState.Downloading, is ComponentState.Working ->
             SeekerSpinner(size = 14.dp, color = scheme.primary)
+
+        is ComponentState.Staged -> SeekerIcon(
+            icon = R.drawable.ic_ui_circle_dashed,
+            contentDescription = "downloaded",
+            tint = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+            size = IconSize.Marker,
+        )
 
         is ComponentState.Failed -> SeekerIcon(
             icon = R.drawable.ic_ui_close,
@@ -440,9 +811,15 @@ private fun figure(row: ComponentRow): String {
         is ComponentState.Working ->
             if (component.isCompiled) elapsed(state.startedAt) else "working"
         else ->
-            if (component.isCompiled) "builds on device"
-            else if (component.approximate) "≈ ${formatBytes(component.downloadBytes)}"
-            else formatBytes(component.downloadBytes)
+            if (component.isCompiled) {
+                component.estimatedSeconds.takeIf { it > 0L }
+                    ?.let { "builds here · ≈ ${minutesFor(it)} min" }
+                    ?: "builds on device"
+            } else if (component.approximate) {
+                "≈ ${formatBytes(component.downloadBytes)}"
+            } else {
+                formatBytes(component.downloadBytes)
+            }
     }
 }
 
@@ -461,6 +838,7 @@ private fun detail(row: ComponentRow, now: Long): String = when (val state = row
         } else {
             state.step
         }
+    is ComponentState.Staged -> "downloaded · waiting for its turn"
     is ComponentState.Failed -> state.message
     is ComponentState.Cancelled -> "stopped — the bytes already fetched are kept"
     else -> row.component.summary
@@ -474,12 +852,19 @@ private fun elapsedFrom(startedAt: Long, now: Long): String {
 
 private fun elapsed(startedAt: Long): String = elapsedFrom(startedAt, System.currentTimeMillis())
 
+// --- the actions ----------------------------------------------------------------
+
 /**
  * One primary action, and the text links under it.
  *
  * On a metered connection the button names the cost instead of saying Start,
  * because "Start" on mobile data is a question the user was never asked
  * (docs/UI.md, "Setup" — metered connections).
+ *
+ * Under the gate there is no Skip and no Close: the ways off this screen are
+ * Continue, once the required rows are in, and the back gesture, which
+ * leaves the app with the install still running. Reached from Settings with
+ * the toolchain in, the same screen has Close and the remove link.
  *
  * A stock filled `Button`, and this is the first screen in the app to use one:
  * the bridge solves `onPrimary` against `primary`, which is what makes it
@@ -493,6 +878,7 @@ private fun Actions(
     context: Context,
     supported: Boolean,
     manifest: ToolchainManifest?,
+    gated: Boolean,
 ) {
     val scheme = MaterialTheme.colorScheme
     val phase = ToolchainInstaller.phase
@@ -508,12 +894,28 @@ private fun Actions(
         .filter { it.state is ComponentState.Installed }
         .sumOf { it.component.installBytes }
 
+    // "Complete" means every *required* row; an optional row — Anchor — can
+    // still be pending, and it must keep a way to start. Without this, an
+    // install interrupted between cargo-build-sbf and Anchor came back to a
+    // screen whose only button said Done, and the Anchor CLI was unreachable
+    // until a build failed.
+    val allInstalled = ToolchainInstaller.rows.isNotEmpty() &&
+        ToolchainInstaller.rows.all { it.state is ComponentState.Installed }
+    val running = phase == ToolchainPhase.Running
+
     val label = when {
         !supported -> "Continue without a toolchain"
-        phase == ToolchainPhase.Running -> "Pause"
-        complete -> "Done"
+        // The gate opens on the required rows. Anchor may still be compiling
+        // — and it keeps compiling, outside the composition, under the
+        // notification — but Build, the agent and the editor are all real now.
+        gated && complete && running -> "Continue — Anchor keeps building"
+        gated && complete -> "Continue"
+        running -> "Pause"
+        complete && allInstalled -> "Done"
         phase == ToolchainPhase.Failed -> "Retry"
         metered -> "Download over mobile data (${formatBytes(remaining)})"
+        complete -> "Install the rest"
+        ToolchainInstaller.rows.any { it.state !is ComponentState.Pending } -> "Resume"
         else -> "Start"
     }
 
@@ -526,13 +928,13 @@ private fun Actions(
         Button(
             onClick = {
                 when {
-                    !supported || complete -> {
+                    !supported || (complete && (allInstalled || gated)) -> {
                         // From the rows, not from disk: this runs on the main
                         // thread and the rows already are the answer.
                         state.toolchainReady = ToolchainInstaller.isComplete
                         state.pop()
                     }
-                    phase == ToolchainPhase.Running -> ToolchainInstaller.cancel()
+                    running -> ToolchainInstaller.cancel()
                     else -> ToolchainInstaller.start(context) { ready ->
                         state.toolchainReady = ready
                     }
@@ -545,40 +947,66 @@ private fun Actions(
         ) {
             Text(text = label, style = MaterialTheme.typography.labelLarge)
         }
-        // A text link and not a button, deliberately: the minority path, and a
-        // real one. Setup comes back from Projects → Toolchain at any time.
-        TextButton(
-            onClick = {
-                state.toolchainReady = ToolchainInstaller.isComplete
-                state.pop()
-            },
-        ) {
-            Text(
-                text = if (complete) "Close" else "Skip — I only want to edit code",
-                style = MaterialTheme.typography.labelLarge,
-                color = scheme.onSurfaceVariant,
-            )
+        // Under the gate the primary button is the only way on; Pause is a
+        // text link beneath Continue so a user who wants Anchor to wait for
+        // a charger still has it.
+        if (gated && running && complete) {
+            TextButton(onClick = { ToolchainInstaller.cancel() }) {
+                Text(
+                    text = "Pause the rest",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (!gated) {
+            TextButton(
+                onClick = {
+                    state.toolchainReady = ToolchainInstaller.isComplete
+                    state.pop()
+                },
+            ) {
+                Text(
+                    text = "Close",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
         }
         // The other half of this screen's job: once the toolchain is in, this
         // is also the page you come to to get the disk back (docs/UI.md —
         // "the repair / uninstall / free-1.4-GB page"). Only offered when
-        // there is something to free, and it leaves the Debian userland
-        // standing, because the terminal and git are useful without a compiler.
-        if (complete) {
+        // there is something to free and nothing is mid-install — a remove
+        // under a running compile deletes the compiler out from under it —
+        // and it leaves the Debian userland standing, because the terminal
+        // and git are useful without a compiler.
+        if (!gated && complete && !running) {
             val scope = rememberCoroutineScope()
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) { SolanaToolchain.remove(context) }
-                        state.toolchainReady = false
-                        ToolchainInstaller.refresh(context)
-                    }
-                },
-            ) {
+            var confirmRemove by remember { mutableStateOf(false) }
+            TextButton(onClick = { confirmRemove = true }) {
                 Text(
                     text = "Remove the toolchain — frees ${formatBytes(installedBytes)}",
                     style = MaterialTheme.typography.labelLarge,
                     color = scheme.onSurfaceVariant,
+                )
+            }
+            // Confirmed, always. This is gigabytes deleted and hours of
+            // download-and-compile to earn back, sitting one stray tap below
+            // Close on a screen with no nav bar — it must never fire on a
+            // touch nobody meant.
+            if (confirmRemove) {
+                ConfirmDeleteDialog(
+                    paths = listOf("the Solana toolchain (${formatBytes(installedBytes)})"),
+                    permanent = true,
+                    onConfirm = {
+                        confirmRemove = false
+                        scope.launch {
+                            withContext(Dispatchers.IO) { SolanaToolchain.remove(context) }
+                            state.toolchainReady = false
+                            ToolchainInstaller.refresh(context)
+                        }
+                    },
+                    onDismiss = { confirmRemove = false },
                 )
             }
         }

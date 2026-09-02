@@ -140,6 +140,26 @@ class ShellState {
     var toolchainReady: Boolean by mutableStateOf(false)
 
     /**
+     * Whether the Setup takeover on top of the current stack is the *gate* —
+     * the mandatory first-run one — rather than the toolchain page reached
+     * from Settings after the install. It is the same route; what makes it a
+     * gate is only that the toolchain is not in. The back handler and the
+     * screen's own actions both read this, so a Setup reached from Settings
+     * with everything installed still has a Close and a back arrow.
+     */
+    val isGated: Boolean get() = currentStack.top is Route.Setup && !toolchainReady
+
+    /**
+     * Put the gate up: Setup on top of Code, and Code selected. Called by the
+     * shell's bootstrap when the toolchain is missing, and a no-op when the
+     * gate is already showing — a rotation must not stack two.
+     */
+    fun gate() {
+        if (destination != Destination.Code) show(Destination.Code)
+        if (currentStack.top !is Route.Setup) push(Route.Setup, on = Destination.Code)
+    }
+
+    /**
      * Open a file in Code — registered by the Code destination (P2).
      *
      * Everything that navigates to a line of source goes through here: a build

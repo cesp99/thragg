@@ -6,13 +6,27 @@
     "its own upstream (docs/SOLANA.md, 'Where the toolchain comes from') — we host",
     "nothing and mirror nothing.",
     "",
-    "Order is INSTALL order, and it is also the order the Setup screen lists.",
-    "Two orderings in it are load-bearing:",
-    "  * platform-tools is linked into rustup by its own postInstall, so rustup",
-    "    must already be there when it lands;",
-    "  * apt comes after the three small binaries so the editor, the language",
-    "    server and the agent are usable before the slow package step, and before",
-    "    the two crates that need a C compiler to build.",
+    "Order is the order the Setup screen lists, and the order the guest lane",
+    "prefers when more than one row is ready. It is NOT the install order any",
+    "more: 'needs' is. The installer runs two lanes at once — one fetches and",
+    "unpacks over the network and the host's tar, one runs things inside the",
+    "guest — and a row starts the moment every id in its 'needs' is installed",
+    "and its own bytes are on disk. Two edges are load-bearing:",
+    "  * platform-tools needs rustup, because its own postInstall links it into",
+    "    rustup as the 'solana' toolchain;",
+    "  * the two crates need platform-tools (the compiler) AND apt (the C",
+    "    linker, OpenSSL headers), and anchor needs cargo-build-sbf so the two",
+    "    compiles share one cargo scratch in series rather than fighting for",
+    "    eight cores and 8 GB at once.",
+    "",
+    "estimatedSeconds is what the row took on a Solana Seeker (8 cores, 4 of",
+    "them A76) over a home Wi-Fi, measured 2026-09-02 with the timings the",
+    "installer logs (`adb logcat -s seeker-toolchain`), from the clean",
+    "two-lane run of that day: 12 min 59 s end to end, the gate open at",
+    "6 min 40 s (docs/SOLANA.md, 'How long it takes'). For a fetched row the",
+    "number is its download plus unpack on the fetch lane. It is the number the",
+    "onboarding quotes before a phone has a history of its own, and it is an",
+    "estimate, not a promise — the Setup screen says so.",
     "",
     "sha256 is over the downloaded file exactly as served. It is also the",
     "component's revision: change the hash and that one row re-installs, while",
@@ -51,7 +65,9 @@
       "approximate": true,
       "installPath": "/",
       "marker": "/bin/sh",
-      "required": true
+      "required": true,
+      "needs": [],
+      "estimatedSeconds": 68
     },
     {
       "id": "rustup",
@@ -78,7 +94,9 @@
         ["/bin/rm", "-f", "/tmp/rustup-init"]
       ],
       "verify": ["/root/.cargo/bin/rustup", "--version"],
-      "required": true
+      "required": true,
+      "needs": ["debian"],
+      "estimatedSeconds": 3
     },
     {
       "id": "platform-tools",
@@ -107,7 +125,9 @@
         ["/root/.cargo/bin/rustup", "default", "solana"]
       ],
       "verify": ["/opt/solana/platform-tools/rust/bin/rustc", "--version"],
-      "required": true
+      "required": true,
+      "needs": ["rustup"],
+      "estimatedSeconds": 168
     },
     {
       "id": "rust-analyzer",
@@ -123,7 +143,9 @@
       "installPath": "/opt/ra/rust-analyzer",
       "marker": "/opt/ra/rust-analyzer",
       "verify": ["/opt/ra/rust-analyzer", "--version"],
-      "required": false
+      "required": false,
+      "needs": ["debian"],
+      "estimatedSeconds": 3
     },
     {
       "id": "spettro",
@@ -143,7 +165,9 @@
       "installBytes": 32000000,
       "installPath": "/opt/seeker/agents/spettro",
       "marker": "/opt/seeker/agents/spettro/spettro",
-      "required": false
+      "required": false,
+      "needs": ["debian"],
+      "estimatedSeconds": 2
     },
     {
       "id": "apt-build-tools",
@@ -175,7 +199,9 @@
       "installPath": "/usr",
       "marker": "/usr/bin/gcc",
       "verify": ["/usr/bin/gcc", "--version"],
-      "required": true
+      "required": true,
+      "needs": ["debian"],
+      "estimatedSeconds": 134
     },
     {
       "id": "cargo-build-sbf",
@@ -220,7 +246,9 @@
         ["/bin/sh", "-c", "for v in v1.57 $(/opt/solana/cli/bin/cargo-build-sbf --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+' | head -n1) v1.56; do mkdir -p /root/.cache/solana/$v && ln -sfn /opt/solana/platform-tools /root/.cache/solana/$v/platform-tools; done"]
       ],
       "verify": ["/opt/solana/cli/bin/cargo-build-sbf", "--version"],
-      "required": true
+      "required": true,
+      "needs": ["platform-tools", "apt-build-tools"],
+      "estimatedSeconds": 158
     },
     {
       "id": "anchor",
@@ -242,7 +270,9 @@
       "installPath": "/opt/solana/cli/bin",
       "marker": "/opt/solana/cli/bin/anchor",
       "verify": ["/opt/solana/cli/bin/anchor", "--version"],
-      "required": false
+      "required": false,
+      "needs": ["cargo-build-sbf"],
+      "estimatedSeconds": 383
     }
   ],
   "cargoScratch": "/opt/solana/build"

@@ -66,6 +66,28 @@ data class ToolchainManifest(
     /** Bytes on disk once everything is unpacked and built. */
     val totalInstallBytes: Long get() = components.sumOf { it.installBytes }
 
+    /**
+     * How long a cold install of every component took on the reference
+     * phone, in seconds — the sum of the per-row measurements, which is the
+     * *serial* figure. The two-lane installer finishes sooner than this
+     * because the fetch lane hides its downloads and unpacks behind the guest
+     * lane's apt run; see [estimatedWallSeconds].
+     */
+    val totalEstimatedSeconds: Long get() = components.sumOf { it.estimatedSeconds }
+
+    /**
+     * The wall-clock estimate the onboarding quotes: the guest lane's critical
+     * path. Every row that runs *in the guest* (the userland, apt, the two
+     * compiles, and a postInstall) is on it; a plain download or unpack is
+     * not, because the fetch lane does those while the guest lane is busy.
+     * The one download that can still be waited on is the biggest, so its
+     * time counts once when the guest lane would otherwise idle for it —
+     * which on the reference phone it does not. Rounded up to a minute by
+     * the screen, never down.
+     */
+    val estimatedWallSeconds: Long
+        get() = components.filter { it.onGuestLane }.sumOf { it.estimatedSeconds }
+
     fun component(id: String): ToolchainComponent? = components.firstOrNull { it.id == id }
 
     /** The ids that must be present for Build to work at all. */
@@ -110,6 +132,7 @@ data class ToolchainManifest(
             require(components.map { it.id }.toSet().size == components.size) {
                 "the toolchain manifest has two components with the same id"
             }
+            checkNeeds(components)
             return ToolchainManifest(
                 schema = schema,
                 platformToolsVersion = root.getString("platformToolsVersion"),
@@ -117,6 +140,35 @@ data class ToolchainManifest(
                 cargoScratch = root.optString("cargoScratch", "/opt/solana/build"),
                 components = components,
             )
+        }
+
+        /**
+         * The dependency graph is data, so a typo in it must fail here, on the
+         * host, in a second — not as a row that waits forever on an id nobody
+         * installs. Three things are checked: every `needs` names a real id,
+         * nothing depends on itself directly or through a cycle, and a
+         * required row never waits on an optional one (the gate would then be
+         * hostage to a row the manifest itself says Build does not need).
+         */
+        private fun checkNeeds(components: List<ToolchainComponent>) {
+            val byId = components.associateBy { it.id }
+            for (component in components) {
+                for (need in component.needs) {
+                    val other = byId[need]
+                        ?: error("component ${component.id} needs '$need', which is not a component")
+                    require(component.required.not() || other.required) {
+                        "required component ${component.id} needs optional component $need"
+                    }
+                }
+            }
+            // Cycle check by repeated peeling: if a pass removes nothing and
+            // something is left, what is left is a cycle.
+            val remaining = components.map { it.id }.toMutableSet()
+            while (remaining.isNotEmpty()) {
+                val free = remaining.filter { id -> byId.getValue(id).needs.none { it in remaining } }
+                require(free.isNotEmpty()) { "the toolchain manifest has a dependency cycle among $remaining" }
+                remaining -= free.toSet()
+            }
         }
 
         private fun component(json: JSONObject): ToolchainComponent {
@@ -144,7 +196,10 @@ data class ToolchainManifest(
                 postInstall = json.optArgvList("postInstall"),
                 verify = json.optJSONArray("verify")?.let { it.toStringList() },
                 required = json.optBoolean("required", false),
+                needs = json.optStringList("needs"),
+                estimatedSeconds = json.optLong("estimatedSeconds", 0L),
             )
+            require(component.id !in component.needs) { "component $id needs itself" }
             // The checks that would otherwise surface as a confusing failure
             // ten minutes into an install.
             when (method) {
@@ -288,6 +343,20 @@ data class ToolchainComponent(
     val verify: List<String>?,
     /** Whether Build needs it. rust-analyzer, Spettro and Anchor do not gate it. */
     val required: Boolean,
+    /**
+     * The ids that must be *installed* — recorded and verified, not merely
+     * downloaded — before this one may start. The install order used to be
+     * the list order; now it is this graph, and the list order only breaks
+     * ties. Checked at parse time: real ids, no cycles, and a required row
+     * never waits on an optional one.
+     */
+    val needs: List<String>,
+    /**
+     * What this row took on the reference phone, in seconds, for the
+     * onboarding's "about N minutes" before the phone has a history of its
+     * own. Zero means "not measured", and the screen says nothing then.
+     */
+    val estimatedSeconds: Long,
 ) {
 
     /**
@@ -307,6 +376,15 @@ data class ToolchainComponent(
      * invention (docs/UI.md, "Setup").
      */
     val isCompiled: Boolean get() = method == InstallMethod.CargoInstall
+
+    /**
+     * Whether this row's time is spent in the guest lane — the one lane the
+     * install cannot parallelise, because everything on it either *is* the
+     * guest (the userland), needs dpkg's lock (apt), or needs all eight cores
+     * (a compile). A download or an unpack is fetch-lane work and overlaps.
+     */
+    val onGuestLane: Boolean
+        get() = method == InstallMethod.Userland || method == InstallMethod.Apt || isCompiled
 
     /** The marker as a path relative to the rootfs directory, for a host-side stat. */
     val markerInRootfs: String get() = marker.trimStart('/')
