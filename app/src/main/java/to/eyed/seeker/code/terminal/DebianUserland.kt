@@ -526,6 +526,33 @@ private object DebianUserland : UserlandBackend {
             val wanted = resolvConf(context)
             if (!file.isFile || file.readText() != wanted) file.writeText(wanted)
         }
+        refreshHosts(root)
+    }
+
+    /**
+     * Pin the hosts the guest's *worst* resolver needs into `/etc/hosts`.
+     *
+     * `options use-vc` only helps a resolver that reads it. cargo's libcurl
+     * carries its own (c-ares), which does UDP DNS regardless — and the same
+     * intermittent UDP EPERM that use-vc was bought to dodge took a
+     * `cargo install` from compiling happily to `Could not resolve host:
+     * static.crates.io` mid-toolchain-install, while glibc's curl resolved
+     * fine in the same guest in the same minute. `/etc/hosts` is the one
+     * channel every resolver in the guest honours before it touches the
+     * network at all, so the few names cargo and the agent must reach are
+     * resolved HERE, on the Android side — whose resolver is never inside
+     * the EPERM window — and written down for the guest, re-derived per
+     * session exactly like the resolvers above. A name the device cannot
+     * resolve right now is simply left out; the guest's own DNS still gets
+     * its chance.
+     */
+    private fun refreshHosts(root: File) {
+        runCatching {
+            val file = File(root, "etc/hosts")
+            val existing = if (file.isFile) file.readText() else ""
+            val wanted = GuestHosts.merged(existing, HostPins.resolve(GuestHosts.PINNED))
+            if (wanted != existing) file.writeText(wanted)
+        }
     }
 
     /** The few things a container image leaves to whoever starts it. */
@@ -562,7 +589,203 @@ private object DebianUserland : UserlandBackend {
                 .orEmpty()
         }.getOrDefault(emptyList())
 
-        return GuestResolvers.conf(servers)
+        return GuestResolvers.conf(servers, ResolverReach::speaksTcp)
+    }
+}
+
+/**
+ * Which resolvers actually answer a TCP handshake on port 53.
+ *
+ * `options use-vc` makes TCP the *only* transport the guest's resolvers use,
+ * and glibc's TCP path is a plain blocking `connect(2)` with no timeout of its
+ * own. A nameserver that silently drops the SYN — the Seeker's own Wi-Fi
+ * router does — therefore costs the kernel's full SYN retry cycle, about two
+ * minutes, on **every** lookup before glibc moves down the list. Measured
+ * live: `cargo install` sat in SYN_SENT to the router for five-plus minutes of
+ * what looked like "the toolchain loading". A resolver that fails this probe
+ * is dead weight under use-vc and is left out of the file.
+ *
+ * The probe itself is one short parallel connect per candidate, and the
+ * verdicts are cached: `resolv.conf` is re-derived on every guest spawn, and
+ * a router that ignores TCP 53 would otherwise charge [PROBE_TIMEOUT_MS]
+ * per spawn for ever.
+ */
+internal object ResolverReach {
+
+    /**
+     * One round trip plus margin for the handshake. A working resolver
+     * answers it in an RTT; a false negative only demotes the device's
+     * resolver to the publics behind it, and [GuestResolvers.usable] keeps
+     * the whole list when everything fails (an offline phone must still
+     * write *something*).
+     */
+    private const val PROBE_TIMEOUT_MS = 600
+
+    /**
+     * How long the resolver gets to *answer* a query once connected. Found
+     * on the Seeker (2026-09-02): the router's link-local IPv6 resolver
+     * accepts the TCP handshake and then never replies — `getent` sat 40 s
+     * on it alone, and an `apt-get update` behind it sat twelve minutes —
+     * so a handshake proves nothing. The probe now asks a question. A root
+     * NS query is answered from cache by anything that is a resolver at all.
+     */
+    private const val ANSWER_TIMEOUT_MS = 1_500
+
+    /**
+     * How long a verdict stands. Long enough that a build's many guest spawns
+     * probe once, short enough that a router fixed mid-session is picked up
+     * without restarting the app.
+     */
+    private const val TTL_MS = 5 * 60_000L
+
+    private data class Verdict(val at: Long, val speaksTcp: Boolean)
+
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Verdict>()
+
+    /** Cached where fresh, probed where not — the probes run in parallel. */
+    fun speaksTcp(servers: List<String>): Map<String, Boolean> {
+        val now = System.currentTimeMillis()
+        val stale = servers.filter { server ->
+            cache[server].let { it == null || now - it.at > TTL_MS }
+        }
+        if (stale.isNotEmpty()) {
+            val threads = stale.map { server ->
+                Thread {
+                    cache[server] = Verdict(System.currentTimeMillis(), probe(server))
+                }.apply { isDaemon = true; start() }
+            }
+            threads.forEach { it.join((PROBE_TIMEOUT_MS + ANSWER_TIMEOUT_MS + 200).toLong()) }
+        }
+        return servers.associateWith { cache[it]?.speaksTcp ?: false }
+    }
+
+    /**
+     * Connect, send one DNS query over TCP — `. NS`, length-prefixed as RFC
+     * 1035 §4.2.2 requires — and demand a reply carrying the same id. Only a
+     * resolver that speaks DNS over TCP end to end gets a true.
+     */
+    private fun probe(server: String): Boolean = runCatching {
+        java.net.Socket().use { socket ->
+            socket.connect(
+                java.net.InetSocketAddress(java.net.InetAddress.getByName(server), 53),
+                PROBE_TIMEOUT_MS,
+            )
+            socket.soTimeout = ANSWER_TIMEOUT_MS
+            val query = byteArrayOf(
+                0x53, 0x4b, // id "SK"
+                0x01, 0x00, // recursion desired
+                0x00, 0x01, // one question
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // no answers, authorities, additionals
+                0x00, // the root name
+                0x00, 0x02, // type NS
+                0x00, 0x01, // class IN
+            )
+            val out = socket.getOutputStream()
+            out.write(byteArrayOf((query.size shr 8).toByte(), query.size.toByte()))
+            out.write(query)
+            out.flush()
+            val input = java.io.DataInputStream(socket.getInputStream())
+            val length = input.readUnsignedShort()
+            if (length < 12) return@runCatching false
+            val reply = ByteArray(length)
+            input.readFully(reply)
+            reply[0] == query[0] && reply[1] == query[1]
+        }
+    }.getOrDefault(false)
+}
+
+/**
+ * The guest `/etc/hosts` pinning rule, pure enough to test on the host —
+ * [GuestResolvers]' sibling, for the resolver that reads no options at all
+ * (see `refreshHosts`).
+ */
+internal object GuestHosts {
+
+    /**
+     * The names a guest process must be able to reach when its own DNS is
+     * misbehaving: cargo's three (the sparse index, the crate CDN, the site
+     * itself — cargo's c-ares resolver is the reason this object exists) and
+     * the agent's backend, so a sign-in cannot die on a lookup either.
+     */
+    val PINNED = listOf("index.crates.io", "static.crates.io", "crates.io", "api.spettro.app")
+
+    const val BEGIN = "# seeker-pinned begin — rewritten per session; edit outside this block"
+    const val END = "# seeker-pinned end"
+
+    /**
+     * [existing] with this app's managed block replaced (or appended), and
+     * everything a user wrote by hand kept byte for byte. An empty
+     * [resolved] removes the block entirely rather than leaving stale IPs:
+     * a pin that has gone wrong must lose to the guest's own resolver, not
+     * outrank it.
+     */
+    fun merged(existing: String, resolved: Map<String, String>): String {
+        val kept = buildList {
+            var inBlock = false
+            for (line in existing.lines()) {
+                when {
+                    line == BEGIN -> inBlock = true
+                    line == END -> inBlock = false
+                    !inBlock -> add(line)
+                }
+            }
+            // Drop the trailing blank lines.lines() manufactures from a
+            // trailing newline, so the block always lands after real content.
+            while (isNotEmpty() && last().isBlank()) removeAt(size - 1)
+        }
+        val block = if (resolved.isEmpty()) emptyList() else buildList {
+            add(BEGIN)
+            for ((name, address) in resolved) add("$address\t$name")
+            add(END)
+        }
+        return (kept + block).joinToString("\n", postfix = "\n")
+    }
+}
+
+/**
+ * Host-side name resolution for [GuestHosts.PINNED], cached like
+ * [ResolverReach]'s verdicts and for the same reason: `resolv.conf` and
+ * `/etc/hosts` are re-derived on every guest spawn, and a blocking
+ * `getaddrinfo` per spawn would be paying for the same answer over and over.
+ */
+internal object HostPins {
+
+    /** How long one resolution may hold a spawn up. */
+    private const val RESOLVE_TIMEOUT_MS = 2_000L
+
+    private const val TTL_MS = 5 * 60_000L
+
+    private data class Pin(val at: Long, val address: String?)
+
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Pin>()
+
+    /** The names that resolved, mapped to one IPv4 each; failures left out. */
+    fun resolve(names: List<String>): Map<String, String> {
+        val now = System.currentTimeMillis()
+        val stale = names.filter { name ->
+            cache[name].let { it == null || now - it.at > TTL_MS }
+        }
+        if (stale.isNotEmpty()) {
+            val threads = stale.map { name ->
+                Thread {
+                    val address = runCatching {
+                        // IPv4 preferred: the guest has no IPv6 route of its
+                        // own, and a v6 literal would pin the name to a dead
+                        // end.
+                        java.net.InetAddress.getAllByName(name)
+                            .firstOrNull { it is java.net.Inet4Address }
+                            ?.hostAddress
+                    }.getOrNull()
+                    cache[name] = Pin(System.currentTimeMillis(), address)
+                }.apply { isDaemon = true; start() }
+            }
+            threads.forEach { it.join(RESOLVE_TIMEOUT_MS) }
+        }
+        return buildMap {
+            for (name in names) {
+                cache[name]?.address?.let { put(name, it) }
+            }
+        }
     }
 }
 
@@ -609,6 +832,28 @@ internal object GuestResolvers {
     }
 
     /**
+     * [list], minus the entries that cannot serve DNS over TCP.
+     *
+     * Under `options use-vc` every entry is queried over TCP, and glibc's TCP
+     * leg is a blocking `connect(2)`: a nameserver that drops the handshake —
+     * a home router, most often — stalls *every* lookup for the kernel's SYN
+     * timeout, about two minutes, before the next line is tried. On the
+     * Seeker that turned one `cargo install` into five minutes of dead
+     * SYN_SENT before a byte moved. So a resolver only earns its line by
+     * answering a TCP handshake ([ResolverReach]); order is otherwise kept,
+     * device entries still first.
+     *
+     * When *nothing* passes — the phone is offline, or the probe itself is
+     * broken — the unfiltered list is written instead: an empty file helps
+     * nobody, and a wrong-but-present list fails with resolver errors a user
+     * can read.
+     */
+    fun usable(candidates: List<String>, speaksTcp: Map<String, Boolean>): List<String> {
+        val passing = candidates.filter { speaksTcp[it] == true }
+        return passing.ifEmpty { candidates }
+    }
+
+    /**
      * The whole file: the nameserver lines, then `options use-vc`.
      *
      * use-vc forces DNS over TCP, and it is here because nothing gentler
@@ -625,7 +870,13 @@ internal object GuestResolvers {
      * `getent` (slower per lookup, which a phone's guest can afford; apt and
      * cargo do a handful of lookups per run, not thousands).
      */
-    fun conf(device: List<String>): String =
-        list(device).joinToString("\n", postfix = "\n") { "nameserver $it" } +
+    fun conf(
+        device: List<String>,
+        probe: (List<String>) -> Map<String, Boolean> = { it.associateWith { _ -> true } },
+    ): String {
+        val candidates = list(device)
+        return usable(candidates, probe(candidates))
+            .joinToString("\n", postfix = "\n") { "nameserver $it" } +
             "options use-vc\n"
+    }
 }

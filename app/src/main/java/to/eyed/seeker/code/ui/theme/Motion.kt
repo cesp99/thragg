@@ -284,6 +284,18 @@ object Durations {
      */
     const val TINT = 200
 
+    /**
+     * 260ms — a route sliding on or off the shell: the Problems screen a
+     * diagnostics chip pushes, the diff a changed file opens, Setup, Settings.
+     * One number for the push and the pop, so going back takes exactly as
+     * long as going forward and the pair reads as one gesture reversed. Longer
+     * than [TINT] because a whole screen is travelling a whole screen-width
+     * and the eye needs the direction, which is the entire point of the
+     * animation; shorter than 300 because it happens on every tap of every
+     * row and a navigation that can be *felt* waiting is worse than none.
+     */
+    const val ROUTE = 260
+
     /** 8 — quantised frames in the braille spinner's cycle. */
     const val SPINNER_FRAMES = 8
 

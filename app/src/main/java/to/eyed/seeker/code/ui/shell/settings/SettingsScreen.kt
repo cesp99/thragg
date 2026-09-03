@@ -1,5 +1,6 @@
 package to.eyed.seeker.code.ui.shell.settings
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -31,16 +33,30 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.seeker.code.BuildConfig
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.core.AgentSessions
 import to.eyed.seeker.code.core.AppSettings
-import to.eyed.seeker.code.BuildConfig
 import to.eyed.seeker.code.core.Autosave
 import to.eyed.seeker.code.core.FormatOnSave
 import to.eyed.seeker.code.core.SpettroSetup
+import to.eyed.seeker.code.solana.build.BuildRunner
+import to.eyed.seeker.code.solana.build.BuildTasks
+import to.eyed.seeker.code.solana.build.ProgramTarget
+import to.eyed.seeker.code.solana.chain.Base58
+import to.eyed.seeker.code.solana.chain.Cluster
+import to.eyed.seeker.code.solana.chain.ClusterStore
+import to.eyed.seeker.code.solana.chain.DeployKey
+import to.eyed.seeker.code.solana.chain.DeployedPrograms
+import to.eyed.seeker.code.solana.chain.OnChainProgram
+import to.eyed.seeker.code.solana.chain.ProgramIds
+import to.eyed.seeker.code.solana.chain.ProgramStatus
+import to.eyed.seeker.code.solana.chain.Rpc
+import to.eyed.seeker.code.solana.chain.SeedVaultWallet
 import to.eyed.seeker.code.solana.toolchain.SolanaToolchain
 import to.eyed.seeker.code.solana.toolchain.formatBytes
 import to.eyed.seeker.code.ui.components.HairlineDivider
@@ -89,6 +105,15 @@ import to.eyed.seeker.code.ui.workspace.Notifications
  * theme, and two boxes and a circle never had the drag gesture, the state
  * description or the disabled treatment. [SliderRow] keeps its write-on-
  * release rule exactly and simply loses its three colour overrides.
+ *
+ * THE SOLANA CARD IS LIVE. Cluster, Wallet and Program are readouts of
+ * things that live elsewhere — Anchor.toml or the chain prefs, the Seed Vault
+ * connection, the cluster's own RPC — and each opens the sheet that changes
+ * it ([ClusterSheet], [WalletSheet], [ProgramSheet], all in this package).
+ * The Program row is the one that asks the network: it says what the cluster
+ * has at this project's id right now, not what a record on this phone last
+ * believed, so it carries a "checking" state and a "could not reach" state
+ * and never a stale answer dressed as a fresh one.
  */
 @Composable
 fun SettingsScreen(
@@ -98,9 +123,9 @@ fun SettingsScreen(
     settingsPath: String?,
     onSettingsChanged: (AppSettings) -> Unit,
     modifier: Modifier = Modifier,
-    /** Open the Cluster sheet — P6's, null until it lands. */
+    /** Open the Cluster sheet; null opens this file's own [ClusterSheet]. */
     onOpenCluster: (() -> Unit)? = null,
-    /** Open the Wallet sheet — P6's, null until it lands. */
+    /** Open the Wallet sheet; null opens this file's own [WalletSheet]. */
     onOpenWallet: (() -> Unit)? = null,
     /** Open the agent picker / install sheet — P3's, null until it lands. */
     onOpenAgentPicker: (() -> Unit)? = null,
@@ -130,6 +155,90 @@ fun SettingsScreen(
     // included, is already the truth this device has.
     LaunchedEffect(Unit) {
         if (AgentSessions.projectId >= 0) SpettroSetup.refreshAccount()
+    }
+
+    // THE CHAIN ROWS. The cluster is read from disk, not held here: for an
+    // Anchor project Anchor.toml is the truth and for a Native one the prefs
+    // are, and [ClusterStore.of] is the one place that knows which
+    // (solana/chain/ClusterStore.kt). It is a small file read, but a file
+    // read and a preferences load are not the main thread's to do, so it
+    // goes to IO and the rows print "…" until it is back; it is re-done
+    // only when [ClusterStore.version] moves, which is what every write to
+    // it does. `anchorSays` is the raw value for the one case the enum
+    // cannot hold: a project whose file says `localnet`, which this phone
+    // cannot deploy to and must not pretend is devnet — while it says that,
+    // the Cluster sheet ticks no row and the Program row asks nothing.
+    val root = state.project?.rootPath
+    val clusterVersion = ClusterStore.version
+    val chain by produceState<ChainChoice?>(initialValue = null, root, clusterVersion) {
+        value = null
+        value = withContext(Dispatchers.IO) { ChainChoice.read(context, root) }
+    }
+    val cluster = chain?.cluster
+    val localnet = chain?.localnet == true
+    val wallet = SeedVaultWallet.address
+    var clusterOpen by remember { mutableStateOf(false) }
+    var walletOpen by remember { mutableStateOf(false) }
+    var programOpen by remember { mutableStateOf(false) }
+
+    // The program row is live: it asks the cluster's RPC what is at the id,
+    // rather than repeating what a record on this phone last believed. The
+    // resolve (keypair, then declare_id!, then Anchor.toml) and the two RPC
+    // reads all block, so they run on IO behind a "checking" state, and the
+    // deploy key is only *read* here — a key that does not exist yet is not
+    // generated by opening Settings, because until a deploy happens there is
+    // nothing it could be the authority of.
+    //
+    // WHICH PROGRAM: BuildRunner's layout when it has one for this root, and
+    // otherwise a detection of our own — the runner only looks when the Build
+    // screen opens, and a project opened straight into Settings (or brought
+    // back after process death) has a program all the same. The effect keys
+    // on the root and the layout, not on the program it derives from them.
+    // `DeployedPrograms.version` is the re-ask a close performs: the close
+    // removes the record when it lands, from this sheet or the Wallet
+    // sheet's, and the row must not go on saying "deployed".
+    val layout = BuildRunner.layout?.takeIf { it.root == root }
+    val programsVersion = DeployedPrograms.version
+    var program by remember { mutableStateOf<ProgramTarget?>(null) }
+    var programId by remember { mutableStateOf<String?>(null) }
+    var deployKey by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<OnChainProgram?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var unreachable by remember { mutableStateOf(false) }
+    LaunchedEffect(root, layout, chain, programsVersion) {
+        status = null
+        unreachable = false
+        if (root == null) {
+            program = null
+            programId = null
+            checking = false
+            return@LaunchedEffect
+        }
+        layout?.primary?.let { program = it }
+        checking = true
+        // Keyed on the cluster read above, which lands a moment after the
+        // screen does: until it has there is no cluster to resolve the id
+        // against, let alone ask.
+        val choice = chain ?: return@LaunchedEffect
+        val looked = withContext(Dispatchers.IO) {
+            val target = layout?.primary
+                ?: runCatching { BuildTasks.detect(File(root)).primary }.getOrNull()
+                ?: return@withContext null
+            val id = runCatching { ProgramIds.resolve(root, target, choice.cluster).id }.getOrNull()
+            val key = runCatching {
+                if (DeployKey.exists(context)) DeployKey.get(context).publicKey.base58 else null
+            }.getOrNull()
+            // Anchor.toml on localnet: there is no cluster to ask, and an
+            // answer from the devnet fallback would be about the wrong one.
+            val found = if (choice.localnet) null else id?.let { runCatching { ProgramStatus.inspect(Rpc(choice.cluster), it) } }
+            ProgramLookup(target, id, key, found)
+        }
+        program = looked?.target
+        programId = looked?.id
+        deployKey = looked?.deployKey
+        status = looked?.status?.getOrNull()
+        unreachable = looked?.status?.isFailure == true
+        checking = false
     }
 
     /** One key, written off the main thread, with the refusal made visible. */
@@ -169,21 +278,48 @@ fun SettingsScreen(
                 onClick = { state.push(Route.Setup) },
             )
             HairlineDivider()
-            // "not set up yet" was the wrong sentence under a dead chevron:
-            // it names a job the user could do and then will not let them do
-            // it. Nothing on this device is unset — the sheet these rows open
-            // is not in the build. The row says that and drops the chevron.
+            // The readout is the cluster's own spelling, and for the one
+            // value the picker does not offer — `localnet` in Anchor.toml —
+            // it is that word plus where it came from, so the user knows what
+            // they are about to overwrite. The sheet is always reachable: with
+            // no project open the choice still lands in prefs and is what the
+            // next project starts on.
             LinkRow(
                 label = "Cluster",
-                detail = if (onOpenCluster == null) "not in this build yet" else "devnet",
-                onClick = onOpenCluster,
+                detail = chain?.let { clusterRowDetail(it.cluster.display, it.anchorSays, hasProject = root != null) } ?: "…",
+                description = "open a project".takeIf { root == null },
+                onClick = onOpenCluster ?: { clusterOpen = true },
             )
             HairlineDivider()
             LinkRow(
                 label = "Wallet",
-                detail = if (onOpenWallet == null) "not in this build yet" else "Seed Vault",
-                onClick = onOpenWallet,
+                detail = walletRowDetail(wallet),
+                onClick = onOpenWallet ?: { walletOpen = true },
             )
+            // Only with a program to ask about. The readout is the id, the
+            // sentence under the label is what the cluster says about it —
+            // and while the cluster has not answered the sentence says so,
+            // because a row that is silent for two seconds and then says
+            // "not deployed" has told the user two different things.
+            program?.let {
+                HairlineDivider()
+                LinkRow(
+                    label = "Program",
+                    detail = programId?.let { Base58.short(it) } ?: "no id yet",
+                    description = if (cluster == null) {
+                        "…"
+                    } else {
+                        programRowDescription(
+                            checking = checking,
+                            unreachable = unreachable,
+                            described = status?.let { ProgramStatus.describe(it, cluster, wallet, deployKey) },
+                            cluster = cluster.display,
+                            localnet = localnet,
+                        )
+                    },
+                    onClick = { programOpen = true },
+                )
+            }
         }
 
         SectionHeader("Agent", modifier = Modifier.padding(top = MD.space4))
@@ -321,6 +457,18 @@ fun SettingsScreen(
                 description = "engine version, ABI, page size",
                 onClick = { aboutOpen = true },
             )
+            HairlineDivider()
+            // The app's own version, as a statement rather than behind About:
+            // "which build am I on" is the question a user asks before
+            // reporting anything, and it should not cost a tap and a dialog.
+            // `versionName` in app/build.gradle.kts is the single source;
+            // it moves with every release (0.0.6 → 0.0.7 → …).
+            LinkRow(
+                label = "Version",
+                detail = BuildConfig.VERSION_NAME,
+                description = "Seeker IDE",
+                onClick = null,
+            )
         }
     }
 
@@ -330,6 +478,44 @@ fun SettingsScreen(
             settings = settings,
             onDismiss = { themeListOpen = false },
             onSet = { key, json -> write(key, json) },
+        )
+    }
+    // The three chain sheets wait for the cluster read like the rows do: a
+    // tap during the read leaves the flag set, and the sheet comes up the
+    // moment the cluster lands.
+    val choice = chain
+    if (clusterOpen && choice != null) {
+        ClusterSheet(
+            state = state,
+            // No row ticked while the file says localnet: the tick is the
+            // choice, and none has been made.
+            current = choice.cluster.takeUnless { choice.localnet },
+            projectRoot = root,
+            isAnchorProject = choice.isAnchorProject,
+            onDismiss = { clusterOpen = false },
+        )
+    }
+    if (walletOpen && choice != null) {
+        WalletSheet(
+            state = state,
+            cluster = choice.cluster,
+            onDismiss = { walletOpen = false },
+        )
+    }
+    val openProgram = program
+    if (programOpen && openProgram != null && choice != null) {
+        ProgramSheet(
+            state = state,
+            cluster = choice.cluster,
+            name = openProgram.moduleName,
+            programId = programId,
+            status = status,
+            checking = checking,
+            unreachable = unreachable,
+            wallet = wallet,
+            deployKey = deployKey,
+            onDismiss = { programOpen = false },
+            localnet = choice.localnet,
         )
     }
     if (aboutOpen) {
@@ -349,6 +535,38 @@ fun SettingsScreen(
         )
     }
 }
+
+/**
+ * What the disk says about the project's cluster, read in one IO pass:
+ * the cluster [ClusterStore.of] settles on, the raw Anchor.toml value it
+ * settled from, and whether there is an Anchor.toml for the sheet to write
+ * into. [localnet] is the one reading the enum cannot hold — the file names
+ * a cluster the picker does not offer — and while it is true the cluster
+ * here is the default the store fell back to, not a choice anyone made.
+ */
+private class ChainChoice(
+    val cluster: Cluster,
+    val anchorSays: String?,
+    val isAnchorProject: Boolean,
+    val localnet: Boolean,
+) {
+    companion object {
+        fun read(context: Context, root: String?): ChainChoice {
+            val cluster = ClusterStore.of(context, root)
+            val anchorSays = root?.let { ClusterStore.anchorTomlSays(it) }
+            val isAnchorProject = root != null && File(root, "Anchor.toml").isFile
+            return ChainChoice(cluster, anchorSays, isAnchorProject, anchorTomlNamesLocalnet(anchorSays, hasProject = root != null))
+        }
+    }
+}
+
+/** What the Program row's IO pass found: the program, its id, the deploy key, and the cluster's answer. */
+private class ProgramLookup(
+    val target: ProgramTarget,
+    val id: String?,
+    val deployKey: String?,
+    val status: Result<OnChainProgram>?,
+)
 
 /**
  * The engine's clamp on `buffer_font_size` is 6..48; these are the sizes a
@@ -378,6 +596,62 @@ internal fun spettroAccountLabel(signedIn: Boolean, email: String?): String = wh
  */
 internal fun spettroAccountDescription(signedIn: Boolean, plan: String?): String? =
     plan?.takeIf { signedIn }
+
+/**
+ * The Cluster row's readout. The cluster's own spelling — except when the
+ * project's Anchor.toml names something the picker does not offer, where the
+ * readout is that word and where it came from: `localnet · set in Anchor.toml`
+ * tells the user what the sheet will overwrite, and printing `devnet` (the
+ * fallback [ClusterStore.of] answers) would have hidden that. With no project
+ * there is no file to disagree, so it is the stored choice, plain. Pure, so a
+ * JVM test can hold all three readings still (ChainRowsTest).
+ */
+internal fun clusterRowDetail(display: String, anchorSays: String?, hasProject: Boolean): String =
+    if (anchorTomlNamesLocalnet(anchorSays, hasProject)) {
+        "${anchorSays!!.trim()} · set in Anchor.toml"
+    } else {
+        display
+    }
+
+/**
+ * Whether the project's Anchor.toml names a cluster the picker does not
+ * offer — `localnet`, in practice — so that the cluster the store answers
+ * is its fallback and not a choice. With no project there is no file; an
+ * empty row is no row. Pure, tested (ChainRowsTest).
+ */
+internal fun anchorTomlNamesLocalnet(anchorSays: String?, hasProject: Boolean): Boolean {
+    val raw = anchorSays?.trim()
+    return hasProject && !raw.isNullOrEmpty() && Cluster.fromAnchor(raw) == null
+}
+
+/**
+ * The Wallet row's readout: which wallet and which account, or the plain
+ * fact that there is none. "Seed Vault" alone would read as a choice already
+ * made; the address is the proof that it was.
+ */
+internal fun walletRowDetail(address: String?): String =
+    if (address == null) "not connected" else "Seed Vault · ${Base58.short(address)}"
+
+/**
+ * The sentence under the Program row's label, in the order the facts arrive:
+ * the wait, the failure to ask, then whatever [ProgramStatus.describe] said.
+ * Null when there is no id to ask about, so the row is label and readout
+ * alone rather than a sentence about nothing. [localnet] comes before all
+ * of them: with Anchor.toml on localnet nothing was asked, and the row says
+ * what to do about that instead of describing the fallback cluster.
+ */
+internal fun programRowDescription(
+    checking: Boolean,
+    unreachable: Boolean,
+    described: String?,
+    cluster: String,
+    localnet: Boolean = false,
+): String? = when {
+    localnet -> "localnet · pick a cluster"
+    checking -> "checking on $cluster…"
+    unreachable -> "could not reach $cluster"
+    else -> described
+}
 
 /**
  * A row that goes somewhere: a label, an optional readout or description, and
@@ -457,18 +731,6 @@ private fun LinkRow(
             Text(
                 text = detail,
                 style = MaterialTheme.typography.labelSmall,
-            HairlineDivider()
-            // The app's own version, as a statement rather than behind About:
-            // "which build am I on" is the question a user asks before
-            // reporting anything, and it should not cost a tap and a dialog.
-            // `versionName` in app/build.gradle.kts is the single source;
-            // it moves with every release (0.0.6 → 0.0.7 → …).
-            LinkRow(
-                label = "Version",
-                detail = BuildConfig.VERSION_NAME,
-                description = "Seeker IDE",
-                onClick = null,
-            )
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

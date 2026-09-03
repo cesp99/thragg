@@ -17,6 +17,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
+import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
 import to.eyed.seeker.code.core.AgentNotifier
 import to.eyed.seeker.code.ui.shell.agent.AgentSeams
 import to.eyed.seeker.code.core.AgentSessions
@@ -24,12 +25,15 @@ import to.eyed.seeker.code.core.AppSettings
 import to.eyed.seeker.code.core.CoreBridge
 import to.eyed.seeker.code.core.ImportRequest
 import to.eyed.seeker.code.core.IncomingFiles
+import to.eyed.seeker.code.solana.chain.ChainSeams
+import to.eyed.seeker.code.solana.chain.SeedVaultWallet
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.ui.theme.SeekerCodeByEyedTheme
 import to.eyed.seeker.code.ui.theme.ThemeStore
 import to.eyed.seeker.code.terminal.TerminalService
+import to.eyed.seeker.code.terminal.Userland
 import to.eyed.seeker.code.ui.shell.SeekerShell
 
 class MainActivity : ComponentActivity() {
@@ -50,6 +54,9 @@ class MainActivity : ComponentActivity() {
             // Denial is not fatal: the service still protects sessions, it
             // just does so invisibly. Nothing to undo, nothing to nag about.
         }
+
+    /** MWA's launcher: must be registered before the activity starts, like the permission above. */
+    private val walletSender = ActivityResultSender(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +91,23 @@ class MainActivity : ComponentActivity() {
         // on a fresh install fall back to the clipboard and to a toast that
         // says no agent is set up. One call, no I/O (AgentSeams.install).
         AgentSeams.install()
+        // The chain layer: the wallet gets the launcher registered above, and
+        // its remembered address back off disk (a background read, like the
+        // agent choice); the Build screen's Deploy gets its deployer.
+        SeedVaultWallet.attach(walletSender)
+        SeedVaultWallet.restore(this)
+        ChainSeams.install()
+        // Warm the guest's resolver file — and ResolverReach's probe cache —
+        // before anything spawns in the userland. The rewrite now *probes*
+        // each nameserver over TCP (a resolver that cannot speak TCP stalls
+        // every guest lookup for minutes under `options use-vc`), and the
+        // first terminal builds its command during composition: without this,
+        // that first cold probe would ride the main thread. A daemon thread,
+        // not a scope: it must not keep the process alive, and there is
+        // nothing to cancel.
+        Thread { runCatching { Userland.backend.refreshNetwork(this) } }
+            .apply { isDaemon = true; name = "resolv-warm" }
+            .start()
         // Only on a fresh start: after process death the system re-delivers
         // the launching intent, and a file the user already imported and
         // maybe deleted would come back as a second copy.

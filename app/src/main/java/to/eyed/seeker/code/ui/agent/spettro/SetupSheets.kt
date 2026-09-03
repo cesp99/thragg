@@ -88,6 +88,7 @@ fun SignInSheet(
     onDismiss: () -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     val login = SpettroSetup.login
 
     // The rehearsal's dead end: with no agent process up, the login fails at
@@ -105,7 +106,7 @@ fun SignInSheet(
 
     // Started from the sheet rather than from the card, so a dismissed sheet
     // and a cancelled login are the same event.
-    LaunchedEffect(Unit) { SpettroSetup.startLogin(onOpenUrl) }
+    LaunchedEffect(Unit) { SpettroSetup.startLogin(context, onOpenUrl) }
 
     // The second half of the "Start …" button below. `projectId` only turns
     // non-negative after the spawn has succeeded (AgentSessions.startThread
@@ -116,7 +117,7 @@ fun SignInSheet(
     LaunchedEffect(startRequested, AgentSessions.projectId) {
         if (startRequested && AgentSessions.projectId >= 0) {
             startRequested = false
-            SpettroSetup.startLogin(onOpenUrl)
+            SpettroSetup.startLogin(context, onOpenUrl)
         }
     }
     // The died-agent flavour: projectId never went negative, so the effect
@@ -128,7 +129,7 @@ fun SignInSheet(
             delay(1_500)
             if (startRequested) {
                 startRequested = false
-                SpettroSetup.startLogin(onOpenUrl)
+                SpettroSetup.startLogin(context, onOpenUrl)
             }
         }
     }
@@ -580,14 +581,14 @@ data class PermissionChoice(
  * The one-time "How much should Spettro ask?" sheet, shown right after the
  * first session opens.
  *
- * A fresh `~/.spettro/config.json` defaults to **ask-first**, which is the
- * right default only if the approval path is loud — a run parked behind a
- * sheet nobody saw looks exactly like an app that has hung. The
- * high-priority approval notification with haptics is K9's, and until it is in
- * this sheet pre-selects **Restricted** and says why rather than shipping a
- * default that can silently strand a turn (docs/SPETTRO.md, step 5).
- *
- * YOLO is never pre-selected, at any point, for any reason.
+ * A fresh `~/.spettro/config.json` defaults to **ask-first**, which on a
+ * phone is a run parked behind a sheet nobody saw — it looks exactly like an
+ * app that has hung. This sheet pre-selects **YOLO**: the product decision
+ * (Carlo, 2026-09-01) is that most users are here to let the agent code, and
+ * every prompt between them and that is a stall. It stays a pre-selection
+ * inside a question, not a silent write — the user still reads the three
+ * levels and taps Continue, and the copy under YOLO says plainly what it
+ * approves.
  */
 @Composable
 fun PermissionChoiceSheet(
@@ -644,12 +645,12 @@ fun PermissionChoiceSheet(
 }
 
 /**
- * Pre-selected until the approval notification lands — see
- * [PermissionChoiceSheet]. Matched by id against whatever the agent sent, so
- * an agent that renames its levels falls back to its own first option rather
- * than to a level this build guessed at.
+ * Pre-selected — see [PermissionChoiceSheet] for why it is YOLO. Matched by
+ * id against whatever the agent sent, so an agent that renames its levels
+ * falls back to its own first option rather than to a level this build
+ * guessed at.
  */
-private const val SUGGESTED_PERMISSION = "restricted"
+private const val SUGGESTED_PERMISSION = "yolo"
 
 /**
  * The wireframe's sentences, keyed by the agent's own option ids.

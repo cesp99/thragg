@@ -29,14 +29,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.io.File
 import java.util.Locale
@@ -51,15 +52,19 @@ import to.eyed.seeker.code.core.ProjectSession
 import to.eyed.seeker.code.core.ProjectSummary
 import to.eyed.seeker.code.core.ProjectsRoot
 import to.eyed.seeker.code.core.SafTransfer
+import to.eyed.seeker.code.solana.chain.Base58
+import to.eyed.seeker.code.solana.chain.Cluster
+import to.eyed.seeker.code.solana.chain.ClusterStore
+import to.eyed.seeker.code.solana.chain.SeedVaultWallet
 import to.eyed.seeker.code.terminal.GitClone
 import to.eyed.seeker.code.terminal.TerminalSessions
 import to.eyed.seeker.code.ui.components.BottomActionsGap
 import to.eyed.seeker.code.ui.components.EmptyState
 import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.components.SeekerCard
 import to.eyed.seeker.code.ui.components.SeekerSearchField
 import to.eyed.seeker.code.ui.components.SeekerSpinner
-import to.eyed.seeker.code.ui.components.SectionHeader
 import to.eyed.seeker.code.ui.components.StatusDot
 import to.eyed.seeker.code.ui.components.fadeUnderBottomActions
 import to.eyed.seeker.code.ui.components.outlinedButtonEdge
@@ -67,6 +72,7 @@ import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
 import to.eyed.seeker.code.ui.shell.build.ShellModes
+import to.eyed.seeker.code.ui.shell.settings.WalletSheet
 import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.MonoSmall
@@ -120,13 +126,22 @@ fun ProjectsSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * Open the Wallet sheet — P6's, and null until it lands (docs/UI.md, P6).
-     * Null draws the row saying so rather than hiding it: the row is the only
-     * route to the wallet and a missing row is a feature nobody can find.
+     * Open the Wallet sheet somewhere else. Null — the only caller today —
+     * opens this file's own copy of [WalletSheet] over this sheet, for the
+     * cluster of the open project (devnet with none), because the row is the
+     * only route to the wallet from Projects and a row that says "not in this
+     * build yet" over a wallet that is in the build is a lie with a chevron.
      */
     onOpenWallet: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+
+    // The wallet row's readout and its own sheet. The cluster is read once,
+    // off the main thread: `ClusterStore.of` opens Anchor.toml.
+    var walletOpen by remember { mutableStateOf(false) }
+    val walletCluster by produceState(Cluster.DEFAULT, state.project?.rootPath, ClusterStore.version) {
+        value = withContext(Dispatchers.IO) { ClusterStore.of(context, state.project?.rootPath) }
+    }
 
     // Bumped by anything that changes the directory listing — a create, a
     // delete, a rename, an import, a clone. The list is a directory read, so
@@ -343,12 +358,12 @@ fun ProjectsSheet(
                         // The wallet IS a keypair, so the key glyph is the
                         // literal thing rather than a metaphor.
                         icon = R.drawable.ic_ui_key,
-                        // "Not set up yet" named a job the row then refused
-                        // to let anybody start. Nothing on this device is
-                        // unset: the Wallet sheet is not in the build, which
-                        // is a fact about the app and not about the user.
-                        detail = if (onOpenWallet == null) "Not in this build yet" else null,
-                        onClick = onOpenWallet,
+                        // The readout is the connection, not a promise: the
+                        // address when Seed Vault has been connected, and the
+                        // plain fact when it has not.
+                        detail = SeedVaultWallet.address?.let { "Seed Vault · ${Base58.short(it)}" }
+                            ?: "Not connected",
+                        onClick = onOpenWallet ?: { walletOpen = true },
                     )
                     HairlineDivider()
                     ToolRow(
@@ -431,6 +446,9 @@ fun ProjectsSheet(
                 }
             },
         )
+    }
+    if (walletOpen) {
+        WalletSheet(state = state, cluster = walletCluster, onDismiss = { walletOpen = false })
     }
 }
 

@@ -5,8 +5,8 @@
 ## Testing
 
 <!-- What you ran, and on which device or emulator.
-     Merge gates: ./gradlew assembleDebug,
-     ./gradlew :app:testDebugUnitTest, cd core && cargo test && cargo clippy -->
+     Merge gates: ./gradlew assembleStandardDebug,
+     ./gradlew :app:testStandardDebugUnitTest, cd core && cargo test && cargo clippy -->
 
 ## Checklist
 

@@ -313,6 +313,26 @@ internal fun runsIn(rows: List<TranscriptRow>): List<OrchRun> =
  * answered about. A blank rectangle here reads as a crash, and this is the
  * screen a fresh install lands on straight after creating a program.
  */
+/**
+ * The failed turn's error, unwrapped for a person.
+ *
+ * Spettro reports a turn failure as `Internal error: { "error": "plan agent:
+ * agent call failed: unauthorized: Not Enough Credits" }` — a JSON body,
+ * braces and all, inside a sentence built for a log. The card keeps the
+ * provider's own words (the rule [SpettroSetup.lastError] states: verbatim,
+ * because they were written to be read) but sheds the transport wrapper the
+ * provider never meant a screen to print. Anything that does not match the
+ * shape passes through untouched — an error we fail to prettify must still
+ * be an error we show.
+ */
+internal fun humanTurnError(raw: String): String {
+    val brace = raw.indexOf('{')
+    if (brace < 0) return raw
+    val inner = runCatching { JSONObject(raw.substring(brace)).optString("error") }
+        .getOrDefault("")
+    return inner.takeIf { it.isNotBlank() } ?: raw
+}
+
 internal fun emptyHeadline(): String = "How can I help?"
 
 internal fun emptySubhead(projectName: String?): String =
@@ -1528,7 +1548,7 @@ private fun TranscriptTail(
             NoticeCard(
                 severity = Severity.Error,
                 title = "The turn failed",
-                body = error,
+                body = humanTurnError(error),
                 actions = {
                     if (state.canRetry) {
                         TextButton(onClick = onRetry) { Text(text = "Try again") }

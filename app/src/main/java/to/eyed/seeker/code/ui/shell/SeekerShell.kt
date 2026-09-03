@@ -4,6 +4,16 @@ package to.eyed.seeker.code.ui.shell
 
 import android.content.Context
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -22,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.KeyEvent
@@ -64,6 +75,8 @@ import to.eyed.seeker.code.ui.shell.setup.SetupScreen
 import to.eyed.seeker.code.ui.agent.spettro.SpettroSettingsScreen
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.SeekerTopBar
+import to.eyed.seeker.code.ui.theme.Durations
+import to.eyed.seeker.code.ui.theme.LocalReduceMotion
 import to.eyed.seeker.code.ui.workspace.NotificationHost
 import to.eyed.seeker.code.ui.shell.agent.AgentScreen
 import to.eyed.seeker.code.ui.shell.code.CodeScreen
@@ -220,18 +233,46 @@ fun SeekerShell(
                         )
                     ),
             ) {
-                val route = state.currentStack.top
-                if (route == null) {
-                    // The three destinations, all real: P2's editor, P3's
-                    // conversation and P4's build runner. There is no
-                    // placeholder left in this file.
-                    when (state.destination) {
-                        Destination.Code -> CodeScreen(state, settings, settingsPath, onSettingsChanged)
-                        Destination.Agent -> AgentScreen(state)
-                        Destination.Build -> BuildScreen(state)
+                val stack = state.currentStack
+                val reduceMotion = LocalReduceMotion.current
+                AnimatedContent(
+                    targetState = ShellSurface(state.destination, stack.top, stack.depth),
+                    // The depth is in the state so the transition can read the
+                    // direction off it, but it is not in the key: two surfaces
+                    // showing the same screen are the same surface, and keying
+                    // on depth would replay an animation over identical pixels.
+                    contentKey = { surface -> surface.destination to surface.route },
+                    transitionSpec = { surfaceTransition(reduceMotion) },
+                    // Clipped, because a slide is by definition drawn partly
+                    // outside its slot, and the row above this box is the
+                    // status-bar inset a travelling screen must not cross.
+                    modifier = Modifier.clipToBounds(),
+                    label = "shell-surface",
+                ) { surface ->
+                    // Every surface is opaque over the shell background. The
+                    // screens themselves don't paint one — composed directly
+                    // into the shell they never needed to — but two of them
+                    // overlap mid-slide, and a transparent screen sliding over
+                    // another is two screens interleaved, not a transition.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
+                    ) {
+                        val route = surface.route
+                        if (route == null) {
+                            // The three destinations, all real: P2's editor,
+                            // P3's conversation and P4's build runner. There
+                            // is no placeholder left in this file.
+                            when (surface.destination) {
+                                Destination.Code -> CodeScreen(state, settings, settingsPath, onSettingsChanged)
+                                Destination.Agent -> AgentScreen(state)
+                                Destination.Build -> BuildScreen(state)
+                            }
+                        } else {
+                            RouteHost(route, state, settings, settingsPath, onSettingsChanged)
+                        }
                     }
-                } else {
-                    RouteHost(route, state, settings, settingsPath, onSettingsChanged)
                 }
                 // The toast stack, over everything in the destination and under
                 // nothing: a failure has to be readable with a sheet or a route
@@ -255,6 +296,81 @@ fun SeekerShell(
     // (WorkspaceScreen.kt:5043).
     AskpassDialog()
 }
+
+/**
+ * What the shell is showing: the destination, whatever route is over it, and
+ * how deep that route sits.
+ *
+ * One value class where [SeekerShell] used to read `state` twice, because
+ * [AnimatedContent] holds the *previous* one of these while the next animates
+ * in — and the previous destination, route and depth are exactly the three
+ * facts the transition needs and the live `state` no longer has.
+ */
+private data class ShellSurface(
+    val destination: Destination,
+    val route: Route?,
+    val depth: Int,
+)
+
+/**
+ * How one [ShellSurface] becomes another — the answer to "where did this
+ * screen come from", which is the question an instant swap leaves the user to
+ * reconstruct from memory.
+ *
+ * Three motions, one per kind of navigation, so the motion *is* the map:
+ *
+ *  - **Push** (deeper on the same tab — a diagnostics chip, a changed file, a
+ *    settings row): the new screen slides in from the right and the old one
+ *    gives way leftward at a third of the speed, which is the depth cue every
+ *    stacked navigation on the platform uses. Back will reverse it, and the
+ *    user has been shown which edge it will come from.
+ *  - **Pop** (the ← or the gesture): the same motion backwards — the top
+ *    screen leaves to the right, the parent settles back from the left.
+ *  - **Tab switch**: a fade-through, deliberately without direction. The
+ *    three destinations are siblings, not a stack (docs/UI.md,
+ *    "Navigation"); a slide here would promise a spatial order the back
+ *    gesture does not honour.
+ *
+ * Reduce-motion swaps instantly: the destination is the information, the
+ * travel is the decoration (see [LocalReduceMotion]) — and this is the one
+ * animation in the app that moves the *entire screen*, so it is the first
+ * one the setting exists for.
+ */
+private fun AnimatedContentTransitionScope<ShellSurface>.surfaceTransition(
+    reduceMotion: Boolean,
+): ContentTransform {
+    val transition = if (reduceMotion) {
+        fadeIn(snap()) togetherWith fadeOut(snap())
+    } else if (targetState.destination != initialState.destination) {
+        fadeIn(tween(Durations.BAND_IN)) togetherWith fadeOut(tween(Durations.BLOCK_FADE))
+    } else if (targetState.depth > initialState.depth) {
+        (slideInHorizontally(tween(Durations.ROUTE)) { width -> width })
+            .togetherWith(
+                slideOutHorizontally(tween(Durations.ROUTE)) { width -> -width / PARALLAX } +
+                    fadeOut(tween(Durations.ROUTE)),
+            )
+    } else {
+        (slideInHorizontally(tween(Durations.ROUTE)) { width -> -width / PARALLAX } +
+            fadeIn(tween(Durations.ROUTE)))
+            .togetherWith(slideOutHorizontally(tween(Durations.ROUTE)) { width -> width })
+    }
+    // Deeper draws on top, always. Each surface keeps the z it was given on
+    // entry, so this one line covers both directions: a pushed route slides
+    // in *over* its parent, and on pop that same route — still carrying the
+    // higher z — slides away over the parent being revealed, rather than the
+    // parent smearing across the top of it.
+    transition.targetContentZIndex = targetState.depth.toFloat()
+    return transition
+}
+
+/**
+ * The give-way fraction: the covered screen travels a third of the width the
+ * covering one does. Enough that the parent visibly *moves aside* — a parent
+ * that stood still would read as the new screen merely lying on top, and back
+ * would be a guess again — but not so much that it appears to leave, because
+ * it hasn't: it is one ← away.
+ */
+private const val PARALLAX = 3
 
 /**
  * The three things that have to be true before the first frame is *useful*,

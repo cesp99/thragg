@@ -194,6 +194,7 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
             },
         )
     }
+    if (DeployPrompt.open) DeploySheet(state = state, onDismiss = { DeployPrompt.open = false })
 }
 
 /**
@@ -287,8 +288,16 @@ private fun BuildBar(
                     onDismiss = { overflow = false },
                     items = listOf(
                         ContextMenuItem("Test", enabled = runnable, onClick = onTest),
-                        ContextMenuItem("Deploy", enabled = runnable) {
-                            BuildRunner.start(context, state, BuildAction.Deploy)
+                        // Deploy needs a project with an artifact and nothing
+                        // from the guest: the chain layer signs and sends
+                        // from Kotlin, so a phone with no toolchain can still
+                        // ship a .so it was handed (solana/chain/ProgramDeploy.kt).
+                        ContextMenuItem(
+                            "Deploy",
+                            enabled = layout?.isBuildable == true &&
+                                BuildRunner.freshness !is ArtifactFreshness.Missing,
+                        ) {
+                            DeployPrompt.open = true
                         },
                         ContextMenuItem("Problems") { state.push(Route.Problems) },
                         ContextMenuItem("Copy the log") {
@@ -517,7 +526,18 @@ private fun BuildBody(
     val reason = unavailableReason(context, layout)
     val issues = BuildRunner.lastIssues
     val failed = !BuildRunner.isRunning && state.build is BuildState.Failed
-    val preview = if (BuildRunner.isRunning) emptyList() else issues.take(PREVIEW_ISSUES)
+    // Cards are for ERRORS. The first Anchor build of any project prints
+    // eight `unexpected cfg` warnings from anchor-lang itself, and previewing
+    // whatever came first buried a *successful* build under three full-width
+    // warning cards — the loudest thing on a screen whose news was good. A
+    // warning's whole representation here is the strip's count and one quiet
+    // chip into Problems below.
+    val preview =
+        if (BuildRunner.isRunning) {
+            emptyList()
+        } else {
+            issues.filter { it.severity == DiagnosticSeverity.Error }.take(PREVIEW_ISSUES)
+        }
     // With no log yet the reason IS the page, so it is drawn once, by the
     // empty state, with the Setup button on it. Printing it as a NoticeCard as
     // well would put the same sentence twice on a screen that has nothing else
@@ -525,9 +545,13 @@ private fun BuildBody(
     // below it — so the card comes back the moment there is output.
     val log = BuildRunner.log
     val notice = reason.takeIf { log.rows.isNotEmpty() }
-    val header = notice != null || failed || preview.isNotEmpty()
+    // Issues, not preview: a warnings-only run previews no cards but still
+    // owns the one chip into Problems.
+    val header = notice != null || failed || (!BuildRunner.isRunning && issues.isNotEmpty())
 
     Column(modifier = modifier.fillMaxSize()) {
+        // What the last deploy left: the id, the link, the sheet (DeployedCard.kt).
+        DeployedCard(state = state, root = root, layout = layout)
         if (header) {
             Column(
                 modifier = Modifier
@@ -593,9 +617,17 @@ private fun BuildBody(
                         onClick = { openIssue(state, issue, root) },
                     )
                 }
-                if (issues.size > preview.size && preview.isNotEmpty()) {
+                if (issues.size > preview.size) {
+                    // With error cards above it this counts the rest; with
+                    // none — a run that produced only warnings — it is the
+                    // single, whole representation the warnings get here.
+                    val rest = issues.size - preview.size
                     SeekerChip(
-                        label = "${issues.size - preview.size} more in Problems",
+                        label = if (preview.isEmpty()) {
+                            "$rest ${plural(rest, "warning")} in Problems"
+                        } else {
+                            "$rest more in Problems"
+                        },
                         onClick = { state.push(Route.Problems) },
                     )
                 }
@@ -610,6 +642,11 @@ private fun BuildBody(
             // The empty state's whole job is to say what to do next, and
             // "Press Run" is the wrong answer while Run is greyed.
             unavailable = reason,
+            // The log is per-process; the artifact is not. After an app
+            // restart the strip says "Built" from disk while the log is
+            // empty, and "Nothing built yet" under it called the strip a
+            // liar. The empty state adapts instead of contradicting.
+            artifactOnDisk = BuildRunner.freshness !is ArtifactFreshness.Missing,
             modifier = Modifier
                 .weight(1f)
                 .padding(

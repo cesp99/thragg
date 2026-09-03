@@ -25,8 +25,6 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-APK="$ROOT/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
-PKG=to.eyed.seeker.code
 BUILD=1
 SHOT=""
 
@@ -37,6 +35,9 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+APK="$ROOT/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
+PKG=to.eyed.seeker.code
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 

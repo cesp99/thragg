@@ -260,7 +260,10 @@ internal fun configSummary(toolbar: SpettroToolbar): String {
     return (ranked + rest)
         .filter { !it.isBool }
         .map { chipLabel(it) }
-        .filter { it.isNotBlank() && it != "—" }
+        // [saysSomething], not a blank check: an unset model's label is the
+        // literal `:` and a summary reading "coding · : · yolo" is worse
+        // than one that skips the hole.
+        .filter { saysSomething(it) }
         .joinToString(" · ")
 }
 
@@ -279,10 +282,24 @@ internal fun configSummary(toolbar: SpettroToolbar): String {
  * one), and a chip that vanishes takes the only route to the config sheet in
  * the composer with it.
  */
-internal fun configChipLabel(toolbar: SpettroToolbar): String? =
-    (toolbar.model ?: toolbar.options.firstOrNull { !it.isBool })
-        ?.let { chipLabel(it) }
-        ?.takeIf { it.isNotBlank() && it != "—" }
+internal fun configChipLabel(toolbar: SpettroToolbar): String? {
+    val option = toolbar.model ?: toolbar.options.firstOrNull { !it.isBool } ?: return null
+    val label = chipLabel(option)
+    if (saysSomething(label)) return label
+    // The agent's "no model chosen yet" arrives as the literal `:` —
+    // provider and name formatted around their separator with neither
+    // present — and a chip printing a lone colon looks broken, not unset.
+    // The model chip keeps a plain-words label instead of vanishing, because
+    // the chip is also the route to the sheet that fixes the situation.
+    return if (option === toolbar.model) "No model" else null
+}
+
+/**
+ * Whether a wire label carries any actual name — a letter or a digit —
+ * rather than only the punctuation of an empty format string (`:`, `—`, or
+ * blank).
+ */
+private fun saysSomething(label: String) = label.any(Char::isLetterOrDigit)
 
 /**
  * The thinking level beside the model, or null when it is not thinking.

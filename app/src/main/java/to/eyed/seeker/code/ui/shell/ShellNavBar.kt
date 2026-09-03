@@ -1,13 +1,6 @@
 package to.eyed.seeker.code.ui.shell
 
 import android.content.res.Configuration
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -33,8 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
@@ -44,8 +35,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.ui.components.HairlineDivider
+import to.eyed.seeker.code.ui.components.SeekerSpinner
 import to.eyed.seeker.code.ui.components.StatusDot
-import to.eyed.seeker.code.ui.theme.LocalReduceMotion
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.SeekerIcon
@@ -143,13 +134,37 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                 icon = R.drawable.ic_ui_agent,
                 badge = { if (state.agentAttention) AttentionDot() },
             )
+            // One glyph per slot: while a run is going the spinner IS the
+            // icon, and for ten seconds after a success the green tick IS the
+            // icon — never a mark painted over the ▶. The overlay versions
+            // drew a 26dp arc, and then an 11dp check, across a 24dp triangle:
+            // two marks fighting for the same 24dp, unreadable at a glance.
+            // The braille spinner is the app's one "running" mark
+            // (SeekerSpinner.kt); the tick takes the slot for its
+            // [BuildState.SUCCESS_TICK_MS] and hands the ▶ back. Only Failed
+            // stays a corner dot — it coexists with the ▶ indefinitely, which
+            // is exactly what a badge is for.
+            val buildBadge = currentBuildBadge(state)
             NavItem(
                 destination = Destination.Build,
                 label = "Build",
                 state = state,
                 landscape = landscape,
                 icon = R.drawable.ic_ui_play,
-                badge = { BuildBadgeSlot(state) },
+                running = { buildBadge == BuildBadge.Ring },
+                succeeded = { buildBadge == BuildBadge.Tick },
+                badge = {
+                    if (buildBadge == BuildBadge.Failed) {
+                        StatusDot(
+                            color = MaterialTheme.colorScheme.error,
+                            size = BadgeDot,
+                            contentDescription = "The last run failed",
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = BadgeOffset, y = -BadgeOffset),
+                        )
+                    }
+                },
             )
         }
     }
@@ -175,6 +190,8 @@ private fun RowScope.NavItem(
     state: ShellState,
     landscape: Boolean,
     icon: Int,
+    running: () -> Boolean = { false },
+    succeeded: () -> Boolean = { false },
     badge: @Composable BoxScope.() -> Unit = {},
 ) {
     val selected = state.destination == destination
@@ -184,15 +201,40 @@ private fun RowScope.NavItem(
         modifier = Modifier.touchTarget(),
         icon = {
             Box(contentAlignment = Alignment.Center) {
-                SeekerIcon(
-                    icon = icon,
-                    contentDescription = if (landscape) label else null,
-                    // Null: `NavigationBarItem` tints its own icon slot through
-                    // `LocalContentColor`, which is how the selected and
-                    // unselected inks below reach it.
-                    tint = LocalContentColor.current,
-                    size = IconSize.Nav,
-                )
+                if (running()) {
+                    // The slot's whole glyph, not a decoration on one — see
+                    // the Build item's note at the call site.
+                    Box(
+                        modifier = Modifier.semantics {
+                            contentDescription = "$label — running"
+                        },
+                    ) {
+                        SeekerSpinner(size = IconSize.Nav, color = LocalContentColor.current)
+                    }
+                } else if (succeeded()) {
+                    SeekerIcon(
+                        icon = R.drawable.ic_ui_check,
+                        contentDescription = "$label — the last run succeeded",
+                        // The solved added ink rather than `created` raw: this
+                        // is a mark on the Material half, where inks clear
+                        // 4.5:1 against the ground they sit on — Ayu Light
+                        // draws `created` at 2.11:1 (docs/VISUAL.md, "THE
+                        // HYBRID"). The green is the information here, so it
+                        // overrides the slot's selection tint.
+                        tint = LocalSeekerColors.current.addedMark,
+                        size = IconSize.Nav,
+                    )
+                } else {
+                    SeekerIcon(
+                        icon = icon,
+                        contentDescription = if (landscape) label else null,
+                        // Null: `NavigationBarItem` tints its own icon slot through
+                        // `LocalContentColor`, which is how the selected and
+                        // unselected inks below reach it.
+                        tint = LocalContentColor.current,
+                        size = IconSize.Nav,
+                    )
+                }
                 badge()
             }
         },
@@ -226,19 +268,25 @@ private fun BoxScope.AttentionDot() {
 }
 
 /**
- * ▶'s badge, and the most important cross-destination signal in the app: a
- * ring while a run is going, a red dot when the last one failed, a green tick
- * for ten seconds after a success (docs/UI.md, "Navigation" — BADGES).
+ * ▶'s state, resolved on a wall clock: the most important cross-destination
+ * signal in the app (docs/UI.md, "Navigation" — BADGES). A 71-second build is
+ * a build you walk away from, so the outcome has to reach the user wherever
+ * they went — which is why the bar carries it and not only the Build screen.
  *
- * A 71-second build is a build you walk away from, so the outcome has to reach
- * the user wherever they went — which is why this is painted on the bar and
- * not only on the Build screen.
+ * How each state is *drawn* is the Build item's call site: running and the
+ * success tick swap the glyph itself, and only Failed is a corner dot. The
+ * tick was a corner mark too — an 11dp green check lapped over the ▶ — and
+ * that was the "two marks in one 24dp slot" overlay this file already removed
+ * once for the running ring, made worse by being on screen for exactly ten
+ * seconds: ink that appears over a glyph and then vanishes reads as a glitch,
+ * not a report.
+ *
+ * The tick expires on that wall clock, so this needs a wake-up rather than a
+ * recomposition it will not otherwise get. One timer, armed only while a tick
+ * is actually on screen: an idle bar does not tick over.
  */
 @Composable
-private fun BoxScope.BuildBadgeSlot(state: ShellState) {
-    // The tick expires on a wall clock, so the badge needs a wake-up rather
-    // than a recomposition it will not otherwise get. One timer, armed only
-    // while a tick is actually on screen: an idle bar does not tick over.
+private fun currentBuildBadge(state: ShellState): BuildBadge {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val build = state.build
     LaunchedEffect(build) {
@@ -250,67 +298,7 @@ private fun BoxScope.BuildBadgeSlot(state: ShellState) {
             now = System.currentTimeMillis()
         }
     }
-    when (buildBadge(build, now)) {
-        BuildBadge.None -> Unit
-        BuildBadge.Ring -> RunningRing()
-        BuildBadge.Failed -> StatusDot(
-            color = MaterialTheme.colorScheme.error,
-            size = BadgeDot,
-            contentDescription = "The last run failed",
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = BadgeOffset, y = -BadgeOffset),
-        )
-        BuildBadge.Tick -> SeekerIcon(
-            icon = R.drawable.ic_ui_check,
-            contentDescription = "The last run succeeded",
-            // The solved added ink rather than `created` raw: this is a mark
-            // on the Material half, where inks clear 4.5:1 against the ground
-            // they sit on — Ayu Light draws `created` at 2.11:1
-            // (docs/VISUAL.md, "THE HYBRID").
-            tint = LocalSeekerColors.current.addedMark,
-            size = BadgeTick,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = BadgeOffset, y = -BadgeOffset),
-        )
-    }
-}
-
-/**
- * The ring, drawn as a rotating arc around the glyph. It honours
- * `LocalReduceMotion` by standing still rather than by disappearing: the fact
- * that a build is running is information, and the spin is only how it is said
- * (Motion.kt — "a screen where half the motion stopped is worse than one where
- * none did", and vestibular disorders are why the setting exists).
- */
-@Composable
-private fun RunningRing() {
-    val still = LocalReduceMotion.current
-    val spin by rememberInfiniteTransition(label = "build").animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "build-turn",
-    )
-    val colour = MaterialTheme.colorScheme.primary
-    Canvas(
-        modifier = Modifier
-            .size(RingSize)
-            .rotate(if (still) 0f else spin)
-            .semantics { contentDescription = "Running" },
-    ) {
-        drawArc(
-            color = colour,
-            startAngle = 0f,
-            sweepAngle = if (still) 360f else 280f,
-            useCenter = false,
-            style = Stroke(width = RingStroke.toPx()),
-        )
-    }
+    return buildBadge(build, now)
 }
 
 /**
@@ -355,8 +343,5 @@ private val NavIconSize = IconSize.Nav
 /** Half the difference between M3's 32dp selection pill and its 24dp glyph. */
 private val IndicatorPad = 4.dp
 private val BadgeDot = 7.dp
-private val BadgeTick = 11.dp
 private val BadgeOffset = 9.dp
-private val RingSize = 26.dp
-private val RingStroke = 2.dp
 private val BarPadding = 4.dp

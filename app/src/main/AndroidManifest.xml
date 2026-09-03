@@ -25,6 +25,15 @@
          split-horizon resolver. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- A deploy is minutes of small transactions; with the screen off the
+         CPU would sleep between them. Held only for the length of the work,
+         with a ceiling (solana/chain/BackgroundWork.kt). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Doze suspends the network for apps the user has not exempted, and no
+         foreground service lifts that. The Deploy sheet asks once; the user
+         decides. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- "Open with…" (core/ShareOut.kt) asks which apps can view a file
          before it offers the chooser, so that it can leave this app out of
          the list and say so when nobody else is on it. Android 11+ hides
@@ -46,9 +55,16 @@
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.SeekerCodeByEyed">
+        <!-- Portrait only, by decision: every screen is designed as a single
+             vertical column (docs/UI.md's thumb-zone rule), and landscape
+             renders that column cut in half — the empty states lose their
+             buttons below the fold and the Setup list hides its own rows.
+             `orientation` stays in configChanges above so the lock cannot
+             cause a restart on devices that report a rotation anyway. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|layoutDirection"
             android:label="@string/app_name"
             android:launchMode="singleTask"

@@ -163,8 +163,13 @@ internal const val STEER_NOTE =
  * announces "Steer" on the control.
  */
 internal fun busyNote(mode: SendMode): String? = when (mode) {
-    SendMode.Steer -> "Steering — the agent takes it at its next step."
-    SendMode.Queue -> "Queued — this is sent when the turn settles."
+    // An offer, not a report: this caption is visible the whole time a turn
+    // runs, including with an empty box, and the earlier wording ("Steering —
+    // …") read as the app already steering something when nothing had been
+    // sent. Only [STEER_NOTE], after an actual send, may speak in the past
+    // tense.
+    SendMode.Steer -> "Send to steer — the agent takes it at its next step."
+    SendMode.Queue -> "Send to queue — it goes when the turn settles."
     SendMode.Send -> null
 }
 

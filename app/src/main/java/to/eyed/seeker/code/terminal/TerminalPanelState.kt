@@ -66,18 +66,24 @@ class TerminalPanelState(context: Context) {
     private var created = 0
 
     /**
-     * Whether something with no session of its own — a build — needs the
-     * foreground service kept up.
+     * What, with no session of its own, needs the foreground service kept up
+     * — each thing by name, because two of them overlap in practice.
      *
      * [to.eyed.seeker.code.solana.build.BuildRunner] drives its guest process
      * through a pipe rather than a pty, because cargo's JSON diagnostics do
      * not survive a terminal's line wrapping, so it has no entry in [entries]
      * to be counted by [syncService] — and a 71-second build is exactly the
      * shape of thing Android's phantom-process reaper takes when the screen
-     * goes off. Held here rather than in the service because this is the one
-     * place that knows how many things currently need it.
+     * goes off. The browser sign-in is the other holder: opening the browser
+     * *guarantees* this app goes to the background mid-poll, and on the
+     * Seeker that cut the guest's network out from under the agent — the
+     * poll died with `context deadline exceeded` while the sheet said the
+     * server could not be reached. A set of tags rather than one boolean, so
+     * a login ending cannot drop a build's hold or the reverse; held here
+     * rather than in the service because this is the one place that knows
+     * how many things currently need it.
      */
-    private var backgroundHold by mutableStateOf(false)
+    private val backgroundHolds = androidx.compose.runtime.mutableStateSetOf<String>()
 
     /** Show the dock, starting a first shell in [cwd] if there is none. */
     fun open(cwd: String) {
@@ -105,13 +111,17 @@ class TerminalPanelState(context: Context) {
     }
 
     /**
-     * Keep the foreground service alive for work that owns no session. Idempotent.
+     * Keep the foreground service alive for work that owns no session.
+     * Idempotent per [tag]: releasing a tag never held, or twice, changes
+     * nothing, and one holder ending never releases another.
      */
-    fun holdForBackgroundWork(held: Boolean) {
-        if (backgroundHold == held) return
-        backgroundHold = held
-        syncService()
+    fun holdForBackgroundWork(tag: String, held: Boolean) {
+        val changed = if (held) backgroundHolds.add(tag) else backgroundHolds.remove(tag)
+        if (changed) syncService()
     }
+
+    /** The build's own hold, under the name it always had. */
+    fun holdForBackgroundWork(held: Boolean) = holdForBackgroundWork("build", held)
 
     fun hide() {
         isOpen = false
@@ -292,7 +302,7 @@ class TerminalPanelState(context: Context) {
      * long as there is a session for it to protect.
      */
     private fun syncService() {
-        TerminalService.sync(context, entries.size + if (backgroundHold) 1 else 0)
+        TerminalService.sync(context, entries.size + backgroundHolds.size)
     }
 
     companion object {

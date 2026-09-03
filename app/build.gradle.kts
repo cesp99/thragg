@@ -136,8 +136,8 @@ android {
 // with `./gradlew :app:generateBaselineProfile`; the result is committed.
 baselineProfile {
     // One profile in src/main/generated/baselineProfiles rather than one per
-    // variant. (This outlived the two editions it was first written for; with
-    // a single flavour it is simply where the profile lives.)
+    // variant. (This outlived the two editions it was first written for:
+    // same code, same startup path.)
     mergeIntoMain = true
     // Committed profile, applied on every release build — no emulator needed
     // at build time.
@@ -197,6 +197,11 @@ dependencies {
     // Installs the baseline profile when the store (or adb) doesn't compile
     // it at install time.
     implementation(libs.androidx.profileinstaller)
+    // clientlib-ktx declares androidx.test.ext:junit-ktx as a *runtime*
+    // dependency, which would drag junit, hamcrest and androidx.test into the
+    // release APK. None of it is used at runtime.
+    implementation(libs.mwa.clientlib.ktx) { exclude(group = "androidx.test.ext") }
+    implementation(libs.eddsa)
     baselineProfile(project(":baselineprofile"))
     testImplementation(libs.junit)
     // The real org.json, for host tests only. Android ships it, but the
@@ -314,11 +319,10 @@ fun mavenCoordinates(configuration: String): Provider<List<String>> =
 tasks.register<DumpMavenLicences>("dumpMavenLicences") {
     group = "verification"
     description = "Records the release runtime classpath for the notices bundle"
-    // One classpath, because there is one edition. This used to zip `full`
-    // with `play`: the two differed in what they *could execute*, not in what
-    // they depended on, so a module reaching only one of them would have been
-    // missing from the other's notices. With the play flavour gone the release
-    // runtime classpath of the single variant is the whole answer.
+    // One classpath, still. This used to zip `full` with `play`: the two
+    // differed in what they *could execute*, not in what they depended on, so
+    // a module reaching only one of them would have been missing from the
+    // other's notices. The release runtime classpath is the whole answer.
     coordinates.set(mavenCoordinates("releaseRuntimeClasspath"))
     output.set(rootProject.layout.projectDirectory.file("tools/licenses/maven-runtime.json"))
 }

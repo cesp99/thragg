@@ -115,6 +115,13 @@ internal fun BuildLogView(
      * stops the two disagreeing.
      */
     unavailable: Unavailable? = null,
+    /**
+     * Whether `target/deploy` already holds an artifact. The log lives and
+     * dies with the process; the artifact survives it, so a fresh launch can
+     * be "Built" in the strip and empty here — and the empty state must say
+     * "no output this session", not deny a build the strip is reporting.
+     */
+    artifactOnDisk: Boolean = false,
 ) {
     val theme = LocalZedTheme.current
     val listState = rememberLazyListState()
@@ -147,11 +154,20 @@ internal fun BuildLogView(
         // room to offer it.
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (unavailable == null) {
-                EmptyState(
-                    headline = "Nothing built yet",
-                    body = "Press Run and the compiler's output arrives here, " +
-                        "line by line, with every problem tappable.",
-                )
+                if (artifactOnDisk) {
+                    EmptyState(
+                        headline = "No output this session",
+                        body = "The last build's artifact is on disk — the strip above " +
+                            "has it. Press Run to build again and the compiler's " +
+                            "output streams here.",
+                    )
+                } else {
+                    EmptyState(
+                        headline = "Nothing built yet",
+                        body = "Press Run and the compiler's output arrives here, " +
+                            "line by line, with every problem tappable.",
+                    )
+                }
             } else {
                 EmptyState(
                     headline = unavailable.headline,

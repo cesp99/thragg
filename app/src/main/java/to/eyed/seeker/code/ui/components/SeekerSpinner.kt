@@ -1,6 +1,7 @@
 package to.eyed.seeker.code.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -10,7 +11,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -74,5 +77,59 @@ fun SeekerSpinner(
                 center = center + Offset(ring * cos(angle), ring * sin(angle)),
             )
         }
+    }
+}
+
+/** How many resting places [SeekerIndeterminateBar]'s segment sweeps through. */
+private const val BAR_STEPS = 12
+
+/**
+ * The indeterminate bar, at the spinner's cadence rather than Material's.
+ *
+ * M3's indeterminate `LinearProgressIndicator` animates continuously, which
+ * on a 120 Hz panel is an invalidation *every frame* for as long as the row
+ * is working. Measured on the Seeker during a toolchain compile: the main
+ * thread and RenderThread held over a core between them, and every one of
+ * those cycles came out of the same cores `rustc` was using. This bar makes
+ * the same promise — "something is happening, no fraction exists" — as a
+ * segment sweeping through [BAR_STEPS] discrete resting places at the
+ * spinner's own quantised cadence, so a working row costs a handful of
+ * invalidations a second instead of 120.
+ *
+ * Reduce-motion stops the sweep and keeps the segment, for [SeekerSpinner]'s
+ * reason: "running" is information, the travel is decoration.
+ *
+ * Determinate progress is not this component's job — a real fraction should
+ * keep using the stock indicator, which only redraws when the fraction moves.
+ */
+@Composable
+fun SeekerIndeterminateBar(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    height: Dp = 4.dp,
+) {
+    val reduce = LocalReduceMotion.current
+    var step by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reduce) {
+        if (reduce) return@LaunchedEffect
+        while (true) {
+            // Double the spinner's frame: a bar has further to travel than a
+            // ring of dots, and 100ms steps read as the same family of motion.
+            delay(Durations.SPINNER_FRAME * 2)
+            step = (step + 1) % BAR_STEPS
+        }
+    }
+    Canvas(modifier.height(height)) {
+        val radius = CornerRadius(this.size.height / 2f)
+        drawRoundRect(color = trackColor, cornerRadius = radius)
+        val segment = this.size.width * 0.3f
+        val travel = this.size.width - segment
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(travel * step / (BAR_STEPS - 1).toFloat(), 0f),
+            size = Size(segment, this.size.height),
+            cornerRadius = radius,
+        )
     }
 }

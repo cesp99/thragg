@@ -339,7 +339,18 @@ object BuildRunner {
                     "declare_id! still holds the scaffold's placeholder — running anchor keys sync"
                 )
             )
-            execute(context, project, "anchor keys sync") { line ->
+            // Behind the same guard the build itself gets: `keys sync` runs
+            // `cargo metadata` through rustup's shim, and the first build's
+            // cargo-build-sbf has just *uninstalled* the linked `solana`
+            // toolchain — exactly the wound the guard repairs. Unguarded,
+            // the second build of every fresh Anchor project died here with
+            // "override toolchain 'solana' is not installed" (seen live,
+            // 2026-09-01) before the guarded build command could heal it.
+            execute(
+                context,
+                project,
+                BuildTasks.toolchainGuard(platformToolsVersion, toolsCacheSeeds) + "anchor keys sync",
+            ) { line ->
                 log.append(BuildLogRow.Text(line))
             }
             if (generation != generationAtStart) return RunResult(-1, emptyList(), null)

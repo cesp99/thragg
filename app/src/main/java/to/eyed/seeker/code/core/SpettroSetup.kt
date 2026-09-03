@@ -392,32 +392,61 @@ object SpettroSetup {
      * [onBrowserUrl] is called once, with the URL to open, before the loop
      * starts.
      */
-    fun startLogin(onBrowserUrl: (String) -> Unit) {
+    fun startLogin(context: android.content.Context, onBrowserUrl: (String) -> Unit) {
+        val app = context.applicationContext
         val mine = ++loginGeneration
         loginJob?.cancel()
         lastError = null
         loginOffline = false
         login = LoginStatus(loginId = null, status = "starting", browserUrl = null, error = null)
         loginJob = scope.launch {
-            val started = AgentSessions.callExtension("_spettro/account/login/start")
-            val json = when (started) {
-                is ExtResult.Ok -> started.result
-                ExtResult.Unsupported -> return@launch failLogin(mine, UPDATE_SPETTRO)
-                is ExtResult.Rpc -> return@launch failLogin(mine, started.message)
-                is ExtResult.Offline -> {
-                    loginOffline = true
-                    return@launch failLogin(mine, started.message)
+            // Opening the browser *guarantees* this app goes to the
+            // background for the length of the sign-in, and on the Seeker a
+            // backgrounded app's guest lost its network mid-poll — the loop
+            // below watched `context deadline exceeded` arrive while the
+            // browser was already showing "CLI authenticated". The terminal's
+            // foreground service is the same shield every long guest run
+            // uses; per-generation tag, so a second Sign-in tap's hold is
+            // never released by the first tap's teardown.
+            val hold = "login#$mine"
+            runCatching {
+                to.eyed.seeker.code.terminal.TerminalSessions.of(app)
+                    .holdForBackgroundWork(hold, true)
+            }
+            try {
+                val started = AgentSessions.callExtension("_spettro/account/login/start")
+                val json = when (started) {
+                    is ExtResult.Ok -> started.result
+                    ExtResult.Unsupported -> return@launch failLogin(mine, UPDATE_SPETTRO)
+                    is ExtResult.Rpc -> return@launch failLogin(mine, started.message)
+                    is ExtResult.Offline -> {
+                        loginOffline = true
+                        return@launch failLogin(mine, started.message)
+                    }
+                }
+                if (loginGeneration != mine) return@launch
+                val status = LoginStatus.parse(json)
+                login = status
+                val url = status.browserUrl
+                if (url.isNullOrBlank()) {
+                    // The agent often *does* say why — the backend's own words
+                    // ride in `error` — and a generic line where a reason exists
+                    // sent a real on-device failure off to be guessed at. Say
+                    // what it said; fall back to the generic line only when it
+                    // truly said nothing.
+                    return@launch failLogin(
+                        mine,
+                        status.error ?: "Spettro did not give a sign-in link to open.",
+                    )
+                }
+                withContext(Dispatchers.Main) { onBrowserUrl(url) }
+                watchLogin(mine)
+            } finally {
+                runCatching {
+                    to.eyed.seeker.code.terminal.TerminalSessions.of(app)
+                        .holdForBackgroundWork(hold, false)
                 }
             }
-            if (loginGeneration != mine) return@launch
-            val status = LoginStatus.parse(json)
-            login = status
-            val url = status.browserUrl
-            if (url.isNullOrBlank()) {
-                return@launch failLogin(mine, "Spettro did not give a sign-in link to open.")
-            }
-            withContext(Dispatchers.Main) { onBrowserUrl(url) }
-            watchLogin(mine)
         }
     }
 

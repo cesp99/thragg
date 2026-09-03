@@ -229,6 +229,7 @@ object AgentSessions {
     fun restoreChoice(context: Context, settings: AppSettings) {
         val application = context.applicationContext
         app = application
+        seedFirstRunDefaults(application)
         scope.launch {
             val name = runCatching { AgentChoice.remembered(application) }.getOrNull()
             val restored = AgentChoice.resolve(settings.agents, name) ?: return@launch
@@ -237,6 +238,42 @@ object AgentSessions {
             }
         }
     }
+
+    /**
+     * The defaults most users should land on, queued once per device.
+     *
+     * Product decision (Carlo, 2026-09-01): people open Spettro on this phone
+     * to have it *code*, so a fresh device starts in **coding** mode at
+     * **high** thinking rather than at the CLI's own defaults — `plan` and
+     * thinking off — which fit a terminal user who tunes things and not a
+     * phone user who taps Send. The model is deliberately *not* seeded: the
+     * account's plan already names its default (SuperFast today), and a
+     * hard-coded model id here would fight whatever the plan says tomorrow.
+     * The permission level is not seeded either — it is asked, once, in
+     * [to.eyed.seeker.code.ui.agent.spettro.PermissionChoiceSheet], which now
+     * pre-selects YOLO for the same reason.
+     *
+     * [setConfigOption] queues both writes until a session attaches
+     * (`flushQueuedConfig`), so this is safe to call before any agent exists;
+     * the marker is written first so a crash can at worst lose the seed, not
+     * repeat it over a user's later choices.
+     */
+    private fun seedFirstRunDefaults(application: Context) {
+        val prefs = application.getSharedPreferences(AgentChoice.PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(DEFAULTS_SEEDED_KEY, false)) return
+        prefs.edit().putBoolean(DEFAULTS_SEEDED_KEY, true).apply()
+        setConfigOption(MODE_CONFIG_ID, JSONObject.quote("coding"))
+        setConfigOption("thinking", JSONObject.quote("high"))
+    }
+
+    /**
+     * `_2` because the first seed was provably lost: it fired before the
+     * agent advertised its options, was refused as an unknown id, and the
+     * marker stayed written — so devices seeded under `config_defaults_seeded`
+     * carry the flag and none of the defaults. One more run through the now
+     * race-proof [applyConfigOption] path repairs them.
+     */
+    private const val DEFAULTS_SEEDED_KEY = "config_defaults_seeded_2"
 
     /** Write [chosen] down, so the next launch starts where this one ended. */
     private fun rememberChoice(chosen: AgentDefinition?) {
@@ -421,12 +458,16 @@ object AgentSessions {
             threads.add(thread)
             active = thread
             isStarting = false
-            // Both `session/load` and `session/resume` hand the conversation
-            // back at the agent's *manifest default* mode — usually `plan` —
-            // whatever it was when it was saved. Nothing on the wire carries
-            // the old one, so the remembered value is re-applied here, once,
-            // right after the session lands (docs/SPETTRO.md, W-15).
-            if (resume != null) reapplyRememberedMode(id)
+            // Every session lands at the agent's *manifest default* mode —
+            // usually `plan`: a resume because nothing on the wire carries
+            // the old one (docs/SPETTRO.md, W-15), a fresh session because
+            // that is what a default is. Both get the remembered mode — or
+            // the app's own default, `coding`, when nothing was chosen this
+            // run — applied here, once, right after the session lands. Phone
+            // users open Spettro to have it code (the product decision
+            // beside [seedFirstRunDefaults]); a terminal user's plan-first
+            // default fits a different chair.
+            reapplyRememberedMode(id)
         }
     }
 
@@ -453,15 +494,67 @@ object AgentSessions {
     private var modeWriteStamp = 0L
 
     private suspend fun reapplyRememberedMode(session: Long) {
-        val mode = rememberedMode ?: return
-        // Best effort and deliberately quiet: a failure here is a chip showing
-        // `plan` when the user wanted `code`, which the chip itself will show
-        // correctly at the next poll. Raising a refusal for it would put an
-        // error on screen for something nobody asked for in this moment.
-        runCatching {
-            CoreBridge.acpSetConfigOption(session, MODE_CONFIG_ID, JSONObject.quote(mode))
+        // `coding` when nothing was chosen this run, not a bail: the first-run
+        // seed fires once per *device*, but mode is session-scoped agent-side,
+        // so every later launch starts with [rememberedMode] null and would
+        // land on the manifest's `plan` — undoing the product decision beside
+        // [seedFirstRunDefaults] on launch two.
+        val mode = rememberedMode ?: DEFAULT_MODE
+        // Bail if the user picks a mode while we are still waiting: their tap
+        // is newer than anything this function knows (see [modeWriteStamp]).
+        val stamp = modeWriteStamp
+        applyConfigOption(session, MODE_CONFIG_ID, JSONObject.quote(mode)) {
+            modeWriteStamp != stamp
         }
     }
+
+    /**
+     * Write one config option, waiting out the advertisement race first.
+     *
+     * `session/new` returns *before* the agent has advertised its config
+     * options, and [CoreBridge.acpSetConfigOption] refuses an id it has not
+     * seen — so a write fired straight off session-land is silently dropped.
+     * That exact drop is how a device lost both first-run seeds (mode and
+     * thinking) and answered every later session in `plan`: measured on the
+     * Seeker, 2026-09-01. So: poll the engine's cached state until the option
+     * exists, write, and trust the accept. Quiet on final failure by design —
+     * the cost is a chip showing the agent's own default, which the chip
+     * already shows truthfully.
+     *
+     * [abandoned] lets a caller stop waiting when something newer supersedes
+     * this write (a user's own tap on the same option).
+     */
+    private suspend fun applyConfigOption(
+        session: Long,
+        configId: String,
+        valueJson: String,
+        abandoned: () -> Boolean = { false },
+    ): Boolean {
+        repeat(CONFIG_APPLY_TRIES) {
+            if (abandoned()) return false
+            val advertised = runCatching {
+                AgentSessionState.parse(CoreBridge.acpSessionState(session))
+                    .configOptions.any { it.id == configId }
+            }.getOrDefault(false)
+            if (advertised) {
+                val accepted = runCatching {
+                    CoreBridge.acpSetConfigOption(session, configId, valueJson)
+                }.getOrDefault(false)
+                if (accepted) return true
+            }
+            delay(CONFIG_APPLY_DELAY_MS)
+        }
+        return false
+    }
+
+    /**
+     * 20 × 500ms — ten seconds of patience. The options usually arrive within
+     * a second of session-land; the tail is a cold agent start on a busy
+     * phone, and past ten seconds the session has bigger problems than a
+     * default chip.
+     */
+    private const val CONFIG_APPLY_TRIES = 20
+    private const val CONFIG_APPLY_DELAY_MS = 500L
 
     /**
      * Spettro's mode lives in `configOptions`, not in ACP's `session/set_mode`
@@ -469,6 +562,13 @@ object AgentSessions {
      * (docs/SPETTRO.md, W-18).
      */
     private const val MODE_CONFIG_ID = "mode"
+
+    /**
+     * The mode a session gets when the user has not picked one this run —
+     * the product decision beside [seedFirstRunDefaults], applied on every
+     * launch rather than only the first.
+     */
+    private const val DEFAULT_MODE = "coding"
 
     /** Whether [project] has any thread at all — the panel's empty state. */
     fun hasThreadFor(project: Long): Boolean = threads.any { it.projectId == project }
@@ -990,7 +1090,16 @@ object AgentSessions {
         queuedConfig.clear()
         scope.launch {
             for ((configId, valueJson) in pending) {
-                runCatching { CoreBridge.acpSetConfigOption(session, configId, valueJson) }
+                // Through the race-proof path, and re-queued on failure rather
+                // than dropped: a fire-and-forget here is how the first-run
+                // thinking seed died — sent before the agent advertised its
+                // options, refused, and cleared from the queue all the same.
+                // `!in` so a value the user queued while we waited wins.
+                if (!applyConfigOption(session, configId, valueJson) &&
+                    !queuedConfig.containsKey(configId)
+                ) {
+                    queuedConfig[configId] = valueJson
+                }
             }
         }
     }

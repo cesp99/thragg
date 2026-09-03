@@ -635,4 +635,22 @@ class AgentScreenTest {
         assertNull(walkedQuestion(call))
         assertEquals(listOf("t-1"), pendingApprovals(listOf(call)).map { it.id })
     }
+
+    /**
+     * The failed-turn card sheds Spettro's transport wrapper and keeps the
+     * provider's words — and passes through anything it cannot parse, because
+     * an error we fail to prettify must still be an error we show.
+     */
+    @Test
+    fun `turn errors are unwrapped for people`() {
+        val wire = "Internal error: {\n \"error\": \"plan agent: agent call " +
+            "failed: unauthorized: Not Enough Credits\"\n}"
+        assertEquals(
+            "plan agent: agent call failed: unauthorized: Not Enough Credits",
+            humanTurnError(wire),
+        )
+        assertEquals("The socket closed", humanTurnError("The socket closed"))
+        assertEquals("Internal error: { not json", humanTurnError("Internal error: { not json"))
+        assertEquals("""{"code": 500}""", humanTurnError("""{"code": 500}"""))
+    }
 }

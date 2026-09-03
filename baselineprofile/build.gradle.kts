@@ -31,9 +31,15 @@ android {
 
     targetProjectPath = ":app"
 
-    // No product flavours here, because :app has none: a test module must
-    // mirror the flavours of the module it targets, and the two editions
-    // (`full` with the Debian userland, `play` without) collapsed into one.
+    // A test module must mirror the flavours of the module it targets, and
+    // :app has an `edition` dimension again — `standard` and `demo`, which
+    // differ in one BuildConfig boolean. Only the names matter here; the
+    // profile is generated against standard and merged into main (see :app).
+    flavorDimensions += "edition"
+    productFlavors {
+        create("standard") { dimension = "edition" }
+        create("demo") { dimension = "edition" }
+    }
 
     testOptions.managedDevices.localDevices {
         create("pixel6Api36") {

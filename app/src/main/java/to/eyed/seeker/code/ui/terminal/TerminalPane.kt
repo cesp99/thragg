@@ -36,6 +36,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import to.eyed.seeker.code.ui.components.SeekerIndeterminateBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -884,7 +885,10 @@ private fun UserlandBanner(
             // Zed's own `element.background` is a rung below this row instead.
             val trackColor = theme.color("element.background")
             if (fraction == null) {
-                LinearProgressIndicator(
+                // The stepped bar, not M3's: the stock indeterminate
+                // indicator invalidates every frame for as long as the
+                // install runs (see SeekerIndeterminateBar).
+                SeekerIndeterminateBar(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     trackColor = trackColor,
                 )

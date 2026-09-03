@@ -30,18 +30,21 @@ class ComposerNoteTest {
     /**
      * Steering is the claim that needs making: the transcript does not change
      * when a steer lands, so without the sentence the screen looks like it
-     * dropped the message.
+     * dropped the message. The wording must stay an *offer* ("Send to…") —
+     * this caption shows for the whole turn, empty box included, and a
+     * past-tense "Steering —" read as the app steering something nobody sent
+     * (reported on-device, 2026-09-01).
      */
     @Test
-    fun `steering says the turn keeps running`() {
+    fun `steering is offered, not claimed`() {
         val note = busyNote(sendMode(busy = true, steerable = true))
-        assertEquals("Steering — the agent takes it at its next step.", note)
+        assertEquals("Send to steer — the agent takes it at its next step.", note)
     }
 
     /** Queue is a wait, and a wait that is not announced reads as a hang. */
     @Test
     fun `queueing says when it goes`() {
         val note = busyNote(sendMode(busy = true, steerable = false))
-        assertEquals("Queued — this is sent when the turn settles.", note)
+        assertEquals("Send to queue — it goes when the turn settles.", note)
     }
 }

@@ -20,6 +20,13 @@ json = "20250107"
 benchmark = "1.5.0-rc01"
 profileinstaller = "1.4.1"
 uiautomator = "2.4.0"
+# Mobile Wallet Adapter (Seed Vault). The "-agp9-beta1" build is the 2.2.0
+# release compiled with Kotlin 2.3 and AGP 9; the plain 2.2.0 artefact carries
+# Kotlin 2.4 metadata and requires kotlin-stdlib 2.4.10, which the 2.2.10
+# compiler above cannot read (it reads one minor version ahead, not two).
+mwaClientlib = "2.2.0-agp9-beta1"
+# Ed25519 on the host and the phone: pure Java, CC0, signs the deploy key.
+eddsa = "0.3.0"
 
 [libraries]
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
@@ -42,6 +49,8 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+mwa-clientlib-ktx = { group = "com.solanamobile", name = "mobile-wallet-adapter-clientlib-ktx", version.ref = "mwaClientlib" }
+eddsa = { group = "net.i2p.crypto", name = "eddsa", version.ref = "eddsa" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

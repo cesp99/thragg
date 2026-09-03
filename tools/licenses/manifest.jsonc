@@ -496,6 +496,23 @@
     "org.jetbrains":       { "spdx": "Apache-2.0", "copyright": "Copyright (C) JetBrains s.r.o. and Kotlin Programming Language contributors", "url": "https://github.com/JetBrains/kotlin" },
     "org.jspecify":        { "spdx": "Apache-2.0", "copyright": "Copyright (C) The JSpecify Authors", "url": "https://jspecify.dev" },
     "org.checkerframework": { "spdx": "MIT", "copyright": "Copyright (c) 2004-present the Checker Framework developers", "url": "https://checkerframework.org" },
-    "com.squareup":        { "spdx": "Apache-2.0", "copyright": "Copyright (C) Square, Inc.", "url": "https://square.github.io" }
+    "com.squareup":        { "spdx": "Apache-2.0", "copyright": "Copyright (C) Square, Inc.", "url": "https://square.github.io" },
+    // The chain layer (docs/SOLANA.md): Mobile Wallet Adapter and its
+    // web3-core primitives, both Solana Mobile's, read from the POMs of
+    // mobile-wallet-adapter-clientlib-ktx 2.2.0 and web3-solana 0.3.1.
+    "com.solanamobile":    { "spdx": "Apache-2.0", "copyright": "Copyright (c) 2022 Solana Mobile Inc.", "url": "https://github.com/solana-mobile/mobile-wallet-adapter" },
+    // web3-solana's three small Kotlin-multiplatform helpers, one author.
+    // kborsh and multimult declare Apache-2.0 in their POMs; salkt declares
+    // MIT. This table is keyed by group and the three share one, so the row
+    // carries both — an AND ships both texts, and both do apply to the set.
+    "io.github.funkatronics": { "spdx": "Apache-2.0 AND MIT", "copyright": "Copyright (c) 2024 Marco Martinez", "url": "https://github.com/Funkatronics" },
+    // web3-core's byte buffer (Kotlin multiplatform), Apache-2.0 per the POM.
+    "com.ditchoom":        { "spdx": "Apache-2.0", "copyright": "Copyright (C) Rahul Behera", "url": "https://github.com/DitchOoM/buffer" },
+    // The websocket the MWA local association runs over.
+    "com.neovisionaries":  { "spdx": "Apache-2.0", "copyright": "Copyright (C) 2015-2017 Neo Visionaries Inc.", "url": "https://github.com/TakahikoKawasaki/nv-websocket-client" },
+    // Ed25519 for the deploy key. CC0: the LICENSE.txt is the bare public
+    // domain dedication and names nobody, so the holder is the project's own
+    // description of itself.
+    "net.i2p.crypto":      { "spdx": "CC0-1.0", "copyright": "Copyright (C) str4d and the I2P project", "url": "https://github.com/str4d/ed25519-java" }
   }
 }

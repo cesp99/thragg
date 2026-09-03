@@ -94,4 +94,50 @@ class GuestResolversTest {
         )
     }
 
+    // --- only TCP-capable resolvers earn a line ------------------------------
+
+    /**
+     * The on-device failure this rule was bought with: `use-vc` makes TCP the
+     * only transport, the Seeker's router drops TCP 53 silently, and glibc's
+     * blocking connect turned every lookup into a two-minute SYN_SENT stall —
+     * `cargo install` spent five minutes resolving its first name. A resolver
+     * that fails the TCP probe must not be written at all.
+     */
+    @Test
+    fun aResolverThatCannotSpeakTcpIsLeftOut() {
+        val conf = GuestResolvers.conf(listOf("192.168.50.1")) { candidates ->
+            candidates.associateWith { it != "192.168.50.1" }
+        }
+        assertEquals(
+            "nameserver 1.1.1.1\nnameserver 8.8.8.8\noptions use-vc\n",
+            conf,
+        )
+    }
+
+    /** A device resolver that passes the probe keeps its place at the front. */
+    @Test
+    fun aTcpCapableDeviceResolverStaysFirst() {
+        assertEquals(
+            listOf("192.168.1.1", "1.1.1.1", "8.8.8.8"),
+            GuestResolvers.usable(
+                listOf("192.168.1.1", "1.1.1.1", "8.8.8.8"),
+                mapOf("192.168.1.1" to true, "1.1.1.1" to true, "8.8.8.8" to true),
+            ),
+        )
+    }
+
+    /**
+     * Offline, every probe fails; the unfiltered list is written anyway,
+     * because an empty resolv.conf turns "no network" into a different,
+     * stranger failure than the resolver errors a user can read.
+     */
+    @Test
+    fun allProbesFailingKeepsTheWholeList() {
+        val candidates = listOf("192.168.1.1", "1.1.1.1", "8.8.8.8")
+        assertEquals(
+            candidates,
+            GuestResolvers.usable(candidates, candidates.associateWith { false }),
+        )
+    }
+
 }

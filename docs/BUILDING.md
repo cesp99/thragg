@@ -121,9 +121,9 @@ engine is by far the largest thing in the package and no device can use
 more than one architecture's copy:
 
 ```
-app/build/outputs/apk/debug/app-arm64-v8a-debug.apk    ← real devices
-app/build/outputs/apk/debug/app-x86_64-debug.apk       ← emulators
-app/build/outputs/apk/debug/app-universal-debug.apk    ← both
+app/build/outputs/apk/debug/app-arm64-v8a-debug.apk  ← real devices
+app/build/outputs/apk/debug/app-x86_64-debug.apk     ← emulators
+app/build/outputs/apk/debug/app-universal-debug.apk  ← both
 ```
 
 A release therefore ships three APKs — `arm64-v8a`, `x86_64` and
