@@ -129,6 +129,7 @@ ICONS: dict[str, Icon] = {
     "ic_ui_git_commit": Icon("git-commit-vertical", "a commit"),
     "ic_ui_git_graph": Icon("git-graph", "the commit graph"),
     "ic_ui_hash": Icon("hash", "a commit sha, a line number"),
+    "ic_ui_braces": Icon("braces", "go to a symbol in the buffer"),
     "ic_ui_load_circle": Icon("loader-circle", "work in flight; rotated by the caller"),
     "ic_ui_magnifying_glass": Icon("search", "search"),
     "ic_ui_plus": Icon("plus", "create"),
@@ -220,6 +221,8 @@ ICONS: dict[str, Icon] = {
     # `rotate-ccw` rather than `ic_ui_arrow_circle`'s `refresh-cw`: restoring a
     # checkpoint goes backwards in time, and the two must not look the same.
     "ic_ui_rotate_ccw": Icon("rotate-ccw", "restore a checkpoint"),
+    "ic_ui_save": Icon("save", "write the buffer to disk"),
+    "ic_ui_share": Icon("share-2", "hand a file to another app"),
     "ic_ui_shield": Icon("shield", "a permission request"),
     "ic_ui_slash": Icon("slash", "the slash-command palette (was a literal /)"),
     "ic_ui_sparkles": Icon("sparkles", "sign in to Spettro; the thinking level"),

@@ -1,6 +1,8 @@
 package to.eyed.seeker.code.ui.shell.code
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,10 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import to.eyed.seeker.code.R
 import to.eyed.seeker.code.ui.shell.Route
 import to.eyed.seeker.code.ui.shell.SheetScaffold
 import to.eyed.seeker.code.ui.shell.ShellState
+import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.accentIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
 import to.eyed.seeker.code.ui.workspace.OpenFile
 
@@ -32,6 +38,13 @@ import to.eyed.seeker.code.ui.workspace.OpenFile
  * Three of the seven push a full-screen route rather than doing anything
  * themselves, so they close the sheet on the way out — a route drawn under a
  * sheet is a route nobody can read.
+ *
+ * EVERY ROW HAS A GLYPH, as the Projects sheet's tool rows do. Seven lines of
+ * text at the same size and the same ink are read by reading them; seven
+ * glyphs are found by looking, and a sheet you open a few times a session is
+ * one you scan rather than read. The rows that push a route share their
+ * glyph with the destination they push — Problems' warning, Changes' commit
+ * — so the row and the screen say the same thing.
  */
 @Composable
 fun CodeOverflowSheet(
@@ -49,36 +62,36 @@ fun CodeOverflowSheet(
         onDismiss = onDismiss,
         title = file?.name ?: "Code",
     ) {
-        OverflowRow("Save", enabled = hasBuffer && file?.isDirty == true) {
+        OverflowRow("Save", R.drawable.ic_ui_save, enabled = hasBuffer && file?.isDirty == true) {
             onSave()
             onDismiss()
         }
-        OverflowRow("Go to symbol", enabled = hasBuffer) {
+        OverflowRow("Go to symbol", R.drawable.ic_ui_braces, enabled = hasBuffer) {
             // Dismissed first: both pickers are dialogs that preview into the
             // buffer as you browse, and a 65% sheet over it would cover the
             // very lines being previewed.
             onDismiss()
             onGoToSymbol()
         }
-        OverflowRow("Go to line", enabled = hasBuffer) {
+        OverflowRow("Go to line", R.drawable.ic_ui_hash, enabled = hasBuffer) {
             onDismiss()
             onGoToLine()
         }
-        OverflowRow("Problems") {
+        OverflowRow("Problems", R.drawable.ic_ui_warning) {
             onDismiss()
             shell.push(Route.Problems)
         }
-        OverflowRow("Changes") {
+        OverflowRow("Changes", R.drawable.ic_ui_git_commit) {
             onDismiss()
             shell.push(Route.Changes)
         }
-        OverflowRow("Share file…", enabled = file?.absolutePath != null) {
+        OverflowRow("Share file…", R.drawable.ic_ui_share, enabled = file?.absolutePath != null) {
             // The one caller of ShareOut on this side of the app: without it
             // there is no way to get a file *out* of a sandboxed IDE at all.
             file?.let { shareFile(context, it) }
             onDismiss()
         }
-        OverflowRow("Settings") {
+        OverflowRow("Settings", R.drawable.ic_file_settings) {
             onDismiss()
             shell.push(Route.Settings)
         }
@@ -86,27 +99,38 @@ fun CodeOverflowSheet(
 }
 
 @Composable
-private fun OverflowRow(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+private fun OverflowRow(
+    label: String,
+    @DrawableRes icon: Int,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    // 38% is Material's disabled-content alpha, and a disabled row drawn in
+    // `onSurfaceVariant` — which is what `text.disabled` resolved to here —
+    // is indistinguishable from an enabled secondary one. The glyph dims with
+    // the label so the two read as one disabled thing, not a live icon beside
+    // a dead word.
+    val alpha = if (enabled) 1f else 0.38f
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
             .touchTarget()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = MD.space4, vertical = MD.space3),
     ) {
+        SeekerIcon(
+            icon = icon,
+            // Decoration: the label beside it is the row's name.
+            contentDescription = null,
+            tint = accentIcon.copy(alpha = alpha),
+            size = IconSize.Inline,
+        )
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            // 38% is Material's disabled-content alpha, and a disabled row
-            // drawn in `onSurfaceVariant` — which is what `text.disabled`
-            // resolved to here — is indistinguishable from an enabled
-            // secondary one.
-            color = if (enabled) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            },
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
             // Every row in every sheet wraps rather than truncating at 1.3x
             // font scale; only paths and base58 addresses may be cut, and this
             // is neither (docs/UI.md, "Orientation" — text scale).

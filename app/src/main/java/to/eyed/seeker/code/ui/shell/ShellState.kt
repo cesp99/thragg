@@ -77,11 +77,43 @@ class ShellState {
             retapCount++
             return
         }
+        tabSwipe = 0
         this.destination = destination
         // The badge answered its question by being followed. Cleared here
         // rather than in the Agent screen so that arriving from the bar, from
         // a notification tap and from a "Fix with agent" all clear it.
         if (destination == Destination.Agent) agentAttention = false
+    }
+
+    /**
+     * Which way the last destination change travelled: `+1` for a swipe
+     * toward the next tab, `-1` toward the previous, `0` for anything that
+     * was not a swipe — a tap, a notification, a seam.
+     *
+     * The shell's transition reads it to decide whether the new destination
+     * slides in or simply appears (SeekerShell.kt, `surfaceTransition`). A
+     * tap shows the tab on the next frame, because a tab is tapped tens of
+     * times a session and every frame of travel there is a frame of waiting;
+     * a swipe is a *gesture with a direction*, and the screen following that
+     * direction is what tells the thumb it was heard. Written before
+     * [destination] in [swipeTab], in the same snapshot, so the transition
+     * never sees one without the other.
+     */
+    var tabSwipe: Int by mutableStateOf(0)
+        private set
+
+    /**
+     * A swipe across the bar: go one destination in [direction] (`+1` toward
+     * Build, `-1` toward Code), or stay put at either end.
+     *
+     * The three destinations are in [Destination]'s declared order, which is
+     * the bar's order left to right.
+     */
+    fun swipeTab(direction: Int) {
+        val next = Destination.entries.getOrNull(destination.ordinal + direction) ?: return
+        tabSwipe = direction
+        destination = next
+        if (next == Destination.Agent) agentAttention = false
     }
 
     /** Push a full-screen route onto a destination's stack — the current one by default. */

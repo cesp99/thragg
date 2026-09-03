@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -102,6 +103,7 @@ import to.eyed.seeker.code.ui.components.EmptyState
 import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.NoticeCard
 import to.eyed.seeker.code.ui.components.RunTicker
+import to.eyed.seeker.code.ui.components.SeekerChip
 import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.components.Severity
 import to.eyed.seeker.code.ui.components.StatusDot
@@ -337,6 +339,31 @@ internal fun emptyHeadline(): String = "How can I help?"
 
 internal fun emptySubhead(projectName: String?): String =
     if (projectName.isNullOrBlank()) "No project is open" else "Working in $projectName"
+
+/**
+ * Three things worth asking a Solana program's agent first, for the empty
+ * thread to offer as chips.
+ *
+ * An empty screen is an invitation to act, and "How can I help?" over a blank
+ * composer is an invitation with no verb in it. These are the three a new
+ * thread is most often opened for, in the order they are wanted: know what
+ * is here, find what is wrong with it, cover it. They name the project where
+ * it makes the sentence specific — "Explain what escrow does" reads as a
+ * question about *this* program, "Explain what this program does" as a
+ * template — and fall back to the generic noun when there is nothing to name.
+ *
+ * "Instructions" is Solana's word for a program's entry points, and the
+ * audience is Solana developers; a chip that says "functions" would be
+ * talking down. A pure function so the copy has a test.
+ */
+internal fun starterPrompts(projectName: String?): List<String> {
+    val subject = projectName?.takeIf { it.isNotBlank() } ?: "this program"
+    return listOf(
+        "Explain what $subject does",
+        "Look for bugs before I deploy",
+        "Write tests for the instructions",
+    )
+}
 
 /**
  * Whether the vertical budget has room for the secondary surfaces.
@@ -794,6 +821,13 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                     body = emptySubhead(project.rootName),
                     action = null,
                     onAction = {},
+                    // The chips go through the seam the rest of the app uses
+                    // to put words in the composer, and the composer drains
+                    // it, focuses the field and raises the keyboard — so a
+                    // tap on a chip lands the user at the end of a sentence
+                    // they can send or finish, never in a sent message.
+                    suggestions = starterPrompts(project.rootName),
+                    onSuggest = { prompt -> AgentSeams.offer(prompt) },
                     // The setup banner used to be a permanent 40 dp band above
                     // the composer. It says "no model connected", which is
                     // only ever true of a conversation that has not happened
@@ -1629,7 +1663,12 @@ private fun AgentNotices(
  * The copy register is the existing one and it is right — "No thread open.
  * Start one to talk to Spettro." names the way out, because unlike a chat app
  * the composer here is not always available.
+ *
+ * [suggestions] are the empty thread's way in when there is no button: a row
+ * of chips that each put a first message in the composer ([starterPrompts]).
+ * They take the action slot, under the body, where the button would be.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AgentEmpty(
     headline: String,
@@ -1637,6 +1676,8 @@ private fun AgentEmpty(
     onAction: () -> Unit,
     action: String?,
     notice: @Composable () -> Unit = {},
+    suggestions: List<String> = emptyList(),
+    onSuggest: (String) -> Unit = {},
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = MD.space4),
@@ -1645,10 +1686,27 @@ private fun AgentEmpty(
         EmptyState(
             headline = headline,
             body = body,
-            action = if (action == null) {
-                null
-            } else {
-                { TextButton(onClick = onAction) { Text(text = action) } }
+            action = when {
+                action != null -> {
+                    { TextButton(onClick = onAction) { Text(text = action) } }
+                }
+                suggestions.isNotEmpty() -> {
+                    {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(
+                                MD.space2,
+                                Alignment.CenterHorizontally,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(MD.space2),
+                        ) {
+                            for (prompt in suggestions) {
+                                SeekerChip(label = prompt, onClick = { onSuggest(prompt) })
+                            }
+                        }
+                    }
+                }
+                else -> null
             },
         )
         notice()

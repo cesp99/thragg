@@ -5,6 +5,7 @@ package to.eyed.seeker.code.ui.shell.code
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -90,6 +91,7 @@ import to.eyed.seeker.code.ui.components.SeekerTopBar
 import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.pressScale
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.TabularNums
@@ -751,7 +753,6 @@ fun CodeScreen(
             files = files,
             onSelect = { index -> files.select(index) },
             onRequestClose = { index -> files.requestClose(index) },
-            onFind = { sheet = CodeSheet.Files(FilesMode.InFiles) },
             onFiles = { sheet = CodeSheet.Files(FilesMode.Names) },
         )
     }
@@ -1012,11 +1013,20 @@ private fun EditorStatusLine(editor: EditorState, file: OpenFile) {
  */
 @Composable
 private fun CodeEmpty(headline: String, body: String, action: String, onAction: () -> Unit) {
+    // The one button on the screen gives under the thumb like every other
+    // filled object in the Material half; a stock Button only ripples.
+    val interaction = remember { MutableInteractionSource() }
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         EmptyState(
             headline = headline,
             body = body,
-            action = { Button(onClick = onAction) { Text(action) } },
+            action = {
+                Button(
+                    onClick = onAction,
+                    interactionSource = interaction,
+                    modifier = Modifier.pressScale(interaction),
+                ) { Text(action) }
+            },
         )
     }
 }

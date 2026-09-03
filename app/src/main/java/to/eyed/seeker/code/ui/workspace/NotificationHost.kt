@@ -1,6 +1,24 @@
 package to.eyed.seeker.code.ui.workspace
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,12 +38,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -33,12 +56,20 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.ui.theme.Durations
+import to.eyed.seeker.code.ui.theme.LocalReduceMotion
 import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.ZedRadius
 import to.eyed.seeker.code.ui.theme.rem
@@ -100,11 +131,20 @@ fun NotificationHost(
     }
 
     val visible = stack.visible
-    if (visible.isEmpty()) return
+    val reduce = LocalReduceMotion.current
 
-    Column(
+    // A LazyColumn rather than a Column, and not for laziness — four toasts
+    // is the cap. It is for `animateItem`: a keyed item that leaves the list
+    // fades out over [Durations.BAND_OUT] and the ones above it settle into
+    // the gap on a spring, where a Column simply stops drawing it. A toast
+    // that vanishes between two frames reads as a glitch on the very message
+    // it was carrying; one that settles reads as read. The list is never
+    // user-scrollable, and an empty one has no size, so it takes no touch
+    // away from what is under it.
+    LazyColumn(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(StackGap),
+        userScrollEnabled = false,
         modifier = modifier
             .padding(StackMargin)
             .widthIn(max = ToastWidth),
@@ -114,19 +154,68 @@ fun NotificationHost(
         // toast is the one under the eye. The overflow row sits at the far end
         // from it, where the older ones are.
         val ordered = if (isWide) visible else visible.asReversed()
-        if (isWide && stack.hidden > 0) OverflowRow(stack)
-        for (notification in ordered) {
+        if (isWide && stack.hidden > 0) item(key = "overflow") { OverflowRow(stack) }
+        items(ordered, key = { it.id }) { notification ->
             Toast(
                 notification = notification,
                 onDismiss = { stack.dismiss(notification.id) },
+                modifier = Modifier.animateItem(
+                    // The entrance is the toast's own (it rises from the edge
+                    // it will leave by); this only carries the exit and the
+                    // settle.
+                    fadeInSpec = null,
+                    placementSpec = if (reduce) {
+                        snap()
+                    } else {
+                        spring(
+                            stiffness = Spring.StiffnessMediumLow,
+                            visibilityThreshold = IntOffset.VisibilityThreshold,
+                        )
+                    },
+                    fadeOutSpec = if (reduce) snap() else tween(Durations.BAND_OUT),
+                ),
             )
         }
-        if (!isWide && stack.hidden > 0) OverflowRow(stack)
+        if (!isWide && stack.hidden > 0) item(key = "overflow") { OverflowRow(stack) }
         if (stack.isExpanded && stack.all.size > NotificationStack.MAX_VISIBLE) {
-            StackFooter(stack)
+            item(key = "footer") { StackFooter(stack) }
         }
     }
 }
+
+/**
+ * Whether a toast let go at [offset] px with [velocity] px/s is on its way
+ * out, or should settle back.
+ *
+ * NOT A DISTANCE THRESHOLD. The finger's release point is where the gesture
+ * *stopped being observed*, not where it was going: a quick flick lets go a
+ * few pixels in with the whole intent in its speed. So the resting place is
+ * projected first — Apple's scroll-deceleration form, `(v / 1000) · d / (1 −
+ * d)` with `d = 0.998`, the same curve a scroll view coasts on — and the
+ * decision is made on where the toast would come to rest, not where it was
+ * dropped. Half the width is the line: past it the card is more gone than
+ * here.
+ *
+ * A pure function so the rule is checkable on the host; the device test is
+ * that a flick works.
+ */
+internal fun dismissesToast(offset: Float, velocity: Float, width: Int): Boolean {
+    if (width <= 0) return false
+    val projected = offset + projectedTravel(velocity)
+    // A throw that crosses home is a throw HOME: a card dragged right and
+    // flung back left is being put back, however hard, and must never go
+    // out the far side. (Caught by the host test before it reached a thumb.)
+    if (offset != 0f && sign(projected) != sign(offset)) return false
+    return abs(projected) >= width / 2f
+}
+
+/**
+ * How far a release at [velocity] px/s coasts before stopping, at UIScrollView's
+ * normal deceleration rate. The exponential-decay form Apple ships, not the
+ * textbook `v² / 2a`.
+ */
+internal fun projectedTravel(velocity: Float, decelerationRate: Float = 0.998f): Float =
+    (velocity / 1000f) * decelerationRate / (1f - decelerationRate)
 
 /**
  * One toast: Zed's notification card — an icon, the message, an optional
@@ -134,13 +223,69 @@ fun NotificationHost(
  * 1px border (notifications.rs:968-1150).
  */
 @Composable
-private fun Toast(notification: AppNotification, onDismiss: () -> Unit) {
+private fun Toast(
+    notification: AppNotification,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val accent = severityColour(notification.severity)
+    val reduce = LocalReduceMotion.current
+    val scope = rememberCoroutineScope()
+    // The swipe. The card follows the finger 1:1 sideways, thins as it goes,
+    // and on release either coasts off the edge it was thrown toward or
+    // springs home — decided by [dismissesToast] on the projected resting
+    // place, so a short fast flick dismisses and a long slow drag that stops
+    // short does not. The drag itself never reads reduce-motion: a card that
+    // stopped following the finger would be a bug, not an accommodation. The
+    // settle does.
+    val offset = remember { Animatable(0f) }
+    var width by remember { mutableIntStateOf(0) }
+    val settle: AnimationSpec<Float> = if (reduce) snap() else SwipeSettle
+    // Entered the way it will leave — up from the bottom edge on a phone,
+    // where the stack sits — so the exit that `animateItem` draws later is
+    // the same motion reversed. Reduce-motion shows it in place.
+    val entered = remember { MutableTransitionState(reduce) }.apply { targetState = true }
+    AnimatedVisibility(
+        visibleState = entered,
+        enter = if (reduce) {
+            EnterTransition.None
+        } else {
+            fadeIn(tween(Durations.BAND_IN)) +
+                slideInVertically(tween(Durations.BAND_IN)) { height -> height / 2 }
+        },
+        modifier = modifier,
+    ) {
     Row(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .onSizeChanged { width = it.width }
+            .offset { IntOffset(offset.value.roundToInt(), 0) }
+            .graphicsLayer {
+                // Thins as it travels, so a card half-way off the edge is
+                // half-way gone rather than a full-strength card in the wrong
+                // place; the fraction is of the width it has to cover.
+                val gone = (abs(offset.value) / width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                alpha = 1f - gone * 0.5f
+            }
+            .draggable(
+                orientation = Orientation.Horizontal,
+                state = rememberDraggableState { delta ->
+                    scope.launch { offset.snapTo(offset.value + delta) }
+                },
+                onDragStopped = { velocity ->
+                    if (dismissesToast(offset.value, velocity, width)) {
+                        // Off the side it was heading for, carrying the
+                        // finger's own speed, and only then out of the stack.
+                        val exit = if (offset.value + projectedTravel(velocity) >= 0f) width else -width
+                        offset.animateTo(exit.toFloat(), settle, initialVelocity = velocity)
+                        onDismiss()
+                    } else {
+                        offset.animateTo(0f, settle, initialVelocity = velocity)
+                    }
+                },
+            )
             .clip(RoundedCornerShape(rem(ZedRadius.MD)))
             // A toast is drawn over EVERY screen, both halves of the app
             // included, so it takes M3's raised rung rather than the editor's
@@ -208,7 +353,19 @@ private fun Toast(notification: AppNotification, onDismiss: () -> Unit) {
             onClick = onDismiss,
         )
     }
+    }
 }
+
+/**
+ * The swipe's settle: under-damped, because a card that was just thrown has
+ * momentum and a little overshoot is what makes the release feel like the
+ * same object the finger was holding. Apple's drawer numbers (damping 0.8),
+ * on Compose's medium-low stiffness so it lands in about a third of a second.
+ */
+private val SwipeSettle: AnimationSpec<Float> = spring(
+    dampingRatio = 0.8f,
+    stiffness = Spring.StiffnessMediumLow,
+)
 
 /** "+3 more" — the cap's overflow, and the tap that lifts it. */
 @Composable

@@ -8,6 +8,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -75,6 +76,7 @@ import to.eyed.seeker.code.ui.shell.build.ShellModes
 import to.eyed.seeker.code.ui.shell.settings.WalletSheet
 import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.pressScale
 import to.eyed.seeker.code.ui.theme.MonoSmall
 import to.eyed.seeker.code.ui.theme.RowChevron
 import to.eyed.seeker.code.ui.theme.SeekerIcon
@@ -930,9 +932,14 @@ internal fun SheetButtons(
         TextButton(onClick = onCancel) {
             Text(cancelLabel, style = MaterialTheme.typography.labelLarge)
         }
+        // The confirm is the filled object in the pair, and it gives under
+        // the thumb; the cancel is text on the sheet and stays still.
+        val interaction = remember { MutableInteractionSource() }
         Button(
             onClick = onConfirm,
             enabled = confirmEnabled,
+            interactionSource = interaction,
+            modifier = Modifier.pressScale(interaction),
             colors = if (isDestructive) {
                 ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,

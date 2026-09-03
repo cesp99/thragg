@@ -1,12 +1,16 @@
 package to.eyed.seeker.code.ui.shell
 
 import android.content.res.Configuration
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.offset
@@ -21,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,6 +82,22 @@ import to.eyed.seeker.code.ui.theme.touchTarget
  * Emitting nothing is how both are done: a composable that returns early takes
  * no space in the [Column] above it, so the destination gets the height back
  * rather than being laid out under a hidden bar.
+ *
+ * THE BAR CAN BE SWIPED. A horizontal drag across it goes one destination in
+ * the direction of the drag ([ShellState.swipeTab]) and the screen slides
+ * the same way; a tap still switches on the next frame with no motion at
+ * all (SeekerShell.kt, `surfaceTransition`). The drag is on the bar and not
+ * on the content, because the content already owns horizontal gestures — the
+ * editor scrolls long lines, the terminal selects, the transcript's chips
+ * and code blocks scroll — and a pager under all of that would steal every
+ * one of them. The bar has nothing else to do with a sideways finger. It
+ * commits on release, on [SwipeDistance] of travel OR [SwipeVelocity] of
+ * speed, so a flick that lets go early counts and a slow drag that stops
+ * short does not; a tap never reaches the threshold and lands on its item.
+ *
+ * [NavBarTopPad] is inside the bar, under the hairline: the selection pill
+ * was drawn 4dp off the seam, and a bar whose content touches its own edge
+ * reads as cramped beside a top bar that gives its title 16dp.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -94,6 +115,11 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
     // is what keeps the two from disagreeing.
     val barInsets = NavigationBarDefaults.windowInsets
     val bottomInset = with(LocalDensity.current) { barInsets.getBottom(this).toDp() }
+    val density = LocalDensity.current
+    // Accumulated across one drag and settled on release; a value holder
+    // rather than a snapshot state, because nothing draws it.
+    var travel by remember { mutableFloatStateOf(0f) }
+    val swipeDistance = with(density) { SwipeDistance.toPx() }
     Column(modifier = modifier) {
         // The seam over the bar. With elevation pinned to zero in both halves
         // there is no shadow to separate chrome from content, so the hairline
@@ -105,7 +131,10 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
             // bar a step lighter than the top one reads as a floating panel.
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
-            windowInsets = barInsets,
+            // The system inset plus the bar's own breathing room, both drawn
+            // as padding *inside* the surface, so the pad is bar-coloured and
+            // the hairline stays exactly where the bar begins.
+            windowInsets = barInsets.add(WindowInsets(top = NavBarTopPad)),
             // MEASURED ON DEVICE, and the reason this is arithmetic rather than
             // a constant. `NavigationBar` applies its window insets *inside*
             // the height it is given — the inset is padding taken OUT of the
@@ -115,9 +144,21 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
             // the selection pill cut in half, and the handle sitting on the
             // labels. The inset is therefore added back explicitly, so the
             // spec's 56dp is 56dp of *bar* with the handle below it.
-            modifier = Modifier.height(
-                (if (landscape) LandscapeNavBarHeight else NavBarHeight) + bottomInset,
-            ),
+            modifier = Modifier
+                .height(
+                    (if (landscape) LandscapeNavBarHeight else NavBarHeight) +
+                        NavBarTopPad + bottomInset,
+                )
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta -> travel += delta },
+                    onDragStarted = { travel = 0f },
+                    onDragStopped = { velocity ->
+                        val direction = swipeDirection(travel, velocity, swipeDistance, SwipeVelocity)
+                        travel = 0f
+                        if (direction != 0) state.swipeTab(direction)
+                    },
+                ),
         ) {
             NavItem(
                 destination = Destination.Code,
@@ -302,6 +343,28 @@ private fun currentBuildBadge(state: ShellState): BuildBadge {
 }
 
 /**
+ * Which way a drag across the bar that ended at [travel] px with [velocity]
+ * px/s goes: `+1` toward Build (the finger went left, so the next tab comes
+ * from the right), `-1` toward Code, `0` for a drag that was neither far nor
+ * fast enough — which is what a tap that wandered a few pixels is.
+ *
+ * Distance OR speed, because a flick is short and fast and a deliberate drag
+ * is long and slow, and both mean the same thing. The sign comes from
+ * whichever crossed its threshold; when both did they agree, since a finger
+ * cannot let go moving away from where it has been.
+ */
+internal fun swipeDirection(
+    travel: Float,
+    velocity: Float,
+    minDistance: Float,
+    minVelocity: Float,
+): Int = when {
+    velocity <= -minVelocity || travel <= -minDistance -> 1
+    velocity >= minVelocity || travel >= minDistance -> -1
+    else -> 0
+}
+
+/**
  * 56dp, with the accessibility floor on top of it: at a large font scale the
  * label's own ink decides, exactly as the status bar's height does
  * (StatusBar.kt, `StatusBarHeight`). Nothing in this bar truncates, and
@@ -345,3 +408,16 @@ private val IndicatorPad = 4.dp
 private val BadgeDot = 7.dp
 private val BadgeOffset = 9.dp
 private val BarPadding = 4.dp
+
+/** 6dp of bar above the items, under the hairline — see the class note. */
+private val NavBarTopPad = 6.dp
+
+/**
+ * 48dp of travel: a third of a 133dp item, and more than any tap wanders.
+ * Measured in dp so it means the same thing on the 480dpi Seeker and on an
+ * emulator.
+ */
+private val SwipeDistance = 48.dp
+
+/** 600 px/s: a flick, and well above what a finger settling on a tap does. */
+private const val SwipeVelocity = 600f

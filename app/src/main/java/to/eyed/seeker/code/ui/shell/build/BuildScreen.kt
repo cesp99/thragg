@@ -8,7 +8,9 @@ import android.content.Context
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,6 +83,7 @@ import to.eyed.seeker.code.ui.theme.accentIcon
 import to.eyed.seeker.code.ui.theme.effectSpec
 import to.eyed.seeker.code.ui.theme.mutedIcon
 import to.eyed.seeker.code.ui.theme.touchTarget
+import to.eyed.seeker.code.ui.theme.pressScale
 import to.eyed.seeker.code.ui.workspace.ContextMenu
 import to.eyed.seeker.code.ui.workspace.ContextMenuItem
 import to.eyed.seeker.code.ui.workspace.Notifications
@@ -343,13 +348,30 @@ private fun RunControl(running: Boolean, enabled: Boolean, onClick: () -> Unit) 
         else -> scheme.onPrimary
     }
     val label = if (running) "Stop the build" else "Build"
+    val haptic = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .touchTarget()
+            // The square gives under the thumb like every other filled
+            // control, and a build starting is the one act on this screen
+            // that earns a haptic: 71 seconds of work begin on this tap, and
+            // the confirm says the tap took. Stopping gets none — a cancel is
+            // not a success.
+            .pressScale(interaction)
             .size(40.dp)
             .clip(RoundedCornerShape(MD.radiusMd))
             .background(fill)
-            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                onClickLabel = label,
+                onClick = {
+                    if (!running) haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    onClick()
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         SeekerIcon(

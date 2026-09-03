@@ -9,6 +9,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
@@ -61,6 +63,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -95,6 +98,7 @@ import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.accentIcon
 import to.eyed.seeker.code.ui.theme.effectSpec
 import to.eyed.seeker.code.ui.theme.mutedIcon
+import to.eyed.seeker.code.ui.theme.pressScale
 import to.eyed.seeker.code.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -293,6 +297,7 @@ internal fun AgentComposer(
     val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val busy = state.isBusy
     val mode = sendMode(busy, state.spettro != null)
 
@@ -369,6 +374,11 @@ internal fun AgentComposer(
         // A picture on its own is a message — "what is this?" is the whole
         // point of attaching one.
         if ((message.isEmpty() && attached.isEmpty()) || !enabled) return
+        // The one haptic on this screen, on the one act that commits: the
+        // message leaves the phone on this tap, and a confirm under the thumb
+        // says so on the same frame the field clears. Not on Stop — a cancel
+        // is not a success — and never on a keystroke.
+        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         // Only mentions still standing in the text go out: one completed by
         // mistake and deleted was deleted on purpose, and `@.env` is a prefix
         // of `@.env.example`, so this is a whole-token test rather than a
@@ -748,11 +758,32 @@ private fun ComposerCircle(
     longClickLabel: String? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
+    // The disc CROSSES between its two fills rather than swapping: the send
+    // circle wakes from 35% to full primary on the first character typed,
+    // and a frame swap there is a blink at the edge of the eye every time a
+    // message starts. 200ms on [effectSpec] is a change of meaning the eye
+    // can follow.
+    val ground by animateColorAsState(
+        targetValue = if (enabled) fill else disabledFill,
+        animationSpec = effectSpec(),
+        label = "composer-circle-fill",
+    )
+    val glyph by animateColorAsState(
+        targetValue = if (enabled) ink else disabledInk,
+        animationSpec = effectSpec(),
+        label = "composer-circle-ink",
+    )
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .touchTarget()
+            // A filled circle is the most object-like control on the screen,
+            // so it is the one that most needs to give under the thumb.
+            .pressScale(interaction)
             .clip(CircleShape)
             .combinedClickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
                 enabled = enabled,
                 onClickLabel = description,
                 onLongClickLabel = longClickLabel,
@@ -765,13 +796,13 @@ private fun ComposerCircle(
             modifier = Modifier
                 .size(CircleSize)
                 .clip(CircleShape)
-                .background(if (enabled) fill else disabledFill),
+                .background(ground),
             contentAlignment = Alignment.Center,
         ) {
             SeekerIcon(
                 icon = icon,
                 contentDescription = description,
-                tint = if (enabled) ink else disabledInk,
+                tint = glyph,
                 size = size,
             )
         }

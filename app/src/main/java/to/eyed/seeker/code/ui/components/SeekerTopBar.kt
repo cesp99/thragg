@@ -4,6 +4,7 @@ package to.eyed.seeker.code.ui.components
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -13,7 +14,9 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.R
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIconButton
 import to.eyed.seeker.code.ui.theme.mutedIcon
 
@@ -58,6 +61,15 @@ import to.eyed.seeker.code.ui.theme.mutedIcon
  * [onBack] null means this is a root destination and no arrow is drawn — the
  * three shell destinations have their own back stacks and a bar that always
  * shows an arrow teaches the wrong thing about where back goes.
+ *
+ * THE TITLE'S START INSET MATCHES THE ACTIONS' END INSET on a root bar.
+ * Stock M3 gives a title without a navigation icon 16dp; the action glyphs
+ * on the right sit centred in 48dp targets that end 4dp from the edge, so
+ * their ink stops about 24dp in. Measured on the device, the two edges of
+ * the same bar were 14dp and 23dp from their sides and the title read as
+ * pushed against the corner. [RootTitleInset] closes that: 16 + 8 = 24dp.
+ * With a back arrow the title already sits after a 48dp target and M3's
+ * own arithmetic is right.
  */
 @Composable
 fun SeekerTopBar(
@@ -71,7 +83,9 @@ fun SeekerTopBar(
     TopAppBar(
         modifier = modifier,
         title = {
-            Column {
+            Column(
+                modifier = Modifier.padding(start = if (onBack == null) RootTitleInset else 0.dp),
+            ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
@@ -111,3 +125,6 @@ fun SeekerTopBar(
         scrollBehavior = scrollBehavior,
     )
 }
+
+/** 8dp on top of M3's 16 — see the class note. [MD.space2] by name. */
+private val RootTitleInset = MD.space2

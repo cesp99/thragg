@@ -242,7 +242,7 @@ fun SeekerShell(
                     // showing the same screen are the same surface, and keying
                     // on depth would replay an animation over identical pixels.
                     contentKey = { surface -> surface.destination to surface.route },
-                    transitionSpec = { surfaceTransition(reduceMotion) },
+                    transitionSpec = { surfaceTransition(reduceMotion, state.tabSwipe) },
                     // Clipped, because a slide is by definition drawn partly
                     // outside its slot, and the row above this box is the
                     // status-bar inset a travelling screen must not cross.
@@ -326,10 +326,18 @@ private data class ShellSurface(
  *    user has been shown which edge it will come from.
  *  - **Pop** (the ← or the gesture): the same motion backwards — the top
  *    screen leaves to the right, the parent settles back from the left.
- *  - **Tab switch**: a fade-through, deliberately without direction. The
- *    three destinations are siblings, not a stack (docs/UI.md,
- *    "Navigation"); a slide here would promise a spatial order the back
- *    gesture does not honour.
+ *  - **Tab tap**: NO motion. The new destination is on screen the next
+ *    frame. A tab is tapped tens of times a session, and a fade-through here
+ *    was measured on the device as exactly what it is — every switch made
+ *    the information the user just asked for arrive late. The three
+ *    destinations are siblings, not a stack (docs/UI.md, "Navigation"), so
+ *    there is no direction a tap could honestly show anyway.
+ *  - **Tab swipe** (a horizontal drag across the bar, [ShellState.swipeTab]):
+ *    the one exception, because a swipe HAS a direction and the screen
+ *    following it is the feedback. The next destination slides in from the
+ *    side the finger travelled toward and the old one leaves the other way,
+ *    full width and in step — siblings passing, not a child covering a
+ *    parent, so there is no parallax.
  *
  * Reduce-motion swaps instantly: the destination is the information, the
  * travel is the decoration (see [LocalReduceMotion]) — and this is the one
@@ -338,11 +346,17 @@ private data class ShellSurface(
  */
 private fun AnimatedContentTransitionScope<ShellSurface>.surfaceTransition(
     reduceMotion: Boolean,
+    tabSwipe: Int,
 ): ContentTransform {
     val transition = if (reduceMotion) {
         fadeIn(snap()) togetherWith fadeOut(snap())
     } else if (targetState.destination != initialState.destination) {
-        fadeIn(tween(Durations.BAND_IN)) togetherWith fadeOut(tween(Durations.BLOCK_FADE))
+        if (tabSwipe == 0) {
+            fadeIn(snap()) togetherWith fadeOut(snap())
+        } else {
+            (slideInHorizontally(tween(Durations.ROUTE)) { width -> width * tabSwipe })
+                .togetherWith(slideOutHorizontally(tween(Durations.ROUTE)) { width -> -width * tabSwipe })
+        }
     } else if (targetState.depth > initialState.depth) {
         (slideInHorizontally(tween(Durations.ROUTE)) { width -> width })
             .togetherWith(

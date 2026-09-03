@@ -1,18 +1,21 @@
 package to.eyed.seeker.code.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.ui.theme.MD
+import to.eyed.seeker.code.ui.theme.pressScale
 
 /**
  * The one raised block in the Material half: a fill step and a hairline, and
@@ -46,6 +49,10 @@ import to.eyed.seeker.code.ui.theme.MD
  * ripple is back in the Material half on purpose — a row that does not respond
  * to a press is the loudest "this is not a real Android app" tell there is,
  * and `ZedSurface` is where the editor's no-ripple rule now lives instead.
+ * On top of the ripple the clickable form *gives*: [pressScale] on the same
+ * interaction source, so the card shrinks under the thumb the frame it is
+ * pressed and springs back on release. A card is drawn as an object, and an
+ * object that is pushed should move.
  */
 @Composable
 fun SeekerCard(
@@ -74,9 +81,11 @@ fun SeekerCard(
             content = { Column(content = content) },
         )
     } else {
+        val interaction = remember { MutableInteractionSource() }
         Surface(
             onClick = onClick,
-            modifier = modifier,
+            modifier = modifier.pressScale(interaction),
+            interactionSource = interaction,
             shape = shape,
             color = container,
             border = stroke,

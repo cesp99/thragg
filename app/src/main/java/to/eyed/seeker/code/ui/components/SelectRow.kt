@@ -3,6 +3,7 @@ package to.eyed.seeker.code.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -19,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SelectionMark
 import to.eyed.seeker.code.ui.theme.effectSpec
+import to.eyed.seeker.code.ui.theme.pressScale
 import to.eyed.seeker.code.ui.theme.spatialSpec
 
 /**
@@ -174,11 +177,15 @@ fun SelectableCard(
         animationSpec = spatialSpec(),
         label = "card-border-width",
     )
+    val interaction = remember { MutableInteractionSource() }
     Surface(
         selected = selected,
         onClick = onSelect,
         enabled = enabled,
-        modifier = modifier,
+        // A selectable card is an object you pick up: it gives under the
+        // thumb like every other card, and the border change lands on release.
+        modifier = modifier.pressScale(interaction),
+        interactionSource = interaction,
         shape = shape,
         color = fill,
         border = BorderStroke(width, edge),

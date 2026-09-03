@@ -2,6 +2,7 @@ package to.eyed.seeker.code.ui.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
@@ -11,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,6 +22,7 @@ import to.eyed.seeker.code.ui.theme.IconSize
 import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
 import to.eyed.seeker.code.ui.theme.mutedIcon
+import to.eyed.seeker.code.ui.theme.pressScale
 
 /**
  * A small pill that does something: an attachment, a filter, a branch, a tab.
@@ -45,6 +48,11 @@ import to.eyed.seeker.code.ui.theme.mutedIcon
  * takes its row's layout with it; at 38% it stays where it was and stops being
  * a target, which is Material's own disabled alpha and the same number the
  * rest of the app uses.
+ *
+ * A pill is a small object, and it gives under the thumb ([pressScale]) as
+ * every other object in the Material half does. On a 28dp chip the 3% is a
+ * single pixel of travel, and it is still the difference between a chip that
+ * is a sticker and one that is a button.
  */
 @Composable
 fun SeekerChip(
@@ -74,10 +82,12 @@ fun SeekerChip(
         scheme.outlineVariant.copy(alpha = alpha)
     }
     val ink = (tint ?: scheme.onSurface).copy(alpha = alpha)
+    val interaction = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier,
+        modifier = modifier.pressScale(interaction),
+        interactionSource = interaction,
         shape = RoundedCornerShape(MD.pill),
         color = fill,
         border = BorderStroke(MD.hairline, edge),

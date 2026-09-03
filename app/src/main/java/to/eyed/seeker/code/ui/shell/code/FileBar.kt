@@ -72,11 +72,10 @@ import to.eyed.seeker.code.ui.workspace.OpenFilesState
  * vanish unreported, so the close request deliberately goes through the model
  * rather than calling `close` directly.
  *
- * The search and tree buttons at the right end do **not** scroll away with the
- * chips. They are the two ways into the Files & Find sheet — the magnifier
- * opens it searching *in files*, the tree opens it on the tree — and a control
- * that is sometimes off the right edge of the screen is a control you cannot
- * rely on.
+ * The tree button at the right end does **not** scroll away with the chips.
+ * It is the way into the Files & Find sheet — which carries its own
+ * names/in-files switch, so one door is enough — and a control that is
+ * sometimes off the right edge of the screen is a control you cannot rely on.
  *
  * It hides itself whenever the IME is up, unconditionally and for the same
  * reason [to.eyed.seeker.code.ui.shell.ShellNavBar] does: with the keyboard
@@ -90,8 +89,6 @@ fun FileBar(
     onSelect: (index: Int) -> Unit,
     /** Long-press: close, asking first when the buffer is dirty. */
     onRequestClose: (index: Int) -> Unit,
-    /** The magnifier — the Files sheet, in its "in files" mode. */
-    onFind: () -> Unit,
     /** The tree button — the Files sheet, on the tree. */
     onFiles: () -> Unit,
     modifier: Modifier = Modifier,
@@ -157,13 +154,11 @@ fun FileBar(
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.outlineVariant),
             )
-            SeekerIconButton(
-                icon = R.drawable.ic_ui_magnifying_glass,
-                description = "Search in files",
-                onClick = onFind,
-                tint = mutedIcon,
-                modifier = Modifier.width(FileBarHeight),
-            )
+            // ONE button, not two. A "Search in files" magnifier stood beside
+            // this and opened the very same sheet on its other tab — the
+            // Files sheet carries the names/in-files switch at its foot, one
+            // tap from either — so the pair was two doors into one room, and
+            // the second door cost the file chips 44dp of the row.
             SeekerIconButton(
                 icon = R.drawable.ic_ui_file_tree,
                 description = "Files",

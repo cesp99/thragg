@@ -36,7 +36,7 @@ BADGES. ✦ shows a dot when the agent finished or is blocked on a permission wh
 
 THE BAR HIDES WHEN THE IME IS UP. In Code the 44dp action row takes its place (docked on the keyboard). In Agent the composer takes its place. Nowhere do the nav bar, the action row and the IME coexist. The rule is exact and unconditional: `if (WindowInsets.isImeVisible) hide nav`.
 
-SWITCHING is a tap only. No swipe between destinations — a horizontal swipe belongs to the editor's selection and the terminal's touch selection. Re-tapping the current destination scrolls it to top / to the newest message / to the end of the log.
+SWITCHING is a tap on the bar, or a horizontal swipe ACROSS THE BAR. A tap shows the destination on the next frame with no motion — a tab is tapped tens of times a session, and every frame of travel there is a frame of waiting. A swipe across the bar goes one destination in the direction of the finger and the screen slides the same way, because a swipe has a direction and the screen following it is the feedback. No swipe on the content: a horizontal swipe there belongs to the editor's selection, the terminal's touch selection and the transcript's scrolling chips. Re-tapping the current destination scrolls it to top / to the newest message / to the end of the log.
 
 PER-DESTINATION BACK STACKS. Opening a file from Agent pushes Code's editor onto Agent's stack, so back returns to the conversation you were reading. Opening the same file from the Files sheet or from a Build error row pushes it onto Code's / Build's stack. Each destination keeps its own scroll, caret and console state alive across switches.
 
