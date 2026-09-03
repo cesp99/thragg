@@ -1,44 +1,63 @@
 package to.eyed.seeker.code.ui.shell
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The rule that turns a drag across the bottom bar into a destination change.
- *
- * `+1` is toward Build: the finger travelled LEFT, so the next tab arrives
- * from the right. A tap that wanders is `0`, and so is a drag that is neither
- * far nor fast.
+ * The rule that turns a released pill into a tab: where it was, how fast it
+ * was going, and the ends of the capsule. Positions are in slots — 0 is
+ * Code, 2 is Build — and velocities in slots per second.
  */
 class NavBarSwipeTest {
 
-    private fun direction(travel: Float, velocity: Float) =
-        swipeDirection(travel, velocity, minDistance = 144f, minVelocity = 600f)
+    private fun settle(position: Float, velocity: Float) = settleSlot(position, velocity, last = 2)
 
     @Test
-    fun `a long slow drag left goes to the next tab`() {
-        assertEquals(1, direction(travel = -200f, velocity = 0f))
+    fun `a pill placed past halfway lands on the next tab`() {
+        assertEquals(1, settle(position = 0.6f, velocity = 0f))
+        assertEquals(0, settle(position = 0.4f, velocity = 0f))
     }
 
     @Test
-    fun `a short fast flick right goes to the previous tab`() {
-        assertEquals(-1, direction(travel = 30f, velocity = 900f))
+    fun `a flick that let go early is thrown to the next tab`() {
+        // 2 slots/s is a 600px/s flick on the phone; projected ~0.4 slot.
+        assertEquals(1, settle(position = 0.15f, velocity = 2f))
+        assertEquals(1, settle(position = 1.85f, velocity = -2f))
     }
 
     @Test
-    fun `a tap that wandered a few pixels goes nowhere`() {
-        assertEquals(0, direction(travel = 12f, velocity = 40f))
-        assertEquals(0, direction(travel = -12f, velocity = -40f))
+    fun `a slow steady drag lands where it stopped`() {
+        // 0.8 slots/s is an adb swipe's uniform speed; it must not carry.
+        assertEquals(1, settle(position = 0.76f, velocity = -0.8f))
     }
 
     @Test
-    fun `just under both thresholds goes nowhere`() {
-        assertEquals(0, direction(travel = -143f, velocity = -599f))
+    fun `a tap that wandered goes nowhere`() {
+        assertEquals(0, settle(position = 0.05f, velocity = 0.1f))
+        assertEquals(1, settle(position = 0.95f, velocity = -0.1f))
     }
 
     @Test
-    fun `on the threshold counts`() {
-        assertEquals(1, direction(travel = -144f, velocity = 0f))
-        assertEquals(-1, direction(travel = 0f, velocity = 600f))
+    fun `no flick jumps two tabs, but a drag that went there lands there`() {
+        assertEquals(1, settle(position = 0f, velocity = 40f))
+        assertEquals(2, settle(position = 1.7f, velocity = 0f))
+        assertEquals(2, settle(position = 1.2f, velocity = 2f))
+    }
+
+    @Test
+    fun `the ends hold`() {
+        assertEquals(0, settle(position = -0.3f, velocity = -5f))
+        assertEquals(2, settle(position = 2.3f, velocity = 5f))
+    }
+
+    @Test
+    fun `rubber band gives less the further out and is identity inside`() {
+        assertEquals(1.3f, rubberBand(1.3f, last = 2), 0f)
+        val near = -rubberBand(-0.5f, last = 2)
+        val far = -rubberBand(-2f, last = 2)
+        assertTrue(near in 0.01f..0.5f)
+        assertTrue(far > near && far < 1f)
+        assertTrue(rubberBand(3f, last = 2) in 2f..3f)
     }
 }

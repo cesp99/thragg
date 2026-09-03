@@ -332,7 +332,7 @@ private data class ShellSurface(
  *    the information the user just asked for arrive late. The three
  *    destinations are siblings, not a stack (docs/UI.md, "Navigation"), so
  *    there is no direction a tap could honestly show anyway.
- *  - **Tab swipe** (a horizontal drag across the bar, [ShellState.swipeTab]):
+ *  - **Tab swipe** (a drag of the capsule's pill, [ShellState.swipeTo]):
  *    the one exception, because a swipe HAS a direction and the screen
  *    following it is the feedback. The next destination slides in from the
  *    side the finger travelled toward and the old one leaves the other way,

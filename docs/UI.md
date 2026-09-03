@@ -27,7 +27,7 @@ Two engine facts from this session's reading shape the spec and contradicted all
 
 SHELL. One file, app/src/main/java/to/eyed/seeker/code/ui/shell/SeekerShell.kt, replacing WorkspaceScreen.kt. Structure: `Column { destination(weight = 1f); BottomNav }`. No title bar, no status bar, no tab strip, no dock, no pane tree. There is no `isWide`, no `WideLayoutMinWidth`, no `DockMinWidth`, no `MinEditorWidth`, and no window-size-class branch anywhere in the shell.
 
-THREE DESTINATIONS, and nothing else is a destination. Bottom navigation bar, 56dp + gesture inset, 3 items at 133dp each — comfortably thumb-reachable across the full width including left-handed.
+THREE DESTINATIONS, and nothing else is a destination. One floating capsule at the bottom (ShellNavBar.kt), 3 slots of 88dp inside it with a pill that slides between them: a tap sends the pill to the tab and shows it on the next frame; a drag anywhere on the bar carries the pill 1:1, ticks as it crosses a slot, is thrown on release toward where its velocity was going (never more than one tab from velocity alone), and the screen slides the same way. The bar area is 8dp + capsule (~57dp portrait, 44dp landscape) + 8dp + gesture inset, on the shell background with no hairline.
   ‹› Code   — the editor, full-bleed. Start destination.
   ✦ Agent   — one ACP conversation on the current project.
   ▶ Build   — cluster, wallet, program id, streamed build/test/deploy output, three buttons; toggles in place to Shell.

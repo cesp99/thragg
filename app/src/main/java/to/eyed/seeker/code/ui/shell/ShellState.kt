@@ -96,24 +96,27 @@ class ShellState {
      * times a session and every frame of travel there is a frame of waiting;
      * a swipe is a *gesture with a direction*, and the screen following that
      * direction is what tells the thumb it was heard. Written before
-     * [destination] in [swipeTab], in the same snapshot, so the transition
+     * [destination] in [swipeTo], in the same snapshot, so the transition
      * never sees one without the other.
      */
     var tabSwipe: Int by mutableStateOf(0)
         private set
 
     /**
-     * A swipe across the bar: go one destination in [direction] (`+1` toward
-     * Build, `-1` toward Code), or stay put at either end.
+     * A swipe across the bar landed on [destination]: show it with the
+     * screen sliding the way the finger went, or do nothing when the pill
+     * settled back where it started.
      *
-     * The three destinations are in [Destination]'s declared order, which is
-     * the bar's order left to right.
+     * Unlike [show] this carries a direction, read off [Destination]'s
+     * declared order — which is the capsule's order, left to right — so a
+     * drag that crossed two slots slides once, the long way, rather than
+     * stepping through the middle tab.
      */
-    fun swipeTab(direction: Int) {
-        val next = Destination.entries.getOrNull(destination.ordinal + direction) ?: return
-        tabSwipe = direction
-        destination = next
-        if (next == Destination.Agent) agentAttention = false
+    fun swipeTo(destination: Destination) {
+        if (destination == this.destination) return
+        tabSwipe = if (destination.ordinal > this.destination.ordinal) 1 else -1
+        this.destination = destination
+        if (destination == Destination.Agent) agentAttention = false
     }
 
     /** Push a full-screen route onto a destination's stack — the current one by default. */

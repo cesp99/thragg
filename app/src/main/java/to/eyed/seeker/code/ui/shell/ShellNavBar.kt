@@ -1,81 +1,100 @@
 package to.eyed.seeker.code.ui.shell
 
 import android.content.res.Configuration
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.add
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarDefaults
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import to.eyed.seeker.code.R
-import to.eyed.seeker.code.ui.components.HairlineDivider
 import to.eyed.seeker.code.ui.components.SeekerSpinner
 import to.eyed.seeker.code.ui.components.StatusDot
-import to.eyed.seeker.code.ui.theme.LocalSeekerColors
 import to.eyed.seeker.code.ui.theme.IconSize
+import to.eyed.seeker.code.ui.theme.LocalReduceMotion
+import to.eyed.seeker.code.ui.theme.LocalSeekerColors
+import to.eyed.seeker.code.ui.theme.MD
 import to.eyed.seeker.code.ui.theme.SeekerIcon
+import to.eyed.seeker.code.ui.theme.effectSpec
 import to.eyed.seeker.code.ui.theme.glyphHeight
-import to.eyed.seeker.code.ui.theme.touchTarget
 
 /**
- * The bottom navigation bar: three items, and nothing else is a destination.
+ * The tab switcher: one floating capsule with the three destinations in it,
+ * and a pill that slides between them.
  *
  * This is the only navigation chrome in the app. Four inherited models — the
  * pane tree, two docks, the tab strip and the palette-plus-keymap — die
- * together and are replaced by this bar plus one back stack per destination
- * (docs/UI.md, "Navigation"). Three items at ~133dp on a 400dp screen are
- * comfortably thumb-reachable across the full width, left hand or right.
- *
- * It is a real `NavigationBar` of real `NavigationBarItem`s now, and that is
- * the whole change (docs/VISUAL.md, P13). The hand-rolled `Row` this replaces
- * carried a comment refusing the ripple because "a 133dp splash on every
- * destination switch is motion the rest of this chrome does not have" — which
- * was the right complaint about the wrong control. M3's selection state is a
- * **pill shape** behind the glyph, not a splash across the column: it says
- * which destination you are on without animating a third of the screen, which
- * is exactly what that comment was asking for. What the stock component brings
- * with it is the part nobody hand-rolls twice: the `Tab` role and the selected
- * state in semantics, the gesture-inset handling, and the item spacing.
+ * together and are replaced by this capsule plus one back stack per
+ * destination (docs/UI.md, "Navigation"). It is the SwiftUI shape of the
+ * thing rather than the Material one: not a full-width bar with a hairline
+ * over it, but a rounded object floating on the shell background with the
+ * screen's own ground showing around it, built from the same two materials
+ * as the empty state's disc — the house fill step and a hairline
+ * (EmptyState.kt). The selection is a pill of the 16% primary wash
+ * (docs/VISUAL.md, the `secondaryContainer` trap) that *travels*: it is one
+ * object that moves to the tab you chose, never three that light up in turn.
  *
  * Two rules are enforced *here* rather than at the call site, because a rule a
  * caller can forget is not a rule:
  *
  *  1. **The bar hides whenever the IME is up.** Unconditional. In Code the
  *     44dp action row takes its place, docked on the keyboard; in Agent the
- *     composer does. Nowhere do the nav bar, an action row and the keyboard
- *     coexist — the 56dp is reclaimed precisely so the typing posture has ~454dp
- *     of buffer left (docs/UI.md, "Code with the soft keyboard up").
+ *     composer does. Nowhere do the capsule, an action row and the keyboard
+ *     coexist — the height is reclaimed precisely so the typing posture has
+ *     ~454dp of buffer left (docs/UI.md, "Code with the soft keyboard up").
  *  2. **Setup takes the bar with it.** It is the one route that does; see
  *     [Route.hidesNavBar].
  *
@@ -83,21 +102,28 @@ import to.eyed.seeker.code.ui.theme.touchTarget
  * no space in the [Column] above it, so the destination gets the height back
  * rather than being laid out under a hidden bar.
  *
- * THE BAR CAN BE SWIPED. A horizontal drag across it goes one destination in
- * the direction of the drag ([ShellState.swipeTab]) and the screen slides
- * the same way; a tap still switches on the next frame with no motion at
- * all (SeekerShell.kt, `surfaceTransition`). The drag is on the bar and not
- * on the content, because the content already owns horizontal gestures — the
+ * TAP AND DRAG ARE THE SAME MOTION. A tap sends the pill to the tapped tab on
+ * a critically damped spring while the destination itself shows on the next
+ * frame with no motion (SeekerShell.kt, `surfaceTransition`; a tab is tapped
+ * tens of times a session). A drag anywhere on the bar takes the pill with
+ * the finger, 1:1 and from wherever it was — grabbing it mid-flight stops
+ * the flight, so a tap can be caught and reversed — with a tick as it
+ * crosses into each slot. On release the pill is *thrown*: its landing slot
+ * is the nearest one to where the finger's velocity would have carried it
+ * ([settleSlot]), the spring continues at the finger's own speed so there is
+ * no seam between the drag and the settle, and the screen slides the same
+ * way ([ShellState.swipeTo]). Past either end the pill rubber-bands rather
+ * than stopping dead ([rubberBand]). The drag is on the bar and not on the
+ * content, because the content already owns horizontal gestures — the
  * editor scrolls long lines, the terminal selects, the transcript's chips
  * and code blocks scroll — and a pager under all of that would steal every
- * one of them. The bar has nothing else to do with a sideways finger. It
- * commits on release, on [SwipeDistance] of travel OR [SwipeVelocity] of
- * speed, so a flick that lets go early counts and a slow drag that stops
- * short does not; a tap never reaches the threshold and lands on its item.
+ * one of them.
  *
- * [NavBarTopPad] is inside the bar, under the hairline: the selection pill
- * was drawn 4dp off the seam, and a bar whose content touches its own edge
- * reads as cramped beside a top bar that gives its title 16dp.
+ * The one thing the pill does not do is answer a destination change that
+ * came from elsewhere with a drag: a notification tap, a "Fix with agent",
+ * the back gesture's "not Code → Code" all move the pill on the same tap
+ * spring, driven off [ShellState.destination] so the capsule can never
+ * disagree with the screen.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -110,137 +136,209 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
     // the editor needs more (docs/UI.md, "Orientation"). There is no isWide,
     // no window-size class and no second layout behind it.
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    // Read once and used twice: the component is told to draw the inset, and
-    // the height is told to make room for it. Taking them from the same value
-    // is what keeps the two from disagreeing.
-    val barInsets = NavigationBarDefaults.windowInsets
-    val bottomInset = with(LocalDensity.current) { barInsets.getBottom(this).toDp() }
-    val density = LocalDensity.current
-    // Accumulated across one drag and settled on release; a value holder
-    // rather than a snapshot state, because nothing draws it.
+    val reduceMotion = LocalReduceMotion.current
+    val haptics = LocalHapticFeedback.current
+    val slotPx = with(LocalDensity.current) { SlotWidth.toPx() }
+    val last = Destination.entries.lastIndex
+
+    // WHERE THE PILL IS, in slots: 0 is Code, 2 is Build, and 1.4 is a finger
+    // most of the way from Agent to Build. One animatable for the rest state
+    // and one nullable for "a finger has it": while the finger holds the pill
+    // the drawn position is the drag and the animatable is stopped, so a
+    // release can hand the spring the exact position and speed the finger let
+    // go at.
+    val pill = remember { Animatable(state.destination.ordinal.toFloat(), PillThreshold) }
+    var drag by remember { mutableStateOf<Float?>(null) }
+    var anchor by remember { mutableFloatStateOf(0f) }
     var travel by remember { mutableFloatStateOf(0f) }
-    val swipeDistance = with(density) { SwipeDistance.toPx() }
-    Column(modifier = modifier) {
-        // The seam over the bar. With elevation pinned to zero in both halves
-        // there is no shadow to separate chrome from content, so the hairline
-        // is the edge (docs/VISUAL.md, "Foundations", ELEVATION).
-        HairlineDivider()
-        NavigationBar(
-            // `surface`, the same ink as the top bar, rather than the stock
-            // `surfaceContainer`: the two bars frame one screen and a bottom
-            // bar a step lighter than the top one reads as a floating panel.
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 0.dp,
-            // The system inset plus the bar's own breathing room, both drawn
-            // as padding *inside* the surface, so the pad is bar-coloured and
-            // the hairline stays exactly where the bar begins.
-            windowInsets = barInsets.add(WindowInsets(top = NavBarTopPad)),
-            // MEASURED ON DEVICE, and the reason this is arithmetic rather than
-            // a constant. `NavigationBar` applies its window insets *inside*
-            // the height it is given — the inset is padding taken OUT of the
-            // box, not added under it — so a flat `height(56.dp)` handed the
-            // three items 56 minus the gesture handle's ~24dp to lay out in,
-            // and they were drawn clipped: the top of every glyph sliced off,
-            // the selection pill cut in half, and the handle sitting on the
-            // labels. The inset is therefore added back explicitly, so the
-            // spec's 56dp is 56dp of *bar* with the handle below it.
-            modifier = Modifier
-                .height(
-                    (if (landscape) LandscapeNavBarHeight else NavBarHeight) +
-                        NavBarTopPad + bottomInset,
-                )
-                .draggable(
-                    orientation = Orientation.Horizontal,
-                    state = rememberDraggableState { delta -> travel += delta },
-                    onDragStarted = { travel = 0f },
-                    onDragStopped = { velocity ->
-                        val direction = swipeDirection(travel, velocity, swipeDistance, SwipeVelocity)
-                        travel = 0f
-                        if (direction != 0) state.swipeTab(direction)
-                    },
-                ),
-        ) {
-            NavItem(
-                destination = Destination.Code,
-                label = "Code",
-                state = state,
-                landscape = landscape,
-                icon = R.drawable.ic_file_code,
+    // The slot the pill was last over during a drag, for the crossing tick.
+    var over by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(state.destination) {
+        val target = state.destination.ordinal.toFloat()
+        // A release has already started this animation for its own target;
+        // an unrelated change (a tap, a notification) starts it here.
+        if (drag == null && pill.targetValue != target) {
+            if (reduceMotion) pill.snapTo(target) else pill.animateTo(target, TapSpring)
+        }
+    }
+
+    val shown = drag ?: pill.value
+    val lit = shown.roundToInt().coerceIn(0, last)
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            // The shell's own ground, not `surface`: the capsule floats on
+            // the same background the destination is drawn on, which is what
+            // makes it float rather than sit on a bar.
+            .background(scheme.background)
+            .windowInsetsPadding(
+                WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
             )
-            NavItem(
-                destination = Destination.Agent,
-                label = "Agent",
-                state = state,
-                landscape = landscape,
-                icon = R.drawable.ic_ui_agent,
-                badge = { if (state.agentAttention) AttentionDot() },
-            )
-            // One glyph per slot: while a run is going the spinner IS the
-            // icon, and for ten seconds after a success the green tick IS the
-            // icon — never a mark painted over the ▶. The overlay versions
-            // drew a 26dp arc, and then an 11dp check, across a 24dp triangle:
-            // two marks fighting for the same 24dp, unreadable at a glance.
-            // The braille spinner is the app's one "running" mark
-            // (SeekerSpinner.kt); the tick takes the slot for its
-            // [BuildState.SUCCESS_TICK_MS] and hands the ▶ back. Only Failed
-            // stays a corner dot — it coexists with the ▶ indefinitely, which
-            // is exactly what a badge is for.
-            val buildBadge = currentBuildBadge(state)
-            NavItem(
-                destination = Destination.Build,
-                label = "Build",
-                state = state,
-                landscape = landscape,
-                icon = R.drawable.ic_ui_play,
-                running = { buildBadge == BuildBadge.Ring },
-                succeeded = { buildBadge == BuildBadge.Tick },
-                badge = {
-                    if (buildBadge == BuildBadge.Failed) {
-                        StatusDot(
-                            color = MaterialTheme.colorScheme.error,
-                            size = BadgeDot,
-                            contentDescription = "The last run failed",
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = BadgeOffset, y = -BadgeOffset),
-                        )
+            .padding(vertical = BarPad)
+            .draggable(
+                orientation = Orientation.Horizontal,
+                state = rememberDraggableState { delta ->
+                    travel += delta
+                    val position = rubberBand(anchor + travel / slotPx, last)
+                    drag = position
+                    val slot = position.roundToInt().coerceIn(0, last)
+                    if (slot != over) {
+                        over = slot
+                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                     }
                 },
+                onDragStarted = {
+                    // Grabbed: wherever it is right now, mid-flight included.
+                    pill.stop()
+                    anchor = pill.value
+                    travel = 0f
+                    over = anchor.roundToInt().coerceIn(0, last)
+                    drag = anchor
+                },
+                onDragStopped = { velocityPx ->
+                    val position = drag ?: return@draggable
+                    val velocity = velocityPx / slotPx
+                    val target = settleSlot(position, velocity, last)
+                    if (target != over) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    // Continuous: the animatable takes over at the drag's
+                    // last position before the drag stops being drawn.
+                    pill.snapTo(position)
+                    drag = null
+                    state.swipeTo(Destination.entries[target])
+                    if (reduceMotion) {
+                        pill.snapTo(target.toFloat())
+                    } else {
+                        pill.animateTo(target.toFloat(), ThrowSpring, initialVelocity = velocity)
+                    }
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        val slotHeight = if (landscape) LandscapeSlotHeight else SlotHeight
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(scheme.surfaceContainer)
+                .border(MD.hairline, scheme.outlineVariant, CircleShape)
+                .padding(CapsulePad),
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset((shown * slotPx).roundToInt(), 0) }
+                    .size(SlotWidth, slotHeight)
+                    .background(scheme.primary.copy(alpha = 0.16f), CircleShape),
             )
+            Row(modifier = Modifier.selectableGroup()) {
+                NavItem(
+                    destination = Destination.Code,
+                    label = "Code",
+                    state = state,
+                    landscape = landscape,
+                    lit = lit == Destination.Code.ordinal,
+                    icon = R.drawable.ic_file_code,
+                )
+                NavItem(
+                    destination = Destination.Agent,
+                    label = "Agent",
+                    state = state,
+                    landscape = landscape,
+                    lit = lit == Destination.Agent.ordinal,
+                    icon = R.drawable.ic_ui_agent,
+                    badge = { if (state.agentAttention) AttentionDot() },
+                )
+                // One glyph per slot: while a run is going the spinner IS the
+                // icon, and for ten seconds after a success the green tick IS
+                // the icon — never a mark painted over the ▶. The overlay
+                // versions drew a 26dp arc, and then an 11dp check, across a
+                // 24dp triangle: two marks fighting for the same 24dp,
+                // unreadable at a glance. The braille spinner is the app's
+                // one "running" mark (SeekerSpinner.kt); the tick takes the
+                // slot for its [BuildState.SUCCESS_TICK_MS] and hands the ▶
+                // back. Only Failed stays a corner dot — it coexists with the
+                // ▶ indefinitely, which is exactly what a badge is for.
+                val buildBadge = currentBuildBadge(state)
+                NavItem(
+                    destination = Destination.Build,
+                    label = "Build",
+                    state = state,
+                    landscape = landscape,
+                    lit = lit == Destination.Build.ordinal,
+                    icon = R.drawable.ic_ui_play,
+                    running = { buildBadge == BuildBadge.Ring },
+                    succeeded = { buildBadge == BuildBadge.Tick },
+                    badge = {
+                        if (buildBadge == BuildBadge.Failed) {
+                            StatusDot(
+                                color = MaterialTheme.colorScheme.error,
+                                size = BadgeDot,
+                                contentDescription = "The last run failed",
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = BadgeOffset, y = -BadgeOffset),
+                            )
+                        }
+                    },
+                )
+            }
         }
     }
 }
 
 /**
- * One item: the glyph in its selection pill, the label under it, and the badge
- * slot over the glyph's top-right corner.
+ * One slot: the glyph, the label under it in portrait, and the badge slot
+ * over the glyph's top-right corner. The pill is not here — it is one object
+ * drawn under the row — so what a slot owns is its ink, which follows the
+ * pill: [lit] is "the pill is over me right now", true for the tab being
+ * dragged toward before it is selected, and it cross-fades on [effectSpec]
+ * so the ink arrives with the pill rather than snapping a beat after it.
  *
- * The whole ~133dp column is the target, which `NavigationBarItem` does for
- * free — an icon-sized hit box in the corner of a third of the screen is the
- * classic phone-navigation mistake, and [touchTarget] is applied on top of it
- * so the floor holds at any font scale.
- *
- * The label carries the destination's name for a screen reader in portrait, so
- * the glyph is decoration there; in landscape there is no label and the glyph
- * has to say it instead. One node either way, never two saying "Code" twice.
+ * The whole [SlotWidth] column is the target — an icon-sized hit box in the
+ * corner of a tab is the classic phone-navigation mistake — and it has the
+ * `Tab` role and the selected state in semantics, which is the part of the
+ * stock component worth keeping. The label carries the destination's name
+ * for a screen reader in portrait, so the glyph is decoration there; in
+ * landscape there is no label and the glyph has to say it instead. One node
+ * either way, never two saying "Code" twice.
  */
 @Composable
-private fun RowScope.NavItem(
+private fun NavItem(
     destination: Destination,
     label: String,
     state: ShellState,
     landscape: Boolean,
+    lit: Boolean,
     icon: Int,
     running: () -> Boolean = { false },
     succeeded: () -> Boolean = { false },
     badge: @Composable BoxScope.() -> Unit = {},
 ) {
-    val selected = state.destination == destination
-    NavigationBarItem(
-        selected = selected,
-        onClick = { state.show(destination) },
-        modifier = Modifier.touchTarget(),
-        icon = {
+    val scheme = MaterialTheme.colorScheme
+    val ink by animateColorAsState(
+        targetValue = if (lit) scheme.primary else scheme.onSurfaceVariant,
+        animationSpec = effectSpec(),
+        label = "nav-ink",
+    )
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier = Modifier
+            .width(SlotWidth)
+            .height(if (landscape) LandscapeSlotHeight else SlotHeight)
+            .clip(CircleShape)
+            .selectable(
+                selected = state.destination == destination,
+                interactionSource = interaction,
+                // No ripple: the pill answering the finger is the feedback,
+                // and a wash under a wash is two things saying one thing.
+                indication = null,
+                role = Role.Tab,
+                onClick = { state.show(destination) },
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides ink) {
             Box(contentAlignment = Alignment.Center) {
                 if (running()) {
                     // The slot's whole glyph, not a decoration on one — see
@@ -250,7 +348,7 @@ private fun RowScope.NavItem(
                             contentDescription = "$label — running"
                         },
                     ) {
-                        SeekerSpinner(size = IconSize.Nav, color = LocalContentColor.current)
+                        SeekerSpinner(size = IconSize.Nav, color = ink)
                     }
                 } else if (succeeded()) {
                     SeekerIcon(
@@ -269,30 +367,23 @@ private fun RowScope.NavItem(
                     SeekerIcon(
                         icon = icon,
                         contentDescription = if (landscape) label else null,
-                        // Null: `NavigationBarItem` tints its own icon slot through
-                        // `LocalContentColor`, which is how the selected and
-                        // unselected inks below reach it.
-                        tint = LocalContentColor.current,
+                        tint = ink,
                         size = IconSize.Nav,
                     )
                 }
                 badge()
             }
-        },
-        label = if (landscape) null else { { Text(text = label, maxLines = 1) } },
-        colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MaterialTheme.colorScheme.primary,
-            selectedTextColor = MaterialTheme.colorScheme.primary,
-            // 16% is the design's selection wash, the same one a selected
-            // option card takes; `secondaryContainer` — M3's default here — is
-            // a *rung of the fill ladder* in this scheme (it is Zed's
-            // `element.selected`), so using it would make the pill read as
-            // another raised surface rather than as a state.
-            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    )
+            if (!landscape) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ink,
+                    maxLines = 1,
+                    modifier = Modifier.padding(top = LabelGap),
+                )
+            }
+        }
+    }
 }
 
 /** ✦'s badge: "the agent finished, or is blocked, while you were elsewhere". */
@@ -343,81 +434,102 @@ private fun currentBuildBadge(state: ShellState): BuildBadge {
 }
 
 /**
- * Which way a drag across the bar that ended at [travel] px with [velocity]
- * px/s goes: `+1` toward Build (the finger went left, so the next tab comes
- * from the right), `-1` toward Code, `0` for a drag that was neither far nor
- * fast enough — which is what a tap that wandered a few pixels is.
+ * Where a pill let go at [position] slots, moving at [velocity] slots per
+ * second, comes to rest: the slot nearest to where that speed would have
+ * carried it, clamped to `0..last`.
  *
- * Distance OR speed, because a flick is short and fast and a deliberate drag
- * is long and slow, and both mean the same thing. The sign comes from
- * whichever crossed its threshold; when both did they agree, since a finger
- * cannot let go moving away from where it has been.
+ * The projection is the exponential-decay one every scroll view uses
+ * (`v · d / (1 − d)` per millisecond of velocity, [DECELERATION]), not the
+ * release point — a flick that lets go early still lands on the next tab,
+ * because the pill is thrown, not placed. The thrown distance is capped at
+ * one slot, so no flick jumps from Code to Build over Agent; a *drag* that
+ * genuinely crossed two slots still lands two slots away, because the finger
+ * went there.
  */
-internal fun swipeDirection(
-    travel: Float,
-    velocity: Float,
-    minDistance: Float,
-    minVelocity: Float,
-): Int = when {
-    velocity <= -minVelocity || travel <= -minDistance -> 1
-    velocity >= minVelocity || travel >= minDistance -> -1
-    else -> 0
+internal fun settleSlot(position: Float, velocity: Float, last: Int): Int {
+    val thrown = (velocity / 1000f * DECELERATION / (1f - DECELERATION)).coerceIn(-1f, 1f)
+    return (position + thrown).roundToInt().coerceIn(0, last)
 }
 
 /**
- * 56dp, with the accessibility floor on top of it: at a large font scale the
- * label's own ink decides, exactly as the status bar's height does
- * (StatusBar.kt, `StatusBarHeight`). Nothing in this bar truncates, and
- * nothing here is a rem — Zed has no bottom bar to be faithful to, and the
- * number the spec fixes is 56dp on a 400 x 890dp phone.
- *
- * The arithmetic gained [IndicatorPad] when the items became real ones: M3
- * draws the selection pill 4dp taller than the glyph on each side, and a
- * height that did not account for it would clip the pill rather than the
- * label. `labelSmall` is 11sp fixed in [materialTypography] now, so the
- * portrait sum is 24 + 8 + ~14 + 8 = 54dp and the 56 still wins — as it did
- * before, and as it stops doing somewhere north of a 2.0 system font scale,
- * which is exactly when it should.
+ * The pill past either end of the capsule: it follows the finger less the
+ * further out it is, and never more than about a third of a slot, so the end
+ * reads as "responsive, but there is nothing more here" rather than as
+ * frozen. Inside `0..last` the position is returned untouched.
  */
-private val NavBarHeight: Dp
-    @Composable get() = maxOf(
-        BarHeight,
-        NavIconSize + IndicatorPad * 2 + glyphHeight(MaterialTheme.typography.labelSmall) +
-            BarPadding * 2,
-    )
+internal fun rubberBand(position: Float, last: Int): Float {
+    val over = when {
+        position < 0f -> position
+        position > last -> position - last
+        else -> return position
+    }
+    val give = over * RUBBER / (1f + RUBBER * abs(over))
+    return if (over < 0f) give else last + give
+}
 
-/** Landscape: icon only, three targets at ~296dp each (docs/UI.md, "Orientation"). */
-private val LandscapeNavBarHeight: Dp
-    @Composable get() = maxOf(LandscapeBarHeight, NavIconSize + IndicatorPad * 2 + BarPadding * 2)
-
-private val BarHeight = 56.dp
-private val LandscapeBarHeight = 44.dp
 /**
- * 24dp, which is what a Material navigation bar draws and what every other
- * bottom bar on the phone draws beside it. It was 20dp, and 20dp is the reason
- * this bar's three items read as smaller than the system's own chrome on a
- * 480dpi screen — an icon is not text and does not get to be dense.
- *
- * See [IconSize] for where the rest of the app's icon sizes live; this one is
- * spelled out here because [NavBarHeight] is arithmetic that has to read.
+ * 88dp per tab: three of them make a 272dp capsule, which is a floating
+ * object on a 400dp screen rather than a bar with its corners rounded, and
+ * still a target more than half again the 48dp floor.
  */
-private val NavIconSize = IconSize.Nav
+private val SlotWidth = 88.dp
 
-/** Half the difference between M3's 32dp selection pill and its 24dp glyph. */
-private val IndicatorPad = 4.dp
+private val SlotPadY = 4.dp
+private val LandscapeSlotPadY = 6.dp
+private val LabelGap = 2.dp
+
+/**
+ * The pill's height in portrait: glyph, gap, label, and 4dp of pill above
+ * and below the pair. `labelSmall` is 11sp fixed in [materialTypography], so
+ * this is 24 + 2 + ~15 + 8 = 49dp; at a large font scale the label's own ink
+ * decides, exactly as the status bar's height does (StatusBar.kt).
+ */
+private val SlotHeight: Dp
+    @Composable get() = IconSize.Nav + LabelGap + glyphHeight(MaterialTheme.typography.labelSmall) +
+        SlotPadY * 2
+
+/** Landscape: icon only, 24dp with 6dp of pill above and below. */
+private val LandscapeSlotHeight = IconSize.Nav + LandscapeSlotPadY * 2
+
+
+/** The capsule's wall around the pill: the one 4dp the pill never covers. */
+private val CapsulePad = MD.space1
+
+/** Ground above and below the capsule, so it floats rather than docks. */
+private val BarPad = MD.space2
+
 private val BadgeDot = 7.dp
 private val BadgeOffset = 9.dp
-private val BarPadding = 4.dp
-
-/** 6dp of bar above the items, under the hairline — see the class note. */
-private val NavBarTopPad = 6.dp
 
 /**
- * 48dp of travel: a third of a 133dp item, and more than any tap wanders.
- * Measured in dp so it means the same thing on the 480dpi Seeker and on an
- * emulator.
+ * The tap spring: critically damped, so the pill arrives without a wobble —
+ * a wobble on a thing tapped a hundred times a day is a delay a hundred
+ * times a day. Stiffness 400 settles in about 350ms, Apple's "move" response.
  */
-private val SwipeDistance = 48.dp
+private val TapSpring = spring<Float>(dampingRatio = 1f, stiffness = 400f, visibilityThreshold = PillThreshold)
 
-/** 600 px/s: a flick, and well above what a finger settling on a tap does. */
-private const val SwipeVelocity = 600f
+/**
+ * The release spring: a little under-damped, because the gesture that
+ * preceded it carried momentum and a throw that lands dead reads as caught.
+ * The overshoot is a few pixels and only ever happens after a flick.
+ */
+private val ThrowSpring = spring<Float>(dampingRatio = 0.8f, stiffness = 400f, visibilityThreshold = PillThreshold)
+
+/**
+ * 0.002 of a slot — under a pixel — so the spring runs to the last pixel and
+ * the settle is not a 3px snap at the end of it.
+ */
+private const val PillThreshold = 0.002f
+
+/**
+ * Between a scroll view's 0.998 and its "fast" 0.99: about a fifth of a
+ * second of the release velocity. Measured on the phone — at 0.998 a slow,
+ * steady drag from Build that stopped over Agent was carried on to Code,
+ * because half a second of even a slow finger is most of a slot; at this
+ * rate a slow drag lands where it stopped and a real flick (1000px/s and
+ * up) still clears the half-slot it needs.
+ */
+private const val DECELERATION = 0.995f
+
+/** How much the pill follows a finger past the end: about half, decaying. */
+private const val RUBBER = 0.55f
