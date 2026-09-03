@@ -29,7 +29,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -478,7 +478,28 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     val snapshot = rememberAgentSession(sessionId)
     val session = snapshot.state
     val composerFocus = remember { FocusRequester() }
-    val listState = rememberLazyListState()
+    val rows = remember(snapshot.conversation) {
+        foldOrchestration(snapshot.conversation.entries)
+    }
+    // Born at the tail, and born *when the rows arrive*: the transcript is not
+    // in the composition until there is a row (the empty state is), so its
+    // first layout is the frame the history lands in, and a `scrollToItem`
+    // issued from an effect has to wait for that layout — which put one frame
+    // of the thread's *top* on screen before the snap to the end (seen on the
+    // device). A state that starts at the tail index has nothing to wait for.
+    // `rows.size` is the trailing `tail` item; the measure clamps to the
+    // bottom for it just as a scroll would.
+    //
+    // Keyed on the session too: a thread opened from the picker must not
+    // inherit the offset the previous thread was left at.
+    val listState = remember(sessionId, rows.isEmpty()) {
+        LazyListState(firstVisibleItemIndex = rows.size)
+    }
+    // Whether this session's transcript has been put at its tail once *with
+    // the agent ready*. The first scroll to the tail is a *landing*, not an
+    // arrival: animating it played the whole conversation past the reader
+    // before it settled on the last message.
+    var landed by remember(sessionId) { mutableStateOf(false) }
     // Held outside the list: a LazyColumn destroys an item's state when it
     // scrolls off, so a card the user opened would forget it and a running
     // command would be one grey line for its whole life.
@@ -504,9 +525,6 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
         if (ultraUnlocked) lockedNotice = null
     }
 
-    val rows = remember(snapshot.conversation) {
-        foldOrchestration(snapshot.conversation.entries)
-    }
     val approvals = remember(snapshot.conversation) {
         pendingApprovals(snapshot.conversation.entries)
     }
@@ -661,9 +679,28 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     // list, so scrolling to it clamps to the very bottom rather than parking
     // its top at the top of the viewport: that is what keeps the view pinned
     // while a single row grows taller than the screen.
+    //
+    // A reopened thread SNAPS to its tail rather than animating. `session/load`
+    // replays the whole history as ordinary updates, several polls' worth,
+    // and the phase stays `Starting` until the agent's response says the
+    // replay is over (acp.rs, `create_session`). Animating those merges
+    // played the conversation past the reader in strides when all they asked
+    // for was to read where the thread ended.
+    //
+    // `landed` is set on the first merge seen with the phase past `Starting`,
+    // and that merge snaps too. Measured on the device: the replay's last
+    // chunk and the `Ready` flip arrived in the *same* poll, so a rule that
+    // snapped only while `Starting` snapped on a two-line partial reply and
+    // then animated the whole real one in under a `Ready` phase.
+    val replaying = session.phase == AgentPhase.Starting
     LaunchedEffect(snapshot.conversation.revision, following) {
         if (rows.isEmpty() || !following) return@LaunchedEffect
-        runCatching { listState.revealItem(rows.size) }
+        if (!landed || replaying) {
+            if (!replaying) landed = true
+            runCatching { listState.scrollToItem(rows.size) }
+        } else {
+            runCatching { listState.revealItem(rows.size) }
+        }
     }
     // A program scaffolded next door wants its first sentence said here.
     LaunchedEffect(project?.id, thread) {
@@ -858,6 +895,11 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                         rows = rows,
                         listState = listState,
                         expanded = expanded,
+                        // Rows keep still until the list has landed on its
+                        // tail: a replayed reply that sprang to its height
+                        // *after* the snap left the list at the top of it
+                        // (the second thing the device showed).
+                        animateRows = landed,
                         onOpenPath = { path -> state.push(Route.Diff(path)) },
                         onOpenPermission = { call -> sheet = AgentSheet.Approval(call.key) },
                         onRestoreCheckpoint = { index ->

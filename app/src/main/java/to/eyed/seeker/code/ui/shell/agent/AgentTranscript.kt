@@ -488,6 +488,13 @@ internal fun AgentTranscript(
     listState: LazyListState,
     /** Which cards are open. Held by the caller: a LazyColumn drops item state. */
     expanded: MutableMap<String, Boolean>,
+    /**
+     * Whether a row may animate its own height. False until the caller has
+     * landed the list on its tail: a reply that arrives in replayed chunks
+     * would otherwise spring from a line to a screenful *after* the snap to
+     * the bottom, and leave the list parked at the top of that growth.
+     */
+    animateRows: Boolean,
     onOpenPath: (String) -> Unit,
     onOpenPermission: (AgentEntry.ToolCall) -> Unit,
     onRestoreCheckpoint: (Int) -> Unit,
@@ -506,7 +513,7 @@ internal fun AgentTranscript(
         ),
         verticalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
-        transcriptRows(rows, expanded, shell, onOpenPath, onOpenPermission, onRestoreCheckpoint)
+        transcriptRows(rows, expanded, animateRows, shell, onOpenPath, onOpenPermission, onRestoreCheckpoint)
         item(key = "tail") { tail() }
     }
 }
@@ -518,6 +525,7 @@ internal fun AgentTranscript(
 private fun androidx.compose.foundation.lazy.LazyListScope.transcriptRows(
     rows: List<TranscriptRow>,
     expanded: MutableMap<String, Boolean>,
+    animateRows: Boolean,
     shell: ShellState,
     onOpenPath: (String) -> Unit,
     onOpenPermission: (AgentEntry.ToolCall) -> Unit,
@@ -527,7 +535,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.transcriptRows(
         when (val row = rows[index]) {
             is TranscriptRow.Item -> when (val entry = row.entry) {
                 is AgentEntry.User -> UserBubble(entry) { onRestoreCheckpoint(index) }
-                is AgentEntry.Assistant -> AssistantRow(entry, expanded, row.id)
+                is AgentEntry.Assistant -> AssistantRow(entry, expanded, row.id, animateRows)
                 is AgentEntry.ToolCall -> ToolCallRow(
                     shell = shell,
                     call = entry,
@@ -637,13 +645,17 @@ private fun AssistantRow(
     entry: AgentEntry.Assistant,
     expanded: MutableMap<String, Boolean>,
     key: String,
+    /** See [AgentTranscript]'s `animateRows`. */
+    animate: Boolean,
 ) {
     val scheme = MaterialTheme.colorScheme
     val thoughts = entry.thoughts.trim()
     val spoken = entry.spoken
     val thinkingOpen = expanded["think:$key"] ?: false
     Column(
-        modifier = Modifier.fillMaxWidth().animateSize(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (animate) Modifier.animateSize() else Modifier),
         verticalArrangement = Arrangement.spacedBy(MD.iconGap),
     ) {
         if (thoughts.isNotEmpty()) {

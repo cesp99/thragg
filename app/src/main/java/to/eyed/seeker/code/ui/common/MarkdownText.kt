@@ -1229,6 +1229,17 @@ internal const val MARKDOWN_REPARSE_MS = 180L
  * blank line that used to end a paragraph now separates two items of one
  * loose list); or a link reference definition arrived, since a `[ref]:` line
  * at the end of a message defines a link used at the start of it.
+ *
+ * THE TEXT A ROW IS BORN WITH IS PARSED IN COMPOSITION, not on the effect.
+ * Both mechanisms above exist for a reply that keeps *changing*; neither has
+ * anything to say about the first frame, and deferring that one made the
+ * row's first measure a lie. A reopened thread arrives with its replies
+ * complete, the transcript snaps to its tail on the frame they land, and a
+ * row that measures as one empty column at that moment grows by a screenful
+ * a beat later — with the list left parked at the top of the growth (seen on
+ * the device: the snap reported all three items visible in the viewport).
+ * A streaming reply is born with a line or two, so the synchronous parse
+ * costs it nothing; every later change still goes through the throttle.
  */
 @Composable
 internal fun MarkdownText(
@@ -1237,10 +1248,14 @@ internal fun MarkdownText(
     onLink: (String) -> Unit = {},
 ) {
     val style = markdownTextStyle()
-    var blocks by remember { mutableStateOf(emptyList<MarkdownNode>()) }
-    var lastParsed by remember { mutableLongStateOf(0L) }
     val stream = remember { MarkdownStream() }
+    var blocks by remember { mutableStateOf(stream.advance(source)) }
+    // The text [blocks] currently reflects. The effect below skips a source
+    // it has already rendered — the first one, parsed above.
+    var rendered by remember { mutableStateOf(source) }
+    var lastParsed by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
     LaunchedEffect(source) {
+        if (source == rendered) return@LaunchedEffect
         // Throttled, **not** debounced, and the difference is the whole
         // feature. A plain `delay(…)` at the top of an effect keyed on the
         // text never fires at all while the text keeps changing faster than
@@ -1260,6 +1275,7 @@ internal fun MarkdownText(
             yield()
             stream.advance(source)
         }
+        rendered = source
         lastParsed = SystemClock.uptimeMillis()
     }
     Column(modifier = modifier) {
