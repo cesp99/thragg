@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,6 +44,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import org.json.JSONObject
 import to.eyed.seeker.code.R
+import kotlinx.coroutines.launch
+import to.eyed.seeker.code.core.SpettroSetup
 import to.eyed.seeker.code.core.AgentConfigOption
 import to.eyed.seeker.code.core.AgentSessionState
 import to.eyed.seeker.code.core.SpettroToolbar
@@ -367,6 +371,7 @@ private fun ConfigSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            SubscriptionModelsNotice(option)
             return@Column
         }
         when (style) {
@@ -402,6 +407,7 @@ private fun ConfigSection(
             // Handled above, before the choices are read.
             SelectStyle.Switch -> Unit
         }
+        SubscriptionModelsNotice(option)
         // The two sentences the permission list owes the user, and the reason
         // they are pinned to this section rather than to the sheet: both are
         // consequences of a permission level that are not local to it — one
@@ -416,6 +422,50 @@ private fun ConfigSection(
             )
         }
     }
+}
+
+/**
+ * Under the model section only: why the subscription's models are not in the
+ * list, when they are not.
+ *
+ * The model dropdown comes from the agent, and the agent lists a plan's
+ * models only after it has fetched them from Spettro's backend
+ * ([SpettroSetup.refreshOnHandshake]). When that fetch failed the dropdown
+ * holds one entry — the active model — and looks *finished* rather than
+ * *empty*, which is the worst way for it to look: nothing on the sheet says
+ * anything went wrong. So the sheet says it, in the section whose list is
+ * short, with the retry on the same card; [Severity.Warn] because there is a
+ * way out and it is right there.
+ */
+@Composable
+private fun SubscriptionModelsNotice(option: AgentConfigOption) {
+    if (option.category != "model") return
+    val note = SpettroSetup.subscriptionModelsNote ?: return
+    val scope = rememberCoroutineScope()
+    var retrying by remember { mutableStateOf(false) }
+    NoticeCard(
+        severity = Severity.Warn,
+        title = null,
+        body = note,
+        modifier = Modifier.padding(top = MD.space2),
+        actions = {
+            TextButton(
+                enabled = !retrying,
+                onClick = {
+                    retrying = true
+                    scope.launch {
+                        try {
+                            SpettroSetup.refreshOnHandshake()
+                        } finally {
+                            retrying = false
+                        }
+                    }
+                },
+            ) {
+                Text(text = if (retrying) "Retrying…" else "Retry")
+            }
+        },
+    )
 }
 
 /**

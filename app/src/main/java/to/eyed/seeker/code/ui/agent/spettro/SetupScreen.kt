@@ -128,6 +128,25 @@ fun SpettroSetupScreen(
                 QuotedError(quotedError)
             }
 
+            // The gate can close on a *signed-in* user: an account whose
+            // plan exposes no models (SpettroSetup.setupGate). Card 1 below
+            // still says "Sign in", which is the wrong first word for
+            // somebody who already did; this card says what actually
+            // happened, above it, before they read that.
+            val account = SpettroSetup.account
+            val modelsNote = SpettroSetup.subscriptionModelsNote
+            if (account?.signedIn == true && modelsNote != null) {
+                Spacer(Modifier.height(16.dp))
+                NoticeCard(
+                    severity = Severity.Warn,
+                    title = "Signed in as ${account.email ?: "Spettro"}" +
+                        (account.plan?.let { " · $it" } ?: ""),
+                    body = "$modelsNote Add an API key or a local model below to " +
+                        "keep going.",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Spacer(Modifier.height(24.dp))
 
             SetupCard(

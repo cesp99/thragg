@@ -584,9 +584,12 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     }
     // The gate, immediately after the handshake and never before it: only a
     // *successful* providers/list can say NEEDED, and NEEDED is the only
-    // answer that blocks (docs/SPETTRO.md, step 2).
+    // answer that blocks (docs/SPETTRO.md, step 2). The same moment loads the
+    // subscription's models into the agent — a fresh process has none until
+    // asked, and the model picker showed only the active model for as long
+    // as nothing on this path asked.
     LaunchedEffect(session.spettro, session.acpSessionId) {
-        if (session.spettro != null) SpettroSetup.refreshProviders()
+        if (session.spettro != null) SpettroSetup.refreshOnHandshake()
     }
     // Spettro saves after every prompt turn, so a list that is not refreshed is
     // stale within one message.
@@ -778,7 +781,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 SpettroSetup.isBlocking -> SpettroSetupScreen(
                     state = state,
                     onSkip = { SpettroSetup.skip() },
-                    onDone = { scope.launch { SpettroSetup.refreshProviders() } },
+                    onDone = { scope.launch { SpettroSetup.refreshOnHandshake() } },
                     quotedError = session.error,
                 )
 

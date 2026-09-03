@@ -127,7 +127,14 @@ object SpettroSetup {
             is ExtResult.Ok -> {
                 val list = ProvidersList.parse(result.result)
                 providers = list
-                gate = if (list.hasSomethingToTalkTo) SetupGate.SATISFIED else SetupGate.NEEDED
+                gate = setupGate(list, account)
+                Log.i(
+                    TAG,
+                    "providers/list: ${list.providers.count { it.connected }} keyed, " +
+                        "${list.local.size} local, subscription=" +
+                        "${list.subscription?.connected == true}/" +
+                        "${list.subscription?.modelCount ?: 0} models -> $gate",
+                )
             }
             else -> {
                 // FAIL OPEN. We do not know, and not knowing is not "no".
@@ -137,6 +144,55 @@ object SpettroSetup {
         }
         return gate
     }
+
+    /**
+     * Everything the agent screen needs the moment the handshake lands.
+     *
+     * [refreshProviders] first, because it is the gate and it is quick. Then,
+     * if the subscription is signed in, [refreshAccount] — and this call is
+     * not optional, it is what puts the plan's models into the agent at all.
+     * Spettro keeps the subscription's model list **only in the agent
+     * process's memory**: nothing under `~/.spettro` holds it, and in ACP
+     * mode the only thing that fetches it from the backend and registers it
+     * is `_spettro/account/status` (the TUI does the same at its own
+     * startup). A freshly spawned agent therefore knows *no* subscription
+     * models, `providers/list` reports the subscription with `modelCount: 0`,
+     * and the session's model dropdown carries nothing but the active model —
+     * on every launch, until something asks. This asks.
+     *
+     * The providers are read again afterwards so the subscription card's
+     * model count is the truth and not the pre-fetch zero.
+     */
+    suspend fun refreshOnHandshake(): SetupGate {
+        refreshProviders()
+        if (providers?.subscription?.connected == true) {
+            refreshAccount()
+            refreshProviders()
+        }
+        return gate
+    }
+
+    /**
+     * Why the subscription's models are missing from the pickers — or null
+     * when they are there, or when there is no subscription to speak of.
+     *
+     * Two different sentences for two different facts: a `stale` status is a
+     * backend the agent could not reach (the phone is offline, or the guest's
+     * DNS is), and the plan is very probably fine; a fresh status with zero
+     * models is the plan itself. Conflating them sends a user with no Wi-Fi to
+     * the pricing page.
+     */
+    val subscriptionModelsNote: String?
+        get() {
+            val status = account ?: return null
+            if (!status.signedIn || status.modelCount > 0) return null
+            return if (status.stale) {
+                "Spettro's models could not be loaded: the agent could not reach " +
+                    "Spettro. Check the connection and retry."
+            } else {
+                "Your Spettro plan has no models available right now."
+            }
+        }
 
     /**
      * "Skip for now": stop blocking, and let the panel put the honest banner
@@ -312,10 +368,22 @@ object SpettroSetup {
      */
     private fun refreshModelWorldSoon() {
         scope.launch {
+            // The session may still be being created when this fires from
+            // the handshake path: the config-option refresh needs it to
+            // exist, and bailing now would leave the dropdown stale until
+            // the next event. A short wait, not a long one — a session that
+            // never comes is the agent screen's problem, not this one's.
+            repeat(SESSION_WAIT_TICKS) {
+                if (AgentSessions.sessionId >= 0) return@repeat
+                delay(SESSION_WAIT_TICK_MS)
+            }
             AgentSessions.refreshConfigOptions()
             refreshModels()
         }
     }
+
+    private const val SESSION_WAIT_TICKS = 20
+    private const val SESSION_WAIT_TICK_MS = 500L
 
     /** Star or unstar a model. The list is re-read, since the flag is the agent's. */
     suspend fun favouriteModel(provider: String, name: String, favourite: Boolean) {
@@ -331,11 +399,30 @@ object SpettroSetup {
 
     // --- account and the device flow ------------------------------------------------
 
-    /** Read the account. Blocks up to 15 s agent-side while it asks the backend. */
-    suspend fun refreshAccount() {
+    /**
+     * Read the account. Blocks up to 15 s agent-side while it asks the backend.
+     *
+     * A successful read is also the moment the agent registers the plan's
+     * models (see [refreshOnHandshake]), so when the count moved the open
+     * session's dropdown and the favourites list are refreshed here, and the
+     * gate is recomputed — a plan that turns out to expose nothing is a gate
+     * that should close. Returns whether the model world moved, so a caller
+     * that would otherwise refresh it again can skip that.
+     */
+    suspend fun refreshAccount(): Boolean {
         val result = AgentSessions.callExtension("_spettro/account/status")
-        val json = result.objectOrNull ?: return
-        account = AccountStatus.parse(json)
+        val json = result.objectOrNull ?: return false
+        val next = AccountStatus.parse(json)
+        val moved = modelWorldChanged(account, next)
+        account = next
+        providers?.let { gate = setupGate(it, next) }
+        Log.i(
+            TAG,
+            "account/status: signedIn=${next.signedIn} plan=${next.plan} " +
+                "models=${next.modelCount} stale=${next.stale} moved=$moved -> $gate",
+        )
+        if (moved) refreshModelWorldSoon()
+        return moved
     }
 
     /** Sign out. Providers are unaffected; the gate is recomputed anyway. */
@@ -515,11 +602,13 @@ object SpettroSetup {
     private suspend fun finishLogin(mine: Int) {
         if (loginGeneration != mine) return
         login = LoginStatus(login?.loginId, "complete", null, null)
-        refreshAccount()
+        val moved = refreshAccount()
         refreshProviders()
         // The login just added the plan's models; the session that was open
-        // through it is still advertising the pre-login list.
-        refreshModelWorldSoon()
+        // through it is still advertising the pre-login list. The account
+        // read refreshes it itself when it saw the count move; when the
+        // pushed update had already carried the new count, it did not.
+        if (!moved) refreshModelWorldSoon()
     }
 
     private fun failLogin(mine: Int, message: String) {
@@ -767,6 +856,37 @@ data class AccountStatus(
  */
 fun modelWorldChanged(previous: AccountStatus?, next: AccountStatus): Boolean =
     next.modelCount != (previous?.modelCount ?: 0)
+
+/**
+ * The gate, from a successful provider list and whatever is known of the
+ * account.
+ *
+ * [ProvidersList.hasSomethingToTalkTo] is the rule; this adds the one case
+ * that list cannot see on its own. The subscription is reported *connected*
+ * the moment a key is stored, and its model count is only ever non-zero after
+ * an account read — so "connected, zero models" says nothing by itself. What
+ * decides it is the account: a **fresh** status (not [AccountStatus.stale])
+ * carrying zero models is the backend saying the plan has nothing to offer,
+ * and a signed-in user with no model is exactly as stuck as a signed-out one.
+ * A stale status — the backend unreachable — keeps the gate open, because
+ * not knowing is not "no", and a keyed provider or a local endpoint beside
+ * the subscription satisfies it regardless.
+ *
+ * Top-level and pure, like [modelWorldChanged], for the same reason.
+ */
+fun setupGate(providers: ProvidersList, account: AccountStatus?): SetupGate {
+    if (!providers.hasSomethingToTalkTo) return SetupGate.NEEDED
+    val subscription = providers.subscription
+    val onlyTheSubscription = subscription != null && subscription.connected &&
+        providers.providers.none { it.connected && it.id != subscription.id } &&
+        providers.local.isEmpty()
+    if (onlyTheSubscription && account != null && account.signedIn &&
+        !account.stale && account.modelCount == 0
+    ) {
+        return SetupGate.NEEDED
+    }
+    return SetupGate.SATISFIED
+}
 
 /**
  * Where a browser sign-in has got to.

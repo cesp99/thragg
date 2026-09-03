@@ -185,4 +185,68 @@ class SpettroSetupTest {
         assertTrue(modelWorldChanged(null, account("""{"signedIn":true,"modelCount":7}""")))
         assertFalse(modelWorldChanged(null, account("""{"signedIn":false}""")))
     }
+
+    // --- the gate, with the account in the picture ---------------------------
+
+    private val subscriptionOnly = providers(
+        """{"providers":[{"id":"anthropic","name":"Anthropic","connected":false}],
+            "local":null,
+            "subscription":{"id":"spettro","name":"Spettro","connected":true,"modelCount":0}}"""
+    )
+
+    /**
+     * What a freshly spawned agent says before anything asked for the
+     * account: the subscription is connected and has zero models, because the
+     * plan's models live in the agent's memory and nothing has fetched them
+     * yet. That is not "no" — it is "not yet".
+     */
+    @Test
+    fun aConnectedSubscriptionWithNoAccountReadYetIsSatisfied() {
+        assertEquals(SetupGate.SATISFIED, setupGate(subscriptionOnly, null))
+    }
+
+    /** The backend could not be reached: the plan is probably fine. Stay open. */
+    @Test
+    fun aStaleAccountWithNoModelsKeepsTheGateOpen() {
+        val offline = account("""{"signedIn":true,"plan":"max","modelCount":0,"stale":true}""")
+        assertEquals(SetupGate.SATISFIED, setupGate(subscriptionOnly, offline))
+    }
+
+    /** The backend answered, and the answer was "nothing": that IS "no". */
+    @Test
+    fun aFreshAccountWithNoModelsClosesTheGate() {
+        val empty = account("""{"signedIn":true,"plan":"free","modelCount":0}""")
+        assertEquals(SetupGate.NEEDED, setupGate(subscriptionOnly, empty))
+        val plenty = account("""{"signedIn":true,"plan":"max","modelCount":9}""")
+        assertEquals(SetupGate.SATISFIED, setupGate(subscriptionOnly, plenty))
+    }
+
+    /** An empty plan beside a keyed provider or a local model is not stuck. */
+    @Test
+    fun anEmptyPlanBesideAnotherConnectionIsSatisfied() {
+        val empty = account("""{"signedIn":true,"plan":"free","modelCount":0}""")
+        val keyed = providers(
+            """{"providers":[{"id":"anthropic","name":"Anthropic","connected":true}],
+                "local":[],
+                "subscription":{"id":"spettro","name":"Spettro","connected":true}}"""
+        )
+        assertEquals(SetupGate.SATISFIED, setupGate(keyed, empty))
+        val local = providers(
+            """{"providers":[],
+                "local":[{"endpoint":"http://127.0.0.1:11434/v1","modelCount":1}],
+                "subscription":{"id":"spettro","name":"Spettro","connected":true}}"""
+        )
+        assertEquals(SetupGate.SATISFIED, setupGate(local, empty))
+    }
+
+    /** Nothing connected at all is NEEDED whatever the account says. */
+    @Test
+    fun nothingConnectedIsNeededRegardlessOfTheAccount() {
+        val none = providers("""{"providers":[],"local":[]}""")
+        assertEquals(SetupGate.NEEDED, setupGate(none, null))
+        assertEquals(
+            SetupGate.NEEDED,
+            setupGate(none, account("""{"signedIn":true,"modelCount":9}""")),
+        )
+    }
 }
