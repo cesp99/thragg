@@ -43,6 +43,10 @@ class ClusterTest {
         assertTrue(Cluster.Devnet.hasFaucet)
         assertTrue(Cluster.Testnet.hasFaucet)
         assertFalse(Cluster.MainnetBeta.hasFaucet)
+        // The proof-of-work program is a devnet deployment, nothing else.
+        assertTrue(Cluster.Devnet.hasPowFaucet)
+        assertFalse(Cluster.Testnet.hasPowFaucet)
+        assertFalse(Cluster.MainnetBeta.hasPowFaucet)
     }
 
     @Test

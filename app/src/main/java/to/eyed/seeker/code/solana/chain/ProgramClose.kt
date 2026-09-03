@@ -182,7 +182,7 @@ object ProgramClose {
 }
 
 /** A chain operation that stopped, with a message written for the person reading the log. */
-class ChainException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class ChainException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * The signing order every wallet-involving transaction in this package

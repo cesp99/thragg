@@ -33,8 +33,9 @@ import kotlin.coroutines.coroutineContext
  *  2. **Fund the deploy key.** Every buffer write is a signature, and Mobile
  *     Wallet Adapter prompts for every signing round, so a few hundred writes
  *     cannot be the wallet's. They are the deploy key's, and the deploy key
- *     is topped up once: from the faucet on devnet and testnet, from the
- *     wallet by one Transfer on mainnet. Rent figures come from the RPC, not
+ *     is topped up once: by mining the proof-of-work faucet on devnet
+ *     (PowFaucet.kt), from the faucet on testnet, from the wallet by one
+ *     Transfer on mainnet. Rent figures come from the RPC, not
  *     the formula, because a cluster can change them.
  *  3. **Create the buffer**, and record it in OpenBuffers *before* the
  *     transaction is sent: a network drop or a killed process after this
@@ -252,6 +253,10 @@ private class DeploySession private constructor(
             return
         }
         val address = payer.base58
+        if (cluster.hasPowFaucet) {
+            mineOnDevnet(required, balance)
+            return
+        }
         if (cluster.hasFaucet) {
             val lastError = AtomicReference<String?>(null)
             for (attempt in 1..AIRDROP_TRIES) {
@@ -321,6 +326,50 @@ private class DeploySession private constructor(
                     "Deploy key $address holds ${sol(balance)} after the transfer and needs ${sol(required)}; deploy again to top it up"
                 )
             }
+        }
+    }
+
+    /**
+     * Devnet: the deploy key mines what it is short from the proof-of-work
+     * faucet (PowFaucet.kt), a line to the log every [MINE_LINE_MS]. A key
+     * too dry for its first claim is offered the ordinary faucet, then the
+     * wallet for a little, inside [PowFaucet.fund]; the failure that ends
+     * the deploy names the address and the shortfall, as it always did,
+     * because sending SOL there by hand is the way out either way.
+     */
+    private suspend fun mineOnDevnet(required: Long, balance: Long) {
+        onLine(
+            "Deploy key ${short(payer)} holds ${sol(balance)}, needs ${sol(required)} — " +
+                "mining the difference from the ${cluster.display} proof-of-work faucet"
+        )
+        val from = wallet
+        suspend fun fromWallet(lamports: Long) {
+            walletTransfer(from ?: return, lamports)
+        }
+        var lastLine = 0L
+        try {
+            val now = PowFaucet.fund(
+                rpc, pacer, deployKey, required,
+                walletTransfer = if (from == null) null else ::fromWallet,
+                onLine = onLine,
+                onProgress = { progress ->
+                    val at = System.currentTimeMillis()
+                    if (at - lastLine >= MINE_LINE_MS) {
+                        lastLine = at
+                        onLine(progress.describe())
+                    }
+                },
+            )
+            onLine("Deploy key now holds ${sol(now)}")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val held = runCatching { balanceOf(payer) }.getOrDefault(balance)
+            throw ChainException(
+                "Deploy key ${payer.base58} holds ${sol(held)} and needs ${sol(required)} on ${cluster.display}. " +
+                    "${ChainSigning.readable(e)} Send ${sol((required - held).coerceAtLeast(0L))} to ${payer.base58} and deploy again.",
+                e,
+            )
         }
     }
 
@@ -617,6 +666,7 @@ private class DeploySession private constructor(
         private const val AIRDROP_RETRY_MS = 2_000L
         private const val BLOCKHASH_LIFETIME = 150L
         private const val AIRDROP_CONFIRM_MS = 30_000L
+        private const val MINE_LINE_MS = 10_000L
         private const val WRITE_BATCH = 40
         private const val WRITE_ROUNDS = 12
         private const val WRITE_WAIT_MS = 120_000L

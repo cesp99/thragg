@@ -30,11 +30,23 @@ product, so the app keeps a **deploy key** — an Ed25519 keypair in
 signs the mechanical part. Seed Vault is asked at most once per deploy, and
 only on mainnet-beta:
 
-- **devnet / testnet:** the deploy key is funded from the faucet when the
-  faucet gives; when it is rate-limited — most of the time, on a shared IP —
-  Seed Vault is asked to sign one transfer for the shortfall instead. A wallet
-  that was only ever connected still lends its address as the upgrade
-  authority.
+- **devnet:** the deploy key mines what it is short from the proof-of-work
+  faucet program (`PoWSNH2hEZogtCg1Zgm51FnkmJperzYDgPK4fvs8taL`, Ellipsis
+  Labs), which pays 0.02 SOL per transaction co-signed by a key whose Base58
+  starts with `AAA`. `KeyGrinder.kt` finds such keys by walking the curve —
+  one point addition per candidate, one field inversion per 256 of them —
+  and `PowFaucet.kt` packs six claims to a transaction and keeps a dozen in
+  flight through the pacer; the approach is devnet-larper's
+  (github.com/cesp99/devnet-larper). The Airdrop button in Settings is the
+  same miner, five SOL a tap, with a Stop. The one thing it cannot do is
+  start from nothing: the fee is taken before a claim runs, so a key under
+  0.002 SOL is offered `requestAirdrop` once, then the wallet for 0.05 SOL,
+  then told the address to send a little devnet SOL to by hand. After that
+  it mines its own. A wallet that was only ever connected still lends its
+  address as the upgrade authority.
+- **testnet:** `requestAirdrop` when it gives; when it is rate-limited — most
+  of the time, on a shared IP — Seed Vault is asked to sign one transfer for
+  the shortfall instead.
 - **mainnet-beta:** Seed Vault signs one transfer that funds the deploy key
   with the estimated rent and fees. Whatever is left is swept back afterwards.
 
@@ -79,9 +91,13 @@ deployed again.
   seconds before answering 429 with a ten-second `Retry-After`, far under the
   documented limit. The pacer honours `Retry-After` and holds everyone; a
   200 kB program takes eight to nine minutes of chunk writes on it.
-- The devnet faucet hangs rather than refuses when it is dry; airdrops are
-  short-fused and the flow falls through to the wallet, then to a message
-  naming the address to fund.
+- The devnet faucet hangs rather than refuses when it is dry; the one
+  airdrop still asked of it — a dry key's first few thousandths — is
+  short-fused and falls through to the wallet, then to a message naming the
+  address to fund. Everything past that is mined.
+- A claim on the proof-of-work faucet, as accepted on devnet: 20,000,000
+  lamports in, 810,624 out for the receipt PDA's rent, 44,907 compute units.
+  Six to a transaction is 1,172 bytes of the 1,232 allowed.
 
 ## Staying alive in the background
 

@@ -43,6 +43,16 @@ enum class Cluster(
     val isMainnet: Boolean get() = this == MainnetBeta
 
     /**
+     * Whether the proof-of-work faucet program is deployed here — devnet
+     * only. Where it is, it is what funds the deploy key (PowFaucet.kt): it
+     * pays for CPU, not for waiting, where `requestAirdrop` is rationed by
+     * IP and hangs when dry. [hasFaucet] still says whether `requestAirdrop`
+     * exists at all, which is what a dry key's first few thousandths and
+     * testnet rely on.
+     */
+    val hasPowFaucet: Boolean get() = this == Devnet
+
+    /**
      * The explorer's query suffix. Mainnet is the explorer's default and takes
      * no parameter; the other two are named by their [id].
      */

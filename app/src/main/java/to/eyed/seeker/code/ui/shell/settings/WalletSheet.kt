@@ -29,10 +29,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.seeker.code.R
 import to.eyed.seeker.code.solana.chain.Base58
+import to.eyed.seeker.code.solana.chain.ChainSigning
 import to.eyed.seeker.code.solana.chain.Cluster
 import to.eyed.seeker.code.solana.chain.DeployKey
 import to.eyed.seeker.code.solana.chain.DeployedProgram
@@ -43,10 +45,12 @@ import to.eyed.seeker.code.solana.chain.Message
 import to.eyed.seeker.code.solana.chain.OnChainProgram
 import to.eyed.seeker.code.solana.chain.OpenBuffer
 import to.eyed.seeker.code.solana.chain.OpenBuffers
+import to.eyed.seeker.code.solana.chain.PowFaucet
 import to.eyed.seeker.code.solana.chain.ProgramClose
 import to.eyed.seeker.code.solana.chain.ProgramStatus
 import to.eyed.seeker.code.solana.chain.Pubkey
 import to.eyed.seeker.code.solana.chain.Rpc
+import to.eyed.seeker.code.solana.chain.RpcPacer
 import to.eyed.seeker.code.solana.chain.SeedVaultWallet
 import to.eyed.seeker.code.solana.chain.Transaction
 import to.eyed.seeker.code.ui.components.CopyChip
@@ -140,6 +144,11 @@ internal fun WalletSheet(
     var keyMissing by remember { mutableStateOf(false) }
     var keyLoading by remember { mutableStateOf(false) }
     var keyBusy by remember { mutableStateOf(false) }
+    // What the busy row says: a mining session rewrites it every couple of
+    // seconds with what has landed, so a two-minute wait is not a spinner.
+    var keyBusyLabel by remember { mutableStateOf("") }
+    // The mining job, so the busy row's Stop can cancel it; null otherwise.
+    var miningJob by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(cluster, refresh) {
         keyLoading = true
         keyBalance = null
@@ -224,40 +233,78 @@ internal fun WalletSheet(
         }
     }
 
+    /**
+     * Devnet mines the proof-of-work faucet until the key holds [MINE_SOL]
+     * more than it does now; testnet asks `requestAirdrop` for one SOL, the
+     * only faucet it has. A mining session can be stopped from the busy row,
+     * and whatever landed before the stop is in the key — the finally is
+     * what puts the buttons back either way, because a cancelled job never
+     * reaches the line after its withContext.
+     */
     fun airdrop() {
         val key = deployKey ?: return
         if (keyBusy) return
         keyBusy = true
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val rpc = Rpc(cluster)
-                    // The height first, so the wait is bounded by a blockhash
-                    // that was valid when the faucet was asked.
-                    val height = rpc.getLatestBlockhash().lastValidBlockHeight
-                    val signature = rpc.requestAirdrop(key.publicKey.base58, ONE_SOL)
-                    rpc.confirm(signature, height)
+        keyBusyLabel = "Asking the ${cluster.display} faucet…"
+        miningJob = scope.launch {
+            var stopped = false
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val rpc = Rpc(cluster)
+                        if (cluster.hasPowFaucet) {
+                            val pacer = RpcPacer()
+                            val start = pacer.run { rpc.getBalance(key.publicKey.base58) }
+                            // A dry key cannot pay for its first claim; the
+                            // wallet, when there is one, is asked for a little.
+                            val walletAddress = wallet?.let(Pubkey::of)
+                            suspend fun fromWallet(lamports: Long) {
+                                val from = walletAddress ?: return
+                                ChainSigning.signAndSend(
+                                    context, cluster, rpc, pacer, from,
+                                    listOf(Loader.transfer(from, key.publicKey, lamports)),
+                                    local = emptyList(), wallet = from,
+                                )
+                            }
+                            val end = PowFaucet.fund(
+                                rpc, pacer, key, target = start + MINE_SOL,
+                                walletTransfer = if (walletAddress == null) null else ::fromWallet,
+                                onLine = { keyBusyLabel = it },
+                                onProgress = { keyBusyLabel = it.describe() },
+                            )
+                            "Mined ${Loader.lamportsToSol(end - start)} — the deploy key holds ${Loader.lamportsToSol(end)}"
+                        } else {
+                            // The height first, so the wait is bounded by a blockhash
+                            // that was valid when the faucet was asked.
+                            val height = rpc.getLatestBlockhash().lastValidBlockHeight
+                            val signature = rpc.requestAirdrop(key.publicKey.base58, ONE_SOL)
+                            rpc.confirm(signature, height)
+                            "1 SOL from the ${cluster.display} faucet landed in the deploy key"
+                        }
+                    }
                 }
+                result
+                    .onSuccess { Notifications.info(it, key = WALLET_KEY) }
+                    .onFailure {
+                        // The message names the address: another source of
+                        // SOL is the way out of every failure here, and the
+                        // miner's own messages say when it is the first
+                        // claim that cannot be paid for.
+                        Notifications.error(
+                            "The ${cluster.display} faucet refused: ${it.message} — try again in a " +
+                                "minute, or send SOL to ${Base58.short(key.publicKey.base58)} by hand",
+                            key = WALLET_KEY,
+                        )
+                    }
+            } catch (e: CancellationException) {
+                stopped = true
+                throw e
+            } finally {
+                keyBusy = false
+                miningJob = null
+                refresh++
+                if (stopped) Notifications.info("Stopped mining — what landed is in the deploy key", key = WALLET_KEY)
             }
-            keyBusy = false
-            result
-                .onSuccess {
-                    Notifications.info(
-                        "1 SOL from the ${cluster.display} faucet landed in the deploy key",
-                        key = WALLET_KEY,
-                    )
-                }
-                .onFailure {
-                    // Faucets rate-limit by IP and say so with a 429; the way
-                    // out is time, or another source of SOL, and the message
-                    // names the address so the second is possible.
-                    Notifications.error(
-                        "The ${cluster.display} faucet refused: ${it.message} — try again in a " +
-                            "minute, or send SOL to ${Base58.short(key.publicKey.base58)} by hand",
-                        key = WALLET_KEY,
-                    )
-                }
-            refresh++
         }
     }
 
@@ -409,7 +456,7 @@ internal fun WalletSheet(
             SeekerCard(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Signs buffer writes so the wallet is asked once, not two hundred times. " +
-                        "Funded by the faucet on devnet and by Seed Vault on mainnet.",
+                        "Funded by mining devnet's proof-of-work faucet, by the faucet on testnet, and by Seed Vault on mainnet.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = MD.space3, vertical = MD.space2),
@@ -435,7 +482,11 @@ internal fun WalletSheet(
                 )
                 HairlineDivider()
                 val canReturn = wallet != null && deployKey != null && (keyBalance ?: 0L) > RETURN_THRESHOLD
-                ActionRow(busy = keyBusy, busyLabel = "Working on ${cluster.display}…") {
+                ActionRow(
+                    busy = keyBusy,
+                    busyLabel = keyBusyLabel.ifEmpty { "Working on ${cluster.display}…" },
+                    onStop = miningJob?.let { job -> { job.cancel() } },
+                ) {
                     if (cluster.hasFaucet) {
                         OutlinedButton(
                             onClick = { airdrop() },
@@ -443,7 +494,7 @@ internal fun WalletSheet(
                             border = outlinedButtonEdge(deployKey != null),
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text("Airdrop 1 SOL", style = MaterialTheme.typography.labelLarge)
+                            Text(airdropLabel(cluster), style = MaterialTheme.typography.labelLarge)
                         }
                     } else {
                         Text(
@@ -575,12 +626,14 @@ private fun BalanceRow(
  * A card's button row, or — while one of its actions is out on the network —
  * a spinner and a sentence in its place. Swapping the buttons for the wait
  * rather than greying them is what stops a second tap during the first
- * airdrop, and says what the wait is for.
+ * airdrop, and says what the wait is for. A wait that can be cut short — a
+ * mining session — gets a Stop beside the sentence.
  */
 @Composable
 private fun ActionRow(
     busy: Boolean,
     busyLabel: String,
+    onStop: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     Row(
@@ -597,7 +650,16 @@ private fun ActionRow(
                 text = busyLabel,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
+            if (onStop != null) {
+                OutlinedButton(
+                    onClick = onStop,
+                    border = outlinedButtonEdge(true),
+                ) {
+                    Text("Stop", style = MaterialTheme.typography.labelLarge)
+                }
+            }
         } else {
             content()
         }
@@ -682,11 +744,21 @@ internal fun balanceDetail(lamports: Long?, failed: Boolean, cluster: String): S
 internal fun bufferDetail(cluster: String, programId: String?): String =
     if (programId != null) "$cluster · for ${Base58.short(programId)}" else "$cluster · left by an unfinished deploy"
 
+/**
+ * The Airdrop button's label: devnet mines, and mines more than a faucet
+ * gives, because it can; testnet asks its faucet for the one SOL it allows.
+ */
+internal fun airdropLabel(cluster: Cluster): String =
+    if (cluster.hasPowFaucet) "Mine ${Loader.lamportsToSol(MINE_SOL)}" else "Airdrop 1 SOL"
+
 /** Wallet notifications replace each other rather than stacking. */
 private const val WALLET_KEY = "chain.wallet"
 
-/** What "Airdrop 1 SOL" asks for. */
+/** What "Airdrop 1 SOL" asks the testnet faucet for. */
 private const val ONE_SOL = 1_000_000_000L
+
+/** What one tap of Mine adds on devnet: about a deploy's worth, a minute or two on the public endpoint. */
+internal const val MINE_SOL = 5_000_000_000L
 
 /** Below this (0.001 SOL) a return is a fee for nothing; the button is off. */
 private const val RETURN_THRESHOLD = 1_000_000L

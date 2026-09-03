@@ -21,9 +21,9 @@ import java.security.SecureRandom
  * `target/deploy/<name>-keypair.json` holds, the deploy key that signs a few
  * hundred buffer writes, and the throwaway buffer account are all made and
  * read here. The curve arithmetic is `net.i2p.crypto:eddsa` — pure Java,
- * CC0, and small enough to audit — and this file is the only one that
- * imports it, so the rest of the chain package sees [Keypair], [Pubkey] and
- * two objects, never a `GroupElement`.
+ * CC0, and small enough to audit — and this file and KeyGrinder.kt are the
+ * only ones that import it, so the rest of the chain package sees [Keypair],
+ * [Pubkey], [GroundKey] and two objects, never a `GroupElement`.
  *
  * Solana's keypair file is a JSON array of 64 integers: the 32-byte seed
  * followed by the 32-byte public key. The public key is redundant and

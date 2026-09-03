@@ -133,6 +133,12 @@ class ChainRowsTest {
         assertEquals("2.41 SOL on devnet", balanceDetail(2_410_000_000L, failed = false, cluster = "devnet"))
         assertEquals("0 SOL on testnet", balanceDetail(0L, failed = false, cluster = "testnet"))
         assertEquals("could not reach devnet", balanceDetail(null, failed = true, cluster = "devnet"))
+    }
+
+    @Test
+    fun `the airdrop button mines on devnet and asks the faucet on testnet`() {
+        assertEquals("Mine 5 SOL", airdropLabel(Cluster.Devnet))
+        assertEquals("Airdrop 1 SOL", airdropLabel(Cluster.Testnet))
         assertEquals("…", balanceDetail(null, failed = false, cluster = "devnet"))
     }
 
