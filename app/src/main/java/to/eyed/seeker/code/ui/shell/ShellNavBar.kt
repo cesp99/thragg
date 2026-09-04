@@ -499,7 +499,15 @@ private val CapsulePad = MD.space1
 private val BarPad = MD.space2
 
 private val BadgeDot = 7.dp
-private val BadgeOffset = 9.dp
+
+/**
+ * How far past the glyph's top-right corner the badge sits. The slot is
+ * clipped to its pill and the glyph is 4dp under the pill's top, so a dot
+ * pushed 9dp out was cut to a sliver on the pill's rim — a strange mark
+ * hanging over the icon rather than a dot on it. 2dp keeps the whole dot
+ * inside the slot, on the empty corner of the ✦ and the ▶.
+ */
+private val BadgeOffset = 2.dp
 
 /**
  * The tap spring: critically damped, so the pill arrives without a wobble —

@@ -1266,6 +1266,17 @@ fun EditorPane(
             map.fillWindow(window, firstDisplay, lastDisplay, firstBufferRow, rows::text)
             val textLeft = gutterWidth + state.textPaddingPx - scrollX
 
+            // The gutter's ground, first of all: everything that washes a row
+            // — a conflict, the caret's line — is painted over it, so a
+            // `current_line_highlight` of "all" reaches the number as Zed's
+            // does (`include_gutter`). This fill used to come after the wash
+            // and quietly erased the gutter's share of it.
+            drawRect(
+                color = theme.color("editor.gutter.background"),
+                topLeft = Offset.Zero,
+                size = Size(gutterWidth, size.height),
+            )
+
             fun lineAt(row: Int): String = rows.text(row)
 
             /**
@@ -2049,13 +2060,7 @@ fun EditorPane(
                 }
             }
 
-            // Gutter: background, right-aligned line numbers.
-            drawRect(
-                color = theme.color("editor.gutter.background"),
-                topLeft = Offset.Zero,
-                size = Size(gutterWidth, size.height),
-            )
-            // git's own strip down the left of the gutter — Zed's, at Zed's
+            // Gutter: git's own strip down the left of the gutter — Zed's, at Zed's
             // width: floor(0.275 × line height) (element.rs:5322-5327), with
             // the colours the project panel already uses for the same states.
             // The strip sits past the blame column when that is showing —

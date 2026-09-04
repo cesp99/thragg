@@ -19,7 +19,7 @@
         {
           "id": "app/seeker-ide",
           "name": "Seeker IDE",
-          "version": "0.0.12",
+          "version": "0.0.13",
           "spdx": "GPL-3.0-or-later; as distributed, GPL-3.0",
           "copyright": "Copyright (C) 2026 Eyed (Carlo Esposito)",
           "url": "https://github.com/cesp99/seeker-code",
