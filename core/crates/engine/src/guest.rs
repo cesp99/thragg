@@ -53,9 +53,11 @@ use std::time::{Duration, Instant};
 /// How often a supervising loop checks on a child.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
-/// The `PATH` every guest run starts with. Named because a toolchain prepends
-/// to it rather than replacing it (see `toolchain.rs`), and the two must be
-/// the same string.
+/// Debian's own `PATH`, the tail of every guest run's. Named because a
+/// toolchain prepends to it rather than replacing it (see `toolchain.rs`),
+/// and the two must be the same string. What actually goes in the
+/// environment is [`Userland::path`]: the platform's prefix — where rustup,
+/// the Solana CLI and rust-analyzer are installed — in front of this.
 pub(crate) const GUEST_PATH: &str =
     "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
@@ -118,9 +120,28 @@ pub(crate) struct Userland {
     /// The projects directory, bound onto itself so that every project inside
     /// it is visible at its real path.
     projects_dir: PathBuf,
+    /// What leads `PATH` inside the guest, colon-separated, possibly empty.
+    ///
+    /// The platform owns the toolchain's layout — `/opt/ra`, `/root/.cargo/bin`,
+    /// `/opt/solana/...` — and hands it over here, so a language server
+    /// spawned by the engine resolves `rust-analyzer` and `cargo` exactly as
+    /// the terminal does. Before this existed the engine's servers saw only
+    /// [`GUEST_PATH`], and rust-analyzer installed by the toolchain was
+    /// "not found" for every project (seen on the device, 2026-09-04).
+    path_prefix: String,
 }
 
 impl Userland {
+    /// The `PATH` a guest process starts with: the platform's prefix, then
+    /// Debian's own.
+    pub(crate) fn path(&self) -> String {
+        if self.path_prefix.is_empty() {
+            GUEST_PATH.to_owned()
+        } else {
+            format!("{}:{GUEST_PATH}", self.path_prefix)
+        }
+    }
+
     /// Whether the guest is actually on disk.
     ///
     /// Being configured is not the same as being present — the user can remove
@@ -159,7 +180,17 @@ impl crate::Engine {
     /// launching and opening the terminal. So this must be idempotent, and
     /// the repeat below is a no-op for everything a caller may already be
     /// holding: the same rootfs keeps the same askpass server.
-    pub fn set_userland(&self, proot: &Path, rootfs: &Path, tmp_dir: &Path, projects_dir: &Path) {
+    ///
+    /// `path_prefix` is what leads the guest's `PATH` — see
+    /// [`Userland::path`]; empty for a platform with nothing to add.
+    pub fn set_userland(
+        &self,
+        proot: &Path,
+        rootfs: &Path,
+        tmp_dir: &Path,
+        projects_dir: &Path,
+        path_prefix: &str,
+    ) {
         // Resolved, because Android hands the app `/data/user/0/<package>`,
         // which is a *symlink* to `/data/data/<package>`. proot binds what it
         // is given; a guest asked to `cd` into a path that only exists as a
@@ -171,6 +202,7 @@ impl crate::Engine {
             rootfs: real(rootfs),
             tmp_dir: real(tmp_dir),
             projects_dir: real(projects_dir),
+            path_prefix: path_prefix.trim_matches(':').to_owned(),
         };
         log::info!("userland configured: {userland:?}");
         // Anything left by a previous launch is dead; this is the moment
@@ -377,8 +409,9 @@ pub(crate) fn invocation(userland: &Userland, command: &GuestCommand) -> Invocat
         // The child inherits *our* environment, in which PATH points at
         // /system/bin — a directory that does not exist inside the fake root,
         // which is why the spike saw "command not found" for everything. Give
-        // the guest a guest PATH.
-        ("PATH".into(), GUEST_PATH.into()),
+        // the guest a guest PATH — led by the platform's toolchain prefix,
+        // so the servers the engine spawns find what the toolchain installed.
+        ("PATH".into(), userland.path().into()),
         ("HOME".into(), "/root".into()),
         // The guest's own /tmp, for the same reason the guest gets a guest
         // PATH: the inherited value is a *host* path. Android's runtime sets
@@ -965,6 +998,7 @@ pub(crate) mod testing {
             rootfs: PathBuf::from("/nowhere/rootfs"),
             tmp_dir: PathBuf::from("/nowhere/tmp"),
             projects_dir: PathBuf::from("/nowhere/projects"),
+            path_prefix: String::new(),
         }
     }
 
@@ -975,6 +1009,7 @@ pub(crate) mod testing {
             rootfs: dir.to_path_buf(),
             tmp_dir: dir.to_path_buf(),
             projects_dir: dir.to_path_buf(),
+            path_prefix: String::new(),
         }
     }
 }
@@ -990,7 +1025,25 @@ mod tests {
             rootfs: PathBuf::from("/files/debian"),
             tmp_dir: PathBuf::from("/cache"),
             projects_dir: PathBuf::from("/files/projects"),
+            path_prefix: String::new(),
         }
+    }
+
+    /// The platform's toolchain prefix leads the guest PATH, and Debian's
+    /// own is still on the end: a prefix adds, it does not replace — the
+    /// same rule `toolchain.rs` follows for a virtualenv.
+    #[test]
+    fn the_platform_prefix_leads_the_guest_path() {
+        let mut platform = userland();
+        platform.path_prefix = "/opt/ra:/root/.cargo/bin".to_owned();
+        let command = GuestCommand::new("test", vec![OsString::from("true")]);
+        let env = env_of(&proot_command(&platform, &command));
+        assert_eq!(
+            env.get("PATH").map(String::as_str),
+            Some("/opt/ra:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        );
+        // And with nothing to add, exactly Debian's.
+        assert_eq!(userland().path(), GUEST_PATH);
     }
 
     fn argv_of(command: &Command) -> Vec<String> {
@@ -1384,6 +1437,7 @@ mod tests {
             &dir.path().join("debian"),
             dir.path(),
             dir.path(),
+            "",
         );
         assert!(engine.userland().is_some());
 
@@ -1404,7 +1458,7 @@ mod tests {
         let rootfs = dir.path().join("debian");
         std::fs::create_dir_all(rootfs.join("tmp")).unwrap();
         let configure = || {
-            engine.set_userland(&dir.path().join("proot"), &rootfs, dir.path(), dir.path());
+            engine.set_userland(&dir.path().join("proot"), &rootfs, dir.path(), dir.path(), "");
         };
 
         configure();
@@ -1441,7 +1495,7 @@ mod tests {
         // A different rootfs is a different userland, and does get a new server.
         let other = dir.path().join("other");
         std::fs::create_dir_all(other.join("tmp")).unwrap();
-        engine.set_userland(&dir.path().join("proot"), &other, dir.path(), dir.path());
+        engine.set_userland(&dir.path().join("proot"), &other, dir.path(), dir.path(), "");
         let third = engine.askpass().expect("a server for the new rootfs");
         assert!(!Arc::ptr_eq(&second, &third));
         assert!(third.host_script().starts_with(&other));

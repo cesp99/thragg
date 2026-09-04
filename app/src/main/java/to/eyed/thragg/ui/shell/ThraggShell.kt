@@ -564,6 +564,7 @@ private fun syncUserlandWithEngine(context: Context) {
         File(context.filesDir, "debian").absolutePath,
         context.cacheDir.absolutePath,
         File(context.filesDir, "projects").absolutePath,
+        SolanaToolchain.GUEST_PATH_PREFIX,
     )
 }
 

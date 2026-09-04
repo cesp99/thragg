@@ -330,12 +330,22 @@ object CoreBridge {
      *
      * The engine binds [projectsDir] into the guest at its *own* path, so host
      * and guest agree on every path and nothing needs translating.
+     *
+     * [guestPathPrefix] leads `PATH` for everything the engine runs in the
+     * guest — the language servers above all. It is the toolchain's own
+     * prefix ([to.eyed.thragg.solana.toolchain.SolanaToolchain.GUEST_PATH_PREFIX]),
+     * the same string the terminal and the build tasks lead their `PATH`
+     * with, so `rust-analyzer` and `cargo` resolve for a server exactly as
+     * they do in a shell. Without it the engine's servers saw only Debian's
+     * `PATH` and the toolchain's rust-analyzer was "not found" for every
+     * project.
      */
     external fun setUserland(
         proot: String,
         rootfs: String,
         tmpDir: String,
         projectsDir: String,
+        guestPathPrefix: String,
     )
 
     /** Forgets the userland — after the rootfs is deleted. Status goes empty. */

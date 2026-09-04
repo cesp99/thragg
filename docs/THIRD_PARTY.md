@@ -489,7 +489,7 @@ will ask.
 | Debian userland | Debian's official `stable-slim` container image, verified against the registry digest | rolling | A collection of works under many licences; see `/usr/share/doc/*/copyright` inside the installed rootfs |
 | rustup | `static.rust-lang.org` | 1.29.0 | MIT OR Apache-2.0 |
 | SBF platform-tools (an LLVM with the SBF backend, and a Rust) | [anza-xyz/platform-tools](https://github.com/anza-xyz/platform-tools) | v1.57 | Apache-2.0; the bundled LLVM is Apache-2.0-WITH-LLVM-exception |
-| rust-analyzer | [rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer) | 2026-08-24 | MIT OR Apache-2.0 |
+| Rust for the editor (rustc, rust-std, cargo, rust-analyzer and rust-src, `--profile minimal`) | `static.rust-lang.org`, via `rustup toolchain install` | 1.98.1 | MIT OR Apache-2.0 |
 | Spettro (ACP agent) | [aploide/spettro](https://github.com/aploide/spettro) | v2.7.3 | GPL-3.0-or-later, © Eyed |
 | Build tools | Debian's own archives, via `apt` | — | Each package under its own terms |
 | cargo-build-sbf | crates.io, built on device | 4.2.0 | Apache-2.0 |

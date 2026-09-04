@@ -276,6 +276,11 @@ data class ToolchainManifest(
                 InstallMethod.Apt -> require(component.packages.isNotEmpty()) {
                     "component $id is an apt step and must name packages"
                 }
+                InstallMethod.RustupToolchain -> require(
+                    component.version != null && component.url == null,
+                ) {
+                    "component $id is a rustup toolchain and must pin a version and fetch nothing"
+                }
                 InstallMethod.Userland -> Unit
             }
             require(component.marker.startsWith("/")) {
@@ -337,7 +342,16 @@ enum class InstallMethod(val key: String) {
      * transfer to measure and pretending otherwise would be a fake progress
      * bar on a four-minute compile.
      */
-    CargoInstall("cargo-install");
+    CargoInstall("cargo-install"),
+
+    /**
+     * `rustup toolchain install <version> --profile minimal`, in the guest,
+     * plus the components in `packages`. The one component the app never
+     * downloads itself: rustup fetches from static.rust-lang.org and
+     * verifies its own hashes. Timed like a compile — there is no transfer
+     * on this side to draw a bar for.
+     */
+    RustupToolchain("rustup-toolchain");
 
     companion object {
         fun of(key: String): InstallMethod? = entries.firstOrNull { it.key == key }
@@ -439,13 +453,20 @@ data class ToolchainComponent(
     val isCompiled: Boolean get() = method == InstallMethod.CargoInstall
 
     /**
+     * Whether the row shows a clock rather than a byte count while it works:
+     * a compile, or a rustup install whose download rustup owns and this side
+     * cannot see. The idle line still quotes the size for the latter.
+     */
+    val isTimed: Boolean get() = isCompiled || method == InstallMethod.RustupToolchain
+
+    /**
      * Whether this row's time is spent in the guest lane — the one lane the
      * install cannot parallelise, because everything on it either *is* the
      * guest (the userland), needs dpkg's lock (apt), or needs all eight cores
      * (a compile). A download or an unpack is fetch-lane work and overlaps.
      */
     val onGuestLane: Boolean
-        get() = method == InstallMethod.Userland || method == InstallMethod.Apt || isCompiled
+        get() = method == InstallMethod.Userland || method == InstallMethod.Apt || isTimed
 
     /** The marker as a path relative to the rootfs directory, for a host-side stat. */
     val markerInRootfs: String get() = marker.trimStart('/')

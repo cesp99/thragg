@@ -52,14 +52,43 @@ stale, and no binaries of ours for anyone to have to take on faith:
 | Debian rootfs | Debian's official container image, from the registry | 30 MB |
 | `rustup` (manager only, no toolchain) | `sh.rustup.rs`, `--default-toolchain none` | ~15 MB |
 | SBF platform-tools | `anza-xyz/platform-tools` releases | 505 MB |
-| rust-analyzer | `rust-lang/rust-analyzer` releases, `aarch64-unknown-linux-gnu` | 40 MB |
+| Rust for the editor (rust-analyzer, rust-src and a stock `1.98.1`, `--profile minimal`) | `static.rust-lang.org`, through `rustup toolchain install` | 123 MB down, 613 MB on disk |
 | Spettro | `aploide/spettro` releases, `linux_arm64` | 15 MB |
 | `cargo-build-sbf` | crates.io — **built on the phone**, see below | ~4 min of CPU |
 | Anchor | crates.io — **built on the phone**, see below | one-time build |
 
-No full Rust download is needed: `platform-tools` already carries a host
+The *build* needs no Rust download: `platform-tools` already carries a host
 `aarch64-unknown-linux-gnu` toolchain alongside the SBF one, and that is the
 cargo that built `cargo-build-sbf` on the device.
+
+The *editor* does need one, and it is the one row above that is not fetched by
+the app. rust-analyzer expands a crate's proc macros through a server —
+the sysroot's `libexec/rust-analyzer-proc-macro-srv` — that must have been
+built by the very compiler that built the macros, and platform-tools ships
+none (nor can a standalone one stand in: the server is compiled inside the
+Rust tree, and the standalone `rust-analyzer` release does not carry it).
+Without it every `#[program]`, `#[account]` and `#[derive(Accounts)]` stays
+unexpanded, and a freshly scaffolded program opened with thirteen false
+errors on the Seeker (2026-09-04); with rustup's `rust-analyzer` component
+on a stock `1.98.1` it opened with none. So the installer runs
+
+```sh
+rustup toolchain install 1.98.1 --profile minimal --component rust-analyzer --component rust-src
+rustup toolchain link thragg-editor /root/.rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu
+```
+
+`rust-src` is the standard library's source; without it rust-analyzer loads
+the workspace with "can't load standard library from sysroot" and resolves
+nothing from `std`.
+
+and the engine sets `RUSTUP_TOOLCHAIN=thragg-editor` for the language server
+alone (`lsp.rs`, `EDITOR_TOOLCHAIN`), so `rust-analyzer`, and the `cargo
+check` it runs, resolve there through rustup's shims — while every terminal,
+task and agent keeps building with `thragg`. It replaced the standalone
+rust-analyzer download at `/opt/ra`: two copies would disagree about the
+proc-macro protocol, and the shim resolves one. Measured over home Wi-Fi:
+18 s for the four binaries and 2 min 39 s for rust-src's thousands of small
+files through proot — five `.tar.xz` files totalling 123 MB, 613 MB unpacked.
 
 `rustup` itself *is* needed, but only the toolchain manager — `cargo-build-sbf`
 shells out to it and dies with `Failed to execute rustup` otherwise. So the
@@ -126,7 +155,7 @@ has a full set of its own).
 | Debian userland | 1 min 20 s | registry pull + unpack through proot |
 | rustup | 3 s | |
 | SBF platform-tools | 2 min 48 s | 42 s download at ~12 MB/s, **2 min 06 s** bzip2 unpack |
-| rust-analyzer | 2 s | |
+| Rust for the editor | 2 min 57 s | rustup's own download of five `.tar.xz` files (123 MB) and their unpack — 18 s for the binaries, 2 min 39 s for rust-src's many small files through proot; measured 2026-09-04, replacing the 2 s standalone rust-analyzer |
 | Spettro | 2 s | |
 | Build tools (apt) | 2 min 57 s | dpkg, single-threaded |
 | cargo-build-sbf | 3 min 34 s | crates fetch + compile |
@@ -152,7 +181,8 @@ below already in:
 |---|---|
 | Debian userland (guest lane) | 1 min 08 s |
 | Build tools, apt (guest lane) | 2 min 14 s — platform-tools downloaded (35 s) and unpacked (2 min 09 s) underneath it |
-| rustup, rust-analyzer, Spettro, platform-tools link | under 1 s each; their bytes were already staged |
+| rustup, Spettro, platform-tools link | under 1 s each; their bytes were already staged |
+| Rust for the editor | 2 min 57 s (guest lane; rustup downloads it itself, so nothing was staged) |
 | cargo-build-sbf | 2 min 38 s |
 | **gate opens** (every required row in) | **6 min 40 s** |
 | Anchor | 6 min 23 s, in the background after Continue |

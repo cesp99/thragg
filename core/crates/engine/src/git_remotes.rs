@@ -743,7 +743,7 @@ fork\tgit@example.com:someone/fork.git (push)\n";
         );
 
         let engine = crate::Engine::new();
-        engine.set_userland(&fake_guest(dir), dir, dir, &projects);
+        engine.set_userland(&fake_guest(dir), dir, dir, &projects, "");
         let id = engine.open_project(&work);
         // Poll until the cache holds main's upstream — the snapshot the old
         // code trusted — then stop polling, so nothing refreshes it before

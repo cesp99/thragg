@@ -692,6 +692,7 @@ object ToolchainInstaller {
             InstallMethod.Userland -> installUserland(app, component)
             InstallMethod.Apt -> installApt(app, component)
             InstallMethod.CargoInstall -> installCrate(app, manifest, component)
+            InstallMethod.RustupToolchain -> installRustupToolchain(app, component)
             // Already staged by the fetch lane; only the guest half is left.
             InstallMethod.Binary, InstallMethod.GzSingleBinary, InstallMethod.Tarball -> Unit
         }
@@ -888,6 +889,50 @@ object ToolchainInstaller {
             onLine = workingStep(component.id, started),
         )
         if (exit != 0) error("cargo install $crate exited $exit")
+    }
+
+    /**
+     * `rustup toolchain install`, in the guest: the editor's own Rust.
+     *
+     * rust-analyzer expands a crate's proc macros through a *server* that
+     * must have been built by the very compiler that built the macros —
+     * the sysroot's `libexec/rust-analyzer-proc-macro-srv`, which rustup's
+     * `rust-analyzer` component carries and platform-tools does not. With
+     * no server, every Anchor attribute — `#[program]`, `#[account]`,
+     * `#[derive(Accounts)]` — is left unexpanded and the scaffold opens
+     * with thirteen false errors (measured on the Seeker, 2026-09-04; zero
+     * with this toolchain). So the editor reads code with the toolchain
+     * named in `version`, and the phone builds it with platform-tools as
+     * before: the engine sets `RUSTUP_TOOLCHAIN` for the language server
+     * alone (lsp.rs, `EDITOR_TOOLCHAIN`), and nothing else sees this one.
+     *
+     * `--profile minimal` is rustc, rust-std and cargo — the least a
+     * `cargo check` can run on; `packages` adds rust-analyzer and rust-src,
+     * the standard library's source, without which the server loads the
+     * workspace with "can't load standard library from sysroot" and
+     * resolves nothing from std. rustup verifies its own downloads, which
+     * is why this row pins a version and no hash. Measured over home Wi-Fi:
+     * 18 s for the four binaries and 2 min 39 s for rust-src's thousands
+     * of small files through proot; 123 MB down, 613 MB on disk.
+     */
+    private fun installRustupToolchain(app: Context, component: ToolchainComponent) {
+        val toolchain = component.version ?: error("${component.id} names no toolchain version")
+        val started = now()
+        val argv = buildList {
+            add("/root/.cargo/bin/rustup")
+            add("toolchain")
+            add("install")
+            add(toolchain)
+            add("--profile")
+            add("minimal")
+            for (extra in component.packages) {
+                add("--component")
+                add(extra)
+            }
+            add("--no-self-update")
+        }
+        val exit = runInGuest(app, argv, apt = false, onLine = workingStep(component.id, started))
+        if (exit != 0) error("rustup toolchain install $toolchain exited $exit")
     }
 
     /**

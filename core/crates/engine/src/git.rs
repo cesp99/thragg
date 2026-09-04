@@ -2939,6 +2939,7 @@ mod tests {
             &dir.path().join("no-such-rootfs"),
             dir.path(),
             dir.path(),
+            "",
         );
         let id = engine.open_project(dir.path());
 
@@ -3483,7 +3484,7 @@ mod tests {
         );
 
         let engine = crate::Engine::new();
-        engine.set_userland(&fake_guest(dir.path()), dir.path(), dir.path(), &projects);
+        engine.set_userland(&fake_guest(dir.path()), dir.path(), dir.path(), &projects, "");
         let id = engine.open_project(&repo);
 
         // Staging a modification, and reading it back through the panel's own
@@ -3591,7 +3592,7 @@ mod tests {
         std::fs::set_permissions(&proot, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let engine = crate::Engine::new();
-        engine.set_userland(&proot, dir.path(), dir.path(), &projects);
+        engine.set_userland(&proot, dir.path(), dir.path(), &projects, "");
         let userland = engine.userland().unwrap();
 
         let run = run_git_split(
@@ -3625,7 +3626,7 @@ mod tests {
     fn a_command_past_its_deadline_says_it_may_have_partly_applied() {
         let dir = tempfile::tempdir().unwrap();
         let engine = crate::Engine::new();
-        engine.set_userland(&fake_guest(dir.path()), dir.path(), dir.path(), dir.path());
+        engine.set_userland(&fake_guest(dir.path()), dir.path(), dir.path(), dir.path(), "");
         let userland = engine.userland().unwrap();
         // Detached from the pipes, because the fake guest has no proot to
         // take tracees down on the kill: an orphan holding stdout would make
@@ -3680,7 +3681,7 @@ mod tests {
         // spawn fails — the same shape as a rootfs pulled out mid-session.
         let broken = dir.path().join("broken-proot");
         std::fs::write(&broken, "").unwrap();
-        engine.set_userland(&broken, dir.path(), dir.path(), &dir.path().join("projects"));
+        engine.set_userland(&broken, dir.path(), dir.path(), &dir.path().join("projects"), "");
 
         let err = engine
             .git_commit(id, "doomed", false, false, false)
@@ -3811,7 +3812,7 @@ mod tests {
                 .success()
         );
         let engine = crate::Engine::new();
-        engine.set_userland(&fake_guest(dir), dir, dir, &projects);
+        engine.set_userland(&fake_guest(dir), dir, dir, &projects, "");
         (engine, repo)
     }
 
@@ -3912,6 +3913,7 @@ mod tests {
             &dir.path().join("no-such-rootfs"),
             dir.path(),
             dir.path(),
+            "",
         );
         let userland = engine.userland().unwrap();
         let outcome = status_for(1, &userland, &root);

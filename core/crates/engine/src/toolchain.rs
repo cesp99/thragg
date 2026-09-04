@@ -92,7 +92,11 @@ impl ToolchainEnv {
     /// Zed's pair: the interpreter's directory in front of `PATH`, and
     /// `VIRTUAL_ENV` naming the environment's root, which is what every
     /// Python tool actually reads.
-    fn of(toolchains: &[Toolchain]) -> ToolchainEnv {
+    ///
+    /// `guest_path` is what the guest starts with — [`guest::Userland::path`]
+    /// — and it stays on the end: a toolchain adds an interpreter, it does
+    /// not take `sh` away.
+    fn of(toolchains: &[Toolchain], guest_path: &str) -> ToolchainEnv {
         let mut prefix: Vec<String> = Vec::new();
         let mut env: Vec<(String, String)> = Vec::new();
         for toolchain in toolchains {
@@ -106,7 +110,7 @@ impl ToolchainEnv {
         if !prefix.is_empty() {
             // The guest's own PATH is appended, not replaced: the toolchain
             // adds an interpreter, it does not take `sh` away.
-            prefix.push(guest::GUEST_PATH.to_owned());
+            prefix.push(guest_path.to_owned());
             env.push(("PATH".to_owned(), prefix.join(":")));
         }
         ToolchainEnv(env)
@@ -425,7 +429,11 @@ impl Engine {
     /// and a `PATH` prefix. Empty when nothing is chosen, which is what makes
     /// this safe to merge unconditionally.
     pub fn toolchain_env(&self, project: ProjectId) -> ToolchainEnv {
-        ToolchainEnv::of(&self.active_toolchains(project))
+        let guest_path = self
+            .userland()
+            .map(|userland| userland.path())
+            .unwrap_or_else(|| guest::GUEST_PATH.to_owned());
+        ToolchainEnv::of(&self.active_toolchains(project), &guest_path)
     }
 }
 
@@ -480,7 +488,7 @@ mod tests {
             language: "Python".to_owned(),
             source: ".venv".to_owned(),
         };
-        let env = ToolchainEnv::of(std::slice::from_ref(&toolchain));
+        let env = ToolchainEnv::of(std::slice::from_ref(&toolchain), guest::GUEST_PATH);
         let map: BTreeMap<&str, &str> = env.iter().collect();
         assert_eq!(map.get("VIRTUAL_ENV"), Some(&"/p/app/.venv"));
         let path = map.get("PATH").expect("a PATH");
@@ -504,7 +512,7 @@ mod tests {
             language: "Rust".to_owned(),
             source: "rustup".to_owned(),
         };
-        let env = ToolchainEnv::of(std::slice::from_ref(&toolchain));
+        let env = ToolchainEnv::of(std::slice::from_ref(&toolchain), guest::GUEST_PATH);
         let map: BTreeMap<&str, &str> = env.iter().collect();
         assert!(!map.contains_key("VIRTUAL_ENV"));
         assert!(
@@ -521,13 +529,13 @@ mod tests {
             language: "Python".to_owned(),
             source: "system".to_owned(),
         };
-        let env = ToolchainEnv::of(std::slice::from_ref(&toolchain));
+        let env = ToolchainEnv::of(std::slice::from_ref(&toolchain), guest::GUEST_PATH);
         assert!(env.iter().all(|(key, _)| key != "VIRTUAL_ENV"));
     }
 
     #[test]
     fn nothing_chosen_contributes_nothing() {
-        assert!(ToolchainEnv::of(&[]).is_empty());
+        assert!(ToolchainEnv::of(&[], guest::GUEST_PATH).is_empty());
     }
 
     #[test]

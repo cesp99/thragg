@@ -608,7 +608,7 @@ The one full-screen takeover, and on a fresh install the gate. It is the honest 
 │  ✓  rustup (manager only)    15 MB       │
 │  ▶  SBF platform-tools  312 / 505 MB     │
 │     ████████████░░░░░░░░  62 % · 4 MB/s  │
-│  ·  rust-analyzer            40 MB       │
+│  ·  Rust for the editor    ≈ 123 MB      │
 │  ·  Spettro (agent)          15 MB       │
 │  ·  cargo-build-sbf     builds on device │
 │  ·  Anchor              builds on device │

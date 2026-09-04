@@ -255,7 +255,28 @@ pub(crate) struct Server {
     pub name: &'static str,
     /// The guest argv, program included. `--stdio` and friends belong here.
     pub argv: &'static [&'static str],
+    /// Environment the server needs and nothing else in the guest does.
+    /// Under the toolchain's and the user's `binary.env`, which both win.
+    pub env: &'static [(&'static str, &'static str)],
 }
+
+/// The rustup toolchain rust-analyzer runs on, and runs cargo with.
+///
+/// The phone *builds* with platform-tools, a Rust of Solana's own, and that
+/// compiler ships no proc-macro server — the sysroot's
+/// `libexec/rust-analyzer-proc-macro-srv`, which has to have been built by
+/// the very compiler that built the macros, so no standalone one can stand
+/// in. With no server every Anchor attribute stays unexpanded and a fresh
+/// scaffold opens with thirteen false errors (Seeker, 2026-09-04). So the
+/// editor *reads* with a stock toolchain that has one: the toolchain
+/// manifest installs a pinned version and links it under this name
+/// (`app/src/main/assets/solana/toolchain/manifest.json`, `rust-editor`),
+/// and the rustup shims on the guest `PATH` route `rust-analyzer`, `cargo`
+/// and `rustc` there for the server alone — every terminal, task and agent
+/// keeps the default toolchain. A phone without the component gets rustup's
+/// own "toolchain 'thragg-editor' is not installed" as the server's
+/// unavailable sentence, which is the truth and names the fix.
+pub(crate) const EDITOR_TOOLCHAIN: &str = "thragg-editor";
 
 /// Grammar name (what `highlight::language_for_path` answers, and what
 /// `Engine::buffer_language` reports) → the server for it and the `languageId`
@@ -271,10 +292,12 @@ fn server_for(grammar: &str) -> Option<(Server, &'static str)> {
     const CLANGD: Server = Server {
         name: "clangd",
         argv: &["clangd", "--background-index"],
+        env: &[],
     };
     const TYPESCRIPT: Server = Server {
         name: "typescript-language-server",
         argv: &["typescript-language-server", "--stdio"],
+        env: &[],
     };
     Some(match grammar {
         // Debian: rust-analyzer
@@ -282,6 +305,7 @@ fn server_for(grammar: &str) -> Option<(Server, &'static str)> {
             Server {
                 name: "rust-analyzer",
                 argv: &["rust-analyzer"],
+                env: &[("RUSTUP_TOOLCHAIN", EDITOR_TOOLCHAIN)],
             },
             "rust",
         ),
@@ -293,6 +317,7 @@ fn server_for(grammar: &str) -> Option<(Server, &'static str)> {
             Server {
                 name: "gopls",
                 argv: &["gopls", "serve"],
+                env: &[],
             },
             "go",
         ),
@@ -301,6 +326,7 @@ fn server_for(grammar: &str) -> Option<(Server, &'static str)> {
             Server {
                 name: "pylsp",
                 argv: &["pylsp"],
+                env: &[],
             },
             "python",
         ),
@@ -331,10 +357,14 @@ pub(crate) fn server_binary(
     // git, which carries `-C`, a language server finds its own manifest by
     // looking around the directory it was started in.
     let mut command = GuestCommand::new(server.name.to_owned(), argv).workdir(root);
-    // The active toolchain first, the user's `lsp.<server>.binary.env` over
-    // it: a server started outside the project's virtualenv cannot resolve a
-    // single one of its imports, and a `binary.env` written by hand is the
-    // more specific instruction of the two.
+    // The server's own needs first ([`EDITOR_TOOLCHAIN`] for rust-analyzer),
+    // then the active toolchain, then the user's `lsp.<server>.binary.env`
+    // over both: a server started outside the project's virtualenv cannot
+    // resolve a single one of its imports, and a `binary.env` written by
+    // hand is the most specific instruction of the three.
+    for (key, value) in server.env {
+        command = command.env(key, value);
+    }
     for (key, value) in toolchain.iter() {
         command = command.env(key, value);
     }
@@ -5388,7 +5418,7 @@ mod tests {
         std::fs::create_dir_all(&rootfs).unwrap();
         std::fs::create_dir_all(dir.join("projects")).unwrap();
         let engine = Engine::new();
-        engine.set_userland(&proot, &rootfs, dir, &dir.join("projects"));
+        engine.set_userland(&proot, &rootfs, dir, &dir.join("projects"), "");
         engine
     }
 
@@ -5447,6 +5477,13 @@ mod tests {
                 .is_some_and(|path| path.contains("/usr/bin"))
         );
         assert!(env.contains_key("PROOT_TMP_DIR"));
+        // And rust-analyzer alone is pointed at the editor's toolchain: the
+        // shim resolves it there, and cargo with it, so the proc-macro server
+        // it finds was built by the compiler that builds the macros.
+        assert_eq!(
+            env.get("RUSTUP_TOOLCHAIN").map(String::as_str),
+            Some(EDITOR_TOOLCHAIN)
+        );
     }
 
     /// `lsp.<server>.binary`, Zed's rule: a `path` replaces the program and
@@ -5626,7 +5663,7 @@ mod tests {
     }
 
     fn fake_server(name: &'static str) -> Server {
-        Server { name, argv: &[] }
+        Server { name, argv: &[], env: &[] }
     }
 
     /// The cap counts *processes*, not entries — and it counts them across

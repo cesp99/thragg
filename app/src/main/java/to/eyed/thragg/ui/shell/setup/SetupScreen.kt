@@ -826,7 +826,7 @@ private fun figure(row: ComponentRow): String {
             "${formatBytes(state.received)} / ${formatBytes(state.total)}"
         is ComponentState.Installed -> "installed"
         is ComponentState.Working ->
-            if (component.isCompiled) elapsed(state.startedAt) else "working"
+            if (component.isTimed) elapsed(state.startedAt) else "working"
         else ->
             if (component.isCompiled) {
                 component.estimatedSeconds.takeIf { it > 0L }

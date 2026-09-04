@@ -794,6 +794,7 @@ mod tests {
             dir.path(),
             dir.path(),
             dir.path(),
+            "",
         );
         let id = engine.open_file(&file).unwrap();
 

@@ -55,15 +55,16 @@ class ToolchainManifestTest {
     /**
      * Every fetched component pins a hash, and it is a real SHA-256.
      *
-     * The two that pin nothing are the two that fetch nothing this way: the
-     * Debian rootfs verifies the registry's own digest as it streams, and the
-     * apt step is Debian's package signing, not ours. Six fetch: the four
-     * upstream binaries and the two drivers from our own build repository.
+     * The three that pin nothing are the three that fetch nothing this way:
+     * the Debian rootfs verifies the registry's own digest as it streams, the
+     * apt step is Debian's package signing, and the editor's Rust is fetched
+     * and verified by rustup. Five fetch: the three upstream binaries and the
+     * two drivers from our own build repository.
      */
     @Test
     fun `every downloaded component pins a sha256 and an https url`() {
         val fetched = manifest.components.filter { it.url != null }
-        assertEquals(6, fetched.size)
+        assertEquals(5, fetched.size)
         for (component in fetched) {
             val sha = component.sha256
             assertNotNull("${component.id} has no sha256", sha)
@@ -352,8 +353,9 @@ class ToolchainManifestTest {
 
     /**
      * Every row carries a measured time, and the wall estimate is the guest
-     * lane's sum — the userland and apt — not the serial total, because the
-     * fetch lane hides every download behind them.
+     * lane's sum — the userland, apt, and the editor's Rust, whose download
+     * rustup does inside the guest — not the serial total, because the fetch
+     * lane hides every other download behind them.
      */
     @Test
     fun `every component is measured and the wall estimate is the guest lane`() {
@@ -361,7 +363,7 @@ class ToolchainManifestTest {
             assertTrue("${component.id} has no estimatedSeconds", component.estimatedSeconds > 0L)
         }
         val lane = manifest.components.filter { it.onGuestLane }.map { it.id }.toSet()
-        assertEquals(setOf("debian", "apt-build-tools"), lane)
+        assertEquals(setOf("debian", "rust-editor", "apt-build-tools"), lane)
         assertTrue(manifest.estimatedWallSeconds < manifest.totalEstimatedSeconds)
         assertEquals(
             manifest.components.filter { it.id in lane }.sumOf { it.estimatedSeconds },
@@ -402,5 +404,35 @@ class ToolchainManifestTest {
         assertEquals("505 MB", formatBytes(505_000_000L))
         assertEquals("1.4 GB", formatBytes(1_400_000_000L))
         assertEquals("30 MB", formatBytes(30_000_000L))
+    }
+
+    /**
+     * The editor's Rust is a rustup install pinned by version and linked
+     * under the one name the engine knows (lsp.rs, `EDITOR_TOOLCHAIN`): a
+     * bump here that forgot the link would leave rust-analyzer running on
+     * the previous toolchain, or on none.
+     */
+    @Test
+    fun `the editor toolchain is pinned, brings rust-analyzer, and is linked as thragg-editor`() {
+        val editor = manifest.components.first { it.id == "rust-editor" }
+        assertEquals(InstallMethod.RustupToolchain, editor.method)
+        assertTrue(editor.isTimed)
+        assertFalse(editor.isCompiled)
+        assertTrue(editor.onGuestLane)
+        assertFalse(editor.required)
+        assertTrue("rustup" in editor.needs)
+        val version = editor.version
+        assertNotNull(version)
+        assertTrue(version!!.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+")))
+        assertTrue("rust-analyzer" in editor.packages)
+        // The standard library's source, or rust-analyzer resolves nothing
+        // from std and says "can't load standard library from sysroot".
+        assertTrue("rust-src" in editor.packages)
+        assertTrue(editor.marker.contains(version))
+        assertTrue(editor.marker.endsWith("/libexec/rust-analyzer-proc-macro-srv"))
+        val link = editor.postInstall.single()
+        assertEquals(listOf("toolchain", "link", "thragg-editor"), link.subList(1, 4))
+        assertTrue(link.last().contains(version))
+        assertTrue(editor.verify!!.contains("+thragg-editor"))
     }
 }

@@ -122,13 +122,18 @@ object SolanaToolchain {
      *
      * Straight out of tools/device-toolchain.sh, where each one was needed:
      * `/root/.cargo/bin` is rustup's shim directory and therefore where `cargo`
-     * and `rustc` resolve from; `/opt/solana/cli/bin` is where the two
-     * on-device compiles install to; the LLVM directory carries `ld.lld`,
-     * `llvm-readelf` and the rest of the SBF link step.
+     * and `rustc` resolve from — and `rust-analyzer` too, which the shim
+     * routes to the editor's own toolchain when the engine sets
+     * `RUSTUP_TOOLCHAIN` for the server (manifest.json, `rust-editor`);
+     * `/opt/solana/cli/bin` is where the two on-device compiles install to;
+     * the LLVM directory carries `ld.lld`, `llvm-readelf` and the rest of the
+     * SBF link step.
      *
      * Exported whether or not the toolchain is installed. A `PATH` entry that
      * does not exist costs a failed `stat` per lookup and nothing else, and the
-     * alternative is a disk read on the path that starts every shell.
+     * alternative is a disk read on the path that starts every shell. The
+     * engine gets the same string through `CoreBridge.setUserland`, so the
+     * language servers it spawns see it too.
      */
     val GUEST_PATH_ENTRIES = listOf(
         "/root/.cargo/bin",

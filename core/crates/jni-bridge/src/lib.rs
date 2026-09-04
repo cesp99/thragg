@@ -855,16 +855,19 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setUserland(
     rootfs: JString,
     tmp_dir: JString,
     projects_dir: JString,
+    path_prefix: JString,
 ) {
     let proot = get_string(&mut env, &proot);
     let rootfs = get_string(&mut env, &rootfs);
     let tmp_dir = get_string(&mut env, &tmp_dir);
     let projects_dir = get_string(&mut env, &projects_dir);
+    let path_prefix = get_string(&mut env, &path_prefix);
     engine().set_userland(
         Path::new(&proot),
         Path::new(&rootfs),
         Path::new(&tmp_dir),
         Path::new(&projects_dir),
+        &path_prefix,
     );
 }
 
