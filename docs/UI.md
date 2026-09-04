@@ -1,6 +1,6 @@
 # The Seeker shell
 
-Seeker IDE is a phone app. The editor, terminal, LSP client and ACP session
+Thragg is a phone app. The editor, terminal, LSP client and ACP session
 layer are inherited from Conquest Code, but the *shell* around them is not:
 Conquest was built for foldables, tablets and DeX, and this device is a
 **400 × 890 dp** phone held in one hand. This page is the specification for the
@@ -25,7 +25,7 @@ Two engine facts from this session's reading shape the spec and contradicted all
 
 ## Navigation
 
-SHELL. One file, app/src/main/java/to/eyed/seeker/code/ui/shell/SeekerShell.kt, replacing WorkspaceScreen.kt. Structure: `Column { destination(weight = 1f); BottomNav }`. No title bar, no status bar, no tab strip, no dock, no pane tree. There is no `isWide`, no `WideLayoutMinWidth`, no `DockMinWidth`, no `MinEditorWidth`, and no window-size-class branch anywhere in the shell.
+SHELL. One file, app/src/main/java/to/eyed/thragg/ui/shell/SeekerShell.kt, replacing WorkspaceScreen.kt. Structure: `Column { destination(weight = 1f); BottomNav }`. No title bar, no status bar, no tab strip, no dock, no pane tree. There is no `isWide`, no `WideLayoutMinWidth`, no `DockMinWidth`, no `MinEditorWidth`, and no window-size-class branch anywhere in the shell.
 
 THREE DESTINATIONS, and nothing else is a destination. One floating capsule at the bottom (ShellNavBar.kt), 3 slots of 88dp inside it with a pill that slides between them: a tap sends the pill to the tab and shows it on the next frame; a drag anywhere on the bar carries the pill 1:1, ticks as it crosses a slot, is thrown on release toward where its velocity was going (never more than one tab from velocity alone), and the screen slides the same way. The bar area is 8dp + capsule (~57dp portrait, 44dp landscape) + 8dp + gesture inset, on the shell background with no hairline.
   ‹› Code   — the editor, full-bleed. Start destination.
@@ -134,16 +134,16 @@ Where the file lives. One buffer, full-bleed. No tab strip, no breadcrumbs, no s
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/editor/EditorPane.kt — the whole virtualized canvas, IME path, selection handles, pinch-zoom, gutter, scrollbar-as-handle. Called unchanged apart from the action row and the vim excision.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/EditorState.kt, DisplayMap.kt, EditorDisplay.kt, EditorInput.kt, EditorBuffer.kt, EditorSemantics.kt — untouched.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/Diagnostics.kt — inline diagnostics, rendered as a wrapped block row under the offending line via DisplayMap.setBlocks, not at end-of-line.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/Hover.kt — the hover card and its 'Go to definition / type definition / implementation / declaration' rows (Hover.kt:462-465). This is the touch route to LSP navigation and it already exists.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/Completions.kt — including placeMenuAtCaret (Completions.kt:756-783), which already flips the menu above the caret and already accounts for the IME and the action row.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/LspActions.kt, SignatureHelp.kt, SyntaxFolds.kt, Snippets.kt (insertion only), LineTransforms.kt, EditorCommands.kt (pruned, not deleted).
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/OpenFiles.kt — the open-buffer model: dirty state, disk-change and deletion detection, per-file encoding and line ending, reopen history, MediaKind routing at :206, and NavHistory. Load-bearing; survives the tab strip's deletion whole.
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/AutosaveTracker.kt — the debounce, now driven by leave-a-file rather than a settings toggle nobody finds.
-- app/src/main/java/to/eyed/seeker/code/ui/search/BufferSearchBar.kt — find/replace, re-hosted at the bottom of the screen above the IME instead of at the top.
-- app/src/main/java/to/eyed/seeker/code/ui/theme/Rem.kt, TouchTarget.kt, Motion.kt, ZedTheme.kt — the layout, hit-target and paint system. Untouched.
+- app/src/main/java/to/eyed/thragg/ui/editor/EditorPane.kt — the whole virtualized canvas, IME path, selection handles, pinch-zoom, gutter, scrollbar-as-handle. Called unchanged apart from the action row and the vim excision.
+- app/src/main/java/to/eyed/thragg/ui/editor/EditorState.kt, DisplayMap.kt, EditorDisplay.kt, EditorInput.kt, EditorBuffer.kt, EditorSemantics.kt — untouched.
+- app/src/main/java/to/eyed/thragg/ui/editor/Diagnostics.kt — inline diagnostics, rendered as a wrapped block row under the offending line via DisplayMap.setBlocks, not at end-of-line.
+- app/src/main/java/to/eyed/thragg/ui/editor/Hover.kt — the hover card and its 'Go to definition / type definition / implementation / declaration' rows (Hover.kt:462-465). This is the touch route to LSP navigation and it already exists.
+- app/src/main/java/to/eyed/thragg/ui/editor/Completions.kt — including placeMenuAtCaret (Completions.kt:756-783), which already flips the menu above the caret and already accounts for the IME and the action row.
+- app/src/main/java/to/eyed/thragg/ui/editor/LspActions.kt, SignatureHelp.kt, SyntaxFolds.kt, Snippets.kt (insertion only), LineTransforms.kt, EditorCommands.kt (pruned, not deleted).
+- app/src/main/java/to/eyed/thragg/ui/workspace/OpenFiles.kt — the open-buffer model: dirty state, disk-change and deletion detection, per-file encoding and line ending, reopen history, MediaKind routing at :206, and NavHistory. Load-bearing; survives the tab strip's deletion whole.
+- app/src/main/java/to/eyed/thragg/ui/workspace/AutosaveTracker.kt — the debounce, now driven by leave-a-file rather than a settings toggle nobody finds.
+- app/src/main/java/to/eyed/thragg/ui/search/BufferSearchBar.kt — find/replace, re-hosted at the bottom of the screen above the IME instead of at the top.
+- app/src/main/java/to/eyed/thragg/ui/theme/Rem.kt, TouchTarget.kt, Motion.kt, ZedTheme.kt — the layout, hit-target and paint system. Untouched.
 
 **New:**
 
@@ -182,8 +182,8 @@ The posture the device is actually in for most of a session, drawn explicitly be
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/editor/EditorPane.kt — imeOverlapPx() already lifts the row onto the keyboard; WindowInsets.isImeVisible already gates it; the `act {}` wrapper already keeps focus on the canvas so a key tap does not end the IME session and drop the keyboard under the finger. All three behaviours are inherited, not invented.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/Completions.kt — placeMenuAtCaret flips the completion popup above the caret when the caret is in the lower half, so the IME never covers it.
+- app/src/main/java/to/eyed/thragg/ui/editor/EditorPane.kt — imeOverlapPx() already lifts the row onto the keyboard; WindowInsets.isImeVisible already gates it; the `act {}` wrapper already keeps focus on the canvas so a key tap does not end the IME session and drop the keyboard under the finger. All three behaviours are inherited, not invented.
+- app/src/main/java/to/eyed/thragg/ui/editor/Completions.kt — placeMenuAtCaret flips the completion popup above the caret when the caret is in the lower half, so the IME never covers it.
 
 **New:**
 
@@ -221,11 +221,11 @@ The only file-navigation surface in the app. It replaces the project-panel dock,
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/ProjectTreeState.kt — the lazy, gitignore-aware worktree and expand model.
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/ProjectPanel.kt — the tree rendering, git status colours (GitStatusColours.kt), file icons (ZedFileIcons.kt, FileIcons.kt, ProjectEntryIcons.kt). Kept and re-hosted in the sheet; row height raised from its current density to 44dp.
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/ProjectPanelMenu.kt and ProjectFileOps.kt — rename, duplicate, delete-to-trash-with-undo, new file/folder here, open in Shell, search in this folder. Reached by long-press, presented as a sheet.
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/FileFinder.kt — the engine-side fuzzy matcher and its match highlighting (ProjectSession.findFiles, core/ProjectSession.kt:160). Becomes the 'names' mode of the one field.
-- app/src/main/java/to/eyed/seeker/code/core/SearchSession.kt and ui/search/ProjectSearchRows.kt — the cancellable engine-side project search. Becomes the 'in files' mode; results are a flat tappable list of path:line + matched text.
+- app/src/main/java/to/eyed/thragg/ui/workspace/ProjectTreeState.kt — the lazy, gitignore-aware worktree and expand model.
+- app/src/main/java/to/eyed/thragg/ui/workspace/ProjectPanel.kt — the tree rendering, git status colours (GitStatusColours.kt), file icons (ZedFileIcons.kt, FileIcons.kt, ProjectEntryIcons.kt). Kept and re-hosted in the sheet; row height raised from its current density to 44dp.
+- app/src/main/java/to/eyed/thragg/ui/workspace/ProjectPanelMenu.kt and ProjectFileOps.kt — rename, duplicate, delete-to-trash-with-undo, new file/folder here, open in Shell, search in this folder. Reached by long-press, presented as a sheet.
+- app/src/main/java/to/eyed/thragg/ui/workspace/FileFinder.kt — the engine-side fuzzy matcher and its match highlighting (ProjectSession.findFiles, core/ProjectSession.kt:160). Becomes the 'names' mode of the one field.
+- app/src/main/java/to/eyed/thragg/core/SearchSession.kt and ui/search/ProjectSearchRows.kt — the cancellable engine-side project search. Becomes the 'in files' mode; results are a flat tappable list of path:line + matched text.
 
 **New:**
 
@@ -271,10 +271,10 @@ The ACP conversation for the open project, first-class. On this device the agent
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/agent/AgentPanel.kt (3658 lines) — Conversation, ToolCallCard, TerminalCard, DiffCard, ElicitationCard, PlanStrip, CompletedPlanCard, ActivityStrip, QueuedRow, attachment and mention chips, the pendingCount banner. Signature (AgentPanel.kt:231) already takes only (project, focusToken, onOpenPath, onOpenSettings, onOpenReview, workspace, onFocusChanged) — no dock, no pane, no command. Re-hosting is a call-site change.
-- app/src/main/java/to/eyed/seeker/code/core/AgentSession.kt, AgentSessions.kt, AgentMentions.kt, AgentNotifier.kt, Agents.kt — the ACP layer and the background notification.
-- app/src/main/java/to/eyed/seeker/code/ui/agent/ContextPicker.kt — the @ mention picker, re-presented as a searchable bottom sheet.
-- app/src/main/java/to/eyed/seeker/code/solana/agents/AgentCatalog.kt — the three one-tap installs (Spettro native, Claude Code and Codex via npm). Currently orphaned; this screen is what reaches it.
+- app/src/main/java/to/eyed/thragg/ui/agent/AgentPanel.kt (3658 lines) — Conversation, ToolCallCard, TerminalCard, DiffCard, ElicitationCard, PlanStrip, CompletedPlanCard, ActivityStrip, QueuedRow, attachment and mention chips, the pendingCount banner. Signature (AgentPanel.kt:231) already takes only (project, focusToken, onOpenPath, onOpenSettings, onOpenReview, workspace, onFocusChanged) — no dock, no pane, no command. Re-hosting is a call-site change.
+- app/src/main/java/to/eyed/thragg/core/AgentSession.kt, AgentSessions.kt, AgentMentions.kt, AgentNotifier.kt, Agents.kt — the ACP layer and the background notification.
+- app/src/main/java/to/eyed/thragg/ui/agent/ContextPicker.kt — the @ mention picker, re-presented as a searchable bottom sheet.
+- app/src/main/java/to/eyed/thragg/solana/agents/AgentCatalog.kt — the three one-tap installs (Spettro native, Claude Code and Codex via npm). Currently orphaned; this screen is what reaches it.
 - ui/common/MarkdownText.kt — extracted in chunk P0 from ui/preview/MarkdownPreview.kt:869 and the inline half of MarkdownDocument.kt. AgentPanel calls it at five sites; the extraction is a precondition for deleting ui/preview.
 
 **New:**
@@ -321,11 +321,11 @@ The screen the app exists for. Which cluster, which wallet, how much SOL, which 
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/tasks/TaskRunner.kt — runTask() already builds the shell line through ShellEnvironment.taskCommand, spawns it into a terminal session, registers Activities.begin for progress, and posts a failure notification with a 'Show output' action. Build/Test/Deploy become three fixed TaskSpecs through this existing runner. The picker, tasks.json, the $ZED_* variables and the gutter runnables are deleted; the runner is not.
-- app/src/main/java/to/eyed/seeker/code/terminal/TerminalPanelState.kt, TerminalSessionHost.kt, TerminalService.kt, ShellEnvironment.kt, Userland.kt, DebianUserland.kt — the proot session layer and the foreground service that lets a 1m11s build survive the screen turning off.
-- app/src/main/java/to/eyed/seeker/code/ui/terminal/TerminalLinks.kt and TerminalPathTarget.kt — PathWithPosition(path, row, column) detection, which is what makes the `path:line:col →` row a one-tap jump into Code at the caret.
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/ActivityIndicator.kt, Notifications.kt, NotificationHost.kt — progress and the error channel.
-- app/src/main/java/to/eyed/seeker/code/solana/templates/SolanaTemplates.kt — SolanaFramework decides which command each button runs.
+- app/src/main/java/to/eyed/thragg/ui/tasks/TaskRunner.kt — runTask() already builds the shell line through ShellEnvironment.taskCommand, spawns it into a terminal session, registers Activities.begin for progress, and posts a failure notification with a 'Show output' action. Build/Test/Deploy become three fixed TaskSpecs through this existing runner. The picker, tasks.json, the $ZED_* variables and the gutter runnables are deleted; the runner is not.
+- app/src/main/java/to/eyed/thragg/terminal/TerminalPanelState.kt, TerminalSessionHost.kt, TerminalService.kt, ShellEnvironment.kt, Userland.kt, DebianUserland.kt — the proot session layer and the foreground service that lets a 1m11s build survive the screen turning off.
+- app/src/main/java/to/eyed/thragg/ui/terminal/TerminalLinks.kt and TerminalPathTarget.kt — PathWithPosition(path, row, column) detection, which is what makes the `path:line:col →` row a one-tap jump into Code at the caret.
+- app/src/main/java/to/eyed/thragg/ui/workspace/ActivityIndicator.kt, Notifications.kt, NotificationHost.kt — progress and the error channel.
+- app/src/main/java/to/eyed/thragg/solana/templates/SolanaTemplates.kt — SolanaFramework decides which command each button runs.
 
 **New:**
 
@@ -367,10 +367,10 @@ The escape hatch. Everything the three buttons do not cover — `solana config`,
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/terminal/TerminalPane.kt — the Termux emulator/view host and ExtraKeysRow at :912, which already scrolls horizontally and already applies .touchTarget() to every key with a comment saying why. Kept as the accessory row, including the ⌨ show/hide-keyboard key, which is the only way to get the keyboard back after dismissing it to read scrollback.
+- app/src/main/java/to/eyed/thragg/ui/terminal/TerminalPane.kt — the Termux emulator/view host and ExtraKeysRow at :912, which already scrolls horizontally and already applies .touchTarget() to every key with a comment saying why. Kept as the accessory row, including the ⌨ show/hide-keyboard key, which is the only way to get the keyboard back after dismissing it to read scrollback.
 - vendor/ — terminal-emulator and terminal-view, untouched.
-- app/src/main/java/to/eyed/seeker/code/terminal/TerminalSessionHost.kt, TerminalService.kt, ShellCwd.kt.
-- app/src/main/java/to/eyed/seeker/code/ui/terminal/TerminalLinks.kt — clickable path:line:col in output, still opening Code.
+- app/src/main/java/to/eyed/thragg/terminal/TerminalSessionHost.kt, TerminalService.kt, ShellCwd.kt.
+- app/src/main/java/to/eyed/thragg/ui/terminal/TerminalLinks.kt — clickable path:line:col in output, still opening Code.
 
 **New:**
 
@@ -409,8 +409,8 @@ The one screen in the app that spends money. Everything that decides whether the
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/Notifications.kt — deploy failures and successes report here.
-- app/src/main/java/to/eyed/seeker/code/terminal/ShellEnvironment.kt — for the keypair-signer path, which runs `solana program deploy` in the guest.
+- app/src/main/java/to/eyed/thragg/ui/workspace/Notifications.kt — deploy failures and successes report here.
+- app/src/main/java/to/eyed/thragg/terminal/ShellEnvironment.kt — for the keypair-signer path, which runs `solana program deploy` in the guest.
 
 **New:**
 
@@ -490,8 +490,8 @@ Every diagnostic in the project from both producers — rust-analyzer and the la
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/diagnostics/DiagnosticsPane.kt (715) and DiagnosticsRows.kt — already a grouped, per-file, tappable list with sticky headers, and its onOpenMultibuffer parameter is already nullable. Passing null is the whole change. All three competing designs either deleted this or rebuilt it; re-hosting it is the cheapest path and it is better than what they proposed.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/Diagnostics.kt — the row model.
+- app/src/main/java/to/eyed/thragg/ui/diagnostics/DiagnosticsPane.kt (715) and DiagnosticsRows.kt — already a grouped, per-file, tappable list with sticky headers, and its onOpenMultibuffer parameter is already nullable. Passing null is the whole change. All three competing designs either deleted this or rebuilt it; re-hosting it is the cheapest path and it is better than what they proposed.
+- app/src/main/java/to/eyed/thragg/ui/editor/Diagnostics.kt — the row model.
 
 **New:**
 
@@ -532,12 +532,12 @@ The two questions a phone dev asks about a diff — 'what did the agent just do 
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/core/AgentSessions.kt — keepEdits(paths) / rejectEdits(paths) at :530 and :538, over CoreBridge.acpEditedFiles. Note these are per-FILE, not per-hunk; the design uses file granularity for agent edits and does not pretend otherwise.
-- app/src/main/java/to/eyed/seeker/code/ui/agent/AgentReviewPane.kt — the Keep/Reject row model, re-hosted as the top block.
-- app/src/main/java/to/eyed/seeker/code/core/GitSession.kt (1035) — status, stage, unstage, commit, push, pull, branch switch, discard, stageHunk (:315), restoreHunk (:998).
-- app/src/main/java/to/eyed/seeker/code/ui/git/GitOps.kt, GitDrafts.kt, GitBranchState.kt, DiffStaging.kt, AskpassDialog.kt (252) and core/GitAskpass.kt — the askpass dialog is the only thing that makes `git push` over HTTPS or SSH work at all; it is kept.
-- app/src/main/java/to/eyed/seeker/code/ui/git/BranchPickerRows.kt — the row model behind the `main ▾` chip.
-- app/src/main/java/to/eyed/seeker/code/ui/editor/Conflicts.kt, ConflictView.kt and ui/git/MergeResolvedBar.kt — conflicts resolve in the editor with the inherited tinted regions and Use HEAD / Use branch / Use both. A pull on a phone will eventually produce one, and 'go use the terminal' is not an answer for a product whose thesis is that the phone is enough.
+- app/src/main/java/to/eyed/thragg/core/AgentSessions.kt — keepEdits(paths) / rejectEdits(paths) at :530 and :538, over CoreBridge.acpEditedFiles. Note these are per-FILE, not per-hunk; the design uses file granularity for agent edits and does not pretend otherwise.
+- app/src/main/java/to/eyed/thragg/ui/agent/AgentReviewPane.kt — the Keep/Reject row model, re-hosted as the top block.
+- app/src/main/java/to/eyed/thragg/core/GitSession.kt (1035) — status, stage, unstage, commit, push, pull, branch switch, discard, stageHunk (:315), restoreHunk (:998).
+- app/src/main/java/to/eyed/thragg/ui/git/GitOps.kt, GitDrafts.kt, GitBranchState.kt, DiffStaging.kt, AskpassDialog.kt (252) and core/GitAskpass.kt — the askpass dialog is the only thing that makes `git push` over HTTPS or SSH work at all; it is kept.
+- app/src/main/java/to/eyed/thragg/ui/git/BranchPickerRows.kt — the row model behind the `main ▾` chip.
+- app/src/main/java/to/eyed/thragg/ui/editor/Conflicts.kt, ConflictView.kt and ui/git/MergeResolvedBar.kt — conflicts resolve in the editor with the inherited tinted regions and Use HEAD / Use branch / Use both. A pull on a phone will eventually produce one, and 'go use the terminal' is not an answer for a product whose thesis is that the phone is enough.
 
 **New:**
 
@@ -577,9 +577,9 @@ Shared by the agent's file-edit cards and by Changes. There is no second diff, n
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/ui/git/DiffPane.kt (578) — the unified diff renderer and its collapsed-context expansion.
-- app/src/main/java/to/eyed/seeker/code/ui/git/HunkControls.kt and DiffStaging.kt — per-hunk stage/discard against the git index, offered on long-press of a hunk. Available for git rows only; agent rows are file-granular because AgentSessions only offers file granularity.
-- app/src/main/java/to/eyed/seeker/code/ui/theme/ZedTheme.kt — the +/- colours.
+- app/src/main/java/to/eyed/thragg/ui/git/DiffPane.kt (578) — the unified diff renderer and its collapsed-context expansion.
+- app/src/main/java/to/eyed/thragg/ui/git/HunkControls.kt and DiffStaging.kt — per-hunk stage/discard against the git index, offered on long-press of a hunk. Available for git rows only; agent rows are file-granular because AgentSessions only offers file granularity.
+- app/src/main/java/to/eyed/thragg/ui/theme/ZedTheme.kt — the +/- colours.
 
 **New:**
 
@@ -595,7 +595,7 @@ The one full-screen takeover, and on a fresh install the gate. It is the honest 
 ┌──────────────────────────────────────────┐
 │                                          │
 │                    ◎                     │
-│                Seeker IDE                │
+│                Thragg                │
 │                                          │
 │    Build and ship Solana programs        │
 │          from your phone.                │
@@ -624,10 +624,10 @@ The gate has no text link under the button while the install runs. Once the requ
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/terminal/UserlandInstaller.kt — already owns an install outside the composition, already reports (step, fraction), already survives the panel going away, already resumes and cancels cleanly, and already guarantees the completion callback lands on the main thread. The Solana installer is modelled on it and reuses its scope discipline.
-- app/src/main/java/to/eyed/seeker/code/terminal/Userland.kt and terminal/DebianUserland.kt — the first row of the list.
-- app/src/main/java/to/eyed/seeker/code/terminal/TerminalService.kt — the foreground service that keeps a download and an on-device compile alive when the screen locks.
-- app/src/main/java/to/eyed/seeker/code/solana/agents/AgentCatalog.kt — Spettro's ReleaseTarball install.
+- app/src/main/java/to/eyed/thragg/terminal/UserlandInstaller.kt — already owns an install outside the composition, already reports (step, fraction), already survives the panel going away, already resumes and cancels cleanly, and already guarantees the completion callback lands on the main thread. The Solana installer is modelled on it and reuses its scope discipline.
+- app/src/main/java/to/eyed/thragg/terminal/Userland.kt and terminal/DebianUserland.kt — the first row of the list.
+- app/src/main/java/to/eyed/thragg/terminal/TerminalService.kt — the foreground service that keeps a download and an on-device compile alive when the screen locks.
+- app/src/main/java/to/eyed/thragg/solana/agents/AgentCatalog.kt — Spettro's ReleaseTarball install.
 
 **New:**
 
@@ -667,11 +667,11 @@ Switch project, make one, and reach the four things that are configuration rathe
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/core/ProjectsRoot.kt — list, create, delete, nameError, uniqueName, lastOpened. ProjectSummary is the row model.
-- app/src/main/java/to/eyed/seeker/code/core/ProjectSession.kt — open/close.
-- app/src/main/java/to/eyed/seeker/code/terminal/GitClone.kt (688) — clone with progress and credential prompts.
-- app/src/main/java/to/eyed/seeker/code/core/SafTransfer.kt and ui/workspace/ImportDialog.kt — SAF folder import and export.
-- app/src/main/java/to/eyed/seeker/code/core/ShareOut.kt — share a file or a project out.
+- app/src/main/java/to/eyed/thragg/core/ProjectsRoot.kt — list, create, delete, nameError, uniqueName, lastOpened. ProjectSummary is the row model.
+- app/src/main/java/to/eyed/thragg/core/ProjectSession.kt — open/close.
+- app/src/main/java/to/eyed/thragg/terminal/GitClone.kt (688) — clone with progress and credential prompts.
+- app/src/main/java/to/eyed/thragg/core/SafTransfer.kt and ui/workspace/ImportDialog.kt — SAF folder import and export.
+- app/src/main/java/to/eyed/thragg/core/ShareOut.kt — share a file or a project out.
 
 **New:**
 
@@ -714,9 +714,9 @@ Scaffold an Anchor, Native or Seahorse program and hand it straight to the agent
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/solana/templates/SolanaTemplates.kt — SolanaFramework, SolanaProgram.of(), files(program), entryPath(program). Already written, currently referenced from nowhere outside the solana package; this screen is what reaches it. Note R8 is on for release builds, so this reference matters.
-- app/src/main/java/to/eyed/seeker/code/solana/templates/SolanaNames.kt — crateName / moduleName / typeName / error, driving the live preview line under the field.
-- app/src/main/java/to/eyed/seeker/code/core/ProjectsRoot.kt — nameError and create.
+- app/src/main/java/to/eyed/thragg/solana/templates/SolanaTemplates.kt — SolanaFramework, SolanaProgram.of(), files(program), entryPath(program). Already written, currently referenced from nowhere outside the solana package; this screen is what reaches it. Note R8 is on for release builds, so this reference matters.
+- app/src/main/java/to/eyed/thragg/solana/templates/SolanaNames.kt — crateName / moduleName / typeName / error, driving the live preview line under the field.
+- app/src/main/java/to/eyed/thragg/core/ProjectsRoot.kt — nameError and create.
 
 **New:**
 
@@ -756,9 +756,9 @@ One scrolling list. Everything a phone user will ever change, plus one door to t
 
 **Reuses:**
 
-- app/src/main/java/to/eyed/seeker/code/core/AppSettings.kt (1092) — the JSONC parser with comment preservation, project-local .zed/settings.json, per-language overrides and lsp.<server> configuration that rust-analyzer needs. Rows and keys are deleted; the file is not.
-- app/src/main/java/to/eyed/seeker/code/core/AppearanceSettings.kt, ui/theme/ThemeStore.kt, ZedThemes.kt — the theme engine. Untouched.
-- app/src/main/java/to/eyed/seeker/code/ui/workspace/AboutDialog.kt (112) and core/SystemSpecs.kt (114) — 226 lines producing a copyable bug report with engine version, ABI and page size. For a product whose whole premise rests on the page size being 4 KB and the ABI being arm64, that is cheap insurance.
+- app/src/main/java/to/eyed/thragg/core/AppSettings.kt (1092) — the JSONC parser with comment preservation, project-local .zed/settings.json, per-language overrides and lsp.<server> configuration that rust-analyzer needs. Rows and keys are deleted; the file is not.
+- app/src/main/java/to/eyed/thragg/core/AppearanceSettings.kt, ui/theme/ThemeStore.kt, ZedThemes.kt — the theme engine. Untouched.
+- app/src/main/java/to/eyed/thragg/ui/workspace/AboutDialog.kt (112) and core/SystemSpecs.kt (114) — 226 lines producing a copyable bug report with engine version, ABI and page size. For a product whose whole premise rests on the page size being 4 KB and the ABI being arm64, that is cheap insurance.
 
 **New:**
 
@@ -820,7 +820,7 @@ Deleted outright, not hidden. Line counts are from the fork as it stands.
 
 ### P0 — Decouple: extract what the demolition would break
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/common/MarkdownText.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/common/UnsavedChangesDialog.kt (moved from ui/workspace/)`, `app/src/main/java/to/eyed/seeker/code/ui/common/BinaryPlaceholder.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/agent/AgentPanel.kt (imports only)`, `app/src/test/java/to/eyed/seeker/code/ui/common/MarkdownTextTest.kt (new)`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/common/MarkdownText.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/common/UnsavedChangesDialog.kt (moved from ui/workspace/)`, `app/src/main/java/to/eyed/thragg/ui/common/BinaryPlaceholder.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/agent/AgentPanel.kt (imports only)`, `app/src/test/java/to/eyed/thragg/ui/common/MarkdownTextTest.kt (new)`
 
 *Depends on:* nothing
 
@@ -828,7 +828,7 @@ Nothing else may start deleting until this lands. Three verified couplings: (1) 
 
 ### P1 — Shell skeleton: nav, back, state, sheets
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/SeekerShell.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/ShellState.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/ShellBackHandler.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/ShellNavBar.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/SheetScaffold.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/RouteStack.kt (new)`, `app/src/main/java/to/eyed/seeker/code/MainActivity.kt`, `app/src/test/java/to/eyed/seeker/code/ui/shell/ShellBackHandlerTest.kt (new)`, `app/src/test/java/to/eyed/seeker/code/ui/shell/RouteStackTest.kt (new)`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/SeekerShell.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellState.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellBackHandler.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellNavBar.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/SheetScaffold.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/RouteStack.kt (new)`, `app/src/main/java/to/eyed/thragg/MainActivity.kt`, `app/src/test/java/to/eyed/thragg/ui/shell/ShellBackHandlerTest.kt (new)`, `app/src/test/java/to/eyed/thragg/ui/shell/RouteStackTest.kt (new)`
 
 *Depends on:* P0
 
@@ -836,7 +836,7 @@ Three destinations, three back stacks, one ordered back handler, one bottom bar 
 
 ### P2 — Code destination, file bar, Files sheet, action row
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/code/CodeScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/FileBar.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/FilesSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/CodeOverflowSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/editor/EditorPane.kt`, `app/src/main/java/to/eyed/seeker/code/ui/editor/EditorInput.kt`, `app/src/main/java/to/eyed/seeker/code/ui/editor/EditorDisplay.kt`, `app/src/main/java/to/eyed/seeker/code/ui/editor/EditorCommands.kt`, `app/src/main/java/to/eyed/seeker/code/ui/workspace/OpenFiles.kt`, `app/src/main/java/to/eyed/seeker/code/ui/search/BufferSearchBar.kt`, `app/src/main/java/to/eyed/seeker/code/ui/workspace/ProjectPanel.kt`, `app/src/main/java/to/eyed/seeker/code/ui/workspace/ProjectTreeState.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FileBar.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FilesSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeOverflowSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/editor/EditorPane.kt`, `app/src/main/java/to/eyed/thragg/ui/editor/EditorInput.kt`, `app/src/main/java/to/eyed/thragg/ui/editor/EditorDisplay.kt`, `app/src/main/java/to/eyed/thragg/ui/editor/EditorCommands.kt`, `app/src/main/java/to/eyed/thragg/ui/workspace/OpenFiles.kt`, `app/src/main/java/to/eyed/thragg/ui/search/BufferSearchBar.kt`, `app/src/main/java/to/eyed/thragg/ui/workspace/ProjectPanel.kt`, `app/src/main/java/to/eyed/thragg/ui/workspace/ProjectTreeState.kt`
 
 *Depends on:* P1
 
@@ -844,7 +844,7 @@ This chunk is the SOLE owner of ui/editor/ — no other chunk may edit EditorPan
 
 ### P3 — Agent destination
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentPickerSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentConfigSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/MentionSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/agent/AgentPanel.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/ContextPicker.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/AgentReviewPane.kt`, `app/src/main/java/to/eyed/seeker/code/solana/agents/AgentCatalog.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentPickerSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentConfigSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/agent/MentionSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/agent/AgentPanel.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/ContextPicker.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/AgentReviewPane.kt`, `app/src/main/java/to/eyed/thragg/solana/agents/AgentCatalog.kt`
 
 *Depends on:* P1
 
@@ -852,7 +852,7 @@ Sole owner of ui/agent/. Dissolve AgentBar (AgentPanel.kt:515) into AgentScreen'
 
 ### P4 — Build runner, diagnostics parser, Build destination, Shell mode
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/solana/build/BuildTasks.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/build/BuildRunner.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/build/CargoDiagnostics.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/build/BuildDiagnostics.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/build/BuildLog.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/BuildScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/BuildLogView.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/ShellMode.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/tasks/TaskRunner.kt`, `app/src/main/java/to/eyed/seeker/code/terminal/TerminalPanelState.kt`, `app/src/test/java/to/eyed/seeker/code/solana/build/CargoDiagnosticsTest.kt (new)`, `app/src/test/java/to/eyed/seeker/code/solana/build/BuildDiagnosticsTest.kt (new)`
+*Owns:* `app/src/main/java/to/eyed/thragg/solana/build/BuildTasks.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/build/BuildRunner.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/build/CargoDiagnostics.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/build/BuildDiagnostics.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/build/BuildLog.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/build/BuildScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/build/BuildLogView.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/build/ShellMode.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/tasks/TaskRunner.kt`, `app/src/main/java/to/eyed/thragg/terminal/TerminalPanelState.kt`, `app/src/test/java/to/eyed/thragg/solana/build/CargoDiagnosticsTest.kt (new)`, `app/src/test/java/to/eyed/thragg/solana/build/BuildDiagnosticsTest.kt (new)`
 
 *Depends on:* P1
 
@@ -860,7 +860,7 @@ The centrepiece, and the chunk with the most genuinely new code. Ship CargoDiagn
 
 ### P5 — Toolchain manifest, installer, Setup screen
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/solana/toolchain/manifest.json (new)`, `app/src/main/java/to/eyed/seeker/code/solana/toolchain/ToolchainManifest.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/toolchain/ToolchainInstaller.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/toolchain/ToolchainState.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/setup/SetupScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/terminal/ShellEnvironment.kt`, `app/src/test/java/to/eyed/seeker/code/solana/toolchain/ToolchainManifestTest.kt (new)`
+*Owns:* `app/src/main/java/to/eyed/thragg/solana/toolchain/manifest.json (new)`, `app/src/main/java/to/eyed/thragg/solana/toolchain/ToolchainManifest.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/toolchain/ToolchainInstaller.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/toolchain/ToolchainState.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/setup/SetupScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/terminal/ShellEnvironment.kt`, `app/src/test/java/to/eyed/thragg/solana/toolchain/ToolchainManifestTest.kt (new)`
 
 *Depends on:* P1
 
@@ -868,7 +868,7 @@ Parallel with P4; they meet only at the 'Build with no toolchain pushes Setup' e
 
 ### P6 — Cluster, wallet, deploy
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/solana/chain/Cluster.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/ClusterStore.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/AnchorToml.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/Rpc.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/Wallet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/KeypairSigner.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/SeedVaultSigner.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/ProgramDeploy.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/ProgramIds.kt (new)`, `app/src/main/java/to/eyed/seeker/code/solana/chain/DeployedPrograms.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/DeploySheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/WalletSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/ClusterSheet.kt (new)`, `app/build.gradle.kts`, `gradle/libs.versions.toml`, `app/src/test/java/to/eyed/seeker/code/solana/chain/AnchorTomlTest.kt (new)`, `app/src/test/java/to/eyed/seeker/code/solana/chain/ProgramIdsTest.kt (new)`
+*Owns:* `app/src/main/java/to/eyed/thragg/solana/chain/Cluster.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/ClusterStore.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/AnchorToml.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/Rpc.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/Wallet.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/KeypairSigner.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/SeedVaultSigner.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/ProgramDeploy.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/ProgramIds.kt (new)`, `app/src/main/java/to/eyed/thragg/solana/chain/DeployedPrograms.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/build/DeploySheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/build/WalletSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/build/ClusterSheet.kt (new)`, `app/build.gradle.kts`, `gradle/libs.versions.toml`, `app/src/test/java/to/eyed/thragg/solana/chain/AnchorTomlTest.kt (new)`, `app/src/test/java/to/eyed/thragg/solana/chain/ProgramIdsTest.kt (new)`
 
 *Depends on:* P4
 
@@ -876,7 +876,7 @@ Entirely greenfield: there is no solana/wallet or solana/chain package and no MW
 
 ### P7 — Changes, Diff, Problems
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/ChangesScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/DiffScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/ProblemsScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/CommitSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/BranchSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/git/DiffPane.kt`, `app/src/main/java/to/eyed/seeker/code/ui/git/GitOps.kt`, `app/src/main/java/to/eyed/seeker/code/ui/git/GitDrafts.kt`, `app/src/main/java/to/eyed/seeker/code/ui/diagnostics/DiagnosticsPane.kt`, `app/src/main/java/to/eyed/seeker/code/ui/search/ProjectSearchPanel.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/changes/ChangesScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/DiffScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/ProblemsScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/CommitSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/BranchSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/git/DiffPane.kt`, `app/src/main/java/to/eyed/thragg/ui/git/GitOps.kt`, `app/src/main/java/to/eyed/thragg/ui/git/GitDrafts.kt`, `app/src/main/java/to/eyed/thragg/ui/diagnostics/DiagnosticsPane.kt`, `app/src/main/java/to/eyed/thragg/ui/search/ProjectSearchPanel.kt`
 
 *Depends on:* P1
 
@@ -884,7 +884,7 @@ Three routes, all cheap because the panes exist. DiffPane already renders unifie
 
 ### P8 — Projects, New program, Settings
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/projects/ProjectsSheet.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/projects/NewProgramScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/projects/CloneScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/settings/SettingsScreen.kt (new)`, `app/src/main/java/to/eyed/seeker/code/ui/shell/settings/ThemeList.kt (new)`, `app/src/main/java/to/eyed/seeker/code/core/AppSettings.kt`, `app/src/main/java/to/eyed/seeker/code/core/ProjectsRoot.kt`, `app/src/main/java/to/eyed/seeker/code/solana/templates/SolanaTemplates.kt`, `app/src/main/java/to/eyed/seeker/code/solana/templates/SolanaNames.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/projects/ProjectsSheet.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/projects/NewProgramScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/projects/CloneScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/settings/SettingsScreen.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/settings/ThemeList.kt (new)`, `app/src/main/java/to/eyed/thragg/core/AppSettings.kt`, `app/src/main/java/to/eyed/thragg/core/ProjectsRoot.kt`, `app/src/main/java/to/eyed/thragg/solana/templates/SolanaTemplates.kt`, `app/src/main/java/to/eyed/thragg/solana/templates/SolanaNames.kt`
 
 *Depends on:* P1
 
@@ -892,7 +892,7 @@ Sole owner of core/AppSettings.kt. Flip two defaults with tests: soft_wrap None 
 
 ### P9 — Session persistence, shrunk
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/core/WorkspaceSession.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/SessionRestore.kt (new, replacing ui/workspace/SessionRestore.kt)`, `core/crates/engine/src/session.rs`, `app/src/test/java/to/eyed/seeker/code/core/WorkspaceSessionTest.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/core/WorkspaceSession.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/SessionRestore.kt (new, replacing ui/workspace/SessionRestore.kt)`, `core/crates/engine/src/session.rs`, `app/src/test/java/to/eyed/thragg/core/WorkspaceSessionTest.kt`
 
 *Depends on:* P1
 
@@ -900,7 +900,7 @@ The one chunk that crosses the JNI boundary, so it is isolated. The session docu
 
 ### P10 — Demolition
 
-*Owns:* `Deletion of every file named in `removed``, `app/src/main/java/to/eyed/seeker/code/ui/workspace/WorkspaceScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/preview/ (whole package)`, `app/src/main/java/to/eyed/seeker/code/ui/editor/vim/ (whole package)`, `app/src/main/java/to/eyed/seeker/code/ui/media/MediaPane.kt, ImageZoom.kt`, `app/src/main/java/to/eyed/seeker/code/ui/git/ (the deleted subset)`, `app/src/main/java/to/eyed/seeker/code/ui/workspace/ (the deleted subset)`, `app/src/main/java/to/eyed/seeker/code/core/MultiBufferSession.kt, Tasks.kt (pruned), Toolchains.kt`, `core/crates/engine/src/keymap.rs, multibuffer.rs, toolchain.rs, git_history.rs, git_stash.rs`, `core/vendor/settings/src/keymap_file.rs`, `app/build.gradle.kts (play flavour, media3), gradle/libs.versions.toml`, `app/src/play/ (whole source set)`, `app/src/test/java/... (the ~36 test files covering deleted subsystems)`, `docs/SHORTCUTS.md, docs/TASKS.md, docs/ZED_GAP_REPORT.md`, `README.md`
+*Owns:* `Deletion of every file named in `removed``, `app/src/main/java/to/eyed/thragg/ui/workspace/WorkspaceScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/preview/ (whole package)`, `app/src/main/java/to/eyed/thragg/ui/editor/vim/ (whole package)`, `app/src/main/java/to/eyed/thragg/ui/media/MediaPane.kt, ImageZoom.kt`, `app/src/main/java/to/eyed/thragg/ui/git/ (the deleted subset)`, `app/src/main/java/to/eyed/thragg/ui/workspace/ (the deleted subset)`, `app/src/main/java/to/eyed/thragg/core/MultiBufferSession.kt, Tasks.kt (pruned), Toolchains.kt`, `core/crates/engine/src/keymap.rs, multibuffer.rs, toolchain.rs, git_history.rs, git_stash.rs`, `core/vendor/settings/src/keymap_file.rs`, `app/build.gradle.kts (play flavour, media3), gradle/libs.versions.toml`, `app/src/play/ (whole source set)`, `app/src/test/java/... (the ~36 test files covering deleted subsystems)`, `docs/SHORTCUTS.md, docs/TASKS.md, docs/ZED_GAP_REPORT.md`, `README.md`
 
 *Depends on:* P2, P3, P4, P5, P6, P7, P8, P9
 

@@ -77,7 +77,7 @@ use zeroize::Zeroizing;
 /// `GIT_ASKPASS` to, and everything is addressed relative to it so the script
 /// never has to know where it lives.
 const SCRIPT: &str = r#"#!/bin/sh
-# Seeker IDE's askpass helper. Generated; do not edit.
+# Thragg's askpass helper. Generated; do not edit.
 cd "$(dirname "$0")" || exit 1
 reply="reply.$$"
 mkfifo "$reply" || exit 1

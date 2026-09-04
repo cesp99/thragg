@@ -1,6 +1,6 @@
 # Cluster, wallet, deploy, close
 
-The chain layer lives in `app/src/main/java/to/eyed/seeker/code/solana/chain/`
+The chain layer lives in `app/src/main/java/to/eyed/thragg/solana/chain/`
 and is the answer to one measured fact: **there is no `solana` CLI on the
 phone.** The toolchain manifest installs `cargo-build-sbf` and `anchor`, both
 compiled on the device; Agave has no arm64 Linux build, so `solana program

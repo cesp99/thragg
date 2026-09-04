@@ -1,6 +1,6 @@
-# Building Seeker IDE
+# Building Thragg
 
-Seeker IDE is a hybrid project: a Rust engine (`core/`) compiled for
+Thragg is a hybrid project: a Rust engine (`core/`) compiled for
 Android with the NDK, and a Kotlin/Jetpack Compose app (`app/`) that
 embeds it. One Gradle command builds both.
 
@@ -23,7 +23,7 @@ embeds it. One Gradle command builds both.
 
 ## One edition, and `targetSdk 28`
 
-Seeker IDE has one build variant — no product flavours — and the single most
+Thragg has one build variant — no product flavours — and the single most
 consequential line in `app/build.gradle.kts` is `targetSdk = 28`. (It still
 splits into one APK per ABI; that is architecture, not edition. See below.)
 

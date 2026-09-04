@@ -143,7 +143,7 @@ neither is "go get it from termux/proot", because their release assets can
 move and their tarball is not the thing we built. The obligation runs
 against Eyed.
 
-The per-release archive, `seeker-ide-<version>-corresponding-source.tar.xz`,
+The per-release archive, `thragg-<version>-corresponding-source.tar.xz`,
 contains:
 
 1. This repository at the exact release tag.
@@ -175,7 +175,7 @@ screen, and in whatever legal-notices surface the OEM ships:
 > code access to copy the complete corresponding source for every GPL- and
 > LGPL-licensed component in it, from a network server, at no charge.
 >
-> Eyed — carlo@aploi.de — https://github.com/cesp99/seeker-code
+> Eyed — carlo@aploi.de — https://github.com/cesp99/thragg
 
 **There is deliberately no postal address, and its absence is not a gap.**
 §6(b) offers a choice of two forms, and this offer takes the second:
@@ -198,11 +198,13 @@ last Seeker unit ships**, not three years after the release.
 
 The offer, the notices screen, `README.md`, `THIRD_PARTY.md` and the release
 archive must all name the **same** public repository URL, byte for byte, and
-Eyed must control it for the life of the offer. Today the tree disagrees
-with itself: `core/Cargo.toml` says `github.com/cesp99/SeekerCodebyEyed` and
-`.github/ISSUE_TEMPLATE/config.yml` says `github.com/cesp99/seeker-code`.
-Neither is obviously the final home. A URL that moves after the phones ship
-is not a broken link, it is a compliance failure.
+Eyed must control it for the life of the offer. The tree used to disagree
+with itself (`core/Cargo.toml` and `.github/ISSUE_TEMPLATE/config.yml` named
+two different repositories); since the rename to Thragg every one of them
+says `github.com/cesp99/thragg`, and `tools/gen-licenses.py` copies the URL
+from `app/build.gradle.kts` so the notices screen cannot drift from it. A
+URL that moves after the phones ship is not a broken link, it is a
+compliance failure.
 
 ### Installation Information (GPLv3 s6, User Products)
 
@@ -371,7 +373,7 @@ them a condition for an interactive program, and today none of the four
 appears anywhere in the app. As string resources, so they translate:
 
 ```
-Seeker IDE — Copyright (C) 2026 Eyed
+Thragg — Copyright (C) 2026 Eyed
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it
 under the terms of the GNU General Public License, version 3.
@@ -384,7 +386,7 @@ Both selectable text — a reviewer will want to copy them.
 
 Then the component groups, in this order:
 
-1. **This application** — Seeker IDE, GPL-3.0-or-later (as distributed:
+1. **This application** — Thragg, GPL-3.0-or-later (as distributed:
    GPL-3.0), Copyright (C) 2026 Eyed. With the fork lineage in one sentence:
    a fork of Conquest Code, which reuses Zed and vendors Termux.
 2. **Engine and terminal** — Conquest Code; Zed crates split into their
@@ -414,7 +416,7 @@ summary, not a link. The screen must work with the radio off.
 The list closes with the trademark line:
 
 > Product names and logos shown beside file types are trademarks of their
-> respective owners and are used only to identify file types. Seeker IDE is
+> respective owners and are used only to identify file types. Thragg is
 > not affiliated with or endorsed by them.
 
 ### Where the content comes from
@@ -473,7 +475,7 @@ release or an OEM submission.
       `ic_ui_agent`; `grep -rn ic_ui_ai_zed app/src` must then be empty.
       `ic_ui_file_tree` loses its last caller in the same change.
 - [x] **The written offer** is settled: §6(b)(2) network-server access,
-      contact `carlo@aploi.de`, source at `github.com/cesp99/seeker-code`.
+      contact `carlo@aploi.de`, source at `github.com/cesp99/thragg`.
       No postal address is required in this form — see §3.
 - [x] **Ship the notices bundle** (§4) and the licence texts, and surface
       them from the licences screen (§5). Done: `tools/gen-licenses.py`
@@ -489,7 +491,8 @@ release or an OEM submission.
 - [ ] **Build and publish the corresponding-source archive** (§3) for the
       first release, and confirm it builds `libproot_exec.so` byte-for-byte
       on a clean machine.
-- [ ] **Settle the repository URL** and make it identical everywhere.
+- [x] **Settle the repository URL** and make it identical everywhere. Done
+      with the rename: `github.com/cesp99/thragg`, everywhere.
 - [ ] **Settle Spettro's licence.** It is Eyed's own binary, auto-installed
       by default, and its licence is recorded nowhere in this tree.
 

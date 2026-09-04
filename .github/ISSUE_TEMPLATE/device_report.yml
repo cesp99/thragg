@@ -1,5 +1,5 @@
 name: Device / compatibility report
-description: Report how Seeker IDE behaves on a specific device, foldable, or tablet
+description: Report how Thragg behaves on a specific device, foldable, or tablet
 labels: ["device-testing"]
 body:
   - type: markdown

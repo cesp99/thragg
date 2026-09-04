@@ -37,7 +37,7 @@ val zedCommit: String = Regex("""^- Commit: `([0-9a-f]+)`""", RegexOption.MULTIL
 // which reads core/Cargo.toml, exactly as About reads the Zed commit above.
 //
 // NOTE that the tree still disagrees with itself — .github/ISSUE_TEMPLATE
-// says github.com/cesp99/seeker-code — and settling that is on the release
+// says github.com/cesp99/thragg — and settling that is on the release
 // checklist. Whichever wins, `repository` in core/Cargo.toml is where the app
 // will read it from.
 val sourceUrl: String = Regex("""^repository\s*=\s*"([^"]+)""", RegexOption.MULTILINE)
@@ -46,13 +46,13 @@ val sourceUrl: String = Regex("""^repository\s*=\s*"([^"]+)""", RegexOption.MULT
     ?: error("core/Cargo.toml has no `repository = \"…\"` line for the licences screen to read")
 
 android {
-    namespace = "to.eyed.seeker.code"
+    namespace = "to.eyed.thragg"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "to.eyed.seeker.code"
+        applicationId = "to.eyed.thragg"
         minSdk = 31
         // The old SELinux domain still permits executing files from app
         // storage, which is what a Debian userland under proot needs — and
@@ -67,8 +67,8 @@ android {
         // below the UI — clone, apt, the agent, the build runner — was written
         // twice for it. The constraint is now unconditional, so it lives here.
         targetSdk = 28
-        versionCode = 13
-        versionName = "0.0.13"
+        versionCode = 14
+        versionName = "0.0.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

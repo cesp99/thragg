@@ -434,7 +434,7 @@ fn action_of(
 }
 
 /// The file written on first use: Zed's `initial.json`, in this app's words.
-const INITIAL_FILE: &str = r#"// Seeker IDE keymap.
+const INITIAL_FILE: &str = r#"// Thragg keymap.
 //
 // The syntax is Zed's: https://zed.dev/docs/key-bindings
 // Each keystroke is modifiers ("ctrl", "alt", "shift") joined by "-" and then
@@ -777,7 +777,7 @@ mod tests {
         assert_eq!(load.bindings[3].source, KeybindSource::Base);
         assert_eq!(load.bindings[3].action, None);
         assert!(dir.path().join("keymap.json").exists());
-        assert!(engine.keymap_text().contains("// Seeker IDE keymap."));
+        assert!(engine.keymap_text().contains("// Thragg keymap."));
 
         std::fs::write(
             dir.path().join("keymap.json"),

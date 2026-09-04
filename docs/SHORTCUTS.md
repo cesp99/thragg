@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Seeker IDE targets foldables, tablets and **Samsung DeX**, where a
+Thragg targets foldables, tablets and **Samsung DeX**, where a
 keyboard and mouse are ordinary rather than exotic — and where, in DeX,
 touch isn't available at all. Everything you can do by tapping should
 also have a binding here.
@@ -756,7 +756,7 @@ the `☰` menu, and **Show the welcome screen** in Settings all bring it
 back.
 
 **About** — `zed: about` in the palette, **About…** in the `☰` menu, or
-**About Seeker IDE** in Settings — is what a bug report is pasted from:
+**About Thragg** in Settings — is what a bug report is pasted from:
 the app version and edition, the engine's version, the Zed commit the
 vendored crates were copied from, the device, the Android version, the ABI
 and the kernel's page size. **Copy** puts the lot on the clipboard as plain
@@ -2295,7 +2295,7 @@ Android and put the app in the background. On a tablet, where docks sit
 beside the editor, back leaves them alone. Escape inside the terminal is
 untouched: the gesture never reaches the shell.
 
-**Files from other apps.** Seeker IDE is an *Open with* and *Share*
+**Files from other apps.** Thragg is an *Open with* and *Share*
 target: a text-like file, or a piece of shared text, arrives as an
 **Add *name* to *project*?** dialog with a destination path — **Add** puts
 it in the open project (a clash gets ` copy` appended rather than

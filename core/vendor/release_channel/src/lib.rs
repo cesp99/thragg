@@ -29,7 +29,7 @@ fn compile_time_release_channel_name() -> String {
 }
 
 // SEEKER PATCH: upstream reads crates/zed/RELEASE_CHANNEL, which lives in the
-// Zed app crate we don't vendor. Seeker IDE has no release channels of its
+// Zed app crate we don't vendor. Thragg has no release channels of its
 // own; "dev" matches the file's contents upstream.
 #[cfg(not(__do_not_set_zed_release_channel))]
 fn compile_time_release_channel_name() -> String {

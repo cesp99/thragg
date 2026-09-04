@@ -3,7 +3,7 @@
 The GPL grants copyright permissions. It grants **no trademark rights** —
 GPLv3 s7(e) says so explicitly — so "it is in a GPL repository" answers
 nothing about a logo. This file is the project's position on the marks that
-appear in Seeker IDE: which ones, why they are there, and what would have to
+appear in Thragg: which ones, why they are there, and what would have to
 change if an owner objected.
 
 It is written to be handed to a lawyer, so it separates what we are
@@ -14,7 +14,7 @@ confident about from what is a judgement call.
 - **Roughly 64 third-party product logos** appear as file-type icons in the
   project panel. They are Zed Industries' redrawings, GPL-3.0-or-later, and
   they are used **nominatively** — to say "this file is a Rust file", never
-  to identify Seeker IDE. Every IDE and file manager does this. We think the
+  to identify Thragg. Every IDE and file manager does this. We think the
   position is strong; it is still a judgement call and counsel should sign
   it off.
 - **Three marks could not stay as they were. All three are now dealt with.**
@@ -25,7 +25,7 @@ confident about from what is a judgement call.
   in three purpose-drawn layers. No trademark blocker remains on the release
   checklist.
 - **"Seeker" and "Solana" are somebody else's marks**, and the app is called
-  Seeker IDE. That needs written permission in the OEM agreement, not an
+  Thragg. That needs written permission in the OEM agreement, not an
   assumption.
 
 ## Marks used nominatively: the file-type icons
@@ -163,7 +163,7 @@ pull request (`.github/workflows/icons.yml`) to keep both marks out.
 
 ## The app's own name
 
-The app is called **Seeker IDE** and its Solana layer is a selling point.
+The app is called **Thragg** and its Solana layer is a selling point.
 "Solana" and "Seeker" are Solana Labs / Solana Mobile marks. A preinstall
 agreement does not implicitly convey a trademark licence, and GPL-3.0
 certainly does not.
@@ -177,7 +177,7 @@ getting it wrong.
 
 ## Non-affiliation
 
-Seeker IDE is not affiliated with, sponsored by or endorsed by: Zed
+Thragg is not affiliated with, sponsored by or endorsed by: Zed
 Industries, Termux, Debian, GitHub, GitLab, Google, Docker, Oracle, Apple,
 HashiCorp, Salesforce, the Rust Foundation, the Python Software Foundation,
 Solana Labs, Solana Mobile, Anza, Anchor, VSCodium, or any other owner of a

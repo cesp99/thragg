@@ -6,7 +6,7 @@ it — the recipient also gets the **Installation Information**: the methods,
 procedures and authorization keys needed to install and run a modified
 version built from modified corresponding source, on that device.
 
-A Solana Seeker is a User Product. Seeker IDE ships on it. So this document
+A Solana Seeker is a User Product. Thragg ships on it. So this document
 is a licence deliverable, not documentation for its own sake.
 
 ## What section 6 does and does not ask for
@@ -28,7 +28,7 @@ the app were placed in `/system/priv-app`, platform-signed, or granted
 signature-level permissions, a user could not install a modified build that
 worked the same way — and that is the case section 6 is aimed at.
 
-## The configuration Seeker IDE ships in
+## The configuration Thragg ships in
 
 The compliant answer is available here, and the work is to keep it that way:
 
@@ -39,7 +39,7 @@ The compliant answer is available here, and the work is to keep it that way:
 | Platform signing required | no |
 | Signature / integrity checks in the app | none — no `GET_SIGNATURES` comparison, no Play Integrity, no SafetyNet, no "unofficial build" refusal |
 | Privileged install location required | no |
-| Package name | `to.eyed.seeker.code` |
+| Package name | `to.eyed.thragg` |
 
 Because the app checks nothing about who signed it, a build you compiled and
 signed with your own key behaves exactly like ours. Everything below follows
@@ -58,7 +58,7 @@ self-integrity checks. That is what keeps this a one-page document.
 ### 1. Get the corresponding source
 
 Either clone the repository at the release tag, or take the per-release
-`seeker-ide-<version>-corresponding-source.tar.xz` archive, which is the
+`thragg-<version>-corresponding-source.tar.xz` archive, which is the
 complete Corresponding Source including the proot and talloc upstream
 tarballs, both patches, the build script and a `cargo vendor` of the Rust
 closure. See `docs/LICENSING.md` §3, and `NOTICE` for the written offer.
@@ -83,7 +83,7 @@ keytool -genkey -v -keystore my-release.jks -keyalg RSA -keysize 4096 \
 
 $ANDROID_HOME/build-tools/<version>/apksigner sign \
         --ks my-release.jks --ks-key-alias seeker \
-        --out seeker-ide-signed.apk \
+        --out thragg-signed.apk \
         app-arm64-v8a-release-unsigned.apk
 ```
 
@@ -96,15 +96,15 @@ Android will not treat yours as an update. Remove the existing one for your
 user first, then install:
 
 ```
-adb shell pm uninstall --user 0 to.eyed.seeker.code
-adb install seeker-ide-signed.apk
+adb shell pm uninstall --user 0 to.eyed.thragg
+adb install thragg-signed.apk
 ```
 
 `pm uninstall --user 0` removes the app for your user without touching the
 system image; a factory reset restores the preinstalled copy. If you would
 rather keep both, change `applicationId` in `app/build.gradle.kts` and your
 build installs alongside — note that GPLv3 s7(e) means you may not keep the
-Seeker IDE name and marks on a modified build without permission, which is
+Thragg name and marks on a modified build without permission, which is
 the usual arrangement and is described in `docs/TRADEMARKS.md`.
 
 Your data lives in the app's private storage under the package name, so a
@@ -125,5 +125,5 @@ between a paragraph and a real problem.
 Bootloader unlocking, the recovery image, the OEM's OTA process, and every
 other component of the phone. Those are the device manufacturer's to
 document, under whatever licences their own software carries. This file is
-the Installation Information for **Seeker IDE**, which is what Eyed conveys
+the Installation Information for **Thragg**, which is what Eyed conveys
 and what Eyed owes.

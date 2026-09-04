@@ -1,6 +1,6 @@
 # Spettro on the phone
 
-Seeker IDE ships one agent, Spettro, and ships it whole. Spettro's ACP is a
+Thragg ships one agent, Spettro, and ships it whole. Spettro's ACP is a
 superset of the standard — workflows with live phases, Ultra mode, the
 Mode/Model/Permission/Thinking selectors, question forms, a live context gauge,
 steering — and the point of this document is that the phone renders **all of
@@ -19,7 +19,7 @@ Each item says where it lands: the Rust engine, Kotlin, or both.
 
 *Lands in:* **rust-engine**
 
-core/crates/engine/src/acp.rs, `agent_main`, the request built at ~line 1553. Today it is `acp::InitializeRequest::new(ProtocolVersion::V1).client_capabilities(capabilities).client_info(acp::Implementation::new("seeker-code", crate::ENGINE_VERSION))`. Add `.meta(...)` carrying EXACTLY:
+core/crates/engine/src/acp.rs, `agent_main`, the request built at ~line 1553. Today it is `acp::InitializeRequest::new(ProtocolVersion::V1).client_capabilities(capabilities).client_info(acp::Implementation::new("thragg", crate::ENGINE_VERSION))`. Add `.meta(...)` carrying EXACTLY:
 ```json
 {"spettro.app/extensions":{"version":4,"methods":["_spettro/question/ask"]}}
 ```
@@ -94,13 +94,13 @@ The payload is forwarded VERBATIM — do not model it in Rust. Kotlin parses `ve
 
 core/crates/jni-bridge/src/lib.rs, beside the elicitation exports (3944-4010):
 ```rust
-Java_to_eyed_seeker_code_core_CoreBridge_acpQuestionsVersion(JNIEnv, JClass) -> jlong
-Java_to_eyed_seeker_code_core_CoreBridge_acpPendingQuestions(JNIEnv, JClass) -> jstring   // view_json
-Java_to_eyed_seeker_code_core_CoreBridge_acpRespondQuestion(JNIEnv, JClass, question_id: JString, answer_json: JString) -> jboolean
+Java_to_eyed_thragg_core_CoreBridge_acpQuestionsVersion(JNIEnv, JClass) -> jlong
+Java_to_eyed_thragg_core_CoreBridge_acpPendingQuestions(JNIEnv, JClass) -> jstring   // view_json
+Java_to_eyed_thragg_core_CoreBridge_acpRespondQuestion(JNIEnv, JClass, question_id: JString, answer_json: JString) -> jboolean
 ```
 Engine side: `Engine::acp_questions_version()`, `acp_pending_questions() -> String`, `acp_respond_question(&self, question_id: &str, answer_json: &str) -> bool` (parses `answer_json`; malformed JSON → false, no response sent).
 
-app/src/main/java/to/eyed/seeker/code/core/CoreBridge.kt gets the three matching `external fun`s. Also mirror the questions array into `acpSessionState` as `"questions": [...]` (same objects, filtered to this session) so the panel's existing 120 ms `acpSessionVersion` poll picks them up without a second poll loop; the standalone version counter exists only for the session-less case, exactly as `acpElicitationsVersion` does.
+app/src/main/java/to/eyed/thragg/core/CoreBridge.kt gets the three matching `external fun`s. Also mirror the questions array into `acpSessionState` as `"questions": [...]` (same objects, filtered to this session) so the panel's existing 120 ms `acpSessionVersion` poll picks them up without a second poll loop; the standalone version counter exists only for the session-less case, exactly as `acpElicitationsVersion` does.
 
 ### W-06 handle `_spettro/account/update` notifications
 
@@ -192,7 +192,7 @@ Also: `plan` is a FULL replacement every time, and an empty `entries: []` is pub
 
 *Lands in:* **kotlin**
 
-app/src/main/java/to/eyed/seeker/code/core/AgentSession.kt, `parseConfigOptions` currently splices grouped select children into one flat list and drops `category`. Both are needed.
+app/src/main/java/to/eyed/thragg/core/AgentSession.kt, `parseConfigOptions` currently splices grouped select children into one flat list and drops `category`. Both are needed.
 
 Detect grouped exactly as Spettro-Desktop does: the option list is GROUPED when its FIRST element itself carries a nested `options` array. Group element = `{"group":"Anthropic","name":"Anthropic","options":[{"name":"Claude Sonnet 4.5","value":"anthropic:claude-sonnet-4-5"}]}`. Keep `category` (`mode`, `model`, `thought_level`; `permission` and `ultra` have none) for chip icons and the mode tint.
 
@@ -202,9 +202,9 @@ Write path is already correct in the engine (acp.rs:2950-2980 builds both union 
 
 *Lands in:* **kotlin**
 
-app/src/main/java/to/eyed/seeker/code/solana/agents/AgentCatalog.kt: delete `CLAUDE_CODE` and `CODEX`; `ALL = listOf(SPETTRO)`. The `AgentInstallMethod.Npm` branch and its Node-from-apt install become dead code — delete it too.
+app/src/main/java/to/eyed/thragg/solana/agents/AgentCatalog.kt: delete `CLAUDE_CODE` and `CODEX`; `ALL = listOf(SPETTRO)`. The `AgentInstallMethod.Npm` branch and its Node-from-apt install become dead code — delete it too.
 
-app/src/main/java/to/eyed/seeker/code/core/Agents.kt: the spec crossing JNI is `{"name":"Spettro","argv":[...],"env":{...}}`. argv MUST be:
+app/src/main/java/to/eyed/thragg/core/Agents.kt: the spec crossing JNI is `{"name":"Spettro","argv":[...],"env":{...}}`. argv MUST be:
 `["/opt/seeker/agents/spettro/spettro", "--acp", "--cwd", "<absolute project root>"]`
 Go's flag package accepts `-acp` and `--acp` identically; keep `--acp`. `cwd` must be absolute or `session/new` answers `-32602`.
 
@@ -1099,7 +1099,7 @@ UNKNOWN  on any error, timeout, or -32601
 ┌──────────────────────────────────────────────┐
 │              Set up Spettro                  │
 │                                              │
-│  Spettro is the agent built into Seeker IDE. │
+│  Spettro is the agent built into Thragg. │
 │  Give it a model and you're done.            │
 │                                              │
 │  ┌────────────────────────────────────────┐  │
@@ -1143,7 +1143,7 @@ UNKNOWN  on any error, timeout, or -32601
 │  │ sk-ant-·········                    👁 │  │
 │  └────────────────────────────────────────┘  │
 │  Your key is verified with Anthropic, then   │
-│  stored encrypted on this device. Seeker IDE │
+│  stored encrypted on this device. Thragg │
 │  never keeps a copy.                         │
 │                                              │
 │                            [   Connect   ]   │
@@ -1199,7 +1199,7 @@ One screen, reachable from the ⋮ overflow, showing: account (plan, credits, `s
 
 ## Deliberately not reproduced on a phone
 
-- The Workflow Studio (WorkflowStudio.tsx, ScriptEditor.tsx, highlight.ts) — a JS authoring IDE inside the agent panel. Seeker IDE already IS a code editor: `_spettro/workflow/list` returns each script's absolute `path`, so the phone lists workflows and offers 'Open in editor' and 'Run'. Cut `_spettro/workflow/write`, `/delete` and the live-validate-on-keystroke loop entirely; the file the editor saves is the same file the agent runs.
+- The Workflow Studio (WorkflowStudio.tsx, ScriptEditor.tsx, highlight.ts) — a JS authoring IDE inside the agent panel. Thragg already IS a code editor: `_spettro/workflow/list` returns each script's absolute `path`, so the phone lists workflows and offers 'Open in editor' and 'Run'. Cut `_spettro/workflow/write`, `/delete` and the live-validate-on-keystroke loop entirely; the file the editor saves is the same file the agent runs.
 - The docked side column (OrchestrationPanel as a persistent second column). There is no room for two columns at 400 dp. Replaced by the 56 dp peek + half sheet.
 - The question sheet's side-by-side preview pane. Replaced by a per-option `◱` button opening a nested mono sheet. Keep the previews — cut the two-pane layout.
 - All hover-driven behaviour. Option previews follow selection/focus only. Every tooltip becomes a subtitle, a snackbar, or a one-shot info sheet (the worktree explanation, the Ultra lock reason).
@@ -1278,7 +1278,7 @@ Rules for anyone adding an entry field here: never name a field `kind` (it colli
 
 *Depends on:* R1 · engine ACP wiring, R2 · engine question store, R3 · engine thread state
 
-Add, beside the existing elicitation exports at 3944-4010, one `Java_to_eyed_seeker_code_core_CoreBridge_*` per new engine fn, following the file's existing string-in/string-out conventions:
+Add, beside the existing elicitation exports at 3944-4010, one `Java_to_eyed_thragg_core_CoreBridge_*` per new engine fn, following the file's existing string-in/string-out conventions:
 
 `acpQuestionsVersion() -> jlong`, `acpPendingQuestions() -> jstring`, `acpRespondQuestion(question_id, answer_json) -> jboolean`, `acpCallExtension(project: jlong, method, params_json) -> jstring`, `acpAccountStatus() -> jstring`, `acpAccountVersion() -> jlong`, `acpSteer(session: jlong, text, mentions_json, images_json) -> jboolean`, and the widened `acpRespondPermission(session, tool_call, option_id, answer_meta_json) -> jboolean`.
 
@@ -1286,7 +1286,7 @@ Signatures are frozen in this spec, so this chunk can be written against them be
 
 ### K0 · CoreBridge externs
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/core/CoreBridge.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/core/CoreBridge.kt`
 
 *Depends on:* nothing
 
@@ -1296,7 +1296,7 @@ No logic. This file is owned solely by this chunk so nobody else has to touch it
 
 ### K1 · Kotlin session state
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/core/AgentSession.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/core/AgentSession.kt`
 
 *Depends on:* K0 · CoreBridge externs
 
@@ -1315,7 +1315,7 @@ Discipline: `AgentEntry.parse` must never return null and never throw — parse 
 
 ### K2 · Kotlin actions & launch
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/core/AgentSessions.kt`, `app/src/main/java/to/eyed/seeker/code/core/Agents.kt`, `app/src/main/java/to/eyed/seeker/code/solana/agents/AgentCatalog.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/core/AgentSessions.kt`, `app/src/main/java/to/eyed/thragg/core/Agents.kt`, `app/src/main/java/to/eyed/thragg/solana/agents/AgentCatalog.kt`
 
 *Depends on:* K0 · CoreBridge externs
 
@@ -1328,7 +1328,7 @@ Discipline: `AgentEntry.parse` must never return null and never throw — parse 
 
 ### K3 · orchestration fold
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/core/SpettroOrchestration.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/core/SpettroOrchestration.kt`
 
 *Depends on:* K1 · Kotlin session state
 
@@ -1342,7 +1342,7 @@ No Compose imports in this file. Unit tests over recorded JSON fixtures: a 3-pha
 
 ### K4 · run cards
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/WorkflowCard.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SwarmCard.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/OrchBits.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/LiveRunPeek.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/agent/spettro/WorkflowCard.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SwarmCard.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/OrchBits.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/LiveRunPeek.kt`
 
 *Depends on:* K3 · orchestration fold
 
@@ -1354,7 +1354,7 @@ Expose only `@Composable fun WorkflowCard(run, modifier)`, `SwarmCard(...)`, `Li
 
 ### K5 · toolbar chips & selector sheets
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/ConfigChips.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/ConfigSheets.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/agent/spettro/ConfigChips.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/ConfigSheets.kt`
 
 *Depends on:* K1 · Kotlin session state
 
@@ -1368,7 +1368,7 @@ Expose composables only; K9 wires the callbacks to K2.
 
 ### K6 · question & permission sheets
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/QuestionSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/PermissionSheet.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/agent/spettro/QuestionSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/PermissionSheet.kt`
 
 *Depends on:* K1 · Kotlin session state
 
@@ -1382,7 +1382,7 @@ Also in this chunk: extend `AgentNotifier` usage requirements in the API doc-com
 
 ### K7 · gauge, plan, session picker
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/ContextGauge.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/PlanSurface.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SessionPicker.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/agent/spettro/ContextGauge.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/PlanSurface.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SessionPicker.kt`
 
 *Depends on:* K1 · Kotlin session state
 
@@ -1396,7 +1396,7 @@ All three take data + callbacks; no engine access.
 
 ### K8 · onboarding & provider setup
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/core/SpettroSetup.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SetupScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SetupSheets.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/core/SpettroSetup.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SetupScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SetupSheets.kt`
 
 *Depends on:* K2 · Kotlin actions & launch
 
@@ -1410,7 +1410,7 @@ Can proceed in parallel with all UI chunks; it touches nothing they touch.
 
 ### K9 · panel integration
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/agent/AgentPanel.kt`, `app/src/main/java/to/eyed/seeker/code/core/AgentNotifier.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/agent/AgentPanel.kt`, `app/src/main/java/to/eyed/thragg/core/AgentNotifier.kt`
 
 *Depends on:* K3 · orchestration fold, K4 · run cards, K5 · toolbar chips & selector sheets, K6 · question & permission sheets, K7 · gauge, plan, session picker, K8 · onboarding & provider setup, K10 · activation glow
 
@@ -1424,7 +1424,7 @@ Land LAST, in one pass, once the others are merged.
 
 ### K10 · activation glow
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/WorkflowActivation.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/agent/spettro/WorkflowActivation.kt`
 
 *Depends on:* nothing
 

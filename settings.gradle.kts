@@ -22,7 +22,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Seeker IDE"
+rootProject.name = "Thragg"
 include(":app")
 
 // Baseline profile generator: a com.android.test module that cold-starts the

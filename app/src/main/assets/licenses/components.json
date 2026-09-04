@@ -14,19 +14,19 @@
     {
       "id": "app",
       "title": "This application",
-      "note": "Seeker IDE is Eyed's own work. Its engine crates are listed here; everything it is built ON is in the groups below.",
+      "note": "Thragg is Eyed's own work. Its engine crates are listed here; everything it is built ON is in the groups below.",
       "components": [
         {
-          "id": "app/seeker-ide",
-          "name": "Seeker IDE",
-          "version": "0.0.13",
+          "id": "app/thragg",
+          "name": "Thragg",
+          "version": "0.0.14",
           "spdx": "GPL-3.0-or-later; as distributed, GPL-3.0",
           "copyright": "Copyright (C) 2026 Eyed (Carlo Esposito)",
-          "url": "https://github.com/cesp99/seeker-code",
+          "url": "https://github.com/cesp99/thragg",
           "licenseFiles": [
             "licenses/GPL-3.0.txt"
           ],
-          "note": "Eyed's own code is GPL-3.0-or-later. The application as built and distributed is GPL-3.0-ONLY, because it links Termux's terminal modules, which are GPL-3.0-only: no recipient of this APK may exercise the \"or later\" option over that code. Take Eyed's code out of the combination and the \"or later\" is yours again.\n\nSeeker IDE is a fork of Conquest Code, which reuses Zed's engine crates and vendors Termux's terminal libraries."
+          "note": "Eyed's own code is GPL-3.0-or-later. The application as built and distributed is GPL-3.0-ONLY, because it links Termux's terminal modules, which are GPL-3.0-only: no recipient of this APK may exercise the \"or later\" option over that code. Take Eyed's code out of the combination and the \"or later\" is yours again.\n\nThragg is a fork of Conquest Code, which reuses Zed's engine crates and vendors Termux's terminal libraries."
         }
       ]
     },
@@ -45,7 +45,7 @@
           "licenseFiles": [
             "licenses/GPL-3.0.txt"
           ],
-          "note": "Seeker IDE is a fork of Conquest Code, which supplies the editor, the Debian userland, the terminal, the LSP client, git and the ACP agent panel. Conquest Code in turn reuses Zed's engine crates and vendors Termux's terminal libraries."
+          "note": "Thragg is a fork of Conquest Code, which supplies the editor, the Debian userland, the terminal, the LSP client, git and the ACP agent panel. Conquest Code in turn reuses Zed's engine crates and vendors Termux's terminal libraries."
         },
         {
           "id": "engine/zed",

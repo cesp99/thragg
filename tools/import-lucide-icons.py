@@ -489,7 +489,7 @@ def feather_icons(licence: str) -> set[str]:
 
 def notices(licence: str) -> str:
     """The aggregate notice that ships beside the icons in the APK."""
-    return f"""Seeker IDE bundles two sets of icons. Both are listed here; the full
+    return f"""Thragg bundles two sets of icons. Both are listed here; the full
 licence texts follow.
 
 

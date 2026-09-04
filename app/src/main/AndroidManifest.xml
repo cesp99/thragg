@@ -54,7 +54,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
-        android:theme="@style/Theme.SeekerCodeByEyed">
+        android:theme="@style/Theme.Thragg">
         <!-- Portrait only, by decision: every screen is designed as a single
              vertical column (docs/UI.md's thumb-zone rule), and landscape
              renders that column cut in half — the empty states lose their
@@ -68,7 +68,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|uiMode|fontScale|layoutDirection"
             android:label="@string/app_name"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.SeekerCodeByEyed"
+            android:theme="@style/Theme.Thragg"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

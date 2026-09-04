@@ -63,7 +63,7 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 license = "GPL-3.0-or-later"
-repository = "https://github.com/cesp99/seeker-code"
+repository = "https://github.com/cesp99/thragg"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "allow" }

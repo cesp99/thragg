@@ -1,6 +1,6 @@
 # Architecture
 
-Seeker IDE is a two-language project with one strict boundary.
+Thragg is a two-language project with one strict boundary.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -34,7 +34,7 @@ storage — things no Rust crate does well on Android.
 The entire contract lives in two files that must change together:
 
 - `core/crates/jni-bridge/src/lib.rs` (Rust exports)
-- `app/src/main/java/to/eyed/seeker/code/core/CoreBridge.kt`
+- `app/src/main/java/to/eyed/thragg/core/CoreBridge.kt`
   (Kotlin `external` declarations)
 
 Rules:
@@ -146,7 +146,7 @@ without it would turn a browsed project into thirty permanent tabs.
 
 ### Opening files from other apps
 
-The same constraint decides what "open with Seeker IDE" means. The app
+The same constraint decides what "open with Thragg" means. The app
 is a target for `ACTION_VIEW`/`ACTION_EDIT` on text-like types and for
 `ACTION_SEND`/`ACTION_SEND_MULTIPLE` (manifest), but a content URI cannot
 be opened in place, so every one of them is an **import**: the bytes are

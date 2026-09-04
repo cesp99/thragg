@@ -1,6 +1,6 @@
 # The visual system
 
-Seeker IDE looks like two things on purpose. Where it is an editor it looks
+Thragg looks like two things on purpose. Where it is an editor it looks
 like Conquest, because the editor, terminal and diff have to agree with
 tree-sitter's syntax colours and a Material palette would fight them. Where it
 is an app — the agent, the build loop, setup, settings, every sheet — it looks
@@ -22,7 +22,7 @@ VERIFIED FACTS THIS SPEC RESTS ON (I re-measured all of these; where the four st
 DECISION: **stay on stock material3 1.4.0. Do not pin 1.5.0-alpha25.** Studies sa-system and sa-chat asserted the alpha pin is a prerequisite; it is not. Everything the owner named — the thinking slider, the model selector, segmented controls, switches — is buildable today. Two stock-M3 substitutions are required and are listed under FOUNDATIONS.
 
 ONE DERIVATION, ONE `remember`, TWO LOCALS.
-`ZedTheme` stays the single source of colour truth. A pure function turns it into an M3 `ColorScheme` plus a small non-Material token set, both produced by the SAME `remember(theme)` inside `SeekerCodeByEyedTheme`, so the Zed half and the Material half physically cannot disagree by a frame. No second palette is authored anywhere; no dynamic/Material You colour, ever (a wallpaper primary would appear nowhere in the editor — the exact clash decision 1 exists to prevent).
+`ZedTheme` stays the single source of colour truth. A pure function turns it into an M3 `ColorScheme` plus a small non-Material token set, both produced by the SAME `remember(theme)` inside `ThraggTheme`, so the Zed half and the Material half physically cannot disagree by a frame. No second palette is authored anywhere; no dynamic/Material You colour, ever (a wallpaper primary would appear nowhere in the editor — the exact clash decision 1 exists to prevent).
 
 NEW FILE `ui/theme/Contrast.kt` — the solver, ported from spettro-android SpettroColors.kt:118-181, pure, host-testable:
 ```kotlin
@@ -109,7 +109,7 @@ val LocalSeekerColors = staticCompositionLocalOf<SeekerColors> { error("SeekerCo
 ```
 Every `*Ink` is solved at TEXT_RATIO against `cardGround`, every `*Mark` at MARK_RATIO. `cardGround` is not the bare canvas: a card is the surface under a 5-7% tint wash, and an ink solved to exactly 4.5:1 on the canvas arrives at ~4.16:1 on the card. `modeColor` adopts spettro-android's COMPLETE table (SpettroColors.kt:69-96) because `spettro.agents.toml` emits manifest colour NAMES, which Seeker's `modeTintArgb` (ConfigChips.kt:412-423) does not handle: blue #A78BFA, green #34D399, cyan #60A5FA, yellow #F59E0B, magenta #C084FC, purple #BD93F9, red #EF4444, then id fallbacks plan→#BD93F9, coding/code→#34D399, chat/ask→#60A5FA, else accent. Keep Seeker's `category != "mode" → null` guard.
 
-RUNTIME PROPAGATION. Unchanged in shape, one line added. `SeekerCodeByEyedTheme` already funnels three triggers into one `remember` — `ThemeStore.preview` (the picker's live cursor), `settings.themeSelection`/`themeOverrides`, and `UserThemes.scan` (a FileObserver on `<filesDir>/themes`). Add:
+RUNTIME PROPAGATION. Unchanged in shape, one line added. `ThraggTheme` already funnels three triggers into one `remember` — `ThemeStore.preview` (the picker's live cursor), `settings.themeSelection`/`themeOverrides`, and `UserThemes.scan` (a FileObserver on `<filesDir>/themes`). Add:
 ```kotlin
 val palette = remember(theme) { theme.palette() }
 CompositionLocalProvider(
@@ -992,7 +992,7 @@ that suits a chat app suits a developer tool.
 - PlanBadge's animated six-colour rainbow MAX tier. A subscription flourish. An IDE does not advertise a plan tier with a scrolling shader.
 - GlareText's shimmer sweep, anywhere in scrollback. Even the reference restricts it to the single active orchestrator and the streaming "Thinking…" label, for the reason written at ActivationHighlight.kt:51-55: a gradient crossing a phrase re-shades each word independently, so one half of a matched phrase is always brighter than the other, which reads as a rendering fault — and in scrollback it never stops moving. Take the `isActive: Boolean` parameter pattern (toggle liveness without swapping composables, so layout is never lost) and skip the effect. Seeker's existing WorkflowActivation.kt ramps stay: they are a live composer affordance, not scrollback, and they already have both a dark and a separately-authored light ramp.
 - android.widget.Toast as an error channel. spettro-chat-android uses it at five call sites for export/import outcomes, TTS failures, dictation failures and unusable attachments. A toast is untappable, uncopyable and gone in four seconds — the wrong medium for a build error, a failed tool call or a bad path. Use NoticeCard's three tiers: a dismissible card in place for transient failures, an in-transcript pill for a recoverable wait, and a composer-replacing panel for a hard stop.
-- Emoji anywhere in the UI. spettro-chat-android badges its `+` menu with skill emoji. Seeker's own `app/src/test/java/to/eyed/seeker/code/NoEmojiInUiTest.kt` would fail the build for it, and correctly.
+- Emoji anywhere in the UI. spettro-chat-android badges its `+` menu with skill emoji. Seeker's own `app/src/test/java/to/eyed/thragg/NoEmojiInUiTest.kt` would fail the build for it, and correctly.
 - The consumer copy voice. "Where should we begin?", "Ask anything. Think out loud.", "Spettro has a question" as a headline. Seeker's existing register is right: "No thread open. Start one to talk to Spettro." — it names the way out, because unlike a chat app the composer is not always available.
 - material-icons-extended, and any Material Symbols glyph. Seeker imports Lucide via tools/import-lucide-icons.py at an intrinsic 16dp on a 24 viewport, exposed through SeekerIcon/IconSize. A Material Symbols glyph beside a Lucide glyph in the same row is instantly visible. Extend the import script; do not add the dependency.
 - The 820dp ReadableColumn cap. Seeker is portrait-first at 400dp; the cap can never engage, and it costs two extra Box layers on every transcript row plus a comment about desktop measure that will confuse the next reader.
@@ -1009,7 +1009,7 @@ that suits a chat app suits a developer tool.
 
 ### P0 — Delete the play flavour
 
-*Owns:* `app/build.gradle.kts`, `app/src/play/AndroidManifest.xml`, `app/src/play/java/to/eyed/seeker/code/terminal/PlayUserland.kt`, `app/src/full/AndroidManifest.xml`, `app/src/full/java/to/eyed/seeker/code/terminal/DebianUserland.kt`, `app/src/full/jniLibs/**`, `baselineprofile/build.gradle.kts`, `app/src/main/java/to/eyed/seeker/code/core/SystemSpecs.kt`, `docs/BUILDING.md`, `docs/LICENSING.md`, `docs/THIRD_PARTY.md`, `docs/TASKS.md`, `docs/ARCHITECTURE.md`, `docs/UI.md`, `docs/SPETTRO.md`, `docs/ZED_GAP_REPORT.md`, `docs/SHORTCUTS.md`, `README.md`, `.github/RELEASE_NOTES_PART_APK.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `agent-docs/DECISIONS.md`
+*Owns:* `app/build.gradle.kts`, `app/src/play/AndroidManifest.xml`, `app/src/play/java/to/eyed/thragg/terminal/PlayUserland.kt`, `app/src/full/AndroidManifest.xml`, `app/src/full/java/to/eyed/thragg/terminal/DebianUserland.kt`, `app/src/full/jniLibs/**`, `baselineprofile/build.gradle.kts`, `app/src/main/java/to/eyed/thragg/core/SystemSpecs.kt`, `docs/BUILDING.md`, `docs/LICENSING.md`, `docs/THIRD_PARTY.md`, `docs/TASKS.md`, `docs/ARCHITECTURE.md`, `docs/UI.md`, `docs/SPETTRO.md`, `docs/ZED_GAP_REPORT.md`, `docs/SHORTCUTS.md`, `README.md`, `.github/RELEASE_NOTES_PART_APK.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `agent-docs/DECISIONS.md`
 
 *Depends on:* nothing
 
@@ -1017,7 +1017,7 @@ Remove `flavorDimensions += "distribution"` and both `productFlavors` blocks. Pr
 
 ### P1 — Colour foundation: contrast solver and the bridge
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/theme/Contrast.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/MaterialBridge.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/ZedTheme.kt`, `app/src/test/java/to/eyed/seeker/code/ui/theme/ContrastTest.kt`, `app/src/test/java/to/eyed/seeker/code/ui/theme/MaterialBridgeTest.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/theme/Contrast.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/MaterialBridge.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/ZedTheme.kt`, `app/src/test/java/to/eyed/thragg/ui/theme/ContrastTest.kt`, `app/src/test/java/to/eyed/thragg/ui/theme/MaterialBridgeTest.kt`
 
 *Depends on:* nothing
 
@@ -1025,7 +1025,7 @@ Write Contrast.kt exactly as specified (contrastRatio, readable with 12-step bis
 
 ### P2 — Token foundation: type, shape, motion, and the theme root rewire
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/theme/Theme.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/Surfaces.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/Shape.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/Type.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/Motion.kt`, `app/src/main/java/to/eyed/seeker/code/ui/theme/Icons.kt`, `app/src/test/java/to/eyed/seeker/code/ui/theme/TypeScaleTest.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/theme/Theme.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/Surfaces.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/Shape.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/Type.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/Motion.kt`, `app/src/main/java/to/eyed/thragg/ui/theme/Icons.kt`, `app/src/test/java/to/eyed/thragg/ui/theme/TypeScaleTest.kt`
 
 *Depends on:* P1
 
@@ -1033,7 +1033,7 @@ Add `materialTypography(family)` with all fifteen roles filled (the six headline
 
 ### P3 — The component library
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/components/SeekerCard.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/HairlineDivider.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SectionHeader.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SeekerTopBar.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SeekerSpinner.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/StatusDot.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/RunTicker.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/DiffStatLabel.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/ModeChip.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SeekerChip.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SeekerSearchField.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SelectRow.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/SegmentedSelect.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/LevelSlider.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/DrillPage.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/ZedCodeBlock.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/CopyChip.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/NoticeCard.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/EmptyState.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/ComponentPreviews.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/components/SeekerCard.kt`, `app/src/main/java/to/eyed/thragg/ui/components/HairlineDivider.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SectionHeader.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerTopBar.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerSpinner.kt`, `app/src/main/java/to/eyed/thragg/ui/components/StatusDot.kt`, `app/src/main/java/to/eyed/thragg/ui/components/RunTicker.kt`, `app/src/main/java/to/eyed/thragg/ui/components/DiffStatLabel.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ModeChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerSearchField.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SelectRow.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SegmentedSelect.kt`, `app/src/main/java/to/eyed/thragg/ui/components/LevelSlider.kt`, `app/src/main/java/to/eyed/thragg/ui/components/DrillPage.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ZedCodeBlock.kt`, `app/src/main/java/to/eyed/thragg/ui/components/CopyChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/NoticeCard.kt`, `app/src/main/java/to/eyed/thragg/ui/components/EmptyState.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ComponentPreviews.kt`
 
 *Depends on:* P2
 
@@ -1041,7 +1041,7 @@ Twenty small files, one component each, every one taking `modifier: Modifier = M
 
 ### P4 — Delete the dead half
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/workspace/**`, `app/src/main/java/to/eyed/seeker/code/ui/agent/AgentPanel.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/workspace/**`, `app/src/main/java/to/eyed/thragg/ui/agent/AgentPanel.kt`
 
 *Depends on:* nothing
 
@@ -1049,7 +1049,7 @@ Runs fully in parallel with P0-P3 and MUST land before any screen migration, or 
 
 ### P5 — Agent config surface
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentConfigSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/ConfigSheets.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/ConfigChips.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentConfigSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/ConfigSheets.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/ConfigChips.kt`
 
 *Depends on:* P3
 
@@ -1057,7 +1057,7 @@ THE ANSWER TO THE OWNER'S VERDICT — do this one first among the screen chunks 
 
 ### P6 — Agent shell and status strip
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentSeams.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/PlanSurface.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/ContextGauge.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/LiveRunPeek.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentSeams.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/PlanSurface.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/ContextGauge.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/LiveRunPeek.kt`
 
 *Depends on:* P3
 
@@ -1065,7 +1065,7 @@ Collapse seven pinned bands to three. Build `AgentStatusStrip` (36dp: RunTicker-
 
 ### P7 — Agent composer
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentComposer.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/MentionSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/WorkflowActivation.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentComposer.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/agent/MentionSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/WorkflowActivation.kt`
 
 *Depends on:* P3
 
@@ -1073,7 +1073,7 @@ The pill field (20dp radius, surfaceContainerHigh, hairline animating to primary
 
 ### P8 — Agent transcript and orchestration cards
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentTranscript.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/OrchBits.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/WorkflowCard.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SwarmCard.kt`, `app/src/main/java/to/eyed/seeker/code/ui/common/MarkdownText.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentTranscript.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/OrchBits.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/WorkflowCard.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SwarmCard.kt`, `app/src/main/java/to/eyed/thragg/ui/common/MarkdownText.kt`
 
 *Depends on:* P3
 
@@ -1081,7 +1081,7 @@ Row-by-row token substitution, plus four real changes: tool rows go transparent 
 
 ### P9 — Agent sheets
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/SheetScaffold.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentPickerSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/PermissionSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/QuestionSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SessionPicker.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SetupSheets.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/SetupScreen.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/SheetScaffold.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentPickerSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/PermissionSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/QuestionSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SessionPicker.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SetupSheets.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/SetupScreen.kt`
 
 *Depends on:* P3
 
@@ -1089,7 +1089,7 @@ SheetScaffold keeps all three of its behaviours (bottom-pinned field above the I
 
 ### P10 — Build and Setup destinations
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/build/BuildScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/BuildLogView.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/build/ShellMode.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/setup/SetupScreen.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/build/BuildScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/build/BuildLogView.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/build/ShellMode.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/setup/SetupScreen.kt`
 
 *Depends on:* P3
 
@@ -1097,7 +1097,7 @@ SeekerTopBar with the target as subtitle; a 36dp BuildStatusStrip reusing RunTic
 
 ### P11 — Projects, New program, Clone
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/projects/ProjectsSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/projects/NewProgramScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/projects/CloneScreen.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/projects/ProjectsSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/projects/NewProgramScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/projects/CloneScreen.kt`
 
 *Depends on:* P3
 
@@ -1105,7 +1105,7 @@ Projects: SeekerSearchField, SeekerCard row groups with HairlineDivider, ModeChi
 
 ### P12 — Settings, theme list, licences
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/settings/SettingsScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/settings/ThemeList.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/licences/LicencesScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/licences/LicenceDetailScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/licences/LicenceCatalog.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/settings/SettingsScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/settings/ThemeList.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/licences/LicencesScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/licences/LicenceDetailScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/licences/LicenceCatalog.kt`
 
 *Depends on:* P3
 
@@ -1113,7 +1113,7 @@ SeekerCard groups, the shared SectionHeader (deleting the private duplicate at S
 
 ### P13 — Changes, Problems, Code chrome, nav bar, and the boundary audit
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/ChangesScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/CommitSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/BranchSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/ProblemsScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/changes/DiffScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/CodeScreen.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/FileBar.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/FilesSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/code/CodeOverflowSheet.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/ShellNavBar.kt`, `app/src/main/java/to/eyed/seeker/code/ui/shell/SeekerShell.kt`, `app/src/main/java/to/eyed/seeker/code/ui/common/BinaryPlaceholder.kt`, `app/src/main/java/to/eyed/seeker/code/ui/common/UnsavedChangesDialog.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/changes/ChangesScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/CommitSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/BranchSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/ProblemsScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/DiffScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FileBar.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FilesSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeOverflowSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellNavBar.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/SeekerShell.kt`, `app/src/main/java/to/eyed/thragg/ui/common/BinaryPlaceholder.kt`, `app/src/main/java/to/eyed/thragg/ui/common/UnsavedChangesDialog.kt`
 
 *Depends on:* P3
 
@@ -1121,7 +1121,7 @@ ShellNavBar becomes a real NavigationBar + NavigationBarItem — the M3 selectio
 
 ### P14 — Previews, fixtures and the visual regression net
 
-*Owns:* `app/src/main/java/to/eyed/seeker/code/ui/shell/agent/AgentPreviewData.kt`, `app/src/main/java/to/eyed/seeker/code/ui/agent/spettro/OrchPreviewData.kt`, `app/src/main/java/to/eyed/seeker/code/ui/components/ComponentPreviews.kt`, `app/src/test/java/to/eyed/seeker/code/ui/theme/SeamTest.kt`, `app/src/androidTest/java/to/eyed/seeker/code/ui/AgentScreenshotTest.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/agent/AgentPreviewData.kt`, `app/src/main/java/to/eyed/thragg/ui/agent/spettro/OrchPreviewData.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ComponentPreviews.kt`, `app/src/test/java/to/eyed/thragg/ui/theme/SeamTest.kt`, `app/src/androidTest/java/to/eyed/thragg/ui/AgentScreenshotTest.kt`
 
 *Depends on:* P3, P5, P6, P7, P8
 

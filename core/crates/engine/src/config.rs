@@ -1819,7 +1819,7 @@ pub(crate) fn language_display_name(grammar: &str) -> Option<String> {
 
 /// The commented file written on first run. The comments are the
 /// documentation, and `settings_json` preserves them through UI edits.
-const DEFAULT_FILE: &str = r##"// Seeker IDE settings.
+const DEFAULT_FILE: &str = r##"// Thragg settings.
 //
 // This file is yours: comments and formatting survive changes made from the
 // settings screen. Keys follow Zed's names where they mean the same thing.
@@ -2640,7 +2640,7 @@ pub(crate) mod tests {
             let settings = engine.settings();
             assert_eq!(settings, Settings::default());
             let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
-            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("// Thragg settings."));
             assert!(text.contains("\"buffer_font_size\""));
         });
     }
@@ -2656,7 +2656,7 @@ pub(crate) mod tests {
 
             let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
             // The point of settings_json: the prose survives.
-            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("// Thragg settings."));
             assert!(text.contains("// Spaces inserted by the Tab key."));
             assert!(text.contains("\"buffer_font_size\": 18"));
             // Untouched keys keep their values.
@@ -2984,7 +2984,7 @@ pub(crate) mod tests {
             assert_eq!(settings.format_on_save, FormatOnSave::On);
             assert!(engine.settings_are_valid());
             let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
-            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("// Thragg settings."));
 
             // The maps, entry by entry.
             let settings = engine
@@ -3335,7 +3335,7 @@ pub(crate) mod tests {
             let names: Vec<&str> = settings.agent_servers.keys().map(String::as_str).collect();
             assert_eq!(names, ["other"]);
             let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
-            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("// Thragg settings."));
             assert!(!text.contains("my.agent"));
 
             // Removing what is not there is not an error — it is gone.
@@ -3431,7 +3431,7 @@ pub(crate) mod tests {
             let settings = engine.set_context_server("docs.v1", server.clone()).unwrap();
             assert_eq!(settings.context_servers.get("docs.v1"), Some(&server));
             let text = std::fs::read_to_string(dir.join("settings.json")).unwrap();
-            assert!(text.contains("// Seeker IDE settings."));
+            assert!(text.contains("// Thragg settings."));
             assert!(text.contains("\"docs.v1\""));
 
             let settings = engine.remove_context_server("docs.v1").unwrap();

@@ -1,4 +1,4 @@
-# Seeker IDE
+# Thragg
 
 **A Solana-first, native, open-source IDE for Android — write, build, test
 and deploy on-chain programs entirely from the phone.**
@@ -9,7 +9,7 @@ and deploy on-chain programs entirely from the phone.**
 ## What this is
 
 Solana Playground, but the compiler is in your pocket rather than in a
-datacentre. Seeker IDE carries a real Debian and the SBF toolchain on the
+datacentre. Thragg carries a real Debian and the SBF toolchain on the
 device, so `anchor build`, `cargo build-sbf` and the test run all happen
 locally — and a deploy is signed by the phone's own wallet.
 
@@ -143,7 +143,7 @@ product for that screen and is being replaced rather than adapted.
 
 One build comes out of this repository, and it includes the Debian
 userland, so `apt` works. Android only permits that at an older target SDK,
-which Google Play does not accept — so Seeker IDE comes from F-Droid or a
+which Google Play does not accept — so Thragg comes from F-Droid or a
 direct APK, and not from Play. A Play-compatible edition without the
 userland used to exist beside this one; it could not clone, could not
 install a language server, could not build a Solana program and could not
@@ -161,7 +161,7 @@ especially valuable — that is the device this is designed around.
 
 **Copyright (C) 2026 Eyed** (Carlo Esposito, carlo@aploi.de).
 
-Seeker IDE is free software. Eyed's own code — the Kotlin app and the Rust
+Thragg is free software. Eyed's own code — the Kotlin app and the Rust
 engine — is licensed **GPL-3.0-or-later**; see [LICENSE](LICENSE) for the
 text and [NOTICE](NOTICE) for the copyright statement.
 
@@ -179,10 +179,10 @@ License.
 
 ### Lineage
 
-Seeker IDE is a fork of **Conquest Code** (GPL-3.0-or-later), which supplies
+Thragg is a fork of **Conquest Code** (GPL-3.0-or-later), which supplies
 the editor, the Debian userland, the terminal, the LSP client, git and the
 ACP agent panel. Conquest Code in turn reuses Zed's engine crates and
-vendors Termux's terminal libraries. Seeker IDE adds the Solana layer and
+vendors Termux's terminal libraries. Thragg adds the Solana layer and
 rebuilds the shell for the Seeker's screen.
 
 Those notices are kept deliberately. A fork that quietly drops the notices
@@ -237,7 +237,7 @@ never visited this repository, and GPLv3 s6(d) does not reach them.
 The GPL grants no trademark rights. Product names and logos shown beside
 file types in the interface are the trademarks of their respective owners
 and are used only to identify a file's type. A GPL fork may take this code;
-it may not take the Seeker IDE name or Eyed's marks. See
+it may not take the Thragg name or Eyed's marks. See
 [docs/TRADEMARKS.md](docs/TRADEMARKS.md).
 
 This project is not affiliated with or endorsed by Zed Industries, Termux,

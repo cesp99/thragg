@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build Seeker IDE and put it on the phone.
+# Build Thragg and put it on the phone.
 #
 #   tools/install-on-device.sh            # build, install, launch, screenshot
 #   tools/install-on-device.sh --no-build # just reinstall what is already built
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
 done
 
 APK="$ROOT/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
-PKG=to.eyed.seeker.code
+PKG=to.eyed.thragg
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 

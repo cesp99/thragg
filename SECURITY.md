@@ -1,6 +1,6 @@
 # Security policy
 
-Seeker IDE runs a Debian userland under `proot`, executes toolchains it
+Thragg runs a Debian userland under `proot`, executes toolchains it
 downloads, and on a Seeker it sits on the same device as Seed Vault. That is
 a larger attack surface than a text editor, and it is the reason this file
 exists rather than being a formality.
@@ -55,7 +55,7 @@ could not keep.
 | Latest release | ✅ |
 | Anything older | ❌ — update |
 
-When Seeker IDE ships preinstalled, the supported version is whatever the
+When Thragg ships preinstalled, the supported version is whatever the
 current OEM image and the current published release are; a fix goes to both.
 
 ## Scope
@@ -66,7 +66,7 @@ supposed to hold:
 - Escaping the app's private storage: reading or writing another app's data,
   or the user's files outside a project, without the user choosing them
   through the SAF picker.
-- Anything that reaches the wallet. Seeker IDE never touches a private key;
+- Anything that reaches the wallet. Thragg never touches a private key;
   signing goes through Seed Vault and Mobile Wallet Adapter. A path that
   gets a transaction signed without the user seeing and approving it, or
   that misrepresents what is being signed, is the most serious class of bug

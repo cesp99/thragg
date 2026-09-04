@@ -1,4 +1,4 @@
-# Seeker IDE vs Zed — Gap Report
+# Thragg vs Zed — Gap Report
 
 ## Executive summary
 

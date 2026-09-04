@@ -1,6 +1,6 @@
-# Contributing to Seeker IDE
+# Contributing to Thragg
 
-Thanks for your interest! Seeker IDE is an open-source (GPL-3.0)
+Thanks for your interest! Thragg is an open-source (GPL-3.0)
 attempt to bring a Zed-class IDE to Android. Contributions of all kinds
 are welcome: code, docs, testing on real foldables/tablets, theme and
 grammar work.
@@ -32,7 +32,7 @@ grammar work.
 
 ## Inbound licensing
 
-Seeker IDE is going to ship preinstalled on a phone. That means someone
+Thragg is going to ship preinstalled on a phone. That means someone
 will eventually ask us to prove that every line in it was contributed by
 someone who had the right to contribute it. So contributions are
 governed by the **Developer Certificate of Origin** — the same mechanism
@@ -135,7 +135,7 @@ A CLA would let Eyed relicense the project later — for a proprietary
 OEM variant, say. We are choosing not to have that option, because
 asking contributors to sign a contract is a real cost and the option is
 one we do not want to exercise. The consequence is worth stating: with
-no CLA, **nobody can relicense Seeker IDE without every contributor's
+no CLA, **nobody can relicense Thragg without every contributor's
 agreement**, Eyed included. That is the point.
 
 Retrofitting a CLA across an existing contributor set is close to

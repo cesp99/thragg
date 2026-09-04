@@ -1,6 +1,6 @@
 # The five-minute demo
 
-How to show Seeker IDE to someone from the Solana Foundation without anything
+How to show Thragg to someone from the Solana Foundation without anything
 downloading, compiling cold, or failing in front of them. Every number here was
 measured on the real Seeker (docs/SOLANA.md, "What was verified on hardware");
 nothing below is aspirational.

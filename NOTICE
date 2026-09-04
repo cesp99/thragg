@@ -1,4 +1,4 @@
-Seeker IDE
+Thragg
 Copyright (C) 2026 Eyed <carlo@aploi.de>
 
 This program is free software: you can redistribute it and/or modify it
@@ -35,13 +35,13 @@ docs/LICENSING.md explains this in full, with the compatibility matrix.
 LINEAGE
 -------
 
-Seeker IDE is a fork of **Conquest Code** (GPL-3.0-or-later), which supplies
+Thragg is a fork of **Conquest Code** (GPL-3.0-or-later), which supplies
 the editor, the Debian userland, the terminal, the LSP client, git and the
 ACP agent panel. Conquest Code in turn reuses **Zed**'s Rust engine crates
 (GPL-3.0-or-later and Apache-2.0, Zed Industries) and vendors **Termux**'s
 terminal libraries (GPL-3.0-only, Fredrik Fornwall and the Termux
 contributors), which themselves derive from **Android Terminal Emulator**
-(Apache-2.0, Jack Palevich). Seeker IDE adds the Solana layer on top and
+(Apache-2.0, Jack Palevich). Thragg adds the Solana layer on top and
 rebuilds the shell for the Seeker's screen.
 
 Every one of those notices is preserved deliberately. A fork that drops the
@@ -125,7 +125,7 @@ LGPL-licensed component in it, from a network server, at no charge. This is
 the second of the two forms GPLv3 s6(b) permits an offer to take.
 
   Eyed — carlo@aploi.de
-  https://github.com/cesp99/seeker-code
+  https://github.com/cesp99/thragg
 
 The same source is published, without charge and without registration, at
 the repository named in docs/LICENSING.md, and a per-release
@@ -143,6 +143,6 @@ TRADEMARKS
 The GPL grants no trademark rights, and nothing in this notice should be
 read as claiming any. Product names and logos that appear beside file types
 in the interface are the trademarks of their respective owners and are used
-only to identify a file's type. Seeker IDE is not affiliated with or
+only to identify a file's type. Thragg is not affiliated with or
 endorsed by them, nor by Zed Industries, Termux, Debian, GitHub, Google or
 VSCodium. See docs/TRADEMARKS.md.

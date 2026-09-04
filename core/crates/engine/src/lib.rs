@@ -1,4 +1,4 @@
-//! Seeker IDE engine.
+//! Thragg engine.
 //!
 //! This crate is the UI-free heart of the IDE: buffers, files, syntax,
 //! language intelligence and agent (ACP) integration all live here.

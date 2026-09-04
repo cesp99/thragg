@@ -6,7 +6,7 @@ body:
     id: problem
     attributes:
       label: The problem
-      description: What are you trying to do that Seeker IDE doesn't let you do today?
+      description: What are you trying to do that Thragg doesn't let you do today?
     validations:
       required: true
 

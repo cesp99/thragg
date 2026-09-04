@@ -106,7 +106,7 @@ pub(crate) struct AgentTerminal {
     /// A command's meaning depends on its directory, and Zed puts it in the
     /// header (terminal_tool_header.rs:136-171). Relative because the
     /// absolute path on Android is
-    /// `/data/user/0/to.eyed.seeker.code/files/projects/…`, forty
+    /// `/data/user/0/to.eyed.thragg/files/projects/…`, forty
     /// characters of which say nothing to anybody. Empty means the project
     /// root itself, which is the common case and needs no line at all.
     pub(crate) cwd: String,

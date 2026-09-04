@@ -14,7 +14,7 @@ plugins {
 }
 
 android {
-    namespace = "to.eyed.seeker.code.baselineprofile"
+    namespace = "to.eyed.thragg.baselineprofile"
     compileSdk {
         version = release(37)
     }

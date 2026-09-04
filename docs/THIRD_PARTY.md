@@ -1,6 +1,6 @@
 # Third-party code and binaries
 
-This file is the register: everything in Seeker IDE that came from somewhere
+This file is the register: everything in Thragg that came from somewhere
 else, where it came from, and under what licence — including the components
 shipped as **compiled binaries**, which carry a source obligation we intend
 to meet properly.
@@ -31,7 +31,7 @@ Copyright (C) 2026 Eyed. See [NOTICE](../NOTICE) for the full statement and
 
 ## Lineage
 
-Seeker IDE is a fork of **Conquest Code** (GPL-3.0-or-later), which reuses
+Thragg is a fork of **Conquest Code** (GPL-3.0-or-later), which reuses
 **Zed**'s engine crates and vendors **Termux**'s terminal libraries, which
 themselves derive from **Android Terminal Emulator** (Apache-2.0). Every one
 of those notices is preserved here, in `core/vendor/VENDOR.md`, in
@@ -222,7 +222,7 @@ opens that gap (10.7 units against 8.6), draws the chevron heavier (9.2 against
 because a glyph tuned to fill a coloured tile looks oversized on a bare system
 plate.
 
-`app/src/test/java/to/eyed/seeker/code/ui/theme/LauncherIconTest.kt` holds
+`app/src/test/java/to/eyed/thragg/ui/theme/LauncherIconTest.kt` holds
 those decisions in place. It parses the shipped vectors and asserts what a
 redraw could plausibly break and no build would notice: that `<monochrome>`
 still resolves to a different drawable than `<foreground>`; that the

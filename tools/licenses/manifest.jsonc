@@ -22,7 +22,7 @@
     // order here is the order the screen lists them, and it is §5's order.
     "app": {
       "title": "This application",
-      "note": "Seeker IDE is Eyed's own work. Its engine crates are listed here; everything it is built ON is in the groups below."
+      "note": "Thragg is Eyed's own work. Its engine crates are listed here; everything it is built ON is in the groups below."
     },
     "engine": {
       "title": "Engine and terminal",
@@ -57,9 +57,9 @@
   "components": [
     // ── This application ─────────────────────────────────────────────────
     {
-      "id": "app/seeker-ide",
+      "id": "app/thragg",
       "group": "app",
-      "name": "Seeker IDE",
+      "name": "Thragg",
       // Resolved by the generator from app/build.gradle.kts and
       // core/Cargo.toml, so the release and the repository URL are recorded
       // in one place each and cannot drift into a third.
@@ -68,7 +68,7 @@
       "copyright": "Copyright (C) 2026 Eyed (Carlo Esposito)",
       "url": "@sourceUrl",
       "licenseFiles": ["licenses/GPL-3.0.txt"],
-      "note": "Eyed's own code is GPL-3.0-or-later. The application as built and distributed is GPL-3.0-ONLY, because it links Termux's terminal modules, which are GPL-3.0-only: no recipient of this APK may exercise the \"or later\" option over that code. Take Eyed's code out of the combination and the \"or later\" is yours again.\n\nSeeker IDE is a fork of Conquest Code, which reuses Zed's engine crates and vendors Termux's terminal libraries."
+      "note": "Eyed's own code is GPL-3.0-or-later. The application as built and distributed is GPL-3.0-ONLY, because it links Termux's terminal modules, which are GPL-3.0-only: no recipient of this APK may exercise the \"or later\" option over that code. Take Eyed's code out of the combination and the \"or later\" is yours again.\n\nThragg is a fork of Conquest Code, which reuses Zed's engine crates and vendors Termux's terminal libraries."
     },
 
     // ── Engine and terminal ──────────────────────────────────────────────
@@ -85,7 +85,7 @@
       "copyright": "Copyright (C) the Conquest Code authors",
       "url": "",
       "licenseFiles": ["licenses/GPL-3.0.txt"],
-      "note": "Seeker IDE is a fork of Conquest Code, which supplies the editor, the Debian userland, the terminal, the LSP client, git and the ACP agent panel. Conquest Code in turn reuses Zed's engine crates and vendors Termux's terminal libraries."
+      "note": "Thragg is a fork of Conquest Code, which supplies the editor, the Debian userland, the terminal, the LSP client, git and the ACP agent panel. Conquest Code in turn reuses Zed's engine crates and vendors Termux's terminal libraries."
     },
     {
       "id": "engine/zed",

@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 license = "MIT"
 description = """
-Seeker IDE's binding for camdencheek/tree-sitter-dockerfile. The published
+Thragg's binding for camdencheek/tree-sitter-dockerfile. The published
 crate still pins tree-sitter 0.20, whose `Language` is a different Rust type
 from the 0.26 the rest of the workspace uses, so the generated parser sources
 are vendored here and exposed as a `LanguageFn` like every other grammar.

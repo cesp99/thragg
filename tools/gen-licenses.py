@@ -460,7 +460,7 @@ def build_facts() -> dict[str, str]:
 # names it as an identifier and nothing else; if the manifest renames it, the
 # link would land on a missing component and the screen would say so politely
 # instead of showing the GPL. Fail here rather than there.
-APP_ROW_ID = "app/seeker-ide"
+APP_ROW_ID = "app/thragg"
 
 
 def manifest_rows(components: list[dict[str, Any]]) -> list[dict[str, Any]]:

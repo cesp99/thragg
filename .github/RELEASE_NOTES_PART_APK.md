@@ -26,7 +26,7 @@ the single-architecture APK is the lean choice when you know yours.
 > Debian userland — and therefore the language servers, the Solana toolchain
 > and the agent — work. The APK is signed and safe to install.
 >
-> It is also why Seeker IDE is not on Google Play: Play requires a target SDK
+> It is also why Thragg is not on Google Play: Play requires a target SDK
 > within about a year of the current release. There was once a second,
 > Play-compatible edition without the userland; it could not clone, install a
 > language server, build a program or run an agent, so it no longer ships.

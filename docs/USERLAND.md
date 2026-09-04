@@ -1,6 +1,6 @@
 # The Linux userland
 
-The terminal in Seeker IDE can run a real **Debian**, with `apt` and the
+The terminal in Thragg can run a real **Debian**, with `apt` and the
 tens of thousands of packages that come with it. This page explains what
 that is, what it can and cannot do, and where things live.
 
@@ -67,7 +67,7 @@ userland's `~/.ssh` (`ssh-keygen` in the terminal) and use an `ssh://` or
 
 | Inside the userland | What it is |
 |---|---|
-| `/projects` | all your Seeker IDE projects |
+| `/projects` | all your Thragg projects |
 | `/projects/<name>` | one project — the same files the editor has open |
 | `/root` | the userland's home directory, with your `.bashrc` |
 | `/tmp`, `/etc`, `/usr` … | ordinary Debian |
@@ -82,7 +82,7 @@ and the git panel's commands.)
 
 Android does not allow an app to run a program that was downloaded rather
 than installed — which would make `apt` impossible — unless the app targets
-an older SDK. Seeker IDE does, which is also why it cannot be distributed
+an older SDK. Thragg does, which is also why it cannot be distributed
 on Google Play.
 
 Debian's own binaries expect to live at `/usr/bin`, `/etc` and so on. They
@@ -106,7 +106,7 @@ virtualisation: proot uses `ptrace` to rewrite what the guest sees.
 
   That service normally shows a notification, with a **Stop all** action
   that ends every session. You may have to turn it on yourself, in
-  Android's app settings for Seeker IDE: the app targets an old API level
+  Android's app settings for Thragg: the app targets an old API level
   so that the userland can run at all, and Android will not show the
   notification permission prompt to an app that does. Until you allow
   notifications, the service protects your sessions without showing

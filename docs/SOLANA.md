@@ -1,6 +1,6 @@
 # The Solana layer
 
-Seeker IDE is Conquest Code's editor with a Solana toolchain underneath it: a
+Thragg is Conquest Code's editor with a Solana toolchain underneath it: a
 real Debian on the phone, the SBF compiler, Anchor, and a build/deploy/test
 loop that never leaves the device. This page is the design of that layer —
 what is fetched, from where, and what runs when you press **Build**.
@@ -390,7 +390,7 @@ The inherited panel speaks [ACP](https://agentclientprotocol.com) and is
 agent-agnostic: every agent is an `agent_servers` entry in settings.json.
 Conquest Code deliberately named none of them and installed none.
 
-Seeker IDE ships **one** agent, and ships it properly: **Spettro**.
+Thragg ships **one** agent, and ships it properly: **Spettro**.
 
 The reason is not favouritism, it is that the other candidates cannot yet be
 themselves over ACP on a phone. Measured on the device:

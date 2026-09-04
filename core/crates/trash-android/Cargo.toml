@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 license = "GPL-3.0-or-later"
 description = """
-Seeker IDE's stand-in for Zed's `trash-rs` fork, which has no Android
+Thragg's stand-in for Zed's `trash-rs` fork, which has no Android
 backend. Implements the small API surface the vendored `fs` crate uses by
 moving entries into an app-private trash directory.
 """

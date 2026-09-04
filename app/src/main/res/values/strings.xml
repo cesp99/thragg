@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Seeker IDE</string>
+    <string name="app_name">Thragg</string>
 
     <!-- settings -->
     <string name="settings_settings">SETTINGS</string>
@@ -128,7 +128,7 @@
     <string name="settings_scroll_animations_the_toast_slide_and">Scroll animations, the toast slide and the working spinners, rendered still</string>
     <string name="settings_show_the_welcome_screen">Show the welcome screen</string>
     <string name="settings_the_three_things_to_try_and">The three things to try, and the theme choice</string>
-    <string name="settings_about_seeker_code">About Seeker IDE</string>
+    <string name="settings_about_thragg">About Thragg</string>
     <string name="settings_version_engine_the_zed_commit_and">Version, engine, the Zed commit, and the device facts a bug report needs — with a Copy button</string>
     <string name="settings_agents_connected_through_the_agent_client">Agents connected through the Agent Client Protocol.</string>
     <string name="settings_notify_when_the_agent_is_waiting">Notify when the agent is waiting</string>
@@ -195,12 +195,12 @@
     <string name="import_add">Add</string>
     <!-- about -->
     <string name="about_about">ABOUT</string>
-    <string name="about_seeker_code_zed_s_editor_ported">Seeker IDE — Zed\'s editor, ported to Android. The lines below are what a bug report needs.</string>
+    <string name="about_thragg_zed_s_editor_ported">Thragg — Zed\'s editor, ported to Android. The lines below are what a bug report needs.</string>
     <string name="about_reading_the_engine_s_version">Reading the engine\'s version…</string>
     <string name="about_close">Close</string>
     <string name="about_copy">Copy</string>
     <!-- welcome -->
-    <string name="welcome_welcome_to_seeker_code">WELCOME TO SEEKER IDE</string>
+    <string name="welcome_welcome_to_thragg">WELCOME TO THRAGG</string>
     <string name="welcome_zed_s_editor_ported_to_android">Zed\'s editor, ported to Android: the same buffers, the same language servers, the same keymap — on a device you already have in your pocket.</string>
     <string name="welcome_three_things_to_try">THREE THINGS TO TRY</string>
     <string name="welcome_open_a_project">Open a project</string>
@@ -304,7 +304,7 @@
     <string name="licences_title">Open source licences</string>
     <string name="licences_settings_row">Open source licences</string>
     <string name="licences_settings_detail">what this app is built from, and the source offer</string>
-    <string name="licences_notice_copyright">Seeker IDE — Copyright (C) 2026 Eyed</string>
+    <string name="licences_notice_copyright">Thragg — Copyright (C) 2026 Eyed</string>
     <string name="licences_notice_warranty">This program comes with ABSOLUTELY NO WARRANTY.</string>
     <string name="licences_notice_redistribute">This is free software, and you are welcome to redistribute it under the terms of the GNU General Public License, version 3.</string>
     <string name="licences_notice_view_gpl">View the GPL v3</string>
@@ -323,7 +323,7 @@
          charge". That is why there is no postal address here and its absence
          is not a gap - a reviewer looking for one should find this comment. -->
     <string name="licences_offer_address">Eyed — carlo@aploi.de
-https://github.com/cesp99/seeker-code</string>
+https://github.com/cesp99/thragg</string>
     <string name="licences_offer_note">The same source is published, without charge and without registration, at the repository above, and a corresponding-source archive is attached to every release. This offer stands regardless: a person who received this app preinstalled on a phone never visited that repository, and GPLv3 s6(d) does not reach them.</string>
     <string name="licences_search_placeholder">Find a component or a licence</string>
     <string name="licences_count">%1$d components</string>
@@ -331,7 +331,7 @@ https://github.com/cesp99/seeker-code</string>
     <string name="licences_no_matches">Nothing here matches that. The filter looks at the name, the version, the SPDX identifier and the copyright holder.</string>
     <string name="licences_unavailable">The notices bundle could not be read. This is a defect, not an absence of obligations — report it, and see docs/THIRD_PARTY.md in the source for the full component register.</string>
     <string name="licences_loading">Reading the notices bundle…</string>
-    <string name="licences_trademarks">Product names and logos shown beside file types are trademarks of their respective owners and are used only to identify file types. Seeker IDE is not affiliated with or endorsed by them.</string>
+    <string name="licences_trademarks">Product names and logos shown beside file types are trademarks of their respective owners and are used only to identify file types. Thragg is not affiliated with or endorsed by them.</string>
     <string name="licences_detail_copyright">Copyright</string>
     <string name="licences_detail_authors">Authors</string>
     <string name="licences_detail_no_copyright">This component ships no copyright line inside the package it is distributed in. Its authors, as its own manifest names them, are above; its upstream is where the notice lives.</string>

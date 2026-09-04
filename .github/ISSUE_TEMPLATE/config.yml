@@ -6,14 +6,14 @@ contact_links:
   # Security reports must never become public issues. This link is first on
   # purpose — see SECURITY.md for the scope and the response timelines.
   - name: 🔒 Report a security vulnerability
-    url: https://github.com/cesp99/seeker-code/security/advisories/new
+    url: https://github.com/cesp99/thragg/security/advisories/new
     about: Private disclosure. Do NOT open a public issue for a security problem.
   - name: 💬 Discussions
-    url: https://github.com/cesp99/seeker-code/discussions
+    url: https://github.com/cesp99/thragg/discussions
     about: For questions, ideas, and general discussion that isn't a bug or feature request.
-  - name: 📖 Building Seeker IDE
-    url: https://github.com/cesp99/seeker-code/blob/main/docs/BUILDING.md
+  - name: 📖 Building Thragg
+    url: https://github.com/cesp99/thragg/blob/main/docs/BUILDING.md
     about: Read the build guide before opening a build-related issue.
   - name: 🤝 Contributing guide
-    url: https://github.com/cesp99/seeker-code/blob/main/CONTRIBUTING.md
+    url: https://github.com/cesp99/thragg/blob/main/CONTRIBUTING.md
     about: Read the contributing guidelines before opening a PR.

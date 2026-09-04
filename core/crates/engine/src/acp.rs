@@ -1561,7 +1561,7 @@ async fn run_connection(
 
     let result = Client
         .builder()
-        .name("seeker-code")
+        .name("thragg")
         .on_receive_request(
             async move |request: acp::RequestPermissionRequest,
                         responder: Responder<acp::RequestPermissionResponse>,
@@ -1781,7 +1781,7 @@ async fn agent_main(shared: Arc<AgentShared>, cx: ConnectionTo<Agent>) -> Result
             acp::InitializeRequest::new(ProtocolVersion::V1)
                 .client_capabilities(capabilities)
                 .client_info(acp::Implementation::new(
-                    "seeker-code",
+                    "thragg",
                     crate::ENGINE_VERSION,
                 ))
                 .meta(client_extensions()),

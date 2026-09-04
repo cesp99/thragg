@@ -1,7 +1,7 @@
-//! JNI surface for the Seeker IDE engine.
+//! JNI surface for the Thragg engine.
 //!
 //! Naming contract: every function here maps to an `external` declaration in
-//! `to.eyed.seeker.code.core.CoreBridge` on the Kotlin side. Keep the two
+//! `to.eyed.thragg.core.CoreBridge` on the Kotlin side. Keep the two
 //! files in sync — this is the only place the two worlds meet.
 //!
 //! Design rule: calls across this boundary are coarse-grained. The Kotlin
@@ -101,7 +101,7 @@ fn to_jstring(env: &JNIEnv, text: String) -> jstring {
 /// before it is up queues on its job channel, so callers gate on the same
 /// version counters they always poll, never on this call.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_initialize(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_initialize(
     mut env: JNIEnv,
     _class: JClass,
     files_dir: JString,
@@ -116,7 +116,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_initialize(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_engineVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_engineVersion(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -125,7 +125,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_engineVersion(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_createBuffer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_createBuffer(
     mut env: JNIEnv,
     _class: JClass,
     initial_text: JString,
@@ -135,7 +135,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_createBuffer(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_closeBuffer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_closeBuffer(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -148,7 +148,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_closeBuffer(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_applyEdit(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_applyEdit(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -170,7 +170,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_applyEdit(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_undoBuffer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_undoBuffer(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -186,7 +186,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_undoBuffer(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_redoBuffer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_redoBuffer(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -202,7 +202,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_redoBuffer(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferVersion(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -217,7 +217,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferVersion(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLineCount(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferLineCount(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -232,7 +232,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLineCount(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLines(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferLines(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -253,7 +253,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLines(
 /// Assign a tree-sitter language (grammar name, e.g. "rust") to a buffer.
 /// Returns false for unknown buffers or unknown language names.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferSetLanguage(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferSetLanguage(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -277,7 +277,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferSetLanguag
 /// `grammar` and `name`, sorted by display name — what the language selector
 /// lists (Zed's `language_selector::Toggle`).
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_availableLanguages(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_availableLanguages(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -294,7 +294,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_availableLanguag
 /// into the engine's STYLE_NAMES). Empty array when the buffer has no
 /// language; null for unknown buffers.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferHighlights(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferHighlights(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -331,7 +331,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferHighlights
 /// buffer has no language or no symbol contains the caret; null for an
 /// unknown buffer. Columns are UTF-16, like every caret the UI holds.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferOutlinePath(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferOutlinePath(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -363,7 +363,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferOutlinePat
 /// grammar without an indents query — keep the indent walk for those; null
 /// for unknown buffers.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferFoldRanges(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferFoldRanges(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -390,7 +390,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferFoldRanges
 /// not been parsed yet, in which case the caller leaves the selection alone.
 /// Reads the last parsed tree like `bufferFoldRanges`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferSyntaxNodeRange(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferSyntaxNodeRange(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -429,7 +429,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferSyntaxNode
 /// where there is not, so a plain-text buffer still matches its braces.
 /// `null` when nothing encloses the range.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferEnclosingBrackets(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferEnclosingBrackets(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -470,7 +470,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferEnclosingB
 /// must resync. **Blocking** (reads settings.json): call it off the main
 /// thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_cleanBufferOnSave(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_cleanBufferOnSave(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -482,7 +482,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_cleanBufferOnSav
 /// outline picker — as a JSON array of `{label, depth, row, col_utf16}`.
 /// Empty array when the buffer has no language; null for unknown buffers.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferOutline(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferOutline(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -505,7 +505,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferOutline(
 /// Byte offset of (row, byte column), clipped to the buffer. -1 for an
 /// unknown buffer or negative arguments.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_pointToOffset(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_pointToOffset(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -529,7 +529,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_pointToOffset(
 /// (row, byte column) of a byte offset, clipped to the buffer, packed as
 /// `(row << 32) | column`. -1 for an unknown buffer or negative offset.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_offsetToPoint(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_offsetToPoint(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -556,7 +556,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_offsetToPoint(
 
 /// Start scanning a directory as a project. Returns its id (always > 0).
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_openProject(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_openProject(
     mut env: JNIEnv,
     _class: JClass,
     path: JString,
@@ -566,7 +566,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_openProject(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_closeProject(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_closeProject(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -581,7 +581,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_closeProject(
 /// Monotonic version of the mirrored worktree snapshot; 0 while there is
 /// nothing to show. Poll this to know when to re-read entries.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectVersion(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -590,7 +590,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectVersion(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectScanComplete(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectScanComplete(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -604,7 +604,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectScanCompl
 
 /// Why the project failed to open, or null if it did not fail.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectError(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectError(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -617,7 +617,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectError(
 
 /// Display name of the project root; null for an unknown project.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectRootName(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectRootName(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -632,7 +632,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectRootName(
 /// JSON array — one coarse call per expanded directory rather than one per
 /// entry. Never null: unknown projects and unscanned directories give `[]`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectEntries(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectEntries(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -650,7 +650,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectEntries(
 /// Scan a directory the worktree deferred (ignored, hidden, or past
 /// `file_scan_depth`). Asynchronous; the results arrive as a version bump.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_expandDirectory(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_expandDirectory(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -667,7 +667,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_expandDirectory(
 /// Absolute path of a project-relative entry; null if the project is unknown
 /// or the path tries to escape the root.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectEntryPath(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectEntryPath(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -689,7 +689,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectEntryPath
 /// back to `restoreTrash` if the user takes the Undo. **Blocking** — it moves
 /// files; call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectTrash(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectTrash(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -709,7 +709,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectTrash(
 /// whose name is occupied again refuses the whole restore rather than
 /// overwriting. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_restoreTrash(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_restoreTrash(
     mut env: JNIEnv,
     _class: JClass,
     entries_json: JString,
@@ -733,7 +733,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_restoreTrash(
 /// `name`, `path`, `scan_complete`, `error` and `is_primary`. `[]` for an
 /// unknown project.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectWorktrees(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectWorktrees(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -754,7 +754,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectWorktrees
 /// folders is that existing folder, as Zed's `find_or_create_worktree` does —
 /// or `{"error": "…"}`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectAddWorktree(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectAddWorktree(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -772,7 +772,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectAddWorktr
 /// null when it worked, the reason when it did not; the folder the project was
 /// opened with cannot be removed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectRemoveWorktree(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectRemoveWorktree(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -787,7 +787,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectRemoveWor
 /// Direct children of a directory inside one folder of the project, in the
 /// same JSON shape as `projectEntries`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_worktreeEntries(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_worktreeEntries(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -805,7 +805,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_worktreeEntries(
 
 /// `expandDirectory` for a named folder of the project.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_expandWorktreeDirectory(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_expandWorktreeDirectory(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -823,7 +823,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_expandWorktreeDi
 /// Absolute path of an entry relative to one folder's root; null if the
 /// project or folder is unknown, or the path tries to escape it.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_worktreeEntryPath(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_worktreeEntryPath(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -848,7 +848,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_worktreeEntryPat
 /// Tell the engine where proot and the Debian rootfs are. Call it once the
 /// userland reports itself installed; never in the `play` flavour.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setUserland(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setUserland(
     mut env: JNIEnv,
     _class: JClass,
     proot: JString,
@@ -871,7 +871,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setUserland(
 /// Forget the userland — after the user deletes the rootfs. Git status then
 /// degrades to empty, as in a build that never had one.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_clearUserland(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_clearUserland(
     _env: JNIEnv,
     _class: JClass,
 ) {
@@ -882,7 +882,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_clearUserland(
 /// to show. Poll it exactly like `projectVersion`. Polling is also what
 /// schedules refreshes — it never waits for git.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStatusVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStatusVersion(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -899,7 +899,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStatusVersion
 /// null — on no branch, which is not the same answer as no repository.
 /// Versioned by `gitStatusVersion`, like every other read of that cache.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranchInfo(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitBranchInfo(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -921,7 +921,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranchInfo(
 /// change. Null when it is not known, which a caller must read as "assume it
 /// moved", never as "nothing changed". Versioned by `gitStatusVersion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHead(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHead(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -938,7 +938,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHead(
 /// lookup per row. Reads a cache: never blocks, never null, `{}` when there is
 /// nothing to show.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStatus(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStatus(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -962,7 +962,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStatus(
 /// `gitStatusVersion`: one `git status` serves the project panel and this.
 /// Never blocks, never null.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitChanges(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitChanges(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -998,7 +998,7 @@ fn command_result(env: &JNIEnv, result: Result<(), String>) -> jstring {
 /// Stage every listed path (`git add -A`), deletions included. **Blocking**:
 /// it waits for a process inside the guest — call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStage(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStage(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1010,7 +1010,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStage(
 
 /// Take every listed path back out of the index. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitUnstage(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitUnstage(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1025,7 +1025,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitUnstage(
 /// untracked, or staged-new — is moved to the app's trash rather than deleted.
 /// Confirm with the user, naming the files, before calling this. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitDiscard(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitDiscard(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1040,7 +1040,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitDiscard(
 /// Signoff and Skip Hooks menu entries, appended to the argv in Zed's order.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCommit(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCommit(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1067,7 +1067,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCommit(
 /// `gitHeadPushedRemotes` and the old message *first*. Null when it worked.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitUncommit(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitUncommit(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1081,7 +1081,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitUncommit(
 /// proceeds silently there; `{"error":…}` only when there is no repository to
 /// ask. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHeadPushedRemotes(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHeadPushedRemotes(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1098,7 +1098,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHeadPushedRem
 /// it is set, [fallback_branch] when it is not, then `git init -b <branch>`.
 /// Null when it worked. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitInit(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitInit(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1115,7 +1115,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitInit(
 /// is kept and the message rides beside it, as in Zed's picker banner.
 /// `{"error":…}` alone when there is no repository at all. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranches(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitBranches(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1133,7 +1133,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranches(
 /// exactly as Zed does. Null when it worked, git's refusal — a dirty worktree
 /// above all — when it did not. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitChangeBranch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitChangeBranch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1147,7 +1147,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitChangeBranch(
 /// empty [base] branches off HEAD, which is what the picker's plain Create
 /// does. Null when it worked. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCreateBranch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCreateBranch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1167,7 +1167,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCreateBranch(
 /// unmerged branch comes back with git's "not fully merged", which is the
 /// picker's cue to offer force. Null when it worked. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitDeleteBranch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitDeleteBranch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1188,7 +1188,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitDeleteBranch(
 /// asked; the picker simply drops its "Create New From" entry then.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitDefaultBranch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitDefaultBranch(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1227,7 +1227,7 @@ fn remote_result(
 /// From / Push To pickers' listing, and where github.com detection reads the
 /// URL. **Blocking**: it runs git.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitRemotes(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitRemotes(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1245,7 +1245,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitRemotes(
 /// *question* falls back to the listing rather than blocking the command.
 /// **Blocking**: it runs git.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranchRemote(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitBranchRemote(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1263,7 +1263,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranchRemote(
 /// `git fetch --all`. Returns the remote-command JSON (see [remote_result]).
 /// **Blocking**: it talks to the network.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitFetch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitFetch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1278,7 +1278,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitFetch(
 /// Pull (Rebase). The branch name joins the argv only when the branch has no
 /// upstream. Returns the remote-command JSON. **Blocking**: network.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPull(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPull(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1299,7 +1299,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPull(
 /// Push; force wins when both are set, as in Zed. Returns the remote-command
 /// JSON. **Blocking**: it talks to the network.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPush(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPush(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1327,7 +1327,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPush(
 /// "SSH_ASKPASS_REQUIRE=force"],"args":["-c","credential.helper=cache …"]}`.
 /// Both lists are empty when no userland is configured. Cheap.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitAskpassSetup(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitAskpassSetup(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -1340,7 +1340,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitAskpassSetup(
 /// none is pending. Poll it while a clone, fetch, pull or push is in flight;
 /// it takes a lock and a `stat`, nothing more.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPendingPrompt(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPendingPrompt(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -1358,7 +1358,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPendingPrompt
 /// when the prompt is no longer pending — answered, cancelled, or its git
 /// gone.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitAnswerPrompt(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitAnswerPrompt(
     mut env: JNIEnv,
     _class: JClass,
     id: jlong,
@@ -1376,7 +1376,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitAnswerPrompt(
 /// Refuse prompt `id`: the helper fails, and git or ssh gives up with its
 /// own message. False when the prompt is no longer pending.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCancelPrompt(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCancelPrompt(
     _env: JNIEnv,
     _class: JClass,
     id: jlong,
@@ -1390,7 +1390,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCancelPrompt(
 
 /// Drop every username and secret remembered for the session.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitForgetCredentials(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitForgetCredentials(
     _env: JNIEnv,
     _class: JClass,
 ) {
@@ -1403,7 +1403,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitForgetCredent
 /// An empty `path` means every changed file. `{"error":…}` when git failed.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPatch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPatch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1426,7 +1426,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPatch(
 /// `[]` for a repository with no commits; the error text when git failed.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitLog(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitLog(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1450,7 +1450,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitLog(
 /// panel's "View Branch Diff", in `gitPatch`'s JSON shape: `{"files":[…]}` or
 /// `{"error":…}`. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranchPatch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitBranchPatch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1468,7 +1468,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBranchPatch(
 /// shape — `{"files":[…]}` or `{"error":…}`. An empty `path` is the whole
 /// commit; a path narrows it to one file. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCommitPatch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCommitPatch(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1489,7 +1489,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCommitPatch(
 /// `{status, path, original}`. `{"error":…}` when git could not read it.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCommitDetails(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCommitDetails(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1508,7 +1508,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitCommitDetails
 /// when git has none, which is a fresh Debian's state and the reason every
 /// commit in one fails. `{}` when there is no repository. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitIdentity(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitIdentity(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1523,7 +1523,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitIdentity(
 /// Set that identity in the guest's global git config. Null when it worked and
 /// the reason when it did not, like the other write commands. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitSetIdentity(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitSetIdentity(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1542,7 +1542,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitSetIdentity(
 /// show. Poll it exactly like `gitStatusVersion` — polling schedules the work
 /// and never waits for it.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunksVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHunksVersion(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1562,7 +1562,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunksVersion(
 /// Reads a cache: never blocks, never null, empty for a buffer with no file,
 /// no repository, or no difference.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunks(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHunks(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1597,7 +1597,7 @@ fn hunk_kind_code(kind: engine::HunkKind) -> i32 {
 /// draws — as a JSON array of strings, or null while the base text is still
 /// being fetched. A cache read: never runs git.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkBaseLines(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHunkBaseLines(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1638,7 +1638,7 @@ fn hunk_states_json(result: Result<Vec<engine::HunkState>, String>) -> String {
 
 /// See [`hunk_states_json`]. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkStates(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHunkStates(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1650,7 +1650,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkStates(
 /// `[startRow, endRow)` — `git apply --cached` of a one-hunk patch. Null when
 /// it worked, git's sentence when not. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkStage(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHunkStage(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1673,7 +1673,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkStage(
 /// its editor afterwards. Null when it worked. Runs git only if the base text
 /// is not cached yet.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkRestore(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitHunkRestore(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1689,7 +1689,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitHunkRestore(
 /// `gitHunkStates` for a project-relative path — the project diff's route.
 /// **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPathHunkStates(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPathHunkStates(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1705,7 +1705,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPathHunkState
 /// `gitHunkStage` by path; rows are rows of the file as it is now (the `+`
 /// side of the patch), 0-based. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPathHunkStage(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPathHunkStage(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1729,7 +1729,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPathHunkStage
 /// `gitHunkRestore` by path: an edit of the open buffer when there is one,
 /// else the file on disk. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPathHunkRestore(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPathHunkRestore(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1751,7 +1751,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitPathHunkResto
 /// `git stash list` as JSON: `{"entries": [{index, sha, message, branch,
 /// timestamp}]}`, newest first, or `{"error": …}`. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashList(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashList(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1766,7 +1766,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashList(
 /// `git stash push`: `kind` is 0 all (untracked included), 1 tracked, 2
 /// staged; an empty message means none. Null when it worked. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashPush(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashPush(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1788,7 +1788,7 @@ fn stash_index(index: jlong) -> Option<usize> {
 
 /// `git stash pop [stash@{N}]`; `index` < 0 pops the latest. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashPop(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashPop(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1799,7 +1799,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashPop(
 
 /// `git stash apply [stash@{N}]`. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashApply(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashApply(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1810,7 +1810,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashApply(
 
 /// `git stash drop [stash@{N}]`. **Blocking**.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashDrop(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashDrop(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -1829,7 +1829,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitStashDrop(
 /// worth asking again only when `bufferVersion` has moved. `[]` for a buffer
 /// with no markers; null for an unknown buffer.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferConflicts(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferConflicts(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1855,7 +1855,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferConflicts(
 /// no longer opens a conflict (the buffer moved under the UI) or the buffer
 /// is unknown; nothing changes then.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_resolveConflict(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_resolveConflict(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1888,7 +1888,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_resolveConflict(
 /// **Blocking**, and uncached — it runs git every time. Call it when the user
 /// asks for blame, off the main thread, not on a poll loop.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBlame(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitBlame(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -1910,7 +1910,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_gitBlame(
 /// pair it with `settingsAreValid` to tell the user rather than silently
 /// showing settings that aren't in effect.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_settings(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_settings(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -1925,7 +1925,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_settings(
 /// The settings file's raw JSONC text, created with documented defaults on
 /// first use.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_settingsText(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_settingsText(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -1933,7 +1933,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_settingsText(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_settingsAreValid(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_settingsAreValid(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
@@ -1948,7 +1948,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_settingsAreValid
 /// and `value_json` is the new value as JSON (`true`, `18`, `"dark"`).
 /// Returns the resolved settings as JSON, or null if the write failed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setSetting(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setSetting(
     mut env: JNIEnv,
     _class: JClass,
     key_path: JString,
@@ -1985,7 +1985,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setSetting(
 /// `{"command": …, "args": […], "env": {…}}`. Returns the resolved settings
 /// as JSON, or null on failure.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setAgentServer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setAgentServer(
     mut env: JNIEnv,
     _class: JClass,
     name: JString,
@@ -2018,7 +2018,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setAgentServer(
 /// Remove one `agent_servers` entry by name. Removing a name that is not
 /// there succeeds. Returns the resolved settings as JSON, or null on failure.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_removeAgentServer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_removeAgentServer(
     mut env: JNIEnv,
     _class: JClass,
     name: JString,
@@ -2045,7 +2045,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_removeAgentServe
 /// settings as JSON, or null when the spec is not one of those shapes or the
 /// write failed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setContextServer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setContextServer(
     mut env: JNIEnv,
     _class: JClass,
     name: JString,
@@ -2078,7 +2078,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setContextServer
 /// Remove one `context_servers` entry by name; a name that is not there
 /// succeeds. Returns the resolved settings as JSON, or null on failure.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_removeContextServer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_removeContextServer(
     mut env: JNIEnv,
     _class: JClass,
     name: JString,
@@ -2102,7 +2102,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_removeContextSer
 /// Replace the whole settings file. Returns the resolved settings as JSON, or
 /// null if the text doesn't parse — in which case the file is left untouched.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setSettingsText(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setSettingsText(
     mut env: JNIEnv,
     _class: JClass,
     text: JString,
@@ -2126,7 +2126,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setSettingsText(
 /// The built-in default settings as documented JSONC text — what
 /// `zed::OpenDefaultSettings` shows read-only. Never touches the disk.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_defaultSettingsText(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_defaultSettingsText(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -2141,7 +2141,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_defaultSettingsT
 /// `inline_blame`. Never null; an unknown buffer gets the user's settings.
 /// **Blocking** (reads settings.json): call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLanguageSettings(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferLanguageSettings(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2158,7 +2158,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLanguageSe
 /// project opens and whenever the file changes on disk. Poll it, like
 /// `projectVersion`, to know when to re-read `bufferLanguageSettings`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSettingsVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectSettingsVersion(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -2169,7 +2169,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSettingsV
 /// Why the project's `.zed/settings.json` is not in effect — its parse
 /// error — or null when it is, or there is none.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSettingsError(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectSettingsError(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -2184,7 +2184,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSettingsE
 /// so the save and its effect arrive together rather than a watcher tick
 /// apart. False for an unknown project. **Blocking**: off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_reloadProjectSettings(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_reloadProjectSettings(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -2201,7 +2201,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_reloadProjectSet
 /// `lspApplyPendingEdit` lands them in order. Settles `done` with zero edits
 /// when nothing is configured.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCodeActionsOnFormat(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestCodeActionsOnFormat(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2214,7 +2214,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCodeAc
 /// `error` is a sentence for the status bar, null on success. **Blocking**
 /// for as long as the program runs: call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_formatBufferExternally(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_formatBufferExternally(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2236,7 +2236,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_formatBufferExte
 /// The keymap file's raw JSONC text, created with a commented starter on
 /// first use — so "open keymap" always has a file to open.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_keymapText(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_keymapText(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -2250,7 +2250,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_keymapText(
 /// args, source}…], "errors": [sentence…]}`; later bindings outrank earlier
 /// ones at the same context depth. Never null.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_loadKeymap(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_loadKeymap(
     mut env: JNIEnv,
     _class: JClass,
     default_keymap_json: JString,
@@ -2269,7 +2269,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_loadKeymap(
 /// `path`) and `score`. An empty query lists files. Never null: unknown
 /// projects give `[]`. **Blocking**: call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectFindFiles(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectFindFiles(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -2290,7 +2290,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectFindFiles
 /// Returns the buffer id, or -1 if the file could not be read (missing,
 /// unreadable, or not UTF-8). **Blocking**: call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_openFile(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_openFile(
     mut env: JNIEnv,
     _class: JClass,
     path: JString,
@@ -2308,7 +2308,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_openFile(
 /// Bumped when a background reparse lands. The content version doesn't move
 /// then, so the UI watches this to know its highlight spans are stale.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferHighlightVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferHighlightVersion(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2319,7 +2319,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferHighlightV
 /// The grammar the buffer is highlighted with ("rust", "markdown"), or null
 /// if it has no language.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLanguage(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferLanguage(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2338,7 +2338,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLanguage(
 /// One call per language, for the life of the process: the answer is the same
 /// for every buffer in it, and the UI caches it.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_languageConfig(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_languageConfig(
     mut env: JNIEnv,
     _class: JClass,
     language: JString,
@@ -2364,7 +2364,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_languageConfig(
 /// offset in one call and belongs on the pair-character path, not the typing
 /// path.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferBracketScopes<'local>(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferBracketScopes<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
     buffer_id: jlong,
@@ -2398,7 +2398,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferBracketSco
 
 /// Absolute path of the file behind a buffer; null for scratch buffers.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferPath(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferPath(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2411,7 +2411,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferPath(
 
 /// Whether the buffer has edits not yet written to disk.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferIsDirty(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferIsDirty(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2426,7 +2426,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferIsDirty(
 /// Whether the file changed on disk since the buffer last synced with it.
 /// Set by the worktree's watcher; cleared by save or reload.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferHasDiskChange(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferHasDiskChange(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2440,7 +2440,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferHasDiskCha
 
 /// Whether the file behind the buffer has been deleted from disk.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferFileDeleted(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferFileDeleted(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2456,7 +2456,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferFileDelete
 /// the buffer has no file or the write failed. **Blocking**: call it off the
 /// main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_saveBuffer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_saveBuffer(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2473,7 +2473,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_saveBuffer(
 /// Re-read the file into the buffer, discarding local edits (undoably).
 /// Returns the new version, or -1. **Blocking**: call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_reloadBuffer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_reloadBuffer(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2497,7 +2497,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_reloadBuffer(
 /// "lf" or "crlf" — the line ending the buffer's file uses and the next save
 /// writes. Null for a buffer with no file.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLineEnding(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferLineEnding(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2512,7 +2512,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferLineEnding
 /// marks the buffer dirty; the text is untouched. False for a buffer with no
 /// file or a name that is neither.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setBufferLineEnding(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setBufferLineEnding(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2553,7 +2553,7 @@ fn line_ending_named(name: &str) -> Option<engine::LineEnding> {
 ///
 /// Null for a buffer with no file.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferEncoding(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferEncoding(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2570,7 +2570,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferEncoding(
 /// Every encoding the picker may offer, as a JSON array of names sorted the
 /// way Zed sorts them: `["Big5", "EUC-JP", …, "windows-874"]`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_availableEncodings(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_availableEncodings(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -2586,7 +2586,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_availableEncodin
 /// UTF-16. False for a buffer with no file or a name not in
 /// [availableEncodings].
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setBufferEncoding(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setBufferEncoding(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2612,7 +2612,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setBufferEncodin
 /// saves in that encoding. Returns the new version, or -1. **Blocking**:
 /// call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_reopenBufferWithEncoding(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_reopenBufferWithEncoding(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2660,7 +2660,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_reopenBufferWith
 /// Why a query will not compile, or null if it will. The search bar calls this
 /// to explain a half-typed regex rather than silently showing nothing.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_searchQueryError(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_searchQueryError(
     mut env: JNIEnv,
     _class: JClass,
     query_json: JString,
@@ -2684,7 +2684,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_searchQueryError
 /// Null for an unknown buffer or a query that does not compile — ask
 /// `searchQueryError` which it was.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferSearch(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferSearch(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2742,7 +2742,7 @@ const MAX_BUFFER_MATCHES: jlong = 10_000;
 /// Answers on the calling thread — one scan of the buffer and one edit —
 /// which is fine for a file the search bar was already scanning per keystroke.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferReplaceNext(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferReplaceNext(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2772,7 +2772,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferReplaceNex
 /// undo step however many there were. The same three longs and the same null
 /// as `bufferReplaceNext`; the middle one is the count.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferReplaceAll(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferReplaceAll(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -2833,7 +2833,7 @@ fn replace_outcome_array(
 ///
 /// **Blocking**: reads and writes every file in the list. Off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectReplaceAll(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectReplaceAll(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -2873,7 +2873,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectReplaceAl
 ///
 /// Starting a search cancels whatever was already running for that project.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchStart(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectSearchStart(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -2901,7 +2901,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchSta
 /// only one thing: an id the engine has forgotten. Poll it like
 /// `projectVersion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectSearchVersion(
     _env: JNIEnv,
     _class: JClass,
     search_id: jlong,
@@ -2917,7 +2917,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchVer
 /// clones and serializes every file found since the last call, which after a
 /// 100 ms publish interval can be megabytes — call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchResults(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectSearchResults(
     env: JNIEnv,
     _class: JClass,
     search_id: jlong,
@@ -2934,7 +2934,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchRes
 
 /// Stop a search and forget it. False if the engine no longer knows the id.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchCancel(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_projectSearchCancel(
     _env: JNIEnv,
     _class: JClass,
     search_id: jlong,
@@ -2947,7 +2947,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_projectSearchCan
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferText(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferText(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3000,7 +3000,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferText(
 /// open before the userland arrived — `apt install clangd` in the terminal
 /// while the editor is running. It never waits for a server.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspVersion(
     _env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3017,7 +3017,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspVersion(
 /// Versioned by `lspVersion`. Never blocks, never null, `[]` when there is
 /// nothing running.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspServers(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspServers(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3042,7 +3042,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspServers(
 /// analysis (rust-analyzer's `cargo check`) is still right about it. Only an
 /// empty publish from the server, or `closeProject`, clears them.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspDiagnostics(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspDiagnostics(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3066,7 +3066,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspDiagnostics(
 /// and the panel is actually showing. The status bar keeps to
 /// `lspDiagnostics`. Never blocks, never null.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspDiagnosticRows(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspDiagnosticRows(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3087,7 +3087,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspDiagnosticRow
 /// its own typing. `bufferDiagnostics().stale` is what says the rows have
 /// drifted.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferDiagnosticsVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferDiagnosticsVersion(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3111,7 +3111,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferDiagnostic
 /// Reads a cache: never blocks, never null, empty for a buffer with no file, no
 /// server, or nothing wrong with it.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferDiagnostics(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferDiagnostics(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3139,7 +3139,7 @@ fn caret(row: jlong, col_utf16: jlong) -> (u32, u32) {
 /// Cancels whatever completion request was already in flight, including at the
 /// server, so a popup may call this on every keystroke.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCompletion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestCompletion(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3152,7 +3152,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestComple
 
 /// Hover documentation at a caret. Same contract as `lspRequestCompletion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestHover(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestHover(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3166,7 +3166,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestHover(
 /// Where the symbol under the caret is defined. Same contract as
 /// `lspRequestCompletion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestDefinition(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestDefinition(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3183,7 +3183,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestDefini
 /// definition's targets, each with the trimmed text of its line when it could
 /// be read.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestReferences(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestReferences(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3203,7 +3203,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestRefere
 /// `lspRequestCodeActionApply` — so keep this request alive (do not cancel
 /// it) until the pick is made.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCodeActions(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestCodeActions(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3221,7 +3221,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCodeAc
 /// `{error}` when the server offered no edit — and the edit itself waits for
 /// `lspApplyPendingEdit`. A stale list id or bad index settles `unavailable`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCodeActionApply(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestCodeActionApply(
     _env: JNIEnv,
     _class: JClass,
     request_id: jlong,
@@ -3235,7 +3235,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCodeAc
 /// `done` with `{files, edits, resource_ops}` — or `{error}` when there is
 /// nothing to rename — and **changes nothing** until `lspApplyPendingEdit`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestRename(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestRename(
     mut env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3253,7 +3253,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestRename
 /// `{files, edits, resource_ops}` — zero edits is a well-formatted file —
 /// and applies nothing until `lspApplyPendingEdit`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestFormatting(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestFormatting(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3265,7 +3265,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestFormat
 /// `editor::GoToTypeDefinition`. `lspRequestDefinition`'s contract and
 /// payload shape.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestTypeDefinition(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestTypeDefinition(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3279,7 +3279,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestTypeDe
 /// The implementations of the symbol under the caret — Zed's
 /// `editor::GoToImplementation`. `lspRequestDefinition`'s contract and shape.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestImplementation(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestImplementation(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3293,7 +3293,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestImplem
 /// The declaration of the symbol under the caret — Zed's
 /// `editor::GoToDeclaration`. `lspRequestDefinition`'s contract and shape.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestDeclaration(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestDeclaration(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3312,7 +3312,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestDeclar
 /// not the buffer's current one, its columns describe text that moved.
 /// Supersedes the previous hint request, so a scroll may ask freely.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestInlayHints(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestInlayHints(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3330,7 +3330,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestInlayH
 /// active_parameter}], active_signature}` with `start`/`end` UTF-16 offsets
 /// into the label. An empty `signatures` list is "not in a call".
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestSignatureHelp(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestSignatureHelp(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3346,7 +3346,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestSignat
 /// `unavailable` at once for a server that does not fold — use the syntax
 /// tree then. Same polling contract as `lspRequestCompletion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestFoldingRanges(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestFoldingRanges(
     _env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3361,7 +3361,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestFoldin
 /// (an import to add) wait for `lspApplyPendingEdit`, to be landed *after*
 /// the completion itself is inserted. The list request must still be alive.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCompletionResolve(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestCompletionResolve(
     _env: JNIEnv,
     _class: JClass,
     request_id: jlong,
@@ -3377,7 +3377,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestComple
 /// server}]}`, `path` project-relative where it can be. `unavailable` when
 /// no server is running. Supersedes the previous query.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestWorkspaceSymbols(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestWorkspaceSymbols(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3393,7 +3393,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestWorksp
 /// is empty for a buffer with no running server — keep the defaults then.
 /// Reads a cache; never blocks.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspBufferTriggers(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspBufferTriggers(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -3410,7 +3410,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspBufferTrigger
 /// `editor::RestartLanguageServer`. False when there is no such server.
 /// Never blocks; watch `lspVersion` and `lspServers` for it coming back.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRestartServer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRestartServer(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3429,7 +3429,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRestartServer
 /// error "stopped" until `lspRestartServer` or the project closes; typing in
 /// its files does not wake it. False when there is no such server.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspStopServer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspStopServer(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3447,7 +3447,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspStopServer(
 /// without the lines: poll this, read the lines when it moves. Zero for a
 /// server that never started. Never blocks.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspServerLogsVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspServerLogsVersion(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3462,7 +3462,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspServerLogsVer
 /// notes — as `{version, lines}`. `version` moves per line; poll it and read
 /// only when it does. Empty for a server that never started. Never blocks.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspServerLogs(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspServerLogs(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3489,7 +3489,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspServerLogs(
 /// the UI. The edit is taken: a second call reports "nothing to apply".
 /// Blocking, like `saveBuffer`; call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspApplyPendingEdit(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspApplyPendingEdit(
     env: JNIEnv,
     _class: JClass,
     request_id: jlong,
@@ -3506,7 +3506,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspApplyPendingE
 /// settled, 0 for an id the engine has forgotten (superseded, cancelled, or its
 /// buffer closed). Poll it like `projectSearchVersion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestVersion(
     _env: JNIEnv,
     _class: JClass,
     request_id: jlong,
@@ -3563,7 +3563,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestVersio
 /// every other field of that answer is a placeholder, `kind` included — the
 /// caller is the one that knows what it asked for.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestResult(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestResult(
     env: JNIEnv,
     _class: JClass,
     request_id: jlong,
@@ -3580,7 +3580,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestResult
 /// and how the server is told to stop working on an answer nobody will read.
 /// False if the id was already gone.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCancel(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestCancel(
     _env: JNIEnv,
     _class: JClass,
     request_id: jlong,
@@ -3631,7 +3631,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_lspRequestCancel
 ///
 /// **Blocking** — it spawns a process. Call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpStartSession(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpStartSession(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3651,7 +3651,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpStartSession(
 /// conversation does. 0 means one thing only — an id the engine has forgotten.
 /// Poll it exactly like `projectSearchVersion`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSessionVersion(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3663,7 +3663,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionVersio
 /// declaration for the shape. `"null"` for a forgotten id. Reads a cache;
 /// never blocks.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionState(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSessionState(
     env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3679,7 +3679,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionState(
 /// there are now — when it is smaller than what the caller holds, a refusal
 /// has removed some and the caller re-reads from 0.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpEntriesSince(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpEntriesSince(
     env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3697,7 +3697,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpEntriesSince(
 /// shrunk, since the engine has no image codec. `[]` for a prompt with no
 /// picture in it.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPrompt(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpPrompt(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3720,7 +3720,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPrompt(
 /// `value_json` is `true`/`false` for a boolean option or a JSON string for
 /// a select's value id. False for a forgotten id or a value that is neither.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSetConfigOption(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSetConfigOption(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3738,7 +3738,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSetConfigOpti
 
 /// Stop the running turn. False for a forgotten id.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCancel(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpCancel(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3759,7 +3759,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCancel(
 /// as against which button was pressed. Malformed JSON is dropped and the
 /// choice still travels.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondPermission(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpRespondPermission(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3780,7 +3780,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondPermis
 /// Switch the session's mode. The change lands when the agent confirms it, so
 /// watch the counter rather than assuming. False when the session has no modes.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSetMode(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSetMode(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3797,7 +3797,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSetMode(
 /// Run one of the agent's advertised auth methods, then retry the sessions
 /// that were waiting on it. False when there is no agent to authenticate with.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAuthenticate(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpAuthenticate(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3814,7 +3814,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAuthenticate(
 /// Close a session and forget it. Closing the last one stops the agent, the
 /// careful way proot needs. False if the id was already gone.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCloseSession(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpCloseSession(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3834,7 +3834,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCloseSession(
 /// them through `reloadBuffer` — undoably, and with highlighting and the
 /// language server kept in step. Pass the `total` you were last given.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpWrittenFiles(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpWrittenFiles(
     env: JNIEnv,
     _class: JClass,
     since: jlong,
@@ -3847,7 +3847,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpWrittenFiles(
 /// when it can only continue. `session_id` comes from `acpSessionList`.
 /// Errors exactly as `acpStartSession` does.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpResumeSession(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpResumeSession(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -3869,7 +3869,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpResumeSession
 /// has (`agent.capabilities.list` in `acpSessionState` says). Pass `refresh`
 /// when the user asked for the list; `false` while polling.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionList(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSessionList(
     env: JNIEnv,
     _class: JClass,
     refresh: jboolean,
@@ -3883,7 +3883,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionList(
 /// well as the answer landing. 0 means no agent is running, and a replaced
 /// agent never repeats a value already seen.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionListVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSessionListVersion(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
@@ -3893,7 +3893,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSessionListVe
 /// Forget one of the agent's past conversations — `session/delete`. False
 /// when the agent has no such method or there is no agent.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpDeleteSession(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpDeleteSession(
     mut env: JNIEnv,
     _class: JClass,
     session_id: JString,
@@ -3909,7 +3909,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpDeleteSession
 /// Sign out of whatever `acpAuthenticate` signed into — `logout`. False when
 /// the agent has no such method or there is no agent.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpLogout(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpLogout(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
@@ -3924,7 +3924,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpLogout(
 /// deliberate version of a follow-up. `acpPrompt` queues instead, which is
 /// what a follow-up typed mid-turn should do.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPromptImmediately(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpPromptImmediately(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3944,7 +3944,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPromptImmedia
 
 /// Drop one queued prompt, by the `id` its row carries in `queue`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRemoveQueuedPrompt(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpRemoveQueuedPrompt(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -3963,7 +3963,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRemoveQueuedP
 /// included. 0 means no agent is running, and a replaced agent never repeats
 /// a value already seen.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpElicitationsVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpElicitationsVersion(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
@@ -3975,7 +3975,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpElicitationsV
 /// `acpElicitationsVersion` moves: one of these can be raised before any
 /// session exists, and an unanswered one blocks the agent.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPendingElicitations(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpPendingElicitations(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -3990,7 +3990,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPendingElicit
 /// only needed for one raised before any session exists. 0 means no agent is
 /// running, and a replaced agent never repeats a value already seen.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpQuestionsVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpQuestionsVersion(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
@@ -4001,7 +4001,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpQuestionsVers
 /// form in one request — as `[{"id","session","payload"}]` with the payload
 /// exactly as the agent sent it. Read it when `acpQuestionsVersion` moves.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPendingQuestions(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpPendingQuestions(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -4014,7 +4014,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpPendingQuesti
 /// question that is gone, and for malformed JSON, in which case nothing is
 /// sent at all.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondQuestion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpRespondQuestion(
     mut env: JNIEnv,
     _class: JClass,
     question_id: JString,
@@ -4034,7 +4034,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondQuesti
 /// this is how a login progresses on screen, and the phone must never poll
 /// the backend itself. Read it when `acpAccountVersion` moves.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAccountStatus(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpAccountStatus(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -4043,7 +4043,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAccountStatus
 
 /// Version counter for `acpAccountStatus`. 0 means no agent is running.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAccountVersion(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpAccountVersion(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
@@ -4063,7 +4063,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAccountVersio
 /// CLI rather than a failure — say "update Spettro" — and code 0 means the
 /// call never reached the wire.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCallExtension(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpCallExtension(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -4085,7 +4085,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpCallExtension
 /// at once, which the protocol says nothing about. Same `mentionsJson` and
 /// `imagesJson` as `acpPrompt`.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSteer(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpSteer(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4106,7 +4106,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpSteer(
 /// Put away the notice saying why the last mode or config change did not
 /// take. False for a session the engine has forgotten.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpClearNotice(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpClearNotice(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4125,7 +4125,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpClearNotice(
 /// a switch comes back as a bool and a number field as a number. False for a
 /// question that is already gone.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondElicitation(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpRespondElicitation(
     mut env: JNIEnv,
     _class: JClass,
     elicitation_id: JString,
@@ -4146,7 +4146,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRespondElicit
 /// megabyte-capable buffer cheap. `{"revision": 0}` means the engine no
 /// longer has it — the agent released it, or its session closed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpTerminalOutput(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpTerminalOutput(
     mut env: JNIEnv,
     _class: JClass,
     terminal_id: JString,
@@ -4165,7 +4165,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpTerminalOutpu
 /// checkpoint. Only edits the engine saw — `fs/write_text_file` and
 /// completed tool-call diffs — are checkpointed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRestoreCheckpoint(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpRestoreCheckpoint(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4185,7 +4185,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRestoreCheckp
 /// `path` project-relative. `"null"` for a forgotten session. It reads the
 /// files, so call it when `acpSessionVersion` moves, not per frame.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpEditedFiles(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpEditedFiles(
     env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4197,7 +4197,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpEditedFiles(
 /// project-relative paths `acpEditedFiles` reports; empty means every file).
 /// They leave the review; their checkpoints stay. False when nothing changed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpKeepEdits(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpKeepEdits(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4215,7 +4215,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpKeepEdits(
 /// they held before the agent's first touch — Zed's Reject. False when there
 /// was nothing to reject.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRejectEdits(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpRejectEdits(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4234,7 +4234,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpRejectEdits(
 /// `agent::AllowOnce` family of chords. False when nothing is waiting or
 /// the prompt offers no option of that kind.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAnswerWaiting(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_acpAnswerWaiting(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -4262,7 +4262,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_acpAnswerWaiting
 /// Empty array with no project. **Blocking**: reads the two `tasks.json`
 /// files. Call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_tasksList(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_tasksList(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -4288,7 +4288,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_tasksList(
 /// null when it names a variable the context lacks. **Blocking**, as
 /// `tasksList` is.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_taskResolve(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_taskResolve(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -4325,7 +4325,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_taskResolve(
 /// (Zed's `toolchain::Select`). **Blocking**: stats the project and runs a
 /// few short programs in the userland.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_toolchains(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_toolchains(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -4344,7 +4344,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_toolchains(
 /// The toolchains in force for this project, one per language, in the same
 /// shape — what the status bar shows. Never blocks on the userland.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_activeToolchains(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_activeToolchains(
     env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -4362,7 +4362,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_activeToolchains
 /// is what makes the new interpreter take effect. **Blocking**: writes a
 /// small file.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_setToolchain(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setToolchain(
     mut env: JNIEnv,
     _class: JClass,
     project_id: jlong,
@@ -4405,7 +4405,7 @@ fn task_context(env: &mut JNIEnv, context_json: &JString) -> engine::TaskEditorC
 /// null for an unknown buffer. Reads the last parsed tree, so it is
 /// versioned by `bufferHighlightVersion` like the outline.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferRunnables(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferRunnables(
     env: JNIEnv,
     _class: JClass,
     buffer_id: jlong,
@@ -4439,7 +4439,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_bufferRunnables(
 ///
 /// **Blocking** (it opens every file it excerpts): call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferCreate(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferCreate(
     mut env: JNIEnv,
     _class: JClass,
     title: JString,
@@ -4465,7 +4465,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferCreat
 /// The mirror buffer, the headers and the dirty count, as JSON. Null for an id
 /// the engine no longer knows.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferInfo(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferInfo(
     env: JNIEnv,
     _class: JClass,
     multibuffer_id: jlong,
@@ -4485,7 +4485,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferInfo(
 /// Which file and row a display row of the mirror shows, as `{"path",
 /// "absPath", "row", "header"}`. Null for a row outside every excerpt.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferLocate(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferLocate(
     env: JNIEnv,
     _class: JClass,
     multibuffer_id: jlong,
@@ -4508,7 +4508,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferLocat
 /// edited, or it was reloaded from disk. Returns the mirror's content version,
 /// which the pane polls, or -1 for an unknown id.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferSync(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferSync(
     _env: JNIEnv,
     _class: JClass,
     multibuffer_id: jlong,
@@ -4524,7 +4524,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferSync(
 ///
 /// **Blocking**: call it off the main thread.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferSaveAll(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferSaveAll(
     env: JNIEnv,
     _class: JClass,
     multibuffer_id: jlong,
@@ -4545,7 +4545,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferSaveA
 /// which the engine cannot know: a file this multibuffer opened on demand and
 /// nobody else holds is released with it.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferClose<'local>(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferClose<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
     multibuffer_id: jlong,
@@ -4579,7 +4579,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_multibufferClose
 /// Write `document_json` as `root`'s session. Returns false when the JSON is
 /// not a session document, or when the write failed.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_sessionSave(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_sessionSave(
     mut env: JNIEnv,
     _class: JClass,
     root: JString,
@@ -4599,7 +4599,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_sessionSave(
 /// empty panes collapse. Null when there is none, or when the file was
 /// corrupt — in which case it has been discarded.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_sessionLoad(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_sessionLoad(
     mut env: JNIEnv,
     _class: JClass,
     root: JString,
@@ -4613,7 +4613,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_sessionLoad(
 
 /// Forget a project's session — what deleting the project does.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_sessionClear(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_sessionClear(
     mut env: JNIEnv,
     _class: JClass,
     root: JString,
@@ -4625,7 +4625,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_sessionClear(
 /// Note that `root` has just been opened. Returns the recent list as it now
 /// stands: a JSON array of `{path, name, last_opened}`, newest first.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_noteProjectOpened(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_noteProjectOpened(
     mut env: JNIEnv,
     _class: JClass,
     root: JString,
@@ -4638,7 +4638,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_noteProjectOpene
 /// Every project opened before, newest first, minus the ones no longer on
 /// disk. Never null.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_recentProjects(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_recentProjects(
     env: JNIEnv,
     _class: JClass,
 ) -> jstring {
@@ -4649,7 +4649,7 @@ pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_recentProjects(
 /// Take `root` off the recent list — Zed's "Remove from Recent Projects".
 /// The project stays on disk; its session goes with it. Returns the new list.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_seeker_code_core_CoreBridge_removeRecentProject(
+pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_removeRecentProject(
     mut env: JNIEnv,
     _class: JClass,
     root: JString,
