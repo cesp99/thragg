@@ -196,40 +196,44 @@ product's own identity. On a phone that ships this app preinstalled it read as
 Google endorsement. It was also a plain product defect — the flagship IDE with
 a placeholder for a face.
 
-**The mark now is a prompt chevron and a block cursor**, bone and amber on deep
-ink slate: `>` and the cell a caret sits in. It is original work owned by Eyed,
-under the project licence, and it is built out of the two most generic glyphs
-in computing, so it carries nobody's trademark and needs nobody's permission.
-The colour is deliberate distance as much as taste — Android's green, Solana's
-violet-to-green gradient and the blues every other developer tool reaches for
-are all somewhere else on the wheel.
+**The mark now is a slab "T" whose crossbar is a horseshoe moustache**, bone
+on deep ink slate. Thragg is the app's namesake and the moustache is the one
+thing everybody remembers about him, so the glyph is the name said once. It is
+original work owned by Eyed, under the project licence: a bar, two hooked
+ends, a stem and a notch, drawn from geometry and not from any panel of the
+comic, so it depicts nobody and carries nobody's trademark. (It replaced the
+prompt-chevron-and-cursor mark that came in with the fork's own icon, which
+said "an editor" and nothing about this one.) The colour is deliberate
+distance as much as taste — Android's green, Solana's violet-to-green gradient
+and the blues every other developer tool reaches for are all somewhere else on
+the wheel.
 
 Three files, and the third is the point:
 
 | File | Layer |
 |---|---|
 | `drawable/ic_launcher_background.xml` | Flat `#1E2434`, full 108x108 bleed. |
-| `drawable/ic_launcher_foreground.xml` | The mark, two-tone, inside the 66-unit safe circle. |
+| `drawable/ic_launcher_foreground.xml` | The mark, one tone, inside the 66-unit safe circle. |
 | `drawable/ic_launcher_monochrome.xml` | A **separate drawing** for themed icons. |
 
 The monochrome layer is not the foreground referenced a second time, which is
 what the template did and what makes most themed icons look broken. A themed
-launcher flattens every tone to one, and in the colour mark the clear space
-between prompt and cursor is only half the reason they read as two shapes —
-the other half is that one is bone and one is amber. So the monochrome layer
-opens that gap (10.7 units against 8.6), draws the chevron heavier (9.2 against
-8.4) to hold up without the tonal contrast, and insets the whole mark about 5%
-because a glyph tuned to fill a coloured tile looks oversized on a bare system
-plate.
+launcher flattens every tone to one and sits the glyph on a bare system plate
+with no tile of its own, so a mark tuned to fill a coloured tile looks
+oversized there. The mark is one tone already; what the monochrome drawing
+changes is only its size, inset 5% about the centre, every coordinate the
+foreground's times 0.95 and nothing else. The same drawable is the in-app
+brand glyph on the setup and empty-state screens, tinted by the screen.
 
 `app/src/test/java/to/eyed/thragg/ui/theme/LauncherIconTest.kt` holds
 those decisions in place. It parses the shipped vectors and asserts what a
 redraw could plausibly break and no build would notice: that `<monochrome>`
 still resolves to a different drawable than `<foreground>`; that the
-monochrome gap is strictly wider than the colour one; that both layers stay
-inside the 66-unit safe circle, stay centred, still fill at least 55% of the
-visible viewport, and keep every stroke at 6 units or more (4dp at a 48dp
-render). Every one of those assertions was checked by breaking the icon on a
+monochrome outline is the colour one uniformly inset, and not a second
+drawing; that both layers stay inside the 66-unit safe circle, stay centred,
+still fill at least 55% of the visible viewport, and keep every limb — bar,
+hook and stem — at 6 units or more (4dp at a 48dp render), with the bar
+heavier than the stem so the moustache leads. Every one of those assertions was checked by breaking the icon on a
 copy and watching the right test fail — a guard that cannot fail is worse than
 no guard, because it reads like one.
 

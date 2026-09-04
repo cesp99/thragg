@@ -7,25 +7,25 @@
   second time. The template did exactly that — background, foreground *and*
   monochrome all resolved to the same two files — and it is the usual mistake,
   because the foreground is designed against a known background and the
-  monochrome layer is not:
+  monochrome layer is not.
 
-  * The colour mark has two tones. The prompt is bone, the cursor is amber, and
-    the ~8.6 units of clear space between them is enough *because the two
-    shapes are different colours*. Flatten both to one tint, as the themed
-    launcher does, and that gap is the only thing left separating a chevron
-    from a rectangle. Here it is opened to ~10.7 units.
-  * A single-tone glyph loses the contrast that made the strokes read, so the
-    chevron is drawn heavier: 9.2 units against the colour version's 8.4.
-  * Themed icons sit on a solid system plate with no tile of their own, and a
-    glyph tuned to fill a coloured tile looks oversized on one. The whole mark
-    is inset ~5% (ink spans 30.4..77.6 horizontally, 32.1..75.9 vertically,
-    still centred on (54,54), furthest point 30.3 of the 33-unit safe radius).
+  The mark is one tone already, so what changes here is only its size: themed
+  icons sit on a solid system plate with no tile of their own, and a glyph
+  tuned to fill a coloured tile looks oversized on one. The whole mark is
+  inset 5% about (54,54) — ink spans x 31.2..76.8 and y 34.05..73.95, furthest
+  on-path point 26.9 of the 33-unit safe radius. Every coordinate below is the
+  foreground path times 0.95 about the centre, and nothing else;
+  LauncherIconTest checks exactly that.
 
   The colour is `#FF000000` because the system re-tints this layer to the
   theme's foreground colour and only the alpha channel survives the trip.
   Black is what Google's own themed assets use, so a launcher that skipped the
   tint would still show a legible dark glyph on a light plate rather than
   nothing at all.
+
+  This drawable is also the in-app brand glyph (the setup and empty-state
+  screens tint it themselves), which is one more reason it is a single path
+  with no colour of its own.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -33,13 +33,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M35,36.7 L47.9,54 L35,71.3"
-        android:strokeColor="#FF000000"
-        android:strokeWidth="9.2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000" />
-    <path
-        android:pathData="M66.4,43.8 L74.4,43.8 A3.2,3.2 0 0 1 77.6,47 L77.6,61 A3.2,3.2 0 0 1 74.4,64.2 L66.4,64.2 A3.2,3.2 0 0 1 63.2,61 L63.2,47 A3.2,3.2 0 0 1 66.4,43.8 Z"
+        android:pathData="M54.000,37.470 L58.560,34.050 L71.100,34.050 A5.700,5.700 0 0 1 76.800,39.750 L76.800,50.200 A3.800,3.800 0 0 1 73.000,54.000 A3.800,3.800 0 0 1 69.200,50.200 L69.200,43.550 L58.085,43.550 L58.085,69.865 A4.085,4.085 0 0 1 54.000,73.950 A4.085,4.085 0 0 1 49.915,69.865 L49.915,43.550 L38.800,43.550 L38.800,50.200 A3.800,3.800 0 0 1 35.000,54.000 A3.800,3.800 0 0 1 31.200,50.200 L31.200,39.750 A5.700,5.700 0 0 1 36.900,34.050 L49.440,34.050 Z"
         android:fillColor="#FF000000" />
 </vector>

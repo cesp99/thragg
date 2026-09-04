@@ -2,40 +2,35 @@
 <!--
   Launcher icon, foreground layer. Original work, Copyright (C) 2026 Eyed.
 
-  The mark: a prompt chevron and a block cursor — `>` and the cell the caret
-  sits in. It says "you can type here, on this phone" in two shapes, which is
-  the whole product, and it is drawn from the most generic glyphs in computing,
-  so it carries nobody's trademark. It replaces the Android robot head this
-  file used to hold.
+  The mark: a slab-serif "T" whose crossbar is a horseshoe moustache. Thragg
+  is the app's namesake, the moustache is the one thing everybody remembers
+  about him, and a "T" with a moustache for a crossbar is the whole name in
+  one glyph. It is drawn from geometry — a bar, two hooked ends, a stem, a
+  notch — not from any panel of the comic, so it depicts nobody and carries
+  nobody's trademark. It replaced the prompt-chevron-and-cursor mark, which
+  said "an editor" but said nothing about *this* one.
 
-  Everything else was rejected in front of a renderer rather than in the
-  abstract, at 48dp on both a light and a dark backdrop, circle- and
+  Rejected in front of a renderer, at 48dp, on light and dark backdrops,
   squircle-masked:
 
-  * `>` alone reads as a play button or a "next" affordance, not as an IDE.
-  * `>` plus a vertical bar reads as the media skip-to-end control `>|`.
-  * `>` plus an underscore is the terminal cliche, and at 48dp the underscore
-    thins to a dash that the mask crowds against the chevron.
+  * An arched moustache with a stem read as a bridge or a mushroom.
+  * The moustache alone read as any moustache, or as a magnet at 48dp.
+  * A red stem under the bone moustache read as a tongue.
 
-  The block cursor wins because it is a *cell*, taller than it is wide, which
-  is a text cursor and not a square button, and because it is the only element
-  carrying colour — an amber caret against a bone prompt. Amber is deliberate
-  distance: Android's green, Solana's violet-to-green gradient and the blues
-  every other dev tool uses are all somewhere else on the wheel.
+  So it is one tone, bone, and the crossbar is heavier than the stem so the
+  moustache leads and the "T" follows. The notch at the top centre is what
+  makes a bar a moustache: without it the same shape is a hanger.
 
   Geometry, since it is load-bearing and someone will want to re-cut it. The
   adaptive canvas is 108x108, the launcher shows the middle 72x72, and every
-  mask shape fits inside the middle 66x66 circle. Ink here spans x 31.2..76.8
-  and y 31.6..76.4 — 45.6 x 44.8, dead centred on (54,54) — and its furthest
-  point from the centre is 30.2, so it clears the 33-unit safe radius by 2.8
-  units on every mask. That is about 63% of the visible tile: full enough to
-  carry at 48dp, inset enough that the squircle does not crop the chevron's
-  round caps.
-
-  The chevron is a stroke, not a filled wedge, so its weight (8.4 units, ~5.6dp
-  at a 48dp render) is one number to tune rather than an outline to redraw, and
-  its 3:4 width-to-height ratio makes it the typographic `>` rather than the
-  equilateral arrowhead a 45-degree chevron gives you.
+  mask shape fits inside the middle 66x66 circle. Ink spans x 30..78 and
+  y 33..75 — 48 x 42, dead centred on (54,54) — and its furthest on-path point
+  from the centre is 28.3, clearing the 33-unit safe radius on every mask. The
+  bar is 10 units thick, the hooks 8 wide and 21 deep to their round ends, the
+  stem 8.6 wide with a 4.3 radius foot, the notch 9.6 wide and 3.6 deep. Every
+  curve is an axis-aligned quarter turn (the round ends are two of them), so
+  the shape is bounded exactly by its own points, which LauncherIconTest
+  relies on.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -43,13 +38,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M35.4,35.8 L49,54 L35.4,72.2"
-        android:strokeColor="#FFF4EFE3"
-        android:strokeWidth="8.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000" />
-    <path
-        android:pathData="M65.2,43.2 L73.4,43.2 A3.4,3.4 0 0 1 76.8,46.6 L76.8,61.4 A3.4,3.4 0 0 1 73.4,64.8 L65.2,64.8 A3.4,3.4 0 0 1 61.8,61.4 L61.8,46.6 A3.4,3.4 0 0 1 65.2,43.2 Z"
-        android:fillColor="#FFF2A63C" />
+        android:pathData="M54,36.6 L58.8,33 L72,33 A6,6 0 0 1 78,39 L78,50 A4,4 0 0 1 74,54 A4,4 0 0 1 70,50 L70,43 L58.3,43 L58.3,70.7 A4.3,4.3 0 0 1 54,75 A4.3,4.3 0 0 1 49.7,70.7 L49.7,43 L38,43 L38,50 A4,4 0 0 1 34,54 A4,4 0 0 1 30,50 L30,39 A6,6 0 0 1 36,33 L49.2,33 Z"
+        android:fillColor="#FFF4EFE3" />
 </vector>

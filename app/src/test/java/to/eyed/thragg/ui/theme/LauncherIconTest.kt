@@ -29,10 +29,10 @@ import kotlin.math.min
  *
  *  * ink inside the 66-unit safe circle, because a launcher mask is a shape
  *    this app does not choose and OEMs ship several;
- *  * ink big enough and strokes heavy enough to survive a 48dp render;
- *  * the monochrome layer being its own drawing, with the extra clear space a
- *    single-tone glyph needs — the template pointed `<monochrome>` at the
- *    foreground, which is the usual way themed icons end up broken.
+ *  * ink big enough and every limb heavy enough to survive a 48dp render;
+ *  * the monochrome layer being its own drawing — the same mark, inset for a
+ *    bare system plate — and not `<monochrome>` pointed at the foreground,
+ *    which is the usual way themed icons end up broken.
  *
  * The files are read off the source tree rather than the classpath: Gradle
  * runs a unit test with the module directory as its working directory, and
@@ -122,15 +122,28 @@ class LauncherIconTest {
     }
 
     @Test
-    fun `strokes are heavy enough to survive a 48dp render`() {
+    fun `every limb is heavy enough to survive a 48dp render`() {
         // One canvas unit is 48/72 dp once the launcher has cropped to the
-        // viewport, so a 6-unit stroke is 4dp — about the thinnest that still
-        // reads as a deliberate line rather than a hairline at mdpi.
+        // viewport, so a 6-unit limb is 4dp — about the thinnest that still
+        // reads as a deliberate shape rather than a hairline at mdpi.
+        //
+        // The mark is one filled outline, so there is no stroke width to read;
+        // the limbs are measured off the outline's own points. The bar is the
+        // ink above the hooks, a hook is the ink beside the stem's top, and the
+        // stem is everything below the hooks' round ends.
         for (layer in DRAWN) {
-            for (path in paths(layer).filter { it.halfStroke > 0 }) {
-                val width = path.halfStroke * 2
-                assertTrue("$layer has a $width-unit stroke", width >= 6.0)
+            val points = paths(layer).single().points
+            val top = points.minOf { it.second }
+            val bar = points.filter { it.second < 48 }.maxOf { it.second } - top
+            val hook = points.filter { it.first > centre && it.second in 48.0..60.0 }
+                .let { hook -> hook.maxOf { it.first } - hook.minOf { it.first } }
+            val stem = points.filter { it.second > 60 }
+                .let { stem -> stem.maxOf { it.first } - stem.minOf { it.first } }
+            for ((name, width) in listOf("bar" to bar, "hook" to hook, "stem" to stem)) {
+                assertTrue("$layer's $name is only $width units", width >= 6.0)
             }
+            // And the moustache leads: the bar outweighs the stem it sits on.
+            assertTrue("$layer's bar ($bar) is not heavier than its stem ($stem)", bar > stem)
         }
     }
 
@@ -146,28 +159,30 @@ class LauncherIconTest {
     }
 
     @Test
-    fun `the monochrome layer opens the clear space the colour mark gets for free`() {
-        // In the colour mark the prompt is bone and the cursor is amber, and
-        // that difference is half of what separates them. Flatten both to one
-        // tint and the gap is all that is left, so it has to grow.
-        val colour = clearSpace("ic_launcher_foreground")
-        val mono = clearSpace("ic_launcher_monochrome")
-        assertTrue(
-            "the monochrome gap ($mono) is not wider than the colour gap ($colour)",
-            mono > colour,
-        )
+    fun `the monochrome layer is the colour mark inset for a bare plate`() {
+        // A themed launcher drops the tile and sits the glyph on a system
+        // plate, where a mark tuned to fill a coloured tile looks oversized.
+        // So the monochrome drawing is the same outline scaled about the
+        // centre — and only that, so the two cannot drift into two marks.
+        val colour = paths("ic_launcher_foreground").single()
+        val mono = paths("ic_launcher_monochrome").single()
+        assertEquals("the two layers are not the same outline", colour.points.size, mono.points.size)
+        val factors = colour.points.zip(mono.points).flatMap { (c, m) ->
+            listOfNotNull(
+                ratio(m.first - centre, c.first - centre),
+                ratio(m.second - centre, c.second - centre),
+            )
+        }
+        val scale = factors.average()
+        for (factor in factors) {
+            assertEquals("the monochrome layer is not a uniform inset", scale, factor, 0.01)
+        }
+        assertTrue("the monochrome layer ($scale) is not inset", scale < 1.0)
+        assertTrue("the monochrome layer ($scale) is inset too far to read", scale >= 0.9)
     }
 
-    /** Horizontal clear space between the stroked prompt and the filled cursor. */
-    private fun clearSpace(layer: String): Double {
-        val paths = paths(layer)
-        assertEquals("$layer is a prompt and a cursor: two paths", 2, paths.size)
-        val prompt = paths[0]
-        val cursor = paths[1]
-        assertTrue("$layer's first path should be the stroked prompt", prompt.halfStroke > 0)
-        assertTrue("$layer's second path should be the filled cursor", cursor.halfStroke == 0.0)
-        return cursor.box.minX - prompt.box.maxX
-    }
+    /** `a / b`, or null where the point sits on the centre line and says nothing. */
+    private fun ratio(a: Double, b: Double): Double? = if (abs(b) < 0.5) null else a / b
 
     // ------------------------------------------------------------- hygiene
 
