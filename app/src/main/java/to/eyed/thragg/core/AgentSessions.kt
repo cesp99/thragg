@@ -52,6 +52,19 @@ class AgentThread internal constructor(
      * so a screen that waited for those would wait for ever.
      */
     val expectsReplay: Boolean = false,
+    /**
+     * A thread opened with **no project**, for setup alone — the lobby.
+     *
+     * Spettro cannot sign in, take a key or probe a local model until its
+     * process is up, and the process is bound to a directory at spawn. So a
+     * fresh install with no project yet — every install, on a new phone —
+     * used to stop at "No project is open" with the sign-in card
+     * unreachable. This thread stands in for the project until there is one:
+     * the panel never lets it be prompted, lists or @-mentions it, and the
+     * first real project closes it the way a project switch closes any other
+     * project's threads. See [AgentSessions.openLobby].
+     */
+    val isLobby: Boolean = false,
 ) {
     /**
      * The agent's own name for the conversation, once it sends one
@@ -121,6 +134,12 @@ class AgentThread internal constructor(
  * the guest binds the project directory at spawn — so opening a thread in a
  * new project closes every thread of the old one, exactly as the engine
  * replaces the agent underneath.
+ *
+ * With **no project at all** there is still one thread worth having: the
+ * lobby ([openLobby]), an agent started in a directory of the app's own so
+ * that the setup gate can be asked and the sign-in can go through before the
+ * first project exists. It is closed by the first project's thread like any
+ * other project's thread would be.
  */
 object AgentSessions {
 
@@ -385,6 +404,7 @@ object AgentSessions {
         rootPath: String,
         resume: String?,
         replay: Boolean = false,
+        lobby: Boolean = false,
     ) {
         val agent = agent ?: return
         // A start already in flight is **superseded, never ignored**. It used
@@ -454,6 +474,7 @@ object AgentSessions {
                 ordinal = nextOrdinal++,
                 isReopened = resume != null,
                 expectsReplay = replay,
+                isLobby = lobby,
             )
             threads.add(thread)
             active = thread
@@ -610,6 +631,7 @@ object AgentSessions {
         for (thread in doomed) {
             scope.launch { runCatching { CoreBridge.acpCloseSession(thread.sessionId) } }
         }
+        releaseLobbyIfGone()
     }
 
     /** End every thread and the agent process behind them. */
@@ -625,7 +647,78 @@ object AgentSessions {
         for (thread in doomed) {
             scope.launch { runCatching { CoreBridge.acpCloseSession(thread.sessionId) } }
         }
+        releaseLobbyIfGone()
     }
+
+    // --- the lobby: an agent with no project ----------------------------------
+
+    /**
+     * The engine project the lobby thread runs in, or -1. One per process,
+     * opened on the first [openLobby] and closed once no thread uses it.
+     */
+    @Volatile
+    private var lobbyProject = -1L
+
+    /** Whether the thread on screen is the lobby — nothing to prompt. */
+    val inLobby: Boolean get() = active?.isLobby == true
+
+    /**
+     * Start the agent with no project open, so it can be set up.
+     *
+     * The directory it runs in is the app's own, beside the projects folder
+     * and not inside it — the picker lists every directory in there, and a
+     * lobby that showed up as a project would be a project. The engine binds
+     * the working directory at spawn (guest.rs, `workdir`), so being outside
+     * the projects folder costs nothing.
+     *
+     * A no-op with a thread already open or a start in flight: a project
+     * whose panel was closed keeps its thread, and that thread has already
+     * answered the setup gate. Suspends for the engine's project open, which
+     * scans a directory that is empty or nearly so.
+     */
+    suspend fun openLobby(context: Context) {
+        if (agent == null || active != null || isStarting) return
+        val dir = lobbyDirectory(context)
+        val id = withContext(Dispatchers.IO) {
+            dir.mkdirs()
+            val existing = lobbyProject
+            if (existing >= 0) existing else CoreBridge.openProject(dir.absolutePath)
+        }
+        if (id < 0) {
+            Log.w(TAG, "the lobby directory could not be opened as a project")
+            return
+        }
+        lobbyProject = id
+        // Re-checked after the suspension: a project may have opened its own
+        // thread meanwhile, and a lobby started over it would close it.
+        if (agent == null || active != null || isStarting) return
+        startThread(id, LOBBY_NAME, dir.absolutePath, null, lobby = true)
+    }
+
+    /** Where the lobby's agent runs. Public for the tests and the docs. */
+    fun lobbyDirectory(context: Context): java.io.File =
+        java.io.File(context.filesDir, LOBBY_DIR)
+
+    /**
+     * Close the lobby's engine project once no thread is in it — after a
+     * project switch closed the thread, or after [close] ended everything.
+     */
+    private fun releaseLobbyIfGone() {
+        val id = lobbyProject
+        if (id < 0 || threads.any { it.isLobby }) return
+        lobbyProject = -1L
+        scope.launch { runCatching { CoreBridge.closeProject(id) } }
+    }
+
+    /** What the lobby thread is called where a project name is expected. */
+    private const val LOBBY_NAME = "Spettro"
+
+    /**
+     * Under `filesDir`, beside `projects/` and never inside it. Spettro
+     * writes its `.spettro/` state into the directory it is started in, and
+     * this is where that goes for a session that has no project.
+     */
+    private const val LOBBY_DIR = "agent-lobby"
 
     // --- what the panel does, on a scope that outlives it --------------------
     //

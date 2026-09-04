@@ -557,9 +557,20 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     // Opening a thread is the destination's own business: with an agent chosen
     // and a project open there is nothing else the user could mean. A no-op
     // once this project has one.
+    //
+    // With no project, the *lobby*: the agent started in a directory of the
+    // app's own, so the setup gate below can be asked and answered. Without
+    // it a fresh install — no project yet, which is every new phone — stopped
+    // at "No project is open" with the sign-in card nowhere to be found
+    // (seen on the device, 2026-09-04). A no-op while any thread is open.
     LaunchedEffect(agent, project?.id) {
-        val open = project ?: return@LaunchedEffect
-        if (agent != null) AgentSessions.open(open.id, open.rootName, open.rootPath)
+        if (agent == null) return@LaunchedEffect
+        val open = project
+        if (open != null) {
+            AgentSessions.open(open.id, open.rootName, open.rootPath)
+        } else {
+            AgentSessions.openLobby(context)
+        }
     }
     // The bundled agent registers itself the first time this screen is opened
     // with nothing configured. Idempotent and cheap when there is nothing to
@@ -806,20 +817,23 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                     onAction = {},
                 )
 
-                project == null -> AgentEmpty(
-                    headline = "No project is open",
-                    body = "Open or create one, and the thread opens with it.",
-                    action = "Projects & tools",
-                    onAction = { sheet = AgentSheet.Projects },
-                )
-
                 // The setup takeover, and only for a NEEDED gate: UNKNOWN
-                // never blocks, because not knowing is not "no".
+                // never blocks, because not knowing is not "no". Ahead of the
+                // project check on purpose: the lobby answers the gate with
+                // no project open, and setting up is the one thing worth
+                // doing before there is one.
                 SpettroSetup.isBlocking -> SpettroSetupScreen(
                     state = state,
                     onSkip = { SpettroSetup.skip() },
                     onDone = { scope.launch { SpettroSetup.refreshOnHandshake() } },
                     quotedError = session.error,
+                )
+
+                project == null -> AgentEmpty(
+                    headline = "No project is open",
+                    body = "Open or create one, and the thread opens with it.",
+                    action = "Projects & tools",
+                    onAction = { sheet = AgentSheet.Projects },
                 )
 
                 agent == null -> AgentEmpty(
@@ -979,7 +993,10 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 state = session,
                 thread = thread,
                 agentName = agentName,
-                enabled = session.canPrompt && sessionId != null,
+                // The lobby has a session and could be prompted; it is not,
+                // because a conversation with no project would edit files
+                // nobody can see.
+                enabled = session.canPrompt && sessionId != null && !AgentSessions.inLobby,
                 focus = composerFocus,
                 onOpenMentions = { sheet = AgentSheet.Mentions },
                 onStop = { AgentSessions.cancelTurn() },
@@ -992,12 +1009,16 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                 // two taps behind a glyph. `ConfigChip` returns Unit when
                 // there is nothing on the wire yet, so a session that has not
                 // reported its selectors leaves the slot empty rather than
-                // drawing a pill with nothing in it.
+                // drawing a pill with nothing in it. Empty in the lobby too:
+                // the box beside it says the agent is not running, and a
+                // model chip next to that sentence contradicts it.
                 config = {
-                    ConfigChip(
-                        toolbar = session.toolbar,
-                        onOpen = { sheet = AgentSheet.Config },
-                    )
+                    if (!AgentSessions.inLobby) {
+                        ConfigChip(
+                            toolbar = session.toolbar,
+                            onOpen = { sheet = AgentSheet.Config },
+                        )
+                    }
                 },
             )
         }

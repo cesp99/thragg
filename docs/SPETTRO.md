@@ -1085,6 +1085,8 @@ Spettro requires explicit trust confirmation the first time it runs in a folder 
 
 Spawn `/opt/thragg/agents/spettro/spettro --acp --cwd <project root>`, run `initialize` with the extension mirror (W-01), then IMMEDIATELY — before creating a session, and off the UI thread — call `_spettro/providers/list` with `{}` via `acpCallExtension`.
 
+**With no project open** — every fresh install, before the first project exists — the Agent tab starts the agent anyway, in the *lobby*: a directory of the app's own (`filesDir/agent-lobby`, beside `projects/` and deliberately not inside it, because the picker lists everything in there). `AgentSessions.openLobby` opens it as an engine project and starts a thread flagged `isLobby`; the engine binds the working directory at spawn, so being outside the projects folder costs nothing. The lobby exists only so this probe and the sign-in below can happen: the panel never lets it be prompted, lists it or @-mentions it, and the first real project closes it exactly as a project switch closes any other project's threads. Before it existed, a new phone showed "No project is open" with the sign-in card unreachable (2026-09-04).
+
 Compute the gate:
 ```
 NEEDED   when ok:true AND providers.none{connected} AND local.isEmpty() AND subscription?.connected != true
