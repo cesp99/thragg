@@ -58,8 +58,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Ubuntu's `imagemagick` is still version 6, with no `magick` binary;
+      # the scripts know and call `convert`/`montage`/`compare` there. The
+      # font is for the labels under the contact-sheet tiles.
       - name: Install the rasteriser
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends librsvg2-bin imagemagick
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends librsvg2-bin imagemagick fonts-dejavu-core
 
       - name: The Lucide import reproduces exactly
         # No --fetch: this runs from the vendored snapshot, which the script

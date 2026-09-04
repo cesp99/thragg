@@ -67,9 +67,15 @@ jobs:
       # It also reads each crate's LICENSE file out of the unpacked registry
       # source to find the copyright holder, which is why this is `cargo fetch`
       # and not a lock-file read.
+      #
+      # The whole lock file, not `--target aarch64-linux-android`. The
+      # generator asks cargo for the Android closure, but `cargo tree` and
+      # `cargo metadata` read every manifest in Cargo.lock to work out what
+      # that closure is, and offline they fail on the first desktop-only crate
+      # a target-filtered fetch left out (ashpd was the one that did it).
       - name: Fetch the crate sources
         working-directory: core
-        run: cargo fetch --target aarch64-linux-android
+        run: cargo fetch
 
       - name: The Rust inventory is what the tree says it is
         run: python3 tools/gen-licenses.py --check

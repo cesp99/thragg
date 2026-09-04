@@ -66,12 +66,45 @@ SQUIRCLE_N = 4.0
 
 
 def load_converter():
-    """`to_svg` out of render-icon-sheet.py, whose filename is not importable."""
+    """`to_svg` out of render-icon-sheet.py, whose filename is not importable.
+
+    `im`, the ImageMagick 6/7 command-line shim, comes along with it so this
+    script runs on the CI runner's ImageMagick 6 as well as a desktop's 7.
+    """
+    global im
     path = REPO / "tools/render-icon-sheet.py"
     spec = importlib.util.spec_from_file_location("render_icon_sheet", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    im = module.im
     return module.to_svg
+
+
+# Bound by load_converter(); see there.
+im = None
+
+# `--check` compares pixels, not bytes. The bytes of a lossless WebP depend on
+# the libwebp that encoded it, and the pixels a hair on which librsvg and which
+# ImageMagick resampled them — so a byte comparison only ever passes on the
+# machine that last ran the generator, and the CI runner is not that machine.
+# Normalised RMSE over the decoded image: a vector edit moves this by whole
+# percentage points, a different encoder by a fraction of one.
+DRIFT_TOLERANCE = 0.01
+
+
+def drift(fresh: Path, committed: Path) -> float:
+    """Normalised root-mean-square difference between two bitmaps, 0..1."""
+    result = subprocess.run(
+        im("compare", "-metric", "RMSE", str(fresh), str(committed), "null:"),
+        capture_output=True,
+        text=True,
+    )
+    # `compare` exits 1 when the images differ at all and prints the metric on
+    # stderr as `123 (0.0019)`; the parenthesised number is the normalised one.
+    if result.returncode > 1:
+        raise SystemExit(f"compare failed on {committed.name}: {result.stderr.strip()}")
+    text = result.stderr.strip()
+    return float(text[text.rindex("(") + 1:text.rindex(")")])
 
 
 def superellipse(size: float, n: float = SQUIRCLE_N, points: int = 512) -> str:
@@ -127,8 +160,8 @@ def render(to_svg, size: int, shape: str, out: Path, fmt: str = "webp") -> None:
             rsvg(svg, full, tmp / f"{layer}.png")
         rsvg(mask_svg(size * scale, shape), size * scale, tmp / "mask.png")
         subprocess.run(
-            [
-                "magick", str(tmp / "background.png"), str(tmp / "foreground.png"),
+            im(
+                str(tmp / "background.png"), str(tmp / "foreground.png"),
                 "-composite",
                 "-gravity", "center",
                 "-crop", f"{size * scale}x{size * scale}+0+0", "+repage",
@@ -137,7 +170,7 @@ def render(to_svg, size: int, shape: str, out: Path, fmt: str = "webp") -> None:
                 "-filter", "Lanczos", "-resize", f"{size}x{size}",
                 *(["-define", "webp:lossless=true"] if fmt == "webp" else []),
                 str(out),
-            ],
+            ),
             check=True,
         )
 
@@ -167,8 +200,10 @@ def main() -> int:
             with tempfile.TemporaryDirectory() as tmp:
                 fresh = Path(tmp) / out.name
                 render(to_svg, size, shape, fresh)
-                if not out.exists() or fresh.read_bytes() != out.read_bytes():
-                    stale.append(out.relative_to(REPO))
+                if not out.exists():
+                    stale.append(f"{out.relative_to(REPO)} (missing)")
+                elif (d := drift(fresh, out)) > DRIFT_TOLERANCE:
+                    stale.append(f"{out.relative_to(REPO)} (RMSE {d:.4f})")
         else:
             render(to_svg, size, shape, out)
             print(f"  {out.relative_to(REPO)}  {size}x{size} {shape}")
@@ -216,13 +251,13 @@ def review_sheet(to_svg, out: Path) -> None:
                 rsvg(svg, full, tmp / "m.png")
                 rsvg(mask_svg(size * scale, "squircle"), size * scale, tmp / "mk.png")
                 subprocess.run(
-                    ["magick", "-size", f"{full}x{full}", f"xc:{plate}",
-                     "(", str(tmp / "m.png"), "-fill", tint, "-colorize", "100", ")",
-                     "-composite", "-gravity", "center",
-                     "-crop", f"{size * scale}x{size * scale}+0+0", "+repage",
-                     str(tmp / "mk.png"), "-alpha", "off",
-                     "-compose", "copy_opacity", "-composite",
-                     "-filter", "Lanczos", "-resize", f"{size}x{size}", str(mono)],
+                    im("-size", f"{full}x{full}", f"xc:{plate}",
+                       "(", str(tmp / "m.png"), "-fill", tint, "-colorize", "100", ")",
+                       "-composite", "-gravity", "center",
+                       "-crop", f"{size * scale}x{size * scale}+0+0", "+repage",
+                       str(tmp / "mk.png"), "-alpha", "off",
+                       "-compose", "copy_opacity", "-composite",
+                       "-filter", "Lanczos", "-resize", f"{size}x{size}", str(mono)),
                     check=True)
                 themed.append(mono)
 
@@ -231,18 +266,18 @@ def review_sheet(to_svg, out: Path) -> None:
             row = [str(tiles[(s, k)]) for s in (48, 96, 192)
                    for k in ("squircle", "circle")]
             path = tmp / f"row_{name}.png"
-            subprocess.run(["magick", "-background", backdrop, "-gravity", "center",
-                            *row, "+append", "-bordercolor", backdrop,
-                            "-border", "16x16", str(path)], check=True)
+            subprocess.run(im("-background", backdrop, "-gravity", "center",
+                              *row, "+append", "-bordercolor", backdrop,
+                              "-border", "16x16", str(path)), check=True)
             rows.append(str(path))
         path = tmp / "row_themed.png"
-        subprocess.run(["magick", "-background", "#7A7A80", "-gravity", "center",
-                        *[str(p) for p in themed], "+append",
-                        "-bordercolor", "#7A7A80", "-border", "16x16", str(path)],
+        subprocess.run(im("-background", "#7A7A80", "-gravity", "center",
+                          *[str(p) for p in themed], "+append",
+                          "-bordercolor", "#7A7A80", "-border", "16x16", str(path)),
                        check=True)
         rows.append(str(path))
-        subprocess.run(["magick", "-background", "#7A7A80", "-gravity", "west",
-                        *rows, "-append", str(out)], check=True)
+        subprocess.run(im("-background", "#7A7A80", "-gravity", "west",
+                          *rows, "-append", str(out)), check=True)
 
 
 if __name__ == "__main__":

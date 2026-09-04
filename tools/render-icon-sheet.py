@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,22 @@ CELL = 96  # px per tile; big enough that a 1.2dp stroke is unmistakable
 # The Seeker: 400 x 890dp at 480dpi, which is 3x. `--dp N` therefore rasterises
 # at 3N pixels, the exact pixel count the device puts on the glass.
 SEEKER_DENSITY = 3.0
+
+
+def im(*args: str) -> list[str]:
+    """An ImageMagick command line that runs on whichever major version is here.
+
+    ImageMagick 7 is one `magick` binary and every tool is a subcommand of it.
+    ImageMagick 6 -- still what Ubuntu's `imagemagick` package installs, so
+    still what the CI runner has -- has no `magick` at all, only the classic
+    `convert`, `montage`, `compare`, `identify` binaries. The two accept the
+    same operators, so the whole difference is the name at the front.
+    """
+    if shutil.which("magick"):
+        return ["magick", *args]
+    if args and args[0] in ("montage", "compare", "identify"):
+        return [args[0], *args[1:]]
+    return ["convert", *args]
 
 
 def a(node: ET.Element, name: str, default: str | None = None) -> str | None:
@@ -133,7 +150,7 @@ def ink(png: Path) -> float:
     out = subprocess.run(
         # `-alpha on` first: a PNG rsvg wrote with no alpha channel at all
         # reports mean.a as 0, which is indistinguishable from fully blank.
-        ["magick", str(png), "-alpha", "on", "-format", "%[fx:mean.a]", "info:"],
+        im(str(png), "-alpha", "on", "-format", "%[fx:mean.a]", "info:"),
         capture_output=True,
         text=True,
         check=True,
@@ -195,22 +212,22 @@ def main() -> int:
             if painted == 0 or level < 0.001:
                 blank.append(f"{source.stem} (painted paths: {painted}, mean alpha: {level:.5f})")
             subprocess.run(
-                ["magick", str(png), "-fill", "white", "-colorize", "100", "-background",
-                 "#1e1e22", "-alpha", "remove", "-alpha", "off", str(png)],
+                im(str(png), "-fill", "white", "-colorize", "100", "-background",
+                   "#1e1e22", "-alpha", "remove", "-alpha", "off", str(png)),
                 check=True,
             )
             labelled = Path(tmp) / f"{source.stem}-label.png"
             subprocess.run(
-                ["magick", str(png), "-background", "#1e1e22", "-fill", "#9aa0a6",
-                 "-pointsize", "11", "-gravity", "center",
-                 "label:" + source.stem.replace("ic_", ""), "-append", str(labelled)],
+                im(str(png), "-background", "#1e1e22", "-fill", "#9aa0a6",
+                   "-pointsize", "11", "-gravity", "center",
+                   "label:" + source.stem.replace("ic_", ""), "-append", str(labelled)),
                 check=True,
             )
             tiles.append(str(labelled))
 
         subprocess.run(
-            ["magick", "montage", *tiles, "-tile", f"{args.columns}x", "-geometry", "+6+6",
-             "-background", "#141417", args.out],
+            im("montage", *tiles, "-tile", f"{args.columns}x", "-geometry", "+6+6",
+               "-background", "#141417", args.out),
             check=True,
         )
 
