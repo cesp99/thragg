@@ -192,16 +192,31 @@ object SolanaToolchain {
     fun isInstalled(context: Context, component: ToolchainComponent): Boolean {
         val app = context.applicationContext
         if (record(app)[component.id] != component.revision) return false
-        // File.exists() follows symlinks, so this is also the dangling-symlink
-        // check that `cargo install` under --link2symlink would otherwise slip
-        // past — see ToolchainComponent.marker.
-        return hostPath(app, component.marker).exists()
+        return isOnDisk(app, component)
     }
 
     /** Whether one component is recorded at some revision and its marker exists. */
     fun isPresent(context: Context, component: ToolchainComponent): Boolean {
         val app = context.applicationContext
         if (component.id !in record(app)) return false
+        return isOnDisk(app, component)
+    }
+
+    /**
+     * The on-disk half of both checks above.
+     *
+     * For the userland the authority is the backend, not the marker: its own
+     * completion file is what every guest step is gated on, and a record
+     * saying Debian is in while [Userland.backend] says nothing is installed
+     * fails the first apt as "there is no userland to run /bin/bash in".
+     * For everything else, `File.exists()` follows symlinks, so this is also
+     * the dangling-symlink check that `cargo install` under --link2symlink
+     * would otherwise slip past — see ToolchainComponent.marker.
+     */
+    private fun isOnDisk(app: Context, component: ToolchainComponent): Boolean {
+        if (component.method == InstallMethod.Userland) {
+            return Userland.backend.state(app) is UserlandState.Ready
+        }
         return hostPath(app, component.marker).exists()
     }
 

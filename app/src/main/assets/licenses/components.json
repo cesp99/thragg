@@ -19,7 +19,7 @@
         {
           "id": "app/thragg",
           "name": "Thragg",
-          "version": "0.0.16",
+          "version": "0.0.17",
           "spdx": "GPL-3.0-or-later; as distributed, GPL-3.0",
           "copyright": "Copyright (C) 2026 Eyed (Carlo Esposito)",
           "url": "https://github.com/cesp99/thragg",

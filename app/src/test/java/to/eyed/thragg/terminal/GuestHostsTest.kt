@@ -63,4 +63,23 @@ class GuestHostsTest {
         val again = GuestHosts.merged(merged, emptyMap())
         assertEquals(hand, again)
     }
+
+    /**
+     * A guest set up before the rename to Thragg carries the block under the
+     * old fences. /etc/hosts takes the first match, so that block must be
+     * replaced, not left above the new one with its stale addresses.
+     */
+    @Test
+    fun aBlockUnderTheOldFencesIsReplaced() {
+        val legacy = debianDefault +
+            "# seeker-pinned begin — rewritten per session; edit outside this block\n" +
+            "1.2.3.4\tcrates.io\n" +
+            "# seeker-pinned end\n"
+        val merged = GuestHosts.merged(legacy, mapOf("crates.io" to "5.6.7.8"))
+        assertFalse(merged.contains("seeker-pinned"))
+        assertFalse(merged.contains("1.2.3.4"))
+        assertEquals(1, merged.lines().count { it == GuestHosts.BEGIN })
+        assert(merged.contains("5.6.7.8\tcrates.io"))
+        assertEquals(debianDefault, GuestHosts.merged(legacy, emptyMap()))
+    }
 }

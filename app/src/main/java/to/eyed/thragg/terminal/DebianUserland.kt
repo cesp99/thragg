@@ -81,8 +81,35 @@ private object DebianUserland : UserlandBackend {
     private fun proot(context: Context) =
         File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
 
-    override fun state(context: Context): UserlandState =
-        if (marker(context).isFile) UserlandState.Ready else UserlandState.NotInstalled
+    override fun state(context: Context): UserlandState {
+        adoptLegacyNames(rootfs(context))
+        return if (marker(context).isFile) UserlandState.Ready else UserlandState.NotInstalled
+    }
+
+    /**
+     * The two files above under the names they had before the app was
+     * Thragg (2026-09-04), renamed in place.
+     *
+     * A rootfs installed by an earlier build is complete and working; only
+     * the name this side looks for changed. Without this, such a phone read
+     * as "no userland" while the toolchain record still said Debian was in,
+     * and the first guest step of every install died with "there is no
+     * userland to run /bin/bash in" — seen live on the Seeker the day of
+     * the rename. Two `stat`s when the new name is absent, none once it is.
+     */
+    private fun adoptLegacyNames(root: File) {
+        for ((legacy, current) in LEGACY_NAMES) {
+            val wanted = File(root, current)
+            if (wanted.exists()) continue
+            val old = File(root, legacy)
+            if (old.isFile && old.renameTo(wanted)) Log.i(TAG, "adopted $legacy as $current")
+        }
+    }
+
+    private val LEGACY_NAMES = listOf(
+        ".seeker-userland" to ".thragg-userland",
+        ".seeker-hardlinks" to ".thragg-hardlinks",
+    )
 
     // --- running -----------------------------------------------------------
 
@@ -713,6 +740,16 @@ internal object GuestHosts {
     const val END = "# thragg-pinned end"
 
     /**
+     * The block's fences from before the rename to Thragg. A guest set up
+     * by an earlier build still carries them, and `/etc/hosts` takes the
+     * first match: left in place, the old block's addresses would outrank
+     * every rewrite that followed. Read as fences, never written.
+     */
+    private val LEGACY_FENCES = listOf(
+        "# seeker-pinned begin — rewritten per session; edit outside this block" to "# seeker-pinned end",
+    )
+
+    /**
      * [existing] with this app's managed block replaced (or appended), and
      * everything a user wrote by hand kept byte for byte. An empty
      * [resolved] removes the block entirely rather than leaving stale IPs:
@@ -724,8 +761,8 @@ internal object GuestHosts {
             var inBlock = false
             for (line in existing.lines()) {
                 when {
-                    line == BEGIN -> inBlock = true
-                    line == END -> inBlock = false
+                    line == BEGIN || LEGACY_FENCES.any { it.first == line } -> inBlock = true
+                    line == END || LEGACY_FENCES.any { it.second == line } -> inBlock = false
                     !inBlock -> add(line)
                 }
             }
