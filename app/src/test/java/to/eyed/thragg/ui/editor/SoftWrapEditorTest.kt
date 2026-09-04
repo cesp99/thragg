@@ -15,8 +15,10 @@ class SoftWrapEditorTest {
 
     /**
      * A pane [columns] characters wide. The width is worked back from the
-     * pane's own arithmetic: a 10px character, a gutter of four digits plus
-     * Zed's seven characters of padding, and the scrollbar's track.
+     * pane's own arithmetic — a 10px character, whatever the gutter is today
+     * ([EditorState.gutterWidthPx], read rather than restated, so a gutter
+     * change does not silently narrow every pane here) and the scrollbar's
+     * 10px track at that character width.
      */
     private fun editorOf(
         text: String,
@@ -32,8 +34,14 @@ class SoftWrapEditorTest {
             gutterPadding = 0f,
             textPadding = 0f,
         )
-        state.updateViewport(width = columns * 10f + 120f, height = viewportRows * 10f)
+        state.updateViewport(width = state.paneWidthFor(columns), height = viewportRows * 10f)
         return state
+    }
+
+    /** The pane width that gives [columns] characters of text at a 10px character. */
+    private fun EditorState.paneWidthFor(columns: Int): Float {
+        val track = 10f
+        return columns * 10f + gutterWidthPx + textPaddingPx + track
     }
 
     private fun EditorState.caretAt(row: Int, col: Int) =
@@ -185,7 +193,7 @@ class SoftWrapEditorTest {
         val state = EditorState(buffer)
         state.softWrap = SoftWrapMode.EditorWidth
         state.updateMetrics(lineHeight = 10f, charWidth = 10f, gutterPadding = 0f, textPadding = 0f)
-        state.updateViewport(width = 220f, height = 100f)
+        state.updateViewport(width = state.paneWidthFor(10), height = 100f)
         state.caretAt(0, 20)
 
         state.insertAtCursor("XY")
@@ -201,7 +209,7 @@ class SoftWrapEditorTest {
         val state = EditorState(buffer)
         state.softWrap = SoftWrapMode.EditorWidth
         state.updateMetrics(lineHeight = 10f, charWidth = 10f, gutterPadding = 0f, textPadding = 0f)
-        state.updateViewport(width = 220f, height = 100f)
+        state.updateViewport(width = state.paneWidthFor(10), height = 100f)
 
         assertEquals(8, state.measureWholeFile().displayMap.displayRowCount)
 
@@ -224,7 +232,7 @@ class SoftWrapEditorTest {
         val state = EditorState(buffer)
         state.softWrap = SoftWrapMode.EditorWidth
         state.updateMetrics(lineHeight = 10f, charWidth = 10f, gutterPadding = 0f, textPadding = 0f)
-        state.updateViewport(width = 220f, height = 100f)
+        state.updateViewport(width = state.paneWidthFor(10), height = 100f)
 
         assertEquals(9, state.measureWholeFile().displayMap.displayRowCount)
 
@@ -305,7 +313,7 @@ class SoftWrapEditorTest {
         state.scrollToY(state.maxScrollY)
         assertEquals(7600f, state.scrollY, 0.01f)
 
-        state.updateViewport(width = 40 * 10f + 120f, height = 400f)
+        state.updateViewport(width = state.paneWidthFor(40), height = 400f)
 
         assertEquals(40, state.displayMap.wrapColumns)
         assertTrue(
@@ -346,7 +354,7 @@ class SoftWrapEditorTest {
         val state = EditorState(buffer)
         state.softWrap = SoftWrapMode.EditorWidth
         state.updateMetrics(lineHeight = 10f, charWidth = 10f, gutterPadding = 0f, textPadding = 0f)
-        state.updateViewport(width = 220f, height = 400f)
+        state.updateViewport(width = state.paneWidthFor(10), height = 400f)
         state.caretAt(100, 5)
         state.drawFrame()
 
@@ -378,7 +386,7 @@ class SoftWrapEditorTest {
         val state = EditorState(buffer)
         state.softWrap = SoftWrapMode.EditorWidth
         state.updateMetrics(lineHeight = 10f, charWidth = 10f, gutterPadding = 0f, textPadding = 0f)
-        state.updateViewport(width = 220f, height = 400f)
+        state.updateViewport(width = state.paneWidthFor(10), height = 400f)
         state.drawFrame()
 
         val calls = buffer.lineCalls
