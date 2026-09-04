@@ -243,7 +243,8 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             ),
             verticalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
-            if (!snapshot.status.hasRepo && snapshot.status.scanned) {
+            val emptyState = changesEmptyState(snapshot.status)
+            if (emptyState == ChangesEmptyState.NoRepo) {
                 item(key = "no-repo") {
                     Note("This project is not a git repository yet. ⋮ → Initialize repository.")
                 }
@@ -317,17 +318,21 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
                     }
                 }
             }
-            if (model.isEmpty && snapshot.status.scanned) {
-                item(key = "clean") {
-                    Note(
-                        if (snapshot.status.ran) {
-                            "Nothing has changed since the last commit."
-                        } else {
-                            // Not the same as a clean tree, and saying "no
-                            // changes" here would be a claim git never made.
-                            "git could not be run in this project."
-                        }
-                    )
+            // One sentence for the empty list, chosen by [changesEmptyState]:
+            // a project outside any repository already has its note above,
+            // and used to get "git could not be run" under it as well — two
+            // claims, the second one false.
+            if (model.isEmpty) {
+                when (emptyState) {
+                    ChangesEmptyState.Clean -> item(key = "clean") {
+                        Note("Nothing has changed since the last commit.")
+                    }
+                    // Not the same as a clean tree, and saying "no changes"
+                    // here would be a claim git never made.
+                    ChangesEmptyState.NoGit -> item(key = "no-git") {
+                        Note("git could not be run in this project.")
+                    }
+                    ChangesEmptyState.NoRepo, ChangesEmptyState.Scanning -> Unit
                 }
             }
         }
@@ -834,6 +839,31 @@ private fun Note(text: String) {
  * Pure and internal so the wording is checkable on the host, like every other
  * sentence this screen prints.
  */
+/** Which empty state the change list is in — see [changesEmptyState]. */
+internal enum class ChangesEmptyState { Scanning, NoRepo, NoGit, Clean }
+
+/**
+ * The empty state's dispatch, Zed's `render_empty_state` order
+ * (git_panel.rs:6920-6931) with the two states of our own in front — the
+ * same function Conquest's git panel carried (`gitPanelEmptyState`), brought
+ * across because this screen had lost the order.
+ *
+ * The order is load-bearing: a project outside any repository never runs git
+ * at all — the engine's `status_for` answers "no repository" from the host
+ * filesystem without a proot spawn, so `ran` is false there *by design* — and
+ * reading that as "git could not be run" put a complaint about a git that was
+ * fine right under the Initialize Repository note (seen on the device with a
+ * freshly scaffolded program, 2026-09-04). No-repo is answered first, from the
+ * walk that actually ran; "git never ran" is only meaningful where there was
+ * a repository to run it in.
+ */
+internal fun changesEmptyState(status: GitPanelState): ChangesEmptyState = when {
+    !status.scanned -> ChangesEmptyState.Scanning
+    !status.hasRepo -> ChangesEmptyState.NoRepo
+    !status.ran -> ChangesEmptyState.NoGit
+    else -> ChangesEmptyState.Clean
+}
+
 internal fun changesSummary(model: ChangesModel, counts: Map<String, DiffCount>): String? {
     val files = model.agent.size + model.git.size + model.conflicts.size
     if (files == 0) return null
