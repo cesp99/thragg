@@ -67,13 +67,13 @@ import to.eyed.thragg.ui.components.DrillRow
 import to.eyed.thragg.ui.components.LevelSlider
 import to.eyed.thragg.ui.components.NoticeCard
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
+import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.components.SegmentedSelect
 import to.eyed.thragg.ui.components.SelectRow
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.SheetScaffold
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.RowChevron
 import to.eyed.thragg.ui.theme.effectSpec
@@ -483,7 +483,7 @@ private fun DrillEntry(
     optionName: String,
     onClick: () -> Unit,
 ) {
-    SeekerCard(
+    ThraggCard(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
     ) {
@@ -545,7 +545,7 @@ private fun FlagSection(
     onFlag: (Boolean) -> Unit,
     onLocked: () -> Unit,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val ultra = option.id == "ultra"
     val locked = ultra && ultraState == UltraState.Locked
     val stateText = if (ultra) ultraStateText(ultraState) else if (on) "On" else "Off"

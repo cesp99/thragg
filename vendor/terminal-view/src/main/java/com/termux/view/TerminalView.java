@@ -70,7 +70,7 @@ public final class TerminalView extends View {
     int mTopRow;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
-    // SEEKER PATCH: a passive highlight — the current search match — drawn
+    // THRAGG PATCH: a passive highlight — the current search match — drawn
     // with the renderer's selection colour whenever the user is not selecting
     // text. Columns and rows in the emulator's external coordinates, -1 when
     // there is none. The text-selection controller keeps its own selectors
@@ -1023,7 +1023,7 @@ public final class TerminalView extends View {
             if (mTextSelectionCursorController != null) {
                 mTextSelectionCursorController.getSelectors(sel);
             }
-            // SEEKER PATCH: the search highlight stands in for the selection
+            // THRAGG PATCH: the search highlight stands in for the selection
             // while there is none.
             if (sel[0] == -1 && mHighlight[0] != -1) sel = mHighlight;
 
@@ -1435,7 +1435,7 @@ public final class TerminalView extends View {
         }
     }
 
-    // SEEKER PATCH: search-match highlight, see mHighlight.
+    // THRAGG PATCH: search-match highlight, see mHighlight.
 
     /**
      * Paint the cells from (x1, y1) to (x2, y2) inclusive in the selection

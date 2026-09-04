@@ -460,7 +460,7 @@ private fun FileHeader(file: FileDiff, onOpenFile: (String) -> Unit, controls: D
  * in the editor two taps away (docs/VISUAL.md, "Diff"). But Stage / Unstage /
  * Restore were 16dp of drawn text and 16dp of hit box on a 480dpi phone, and
  * "which of these three verbs did my thumb just land on" is not a question a
- * staging control may ask. Outermost in the chain, as `SeekerIconButton` puts
+ * staging control may ask. Outermost in the chain, as `ThraggIconButton` puts
  * it: the ink is unchanged and the pointer bounds around it are not.
  */
 @Composable

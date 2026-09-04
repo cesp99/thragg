@@ -26,9 +26,9 @@ import to.eyed.thragg.core.SpettroToolbar
 import to.eyed.thragg.core.UltraState
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 
 /**
  * The chip in the composer that says what the agent is set to, and the five
@@ -121,7 +121,7 @@ fun ConfigChip(
     val label = configChipLabel(toolbar) ?: return
     val effort = configChipEffort(toolbar)
     val state = configChipState(toolbar)
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val scheme = MaterialTheme.colorScheme
     val ultra = toolbar.ultraState
     Row(
@@ -144,7 +144,7 @@ fun ConfigChip(
         // Lucide's `sliders-horizontal`, which is the Tune glyph under the
         // name this project already gave it. It is what tells the eye the pill
         // is a way in rather than a badge.
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_filter,
             contentDescription = null,
             tint = colors.accentMark,
@@ -195,7 +195,7 @@ fun ConfigChip(
 /**
  * A mode's identity colour, or null for anything that is not a mode.
  *
- * The table itself is `SeekerColors.modeColor` — the same one the TUI and the
+ * The table itself is `ThraggColors.modeColor` — the same one the TUI and the
  * desktop client paint from, keyed on the manifest colour NAMES that
  * `spettro.agents.toml` actually emits as well as on the mode ids. This
  * function is only the guard that used to be the first line of `modeTintArgb`:
@@ -207,7 +207,7 @@ internal fun modeTint(option: AgentConfigOption): Color? =
     if (option.category != "mode") {
         null
     } else {
-        LocalSeekerColors.current.modeColor(option.currentValue)
+        LocalThraggColors.current.modeColor(option.currentValue)
     }
 
 // ---------------------------------------------------------------------------

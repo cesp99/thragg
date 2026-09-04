@@ -44,8 +44,8 @@ import to.eyed.thragg.solana.chain.ProgramClose
 import to.eyed.thragg.solana.chain.ProgramStatus
 import to.eyed.thragg.ui.components.CopyChip
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerSpinner
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.outlinedButtonEdge
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
@@ -147,7 +147,7 @@ internal fun ProgramSheet(
                 .padding(bottom = MD.space2),
             verticalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
-            SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            ThraggCard(modifier = Modifier.fillMaxWidth()) {
                 val copy: (@Composable () -> Unit)? = if (programId != null) {
                     { CopyChip(text = programId) }
                 } else {
@@ -373,7 +373,7 @@ internal const val CLOSE_RUNNING = "A close is already running — wait for it t
 internal fun CloseLog() {
     val progress = CloseProgress
     if (progress.lines.isEmpty() && !progress.running) return
-    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+    ThraggCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(MD.space3),
             verticalArrangement = Arrangement.spacedBy(MD.space1),
@@ -390,7 +390,7 @@ internal fun CloseLog() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
                 ) {
-                    SeekerSpinner(size = 12.dp)
+                    ThraggSpinner(size = 12.dp)
                     Text(
                         text = "Closing…",
                         style = MaterialTheme.typography.bodySmall,

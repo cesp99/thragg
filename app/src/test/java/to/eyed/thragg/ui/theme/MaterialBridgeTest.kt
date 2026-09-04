@@ -324,9 +324,9 @@ class MaterialBridgeTest {
     // ---------------------------------------------------------------- band C
 
     @Test
-    fun `every seeker ink and mark clears on the card ground`() {
+    fun `every thragg ink and mark clears on the card ground`() {
         for (theme in BundledThemes.all) {
-            val c = theme.palette().seeker
+            val c = theme.palette().thragg
             val container = theme.palette().scheme.surfaceContainer
             val inks = mapOf(
                 "accentInk" to c.accentInk,
@@ -357,7 +357,7 @@ class MaterialBridgeTest {
     fun `the agent purple is the one fixed hue, and it survives being solved`() {
         for (theme in BundledThemes.all) {
             val palette = theme.palette()
-            assertEquals(theme.name, AgentAccent, palette.seeker.agentAccent)
+            assertEquals(theme.name, AgentAccent, palette.thragg.agentAccent)
             // Solved for legibility, but still recognisably the same purple in
             // every theme: blue over red over green, as #AD7BF9 is. That is the
             // point of fixing it — the TUI and the desktop client draw it too.
@@ -371,7 +371,7 @@ class MaterialBridgeTest {
 
     @Test
     fun `the mode table answers manifest names and mode ids`() {
-        val colors = BundledThemes.named("One Dark").palette().seeker
+        val colors = BundledThemes.named("One Dark").palette().thragg
         assertEquals(Color(0xFF34D399), colors.modeColor("green"))
         assertEquals(Color(0xFF60A5FA), colors.modeColor("Cyan"))
         assertEquals(Color(0xFFBD93F9), colors.modeColor("plan"))
@@ -390,7 +390,7 @@ class MaterialBridgeTest {
             "plan", "coding", "ask", null,
         )
         for (theme in BundledThemes.all) {
-            val c = theme.palette().seeker
+            val c = theme.palette().thragg
             for (mode in modes) {
                 assertReadable("${theme.name} mode $mode", c.modeInk(mode), c.cardGround)
             }
@@ -401,9 +401,9 @@ class MaterialBridgeTest {
     fun `the hairline is zeds own, and the card ground is not the bare surface`() {
         for (theme in BundledThemes.all) {
             val palette = theme.palette()
-            assertEquals(theme.name, theme.color("border.variant"), palette.seeker.hairline)
-            assertNotEquals(theme.name, palette.scheme.surfaceContainer, palette.seeker.cardGround)
-            assertEquals(theme.name, theme.isDark, palette.seeker.isDark)
+            assertEquals(theme.name, theme.color("border.variant"), palette.thragg.hairline)
+            assertNotEquals(theme.name, palette.scheme.surfaceContainer, palette.thragg.cardGround)
+            assertEquals(theme.name, theme.isDark, palette.thragg.isDark)
         }
     }
 

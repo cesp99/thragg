@@ -19,7 +19,7 @@
         {
           "id": "app/thragg",
           "name": "Thragg",
-          "version": "0.0.14",
+          "version": "0.0.15",
           "spdx": "GPL-3.0-or-later; as distributed, GPL-3.0",
           "copyright": "Copyright (C) 2026 Eyed (Carlo Esposito)",
           "url": "https://github.com/cesp99/thragg",
@@ -33,7 +33,7 @@
     {
       "id": "engine",
       "title": "Engine and terminal",
-      "note": "The editor engine is Zed's, vendored at one commit and built into libseekercore.so. The terminal is Termux's, vendored as two Gradle modules and built into libtermux.so.",
+      "note": "The editor engine is Zed's, vendored at one commit and built into libthraggcore.so. The terminal is Termux's, vendored as two Gradle modules and built into libtermux.so.",
       "components": [
         {
           "id": "engine/conquest-code",
@@ -58,7 +58,7 @@
             "licenses/GPL-3.0.txt",
             "licenses/Apache-2.0.txt"
           ],
-          "note": "51 crate directories vendored at one commit and compiled into libseekercore.so. They are split across two licences and each one is listed individually under Rust crates with its own — the GPL set is the editor proper (text, rope, language, lsp, worktree, settings, theme), the Apache set is gpui and its infrastructure (collections, util, sum_tree, http_client).\n\nFour of them declare no license field in their Cargo.toml and are shown here with the licence file that is on disk beside them, per core/vendor/VENDOR.md: gpui_shared_string and gpui_util are Apache-2.0, grammars and language_core are GPL-3.0-or-later."
+          "note": "51 crate directories vendored at one commit and compiled into libthraggcore.so. They are split across two licences and each one is listed individually under Rust crates with its own — the GPL set is the editor proper (text, rope, language, lsp, worktree, settings, theme), the Apache set is gpui and its infrastructure (collections, util, sum_tree, http_client).\n\nFour of them declare no license field in their Cargo.toml and are shown here with the licence file that is on disk beside them, per core/vendor/VENDOR.md: gpui_shared_string and gpui_util are Apache-2.0, grammars and language_core are GPL-3.0-or-later."
         },
         {
           "id": "engine/termux-terminal-emulator",
@@ -84,7 +84,7 @@
             "licenses/GPL-3.0.txt",
             "licenses/Apache-2.0.txt"
           ],
-          "note": "Vendored as a Gradle module and MODIFIED: TerminalView.java carries three hunks marked SEEKER PATCH that add the search highlight. GPLv3 s5(a) requires modified files to say so and they do, in place; vendor/VENDOR.md is the full record. Same Android Terminal Emulator heritage as terminal-emulator."
+          "note": "Vendored as a Gradle module and MODIFIED: TerminalView.java carries three hunks marked THRAGG PATCH that add the search highlight. GPLv3 s5(a) requires modified files to say so and they do, in place; vendor/VENDOR.md is the full record. Same Android Terminal Emulator heritage as terminal-emulator."
         }
       ]
     },
@@ -103,7 +103,7 @@
           "licenseFiles": [
             "licenses/GPL-2.0.txt"
           ],
-          "note": "Shipped as lib/*/libproot_exec.so and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked SEEKER PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
+          "note": "Shipped as lib/*/libproot_exec.so and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked THRAGG PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
         },
         {
           "id": "native/talloc",
@@ -123,7 +123,7 @@
     {
       "id": "rust",
       "title": "Rust crates",
-      "note": "Every crate in the aarch64-linux-android link closure of libseekercore.so, generated from cargo. Not from Cargo.lock: the lock file resolves crates that no build of this app links.",
+      "note": "Every crate in the aarch64-linux-android link closure of libthraggcore.so, generated from cargo. Not from Cargo.lock: the lock file resolves crates that no build of this app links.",
       "components": [
         {
           "id": "rust/accesskit@0.24.1",

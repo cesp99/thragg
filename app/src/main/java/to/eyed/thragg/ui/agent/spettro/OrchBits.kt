@@ -51,16 +51,16 @@ import to.eyed.thragg.core.Member
 import to.eyed.thragg.core.OrchCounts
 import to.eyed.thragg.core.OrchStatus
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerSpinner
+import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.ZedCodeBlock
 import to.eyed.thragg.ui.theme.LocalReduceMotion
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.DisclosureMark
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoSmall
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.animateSize
 import to.eyed.thragg.ui.theme.readable
@@ -83,7 +83,7 @@ import to.eyed.thragg.ui.theme.readable
  *
  * **This file is in the MATERIAL half** (docs/VISUAL.md, "THE BOUNDARY,
  * EXACTLY"). Its inks come from `MaterialTheme.colorScheme` and
- * [LocalSeekerColors], not from `theme.color(...)`, because a run card is a
+ * [LocalThraggColors], not from `theme.color(...)`, because a run card is a
  * card in an app rather than a pane in an editor. The one exception is
  * [memberTint], which reads the theme's own `terminal.ansi.*` palette because
  * that is what a sub-agent tint *is* — and it is solved for contrast before it
@@ -129,11 +129,11 @@ internal const val GhostCap = 3
  * `warning`, which is the amber slot in every Zed theme and what the context
  * gauge already turns at 75%. This is the raw hue and belongs behind things —
  * a card fill, a border. Anything drawing amber as *text* wants
- * `LocalSeekerColors.current.warnInk`, which is the same hue solved to 4.5:1:
+ * `LocalThraggColors.current.warnInk`, which is the same hue solved to 4.5:1:
  * on Ayu Light the raw value measures 1.64:1 (docs/VISUAL.md, "THE HYBRID").
  */
 @Composable
-internal fun ultraAmber(): Color = LocalSeekerColors.current.ultraAmber
+internal fun ultraAmber(): Color = LocalThraggColors.current.ultraAmber
 
 /**
  * The green a finished member and the done half of a meter share.
@@ -144,11 +144,11 @@ internal fun ultraAmber(): Color = LocalSeekerColors.current.ultraAmber
  * measures 2.11:1 on Ayu Light, which is neither.
  */
 @Composable
-internal fun doneColor(): Color = LocalSeekerColors.current.addedInk
+internal fun doneColor(): Color = LocalThraggColors.current.addedInk
 
 /** Failure red, for a glyph, a meter segment or a count. See [doneColor]. */
 @Composable
-internal fun failColor(): Color = LocalSeekerColors.current.dangerInk
+internal fun failColor(): Color = LocalThraggColors.current.dangerInk
 
 /**
  * The eight tints a sub-agent spec can take, as keys into the theme's own
@@ -199,7 +199,7 @@ internal fun memberTintIndex(specId: String, count: Int = MEMBER_TINT_KEYS.size)
  * A member's tint, drawn on a card and therefore solved against one.
  *
  * The hue is the theme's; the lightness is whatever clears 4.5:1 on
- * [SeekerColors.cardGround]. A terminal palette is authored for a terminal —
+ * [ThraggColors.cardGround]. A terminal palette is authored for a terminal —
  * full-strength ink on the terminal's own background — and a run card is a
  * washed surface two steps up the ladder, so `terminal.ansi.yellow` on a light
  * theme arrives at about 1.9:1 if it is drawn raw. It is drawn as the member's
@@ -208,7 +208,7 @@ internal fun memberTintIndex(specId: String, count: Int = MEMBER_TINT_KEYS.size)
 @Composable
 internal fun memberTint(specId: String): Color {
     val theme = LocalZedTheme.current
-    val ground = LocalSeekerColors.current.cardGround
+    val ground = LocalThraggColors.current.cardGround
     val index = memberTintIndex(specId)
     val raw = theme.color(MEMBER_TINT_KEYS[index], theme.playerColor(index))
     return readable(raw, ground)
@@ -359,7 +359,7 @@ internal fun CellStrip(
 ) {
     if (states.isEmpty()) return
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val queuedInk = scheme.outlineVariant
     val runningInk = scheme.primary
     val doneInk = colors.addedMark
@@ -410,9 +410,9 @@ internal fun cellSummary(states: List<OrchStatus?>): String {
 // ---------------------------------------------------------------------------
 
 /**
- * Spettro's braille spinner, now [SeekerSpinner].
+ * Spettro's braille spinner, now [ThraggSpinner].
  *
- * The implementation MOVED to `ui/components/SeekerSpinner.kt` in P3 — the
+ * The implementation MOVED to `ui/components/ThraggSpinner.kt` in P3 — the
  * cadence and the reduce-motion branch were already right, and the only thing
  * wrong with them was that they lived in the agent package where the build
  * strip and the setup steps could not reach them. This name survives as the
@@ -425,7 +425,7 @@ internal fun SpettroSpinner(
     modifier: Modifier = Modifier,
     size: Dp = 12.dp,
 ) {
-    SeekerSpinner(modifier = modifier, size = size, color = color)
+    ThraggSpinner(modifier = modifier, size = size, color = color)
 }
 
 /**
@@ -459,14 +459,14 @@ internal fun StatusGlyph(
             OrchStatus.Running -> SpettroSpinner(accent, size = size)
             // The [Box] above already says "done" / "failed"; these are the
             // picture of it and must not be read out a second time.
-            OrchStatus.Done -> SeekerIcon(
+            OrchStatus.Done -> ThraggIcon(
                 icon = R.drawable.ic_ui_check,
                 contentDescription = null,
                 tint = doneColor(),
                 size = size,
             )
 
-            OrchStatus.Failed -> SeekerIcon(
+            OrchStatus.Failed -> ThraggIcon(
                 icon = R.drawable.ic_ui_close,
                 contentDescription = null,
                 tint = failColor(),
@@ -640,7 +640,7 @@ internal fun MemberRow(
     trailingPill: String = "",
 ) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val muted = scheme.onSurfaceVariant
     val tint = memberTint(member.specId)
     val hasDetail = member.children.isNotEmpty() || member.resultText.isNotBlank()
@@ -799,7 +799,7 @@ internal fun GhostRow(item: String, modifier: Modifier = Modifier) {
             .alpha(0.5f)
             .padding(horizontal = MD.space1),
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_circle,
             contentDescription = null,
             tint = muted,
@@ -878,7 +878,7 @@ internal fun Disclosure(
  * raw hue — `primary` for a workflow, `ultraAmber` for a swarm, `agentAccent`
  * for a sub-agent — because darkening a fill to clear a text ratio only makes
  * the card muddy. Whatever the caller draws as TEXT inside it takes the
- * matching `*Ink` from [LocalSeekerColors] instead.
+ * matching `*Ink` from [LocalThraggColors] instead.
  *
  * A failed run flips the wash to the failure hue and adds no second badge. One
  * signal per fact: a red frame and a `FAILED` chip and a red status dot are
@@ -894,7 +894,7 @@ internal fun RunCardFrame(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val hue = if (failed) colors.removedMark else wash
     val shape = RoundedCornerShape(RunCardRadius)
     Box(

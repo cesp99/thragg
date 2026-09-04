@@ -13,7 +13,7 @@
 # so both are kept in-process.
 #
 # The vendored Termux libraries under vendor/ are analyzed upstream and
-# only carry `SEEKER PATCH` edits here, so their alerts are excluded
+# only carry `THRAGG PATCH` edits here, so their alerts are excluded
 # rather than reported as ours.
 
 name: CodeQL
@@ -53,7 +53,7 @@ jobs:
         # The vendored terminal modules declare the pin even though no
         # native task runs here; AGP checks it exists at configuration.
         run: |
-          NDK_VERSION="$(sed -n 's/^seeker\.ndkVersion=//p' gradle.properties)"
+          NDK_VERSION="$(sed -n 's/^thragg\.ndkVersion=//p' gradle.properties)"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" >/dev/null
 
       - uses: github/codeql-action/init@v3

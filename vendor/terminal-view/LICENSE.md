@@ -11,6 +11,6 @@ repository at commit `3df69d1d` (v0.118.0), which is released under the
   libraries.
 
 Everything under `src/` is upstream code except for the changes marked
-`// SEEKER PATCH:` in `TerminalView.java`, which add the passive
+`// THRAGG PATCH:` in `TerminalView.java`, which add the passive
 search-match highlight. They are listed in `../VENDOR.md` under "Local
 patches"; `terminal-emulator` has none.

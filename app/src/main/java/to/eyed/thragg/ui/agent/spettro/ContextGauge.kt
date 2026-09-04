@@ -45,7 +45,7 @@ import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.outlinedButtonEdge
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.effectSpec
@@ -269,7 +269,7 @@ fun UsageReadout(
     modifier: Modifier = Modifier,
 ) {
     if (usage == null || usage.size <= 0L) return
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val fraction = usage.fraction
     val percent = contextPercentLabel(fraction)
     val ink = when (contextSeverity(fraction)) {
@@ -349,7 +349,7 @@ fun ContextRing(
     size: Dp = RingSize,
 ) {
     if (usage == null || usage.size <= 0L) return
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val scheme = MaterialTheme.colorScheme
     val fraction = usage.fraction
     val severity = contextSeverity(fraction)

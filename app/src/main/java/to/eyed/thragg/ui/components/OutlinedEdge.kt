@@ -46,7 +46,7 @@ import to.eyed.thragg.ui.theme.MD
  *
  * This is a value and not a wrapper composable on purpose. Nine call sites
  * pass nine different combinations of `shape`, `colors`, `contentPadding`
- * and `enabled`; a `SeekerOutlinedButton` would have to re-declare all of
+ * and `enabled`; a `ThraggOutlinedButton` would have to re-declare all of
  * them and would then be a copy of `OutlinedButton` with one line changed.
  * `border = outlinedButtonEdge()` is the one decision, made once, spelled at
  * the site so it is visible in the diff. `OutlinedButtonEdgeTest` is what

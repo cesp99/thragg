@@ -234,4 +234,4 @@ object LanguageServers {
  * throughout. See [AptInstaller] for how it behaves; this is the instance the
  * language-server prompt drives.
  */
-val LanguageServerInstaller = AptInstaller("seeker-lsp-install")
+val LanguageServerInstaller = AptInstaller("thragg-lsp-install")

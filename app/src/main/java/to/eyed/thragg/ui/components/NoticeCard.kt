@@ -16,10 +16,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 
 /** How loud a [NoticeCard] is, and it is the only axis it has. */
@@ -55,7 +55,7 @@ enum class Severity {
  * even for a failure, because the thing that failed is what should be read
  * first.
  *
- * The inks come from `LocalSeekerColors`, solved against a card's actual
+ * The inks come from `LocalThraggColors`, solved against a card's actual
  * ground rather than the bare canvas: raw `warning` on a panel measures 1.64:1
  * on Ayu Light, which is a warning nobody can read on the theme most likely to
  * be used outdoors.
@@ -75,7 +75,7 @@ fun NoticeCard(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val hue: Color? = when (severity) {
         Severity.Info -> null
         Severity.Warn -> colors.warnMark
@@ -90,7 +90,7 @@ fun NoticeCard(
         Severity.Info -> R.drawable.ic_file_info
         Severity.Warn, Severity.Error -> R.drawable.ic_ui_warning
     }
-    SeekerCard(
+    ThraggCard(
         modifier = modifier.fillMaxWidth(),
         fill = hue?.copy(alpha = 0.10f) ?: scheme.surfaceContainer,
         border = hue?.copy(alpha = 0.35f) ?: scheme.outlineVariant,
@@ -99,7 +99,7 @@ fun NoticeCard(
             modifier = Modifier.fillMaxWidth().padding(MD.space3),
             horizontalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = glyph,
                 contentDescription = null,
                 tint = ink,
@@ -133,7 +133,7 @@ fun NoticeCard(
                 )
             }
             if (onDismiss != null) {
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = R.drawable.ic_ui_close,
                     description = "Dismiss",
                     onClick = onDismiss,

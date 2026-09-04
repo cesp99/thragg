@@ -58,10 +58,10 @@ import to.eyed.thragg.ui.shell.Destination
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.SelectionMark
 import to.eyed.thragg.ui.theme.touchTarget
 
@@ -217,7 +217,7 @@ fun SignInSheet(
                 Text(
                     text = "Open the link again",
                     style = MaterialTheme.typography.labelLarge,
-                    color = LocalSeekerColors.current.accentInk,
+                    color = LocalThraggColors.current.accentInk,
                     modifier = Modifier.touchTarget().clickable { onOpenUrl(url) },
                 )
             }
@@ -230,7 +230,7 @@ fun SignInSheet(
                 Text(
                     text = "Open the Agent tab",
                     style = MaterialTheme.typography.labelLarge,
-                    color = LocalSeekerColors.current.accentInk,
+                    color = LocalThraggColors.current.accentInk,
                     modifier = Modifier.touchTarget().clickable {
                         SpettroSetup.cancelLogin()
                         onDismiss()
@@ -294,7 +294,7 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                     Text(
                         text = message,
                         style = MaterialTheme.typography.labelSmall,
-                        color = LocalSeekerColors.current.dangerInk,
+                        color = LocalThraggColors.current.dangerInk,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
@@ -360,7 +360,7 @@ fun ApiKeySheet(state: ShellState, onDismiss: () -> Unit) {
                         .clickable(onClickLabel = moreLabel) { expanded = true }
                         .padding(top = 4.dp),
                 ) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = R.drawable.ic_ui_chevron_down,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -475,7 +475,7 @@ fun LocalModelSheet(state: ShellState, onDismiss: () -> Unit) {
                     Text(
                         text = message,
                         style = MaterialTheme.typography.labelSmall,
-                        color = LocalSeekerColors.current.dangerInk,
+                        color = LocalThraggColors.current.dangerInk,
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
@@ -692,7 +692,7 @@ private val PERMISSION_COPY: Map<String, Pair<String, String>> = mapOf(
  * to have been told once.
  *
  * A routed page, not a sheet: it draws under the shell's shared top bar
- * (`Route.SpettroSettings` in SeekerShell's RouteHost), which is what gives
+ * (`Route.SpettroSettings` in ThraggShell's RouteHost), which is what gives
  * it the ← and the title — so this body owns only the scroll. [state] is here
  * for the one sheet the page can raise, the sign-in, which needs the shell
  * the same way every [SheetScaffold] does.
@@ -832,7 +832,7 @@ fun SpettroSettingsScreen(state: ShellState, modifier: Modifier = Modifier) {
                     modifier = Modifier.width(24.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = if (model.favorite) {
                             R.drawable.ic_ui_star_filled
                         } else {
@@ -841,7 +841,7 @@ fun SpettroSettingsScreen(state: ShellState, modifier: Modifier = Modifier) {
                         // The row's click label says what the tap does; this
                         // says which of the two states it is in now.
                         contentDescription = if (model.favorite) "favourite" else null,
-                        tint = if (model.favorite) LocalSeekerColors.current.addedInk else muted,
+                        tint = if (model.favorite) LocalThraggColors.current.addedInk else muted,
                         size = IconSize.Inline,
                     )
                 }
@@ -861,7 +861,7 @@ fun SpettroSettingsScreen(state: ShellState, modifier: Modifier = Modifier) {
                     Text(
                         text = "ACTIVE",
                         style = MaterialTheme.typography.labelSmall,
-                        color = LocalSeekerColors.current.accentInk,
+                        color = LocalThraggColors.current.accentInk,
                     )
                 }
             }
@@ -985,7 +985,7 @@ private fun SecretField(
         if (secret) {
             // An eye, not two concentric circles: this is the same control
             // the askpass dialog draws, and it should look like it.
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = if (reveal) R.drawable.ic_ui_eye_off else R.drawable.ic_ui_eye,
                 description = if (reveal) "Hide" else "Reveal",
                 onClick = onToggleReveal,
@@ -1127,7 +1127,7 @@ private fun RadioRow(
                     Text(
                         text = badge,
                         style = MaterialTheme.typography.labelSmall,
-                        color = LocalSeekerColors.current.addedInk,
+                        color = LocalThraggColors.current.addedInk,
                     )
                 }
             }
@@ -1158,7 +1158,7 @@ private fun LinkRow(label: String, onClick: () -> Unit) {
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
-        color = LocalSeekerColors.current.accentInk,
+        color = LocalThraggColors.current.accentInk,
         modifier = Modifier.touchTarget().clickable(onClick = onClick).padding(horizontal = 4.dp),
     )
 }

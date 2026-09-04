@@ -44,9 +44,9 @@ import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalReduceMotion
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.mutedIcon
@@ -326,7 +326,7 @@ private val PeekMaxHeight = 420.dp
 @Composable
 private fun PeekCollapsed(slots: List<PeekSlot>, onToggle: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val lead = slots.firstOrNull { it.settledAt == 0L } ?: slots.last()
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -374,7 +374,7 @@ private fun PeekCollapsed(slots: List<PeekSlot>, onToggle: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_chevron_up,
             contentDescription = null,
             tint = mutedIcon,
@@ -390,7 +390,7 @@ private val PeekMeterWidth = 72.dp
 @Composable
 private fun PeekExpandedHeader(liveCount: Int, onToggle: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.space2),
@@ -417,7 +417,7 @@ private fun PeekExpandedHeader(liveCount: Int, onToggle: () -> Unit) {
                 color = scheme.onSurfaceVariant,
             )
         }
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_chevron_down,
             contentDescription = null,
             tint = mutedIcon,
@@ -430,7 +430,7 @@ private fun PeekExpandedHeader(liveCount: Int, onToggle: () -> Unit) {
 @Composable
 private fun PeekRun(slot: PeekSlot) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val run = slot.run
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -510,7 +510,7 @@ private fun PeekPhase(
             horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = if (pending) R.drawable.ic_ui_circle else R.drawable.ic_ui_dot,
                 contentDescription = if (pending) "queued" else null,
                 tint = if (pending) mutedIcon else accentIcon,
@@ -598,7 +598,7 @@ private fun PeekMembers(members: List<Member>, cap: Int) {
 @Composable
 private fun PeekSettledLine(slot: PeekSlot) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.iconGap),

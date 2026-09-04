@@ -34,8 +34,8 @@ import to.eyed.thragg.ui.components.BottomActions
 import to.eyed.thragg.ui.components.BottomActionsGap
 import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.SectionHeader
 import to.eyed.thragg.ui.components.fadeUnderBottomActions
 import to.eyed.thragg.ui.editor.Diagnostic
@@ -47,11 +47,11 @@ import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.build.CodeJump
 import to.eyed.thragg.ui.shell.build.askAgent
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoSmall
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
 
 /**
@@ -81,7 +81,7 @@ import to.eyed.thragg.ui.theme.TabularNums
  * inline diagnostics are — and hosting it under a Material bar put a Zed
  * island in the middle of an app screen, which is the exact seam this pass
  * exists to stop. What it drew is fourteen lines of `SectionHeader` and
- * `SeekerCard` here, against the same [ProjectDiagnosticRows] the pane took;
+ * `ThraggCard` here, against the same [ProjectDiagnosticRows] the pane took;
  * its collapse-a-file gesture is the one thing not carried across, and on a
  * list already cut down by a filter it was buying very little.
  */
@@ -93,7 +93,7 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
 
     if (project == null) {
         Column(modifier = modifier.fillMaxSize()) {
-            SeekerTopBar(title = "Problems", onBack = { state.pop() })
+            ThraggTopBar(title = "Problems", onBack = { state.pop() })
             HairlineDivider()
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -125,7 +125,7 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
     val total = remember(merged) { merged.files.sumOf { it.rows.size } }
 
     Column(modifier = modifier.fillMaxSize()) {
-        SeekerTopBar(
+        ThraggTopBar(
             title = "Problems",
             subtitle = problemsSummary(errors, warnings, total),
             onBack = { state.pop() },
@@ -192,7 +192,7 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
                         // the same shape Changes gives a block, so a list of
                         // things about one file reads as one object in both
                         // places (docs/VISUAL.md, "Problems").
-                        SeekerCard {
+                        ThraggCard {
                             file.rows.forEachIndexed { index, diagnostic ->
                                 if (index > 0) HairlineDivider()
                                 ProblemRow(diagnostic) {
@@ -276,7 +276,7 @@ private fun ProblemChip(
  */
 @Composable
 private fun ProblemRow(diagnostic: Diagnostic, onOpen: () -> Unit) {
-    val colours = LocalSeekerColors.current
+    val colours = LocalThraggColors.current
     val (icon, tint) = when (diagnostic.severity) {
         DiagnosticSeverity.Error -> R.drawable.ic_ui_close to colours.removedInk
         DiagnosticSeverity.Warning -> R.drawable.ic_ui_warning to colours.warnInk
@@ -290,7 +290,7 @@ private fun ProblemRow(diagnostic: Diagnostic, onOpen: () -> Unit) {
             .padding(horizontal = MD.space3, vertical = MD.rowPadY),
         horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = icon,
             // Decoration: the severity is spoken by the row's own message and
             // the position beside it, and "close icon" is not information.

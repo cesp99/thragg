@@ -45,7 +45,7 @@ fn engine() -> &'static Engine {
                 } else {
                     log::LevelFilter::Info
                 })
-                .with_tag("seeker-core"),
+                .with_tag("thragg-core"),
         );
         install_panic_hook();
         log::info!("engine initialized, version {}", engine::ENGINE_VERSION);

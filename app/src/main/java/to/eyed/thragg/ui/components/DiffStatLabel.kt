@@ -12,7 +12,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.TabularNums
 
@@ -47,7 +47,7 @@ fun DiffStatLabel(
     fontSize: TextUnit = 11.sp,
 ) {
     if (added <= 0 && removed <= 0) return
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val style = MaterialTheme.typography.labelSmall.copy(
         fontSize = fontSize,
         fontWeight = FontWeight.Medium,

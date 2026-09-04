@@ -55,7 +55,7 @@ import to.eyed.thragg.ui.theme.pressScale
  * object that is pushed should move.
  */
 @Composable
-fun SeekerCard(
+fun ThraggCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(MD.radiusMd),
     fill: Color = MaterialTheme.colorScheme.surfaceContainer,

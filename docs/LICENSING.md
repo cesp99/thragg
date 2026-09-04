@@ -49,7 +49,7 @@ in the About screen, and as a per-file SPDX header on Eyed-authored sources:
 
 The GPL does not require per-file headers — its "How to Apply These Terms"
 appendix only recommends them, and s5(a) requires only that *modified* files
-carry a notice of the change, which the `SEEKER PATCH` convention already
+carry a notice of the change, which the `THRAGG PATCH` convention already
 handles well for vendored code. The reason to add them here is practical:
 this tree mixes Eyed's Kotlin, Zed crates under two different licences,
 GPL-3.0-only Termux modules and generated icons, and today nothing in an
@@ -313,7 +313,7 @@ permissions on top of GPLv3, not a standalone licence.
 - `vendor/terminal-view/LICENSE.md` said "Everything under `src/` is
   upstream code, unmodified." It is byte-identical to
   `terminal-emulator`'s, where the statement is true; in `terminal-view` it
-  is false, because `TerminalView.java` carries three `SEEKER PATCH` hunks
+  is false, because `TerminalView.java` carries three `THRAGG PATCH` hunks
   for the search highlight. `vendor/VENDOR.md` documents them properly and
   the code is marked in place, so GPLv3 s5(a) is met in substance — but a
   false statement in the file whose whole job is to be true is not something
@@ -523,13 +523,13 @@ release or an OEM submission.
 - [ ] Add `license = "Apache-2.0"` to `core/vendor/gpui_shared_string` and
       `gpui_util`, and `license = "GPL-3.0-or-later"` to
       `core/vendor/grammars` and `language_core`, each marked
-      `SEEKER PATCH`. *(Deliberately not done in the paperwork pass: editing
+      `THRAGG PATCH`. *(Deliberately not done in the paperwork pass: editing
       a vendored `Cargo.toml` invalidates cargo fingerprints and would
       collide with a build in flight.)*
 - [ ] Record `core/vendor/assets/`'s licence in `core/vendor/VENDOR.md`
       rather than dropping a `LICENSE-GPL` into it — the `settings` crate
       embeds that directory with `#[folder = "../assets"]`, so a licence
-      file there would be compiled into `libseekercore.so`.
+      file there would be compiled into `libthraggcore.so`.
 - [ ] Add provenance headers to `core/vendor/grammars/src/sql/highlights.scm`
       (DerekStride v0.3.11, MIT) and the `src/html/*` set (Zed,
       GPL-3.0-or-later).

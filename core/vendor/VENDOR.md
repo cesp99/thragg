@@ -17,14 +17,14 @@ so a per-directory scan has an answer:
   the rest of Zed's assets. Do not fix this by dropping a `LICENSE-GPL` into
   the directory: the `settings` crate embeds it whole with
   `#[folder = "../assets"]`, so the licence text would be compiled into
-  `libseekercore.so`. This paragraph is the record.
+  `libthraggcore.so`. This paragraph is the record.
 - `gpui_shared_string`, `gpui_util`, `grammars` and `language_core` have
   their LICENSE files but declare no `license` field in `Cargo.toml`, so an
   SPDX scanner reports them as unlicensed packages inside the shipped
   binary. Upstream Zed has the same gap. The values are
   `Apache-2.0`, `Apache-2.0`, `GPL-3.0-or-later`, `GPL-3.0-or-later`
   respectively; adding them is on the release checklist in
-  `docs/LICENSING.md` and each should be marked `SEEKER PATCH` so the next
+  `docs/LICENSING.md` and each should be marked `THRAGG PATCH` so the next
   sync does not revert it.
 
 ## Upstream
@@ -93,10 +93,10 @@ Zed's `keymaps/` are deliberately *not* vendored (340 KB of bindings for
 a desktop UI we don't have).
 
 Not vendored, but living next to the vendor tree:
-`core/crates/trash-android` is a Seeker-written `trash` crate — Zed's
+`core/crates/trash-android` is a Thragg-written `trash` crate — Zed's
 `trash-rs` fork has no Android backend — wired in through a
 `[patch."https://github.com/zed-industries/trash-rs"]` entry, and
-`core/crates/tree-sitter-dockerfile` is a Seeker-written binding over
+`core/crates/tree-sitter-dockerfile` is a Thragg-written binding over
 camdencheek's Dockerfile grammar (see "Grammars beyond Zed's set" below).
 
 ## Grammars beyond Zed's set
@@ -106,7 +106,7 @@ through extensions, which this app has no runtime for. Ten more are
 compiled in here, each added the way the existing ones are: a pin in
 `core/Cargo.toml` `[workspace.dependencies]`, an optional dependency and a
 `load-grammars` feature entry in `vendor/grammars/Cargo.toml`, a row in
-`native_grammars()` (marked `SEEKER PATCH`), and a directory of query
+`native_grammars()` (marked `THRAGG PATCH`), and a directory of query
 files under `vendor/grammars/src/<name>/`.
 
 | Grammar | Crate | Directory |
@@ -161,7 +161,7 @@ entry point as a `LanguageFn`, in the spirit of `crates/trash-android`.
 
 The twenty-two that were already here come to ≈ 12.4 MiB by the same
 measure, so this is roughly a 55% increase in the grammar share of
-`libseekercore.so`, uncompressed, per ABI. Two grammars are two thirds of
+`libthraggcore.so`, uncompressed, per ABI. Two grammars are two thirds of
 it: Kotlin's and SQL's parse tables are simply enormous, and both are worth
 it here — Kotlin because this is an Android IDE, SQL because it is the
 grammar Zed's own SQL extension uses. The APK splits per ABI
@@ -185,7 +185,7 @@ vendoring decision avoids.
 
 ## Local patches
 
-All patches are marked with `SEEKER PATCH` comments in the touched
+All patches are marked with `THRAGG PATCH` comments in the touched
 files.
 
 Tier 0:
@@ -240,7 +240,7 @@ Tier 1 — binary size (perf/optimizations):
 
 - `settings_json`, `migrator`, `language`: tree-sitter's `wasm` feature is
   dropped from all three manifests — it pulls the whole Cranelift/Wasmtime
-  stack into libseekercore.so for a .wasm-grammar-loading path this app
+  stack into libthraggcore.so for a .wasm-grammar-loading path this app
   never takes (all grammars are statically linked via `grammars`'s
   `load-grammars` feature). `language` additionally loses the code that used
   the wasm API: `with_parser` no longer attaches a `WasmStore`
@@ -279,7 +279,7 @@ exist on a device — `settings::init` then panics on
 
 1. Update the Zed checkout, note the new commit.
 2. Re-copy crate directories (`cp -rL` to dereference LICENSE
-   symlinks), re-apply the patches above (search for `SEEKER PATCH`
+   symlinks), re-apply the patches above (search for `THRAGG PATCH`
    in the old tree first).
 3. Diff Zed's workspace `Cargo.toml` pins against
    `core/Cargo.toml` `[workspace.dependencies]` and update.

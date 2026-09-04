@@ -61,7 +61,7 @@ import to.eyed.thragg.solana.toolchain.SolanaToolchain
 import to.eyed.thragg.solana.toolchain.formatBytes
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
+import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.editor.SoftWrapMode
 import to.eyed.thragg.ui.shell.Destination
 import to.eyed.thragg.ui.shell.Route
@@ -96,7 +96,7 @@ import to.eyed.thragg.ui.workspace.Notifications
  * repaints the theme.
  *
  * THE MATERIAL PASS (docs/VISUAL.md, "Settings") changed three things and no
- * behaviour. Each section is a [SeekerCard] group with a [HairlineDivider]
+ * behaviour. Each section is a [ThraggCard] group with a [HairlineDivider]
  * between rows, under the shared [SectionHeader] — this file's own private
  * copy of that header, one of three in the app, is gone. The booleans are a
  * real `Switch`: the note that used to be here said Material's takes its
@@ -267,7 +267,7 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
         SectionHeader("Solana", modifier = Modifier.padding(top = MD.space4))
-        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
             LinkRow(
                 label = "Toolchain",
                 detail = when {
@@ -323,7 +323,7 @@ fun SettingsScreen(
         }
 
         SectionHeader("Agent", modifier = Modifier.padding(top = MD.space4))
-        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
             // ONE ROW, NOT TWO. "Install an agent" used to sit under this
             // one carrying the SAME onClick — two rows, one action, and while
             // the picker is null neither could perform it. A permanently grey
@@ -373,7 +373,7 @@ fun SettingsScreen(
         }
 
         SectionHeader("Editor", modifier = Modifier.padding(top = MD.space4))
-        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
             LinkRow(
                 label = "Theme",
                 detail = settings.themeSelection.let { selection ->
@@ -424,7 +424,7 @@ fun SettingsScreen(
         }
 
         SectionHeader("Advanced", modifier = Modifier.padding(top = MD.space4))
-        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
             // Null rather than disabled, for the reason on [LinkRow]: with no
             // settings.json on disk and no editor registered to open it there
             // is nothing behind the chevron, so there is no chevron.

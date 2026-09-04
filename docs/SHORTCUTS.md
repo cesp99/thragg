@@ -141,7 +141,7 @@ editor.
 | `Ctrl` `K`, then `T` | Close the tabs to the right |
 | `Ctrl` `K`, then `Shift` `Enter` | Pin or unpin the active tab |
 | `Ctrl` `K`, then `Z` / `Ctrl` `Z` | Wrap long lines, or stop |
-| — | Install a language server (`seeker: install language server` in the palette) |
+| — | Install a language server (`thragg: install language server` in the palette) |
 | — | Choose the project's toolchain — a Python virtualenv or a rustup toolchain (`toolchain: select` in the palette, or tap the toolchain name in the status bar) |
 | ``Ctrl` ` `` | Show/hide the terminal |
 | ``Ctrl` `Shift` ` `` | Open another terminal |

@@ -16,7 +16,7 @@ import java.io.File
  * *writes* it when the user switches — the Cluster sheet's caption says so.
  * Having a second opinion in our own prefs would let the two drift and the
  * user find out at deploy time. For a Native project there is no such file,
- * so a per-project entry in the `seeker.chain` preferences file is the truth
+ * so a per-project entry in the `thragg.chain` preferences file is the truth
  * instead. Not [to.eyed.thragg.core.AppSettings]: that is settings.json,
  * which the user edits and the engine round-trips through a typed struct that
  * drops keys it does not know (the same reasoning as core/AgentChoice.kt).
@@ -40,7 +40,7 @@ object ClusterStore {
      * Shared with the wallet's persisted address (`SeedVaultWallet`): one
      * preferences file for the chain layer's small facts about this device.
      */
-    const val prefsFile = "seeker.chain"
+    const val prefsFile = "thragg.chain"
 
     private const val KEY_NO_PROJECT = "cluster"
     private const val KEY_PROJECT_PREFIX = "cluster:"

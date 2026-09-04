@@ -502,7 +502,7 @@ impl crate::Engine {
                                 // registered watchers — minus what must not
                                 // travel: the initial scan (see
                                 // `watched_change_type`) and the save path's
-                                // own `.seeker-tmp` staging files, which
+                                // own `.thragg-tmp` staging files, which
                                 // appear and vanish on every save.
                                 let watched: Vec<_> = changes
                                     .iter()
@@ -512,7 +512,7 @@ impl crate::Engine {
                                         let temp = path
                                             .file_name()
                                             .and_then(|name| name.to_str())
-                                            .is_some_and(|name| name.ends_with(".seeker-tmp"));
+                                            .is_some_and(|name| name.ends_with(".thragg-tmp"));
                                         (!temp).then_some((path, kind))
                                     })
                                     .collect();

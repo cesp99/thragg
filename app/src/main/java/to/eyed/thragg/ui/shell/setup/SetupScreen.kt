@@ -62,19 +62,19 @@ import to.eyed.thragg.ui.components.BottomActions
 import to.eyed.thragg.ui.components.BottomActionsGap
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.NoticeCard
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerChip
-import to.eyed.thragg.ui.components.SeekerIndeterminateBar
-import to.eyed.thragg.ui.components.SeekerSpinner
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggChip
+import to.eyed.thragg.ui.components.ThraggIndeterminateBar
+import to.eyed.thragg.ui.components.ThraggSpinner
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.fadeUnderBottomActions
 import to.eyed.thragg.ui.workspace.ConfirmDeleteDialog
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.touchTarget
 
@@ -85,7 +85,7 @@ import to.eyed.thragg.ui.theme.touchTarget
  * THE SHAPE IS VISUAL.md'S SETUP WIREFRAME, and it is the same shape the
  * agent's own provider gate takes: a static 40dp mark, a `headlineSmall`, two
  * lines of `bodyMedium` at the muted ink, one **StepList** — a single
- * [SeekerCard] whose rows are divided by [HairlineDivider] rather than a
+ * [ThraggCard] whose rows are divided by [HairlineDivider] rather than a
  * column of separate cards — and one filled action pinned at the bottom above
  * the nav bar. The mark is drawn STATIC: this is the slot spettro-chat-android
  * fills with a morphing blob, and the slot is worth having while the blob is
@@ -178,7 +178,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
         // The gate has no way back and draws no bar; the toolchain page
         // reached from Settings is a drill page like any other and has one.
         if (!gated) {
-            SeekerTopBar(title = "Toolchain", onBack = { state.pop() })
+            ThraggTopBar(title = "Toolchain", onBack = { state.pop() })
             HairlineDivider()
         }
         if (showPager) {
@@ -213,7 +213,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(MD.space8))
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_launcher_monochrome,
                 contentDescription = null,
                 tint = scheme.primary,
@@ -342,7 +342,7 @@ private fun ColumnScope.OnboardingPager(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(MD.space8))
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_launcher_monochrome,
                 contentDescription = null,
                 tint = scheme.primary,
@@ -481,7 +481,7 @@ private fun PartsPage(manifest: ToolchainManifest?, rows: List<ComponentRow>, es
 @Composable
 private fun PointList(points: List<Pair<Int, Pair<String, String>>>) {
     val scheme = MaterialTheme.colorScheme
-    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+    ThraggCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             points.forEachIndexed { index, (icon, text) ->
                 if (index > 0) HairlineDivider()
@@ -494,7 +494,7 @@ private fun PointList(points: List<Pair<Int, Pair<String, String>>>) {
                     horizontalArrangement = Arrangement.spacedBy(MD.space3),
                 ) {
                     Box(modifier = Modifier.width(20.dp).padding(top = MD.space05)) {
-                        SeekerIcon(
+                        ThraggIcon(
                             icon = icon,
                             contentDescription = null,
                             tint = scheme.primary,
@@ -628,7 +628,7 @@ private fun StepList(
     now: Long,
     onRetry: (String) -> Unit,
 ) {
-    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+    ThraggCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             rows.forEachIndexed { index, row ->
                 if (index > 0) HairlineDivider()
@@ -690,7 +690,7 @@ private fun ComponentRowView(row: ComponentRow, now: Long, onRetry: () -> Unit) 
                 }
             }
             if (state is ComponentState.Failed || state is ComponentState.Cancelled) {
-                SeekerChip(
+                ThraggChip(
                     label = "Retry",
                     onClick = onRetry,
                     // 28dp drawn, 48dp of target: the chip does not grow its
@@ -743,8 +743,8 @@ private fun Bar(fraction: Float? = null) {
     if (fraction == null) {
         // Not the stock indeterminate indicator: that one invalidates every
         // frame of a 120 Hz panel for the length of a compile, and the CPU it
-        // held came straight out of rustc's share (see SeekerIndeterminateBar).
-        SeekerIndeterminateBar(
+        // held came straight out of rustc's share (see ThraggIndeterminateBar).
+        ThraggIndeterminateBar(
             modifier = modifier,
             color = scheme.primary,
             trackColor = scheme.surfaceVariant,
@@ -762,7 +762,7 @@ private fun Bar(fraction: Float? = null) {
 /**
  * The mark on the left of a component row.
  *
- * A running row draws the app's own [SeekerSpinner] rather than a static
+ * A running row draws the app's own [ThraggSpinner] rather than a static
  * glyph: it is the same braille cadence the agent's live-run strip and the
  * build strip use, it stands still under reduce-motion rather than vanishing,
  * and it is the only thing in the list that says "this one, right now".
@@ -776,9 +776,9 @@ private fun Bar(fraction: Float? = null) {
 @Composable
 private fun StateMark(state: ComponentState) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     when (state) {
-        is ComponentState.Installed -> SeekerIcon(
+        is ComponentState.Installed -> ThraggIcon(
             icon = R.drawable.ic_ui_check,
             contentDescription = "installed",
             tint = colors.addedMark,
@@ -786,30 +786,30 @@ private fun StateMark(state: ComponentState) {
         )
 
         is ComponentState.Downloading, is ComponentState.Working ->
-            SeekerSpinner(size = 14.dp, color = scheme.primary)
+            ThraggSpinner(size = 14.dp, color = scheme.primary)
 
-        is ComponentState.Staged -> SeekerIcon(
+        is ComponentState.Staged -> ThraggIcon(
             icon = R.drawable.ic_ui_circle_dashed,
             contentDescription = "downloaded",
             tint = scheme.onSurfaceVariant.copy(alpha = 0.7f),
             size = IconSize.Marker,
         )
 
-        is ComponentState.Outdated -> SeekerIcon(
+        is ComponentState.Outdated -> ThraggIcon(
             icon = R.drawable.ic_ui_arrow_circle,
             contentDescription = "update available",
             tint = scheme.primary,
             size = IconSize.Marker,
         )
 
-        is ComponentState.Failed -> SeekerIcon(
+        is ComponentState.Failed -> ThraggIcon(
             icon = R.drawable.ic_ui_close,
             contentDescription = "failed",
             tint = colors.removedMark,
             size = IconSize.Marker,
         )
 
-        is ComponentState.Pending, is ComponentState.Cancelled -> SeekerIcon(
+        is ComponentState.Pending, is ComponentState.Cancelled -> ThraggIcon(
             icon = R.drawable.ic_ui_circle,
             contentDescription = null,
             tint = scheme.onSurfaceVariant.copy(alpha = 0.5f),

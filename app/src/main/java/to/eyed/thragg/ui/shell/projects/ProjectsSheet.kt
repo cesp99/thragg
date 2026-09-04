@@ -63,9 +63,9 @@ import to.eyed.thragg.ui.components.BottomActionsGap
 import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerSearchField
-import to.eyed.thragg.ui.components.SeekerSpinner
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggSearchField
+import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.components.fadeUnderBottomActions
 import to.eyed.thragg.ui.components.outlinedButtonEdge
@@ -79,7 +79,7 @@ import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.pressScale
 import to.eyed.thragg.ui.theme.MonoSmall
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.mutedIcon
@@ -102,9 +102,9 @@ import to.eyed.thragg.ui.workspace.Notifications
  * destination either.
  *
  * WHAT THE MATERIAL PASS CHANGED (docs/VISUAL.md, "Projects"): the rows are
- * one [SeekerCard] group with a [HairlineDivider] between them rather than a
+ * one [ThraggCard] group with a [HairlineDivider] between them rather than a
  * per-row hand-drawn fill; the filter is the SAME pill as the composer and the
- * model drill ([SeekerSearchField]), which is the entire point of having one
+ * model drill ([ThraggSearchField]), which is the entire point of having one
  * of them; and the two ways to get a *new* project moved into SheetScaffold's
  * pinned `actions` slot, where a list of forty projects cannot push them off
  * the bottom. Press feedback comes back for free with the ripple, and that
@@ -264,7 +264,7 @@ fun ProjectsSheet(
     ) {
         // Fixed above the list rather than scrolling with it: a filter that
         // scrolls away is a filter you have to hunt for to correct.
-        SeekerSearchField(
+        ThraggSearchField(
             value = query,
             onValueChange = { query = it },
             placeholder = "Filter projects…",
@@ -276,7 +276,7 @@ fun ProjectsSheet(
                 horizontalArrangement = Arrangement.spacedBy(MD.space2),
                 modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
             ) {
-                SeekerSpinner()
+                ThraggSpinner()
                 Text(
                     text = busy!!,
                     style = MaterialTheme.typography.bodySmall,
@@ -325,7 +325,7 @@ fun ProjectsSheet(
                 // folders, not thousands, so the recycling a lazy row would
                 // buy is worth less than the group's single edge.
                 item(key = "recent") {
-                    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                    ThraggCard(modifier = Modifier.fillMaxWidth()) {
                         matches.forEachIndexed { index, row ->
                             if (index > 0) HairlineDivider()
                             ProjectListRow(
@@ -348,7 +348,7 @@ fun ProjectsSheet(
                 SectionHeader("Tools", modifier = Modifier.padding(top = MD.space4))
             }
             item(key = "tools") {
-                SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                ThraggCard(modifier = Modifier.fillMaxWidth()) {
                     ToolRow(
                         label = "Import a folder",
                         icon = R.drawable.ic_ui_folder_import,
@@ -497,7 +497,7 @@ internal suspend fun openProjectInShell(
      * the old project to tear down.
      *
      * False for exactly one caller: the launch-time restore of the last
-     * project (SeekerShell.kt, `ShellBootstrap`), where there is nothing open
+     * project (ThraggShell.kt, `ShellBootstrap`), where there is nothing open
      * to reset and [ShellState.reset] would do real damage — it forces the
      * destination back to Code, and the restore is a suspending call that
      * lands after the user has had the shell in their hands for a moment. It
@@ -664,7 +664,7 @@ private fun ProjectListRow(
                     )
                 }
                 if (row.branch != null) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = R.drawable.ic_ui_git_branch,
                         contentDescription = null,
                         tint = mutedIcon,
@@ -725,7 +725,7 @@ private fun ToolRow(
             .padding(horizontal = MD.space3),
     ) {
         if (icon != null) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = icon,
                 contentDescription = null,
                 tint = accentIcon,

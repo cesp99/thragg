@@ -45,7 +45,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.ZedCodeBlock
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoBody
 
@@ -1159,7 +1159,7 @@ internal class MarkdownTextStyle(
 @Composable
 private fun markdownTextStyle(): MarkdownTextStyle {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val body = MaterialTheme.typography.bodyMedium
     val code = MonoBody
     val link = scheme.primary

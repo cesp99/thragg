@@ -31,7 +31,7 @@ import java.io.File
  */
 object ShellEnvironment {
 
-    private const val TAG = "seeker-shell"
+    private const val TAG = "thragg-shell"
 
     /** Bundled executables are packaged under this pattern. */
     private val EXEC_LIB = Regex("""^lib(.+)_exec\.so$""")

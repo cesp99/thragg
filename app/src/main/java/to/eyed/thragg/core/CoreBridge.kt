@@ -17,7 +17,7 @@ package to.eyed.thragg.core
  */
 object CoreBridge {
     init {
-        System.loadLibrary("seekercore")
+        System.loadLibrary("thraggcore")
     }
 
     /**

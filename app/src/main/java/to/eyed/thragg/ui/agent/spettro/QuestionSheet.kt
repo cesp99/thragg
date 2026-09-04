@@ -57,17 +57,17 @@ import to.eyed.thragg.core.QuestionDraft
 import to.eyed.thragg.core.SpettroAnswer
 import to.eyed.thragg.core.SpettroAnswers
 import to.eyed.thragg.core.SpettroQuestion
-import to.eyed.thragg.ui.components.SeekerChip
+import to.eyed.thragg.ui.components.ThraggChip
 import to.eyed.thragg.ui.components.SelectableCard
 import to.eyed.thragg.ui.components.ZedCodeBlock
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.animateSize
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.effectSpec
@@ -286,7 +286,7 @@ fun QuestionSheet(
     queuePosition: Int = 1,
     queueDepth: Int = 1,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val scope = rememberCoroutineScope()
 
     // Keyed on the request id so the queue's next form starts blank: two forms
@@ -451,7 +451,7 @@ fun QuestionSheet(
                 // sparkle instead: the headline beside it already says
                 // "…has a question", so the mark's job is to say who is
                 // asking, and that is the mark this app uses for the agent.
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_agent,
                     contentDescription = null,
                     tint = colors.accentMark,
@@ -562,7 +562,7 @@ private fun StepTabs(
     answered: (Int) -> Boolean,
     onGoTo: (Int) -> Unit,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Row(
         horizontalArrangement = Arrangement.spacedBy(MD.space2),
         verticalAlignment = Alignment.CenterVertically,
@@ -571,7 +571,7 @@ private fun StepTabs(
         for (index in 0 until pageCount) {
             val isReview = hasReview && index == pageCount - 1
             val done = answered(index)
-            SeekerChip(
+            ThraggChip(
                 label = if (isReview) "Review" else "${index + 1}",
                 onClick = { onGoTo(index) },
                 leading = when {
@@ -603,7 +603,7 @@ private fun QuestionPage(
     onTogglePreview: (SpettroQuestion.Opt) -> Unit,
     onPick: (SpettroQuestion.Opt) -> Unit,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -643,7 +643,7 @@ private fun QuestionPage(
                 .clickable(onClickLabel = noteLabel) { onToggleNote() }
                 .padding(vertical = MD.space1),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_pencil,
                 contentDescription = null,
                 tint = colors.accentMark,
@@ -737,7 +737,7 @@ private fun OptionCard(
             if (option.preview != null) {
                 // A disclosure, not an eye and not a second sheet: the preview
                 // opens in place, under the option it belongs to.
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = if (previewOpen) {
                         R.drawable.ic_ui_chevron_up
                     } else {
@@ -769,7 +769,7 @@ private fun OptionCard(
  */
 @Composable
 private fun RecommendedTag() {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Text(
         text = "Recommended",
         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
@@ -799,7 +799,7 @@ private fun ReviewPage(
     draftOf: (SpettroQuestion.Q) -> QuestionDraft,
     onGoTo: (Int) -> Unit,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -850,7 +850,7 @@ private fun ReviewPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_warning,
                 contentDescription = null,
                 tint = colors.warnMark,

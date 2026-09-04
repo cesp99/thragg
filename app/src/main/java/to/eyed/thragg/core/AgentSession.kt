@@ -1478,7 +1478,7 @@ data class AgentSessionList(
 data class SpettroQuestion(
     /** The engine's own id — `question-1` — and what [CoreBridge.acpRespondQuestion] answers. */
     val id: String,
-    /** The seeker session it belongs to, when the engine could resolve one. */
+    /** The thragg session it belongs to, when the engine could resolve one. */
     val session: Long?,
     /** 1 = the flat single question, 2 = `questions[]`. */
     val version: Int,

@@ -2240,7 +2240,7 @@ fn prompt_blocks(
             } => {
                 // Zed's `zed:///agent/thread/{id}?name=…` (mention.rs:523-528),
                 // under this app's own scheme.
-                let mut url = url::Url::parse("seeker:///").expect("a constant URL parses");
+                let mut url = url::Url::parse("thragg:///").expect("a constant URL parses");
                 url.set_path(&format!("/agent/thread/{session}"));
                 url.query_pairs_mut().append_pair("name", title);
                 blocks.push(text_block(embedded, title.clone(), url.to_string(), text));
@@ -2254,7 +2254,7 @@ fn prompt_blocks(
                 blocks.push(text_block(
                     embedded,
                     "Diagnostics".to_owned(),
-                    "seeker:///agent/diagnostics".to_owned(),
+                    "thragg:///agent/diagnostics".to_owned(),
                     text,
                 ));
             }
@@ -4172,8 +4172,8 @@ mod tests {
         assert_eq!(uris[0].1, "fn main() {}");
         assert!(uris[1].0.ends_with("/a.rs#L3:5"), "{}", uris[1].0);
         assert_eq!(uris[2].0, "https://example.com/page");
-        assert_eq!(uris[3].0, "seeker:///agent/thread/3?name=Earlier+work");
-        assert_eq!(uris[4].0, "seeker:///agent/diagnostics");
+        assert_eq!(uris[3].0, "thragg:///agent/thread/3?name=Earlier+work");
+        assert_eq!(uris[4].0, "thragg:///agent/diagnostics");
 
         let blocks = prompt_blocks(&root, false, false, &prompt);
         let acp::ContentBlock::Text(text) = &blocks[3] else {

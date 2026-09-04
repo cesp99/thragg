@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 import to.eyed.thragg.core.CoreBridge
 
 /**
- * Smoke test for the JNI v2 surface: loads libseekercore.so on-device and
+ * Smoke test for the JNI v2 surface: loads libthraggcore.so on-device and
  * round-trips edits, line-window reads and undo/redo through the Rust
  * engine.
  */

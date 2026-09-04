@@ -528,7 +528,7 @@ pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), EngineEr
 pub(crate) fn write_atomically_io(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     let directory = path.parent().unwrap_or(Path::new("."));
     let temporary = directory.join(format!(
-        ".{}.seeker-tmp",
+        ".{}.thragg-tmp",
         path.file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "buffer".to_owned())

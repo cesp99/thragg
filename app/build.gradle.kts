@@ -6,12 +6,12 @@ plugins {
     alias(libs.plugins.androidx.baselineprofile)
 }
 
-// The Rust engine (core/) is compiled to libseekercore.so by cargo-ndk and
+// The Rust engine (core/) is compiled to libthraggcore.so by cargo-ndk and
 // packaged from src/main/jniLibs, which is generated and gitignored.
-// `-Pseeker.abis=x86_64` narrows a development build to the emulator's ABI:
+// `-Pthragg.abis=x86_64` narrows a development build to the emulator's ABI:
 // the engine is a fat-LTO release build per ABI, so skipping arm64 halves the
 // edit-build-test loop. Release builds never pass it.
-val rustAbis = (project.findProperty("seeker.abis") as String?)
+val rustAbis = (project.findProperty("thragg.abis") as String?)
     ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
     ?: listOf("arm64-v8a", "x86_64")
 val rustJniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
@@ -67,8 +67,8 @@ android {
         // below the UI — clone, apt, the agent, the build runner — was written
         // twice for it. The constraint is now unconditional, so it lives here.
         targetSdk = 28
-        versionCode = 14
-        versionName = "0.0.14"
+        versionCode = 15
+        versionName = "0.0.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -147,7 +147,7 @@ baselineProfile {
 
 // Pinned in gradle.properties so the app and the vendored terminal modules
 // (which build libtermux.so with ndk-build) cannot drift apart.
-val ndkVersion = providers.gradleProperty("seeker.ndkVersion").get()
+val ndkVersion = providers.gradleProperty("thragg.ndkVersion").get()
 val sdkDir: String = run {
     val localProps = Properties()
     val localPropsFile = rootProject.file("local.properties")
@@ -161,7 +161,7 @@ val sdkDir: String = run {
 
 val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     group = "build"
-    description = "Builds the Rust core (libseekercore.so) for Android ABIs"
+    description = "Builds the Rust core (libthraggcore.so) for Android ABIs"
     workingDir = rootProject.file("core")
     inputs.dir(rootProject.file("core/crates"))
     inputs.file(rootProject.file("core/Cargo.toml"))

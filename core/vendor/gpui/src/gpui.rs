@@ -36,7 +36,7 @@ mod platform;
 pub mod prelude;
 /// Profiling utilities for task, frame, and thread performance tracking.
 pub mod profiler;
-// SEEKER PATCH: android added — the queue module backs AndroidDispatcher.
+// THRAGG PATCH: android added — the queue module backs AndroidDispatcher.
 #[cfg(any(
     test,
     target_os = "windows",
@@ -141,7 +141,7 @@ pub use keymap::*;
 pub use path_builder::*;
 pub use platform::*;
 pub use profiler::*;
-// SEEKER PATCH: android added, matching the `mod queue` cfg above.
+// THRAGG PATCH: android added, matching the `mod queue` cfg above.
 #[cfg(any(
     target_os = "windows",
     target_os = "linux",

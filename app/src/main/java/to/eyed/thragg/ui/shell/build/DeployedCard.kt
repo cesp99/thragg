@@ -32,8 +32,8 @@ import to.eyed.thragg.solana.chain.ProgramStatus
 import to.eyed.thragg.solana.chain.Rpc
 import to.eyed.thragg.solana.chain.SeedVaultWallet
 import to.eyed.thragg.ui.components.CopyChip
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerChip
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggChip
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.settings.ProgramSheet
 import to.eyed.thragg.ui.shell.settings.copyAddress
@@ -92,7 +92,7 @@ internal fun DeployedCard(state: ShellState, root: String, layout: ProjectLayout
         checking = false
     }
 
-    SeekerCard(
+    ThraggCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = MD.space4, vertical = MD.space3),
@@ -127,15 +127,15 @@ internal fun DeployedCard(state: ShellState, root: String, layout: ProjectLayout
                 CopyChip(text = record.programId, label = "Copy id")
             }
             Row(horizontalArrangement = Arrangement.spacedBy(MD.space2)) {
-                SeekerChip(
+                ThraggChip(
                     label = "Explorer",
                     onClick = { openExplorer(context, cluster.explorerAddress(record.programId)) },
                 )
-                SeekerChip(
+                ThraggChip(
                     label = "Copy link",
                     onClick = { copyAddress(context, cluster.explorerAddress(record.programId), "Explorer link") },
                 )
-                SeekerChip(
+                ThraggChip(
                     label = "Program",
                     onClick = { sheetOpen = true },
                     tint = MaterialTheme.colorScheme.primary,

@@ -34,7 +34,7 @@ import to.eyed.thragg.ui.theme.ThraggTheme
 import to.eyed.thragg.ui.theme.ThemeStore
 import to.eyed.thragg.terminal.TerminalService
 import to.eyed.thragg.terminal.Userland
-import to.eyed.thragg.ui.shell.SeekerShell
+import to.eyed.thragg.ui.shell.ThraggShell
 
 class MainActivity : ComponentActivity() {
 
@@ -158,7 +158,7 @@ class MainActivity : ComponentActivity() {
                 // (docs/UI.md, "Code with the soft keyboard up" — the vertical
                 // budget is exact and there is no room in it for a second
                 // opinion about insets).
-                SeekerShell(
+                ThraggShell(
                     settings = settings,
                     settingsPath = File(filesDir, "settings.json").absolutePath,
                     onSettingsChanged = { settings = it },

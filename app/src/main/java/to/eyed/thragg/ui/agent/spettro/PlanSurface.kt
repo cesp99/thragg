@@ -41,9 +41,9 @@ import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalReduceMotion
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.mutedIcon
 
@@ -152,7 +152,7 @@ fun PlanProgress(
     modifier: Modifier = Modifier,
 ) {
     val summary = planSummary(plan) ?: return
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val spoken = buildString {
         append("Plan, ")
         append(summary.done)
@@ -187,7 +187,7 @@ fun PlanProgress(
                 }
             },
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = if (summary.isComplete) {
                 R.drawable.ic_ui_checkbox_checked
             } else {
@@ -399,7 +399,7 @@ fun PlanRow(entry: AgentPlanEntry, modifier: Modifier = Modifier) {
  */
 @Composable
 private fun PlanGlyph(entry: AgentPlanEntry) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val reduceMotion = LocalReduceMotion.current
     Box(modifier = Modifier.width(GlyphWidth), contentAlignment = Alignment.TopStart) {
         key(entry.content) {
@@ -411,7 +411,7 @@ private fun PlanGlyph(entry: AgentPlanEntry) {
                 label = "plan-status",
             ) { status ->
                 val (icon, said) = statusIcon(status)
-                SeekerIcon(
+                ThraggIcon(
                     icon = icon,
                     contentDescription = said,
                     // A completed task's tick is `created` solved to 3:1 on a

@@ -24,7 +24,7 @@ import to.eyed.thragg.ui.theme.effectSpec
  * This replaces a `Toast`, deliberately and everywhere. A toast for a copy
  * covers content in order to report something that happened at the other end
  * of the screen, is untappable, is gone in four seconds and cannot be read by
- * anyone who looked away — and Seeker reaches for one at five sites today. The
+ * anyone who looked away — and Thragg reaches for one at five sites today. The
  * chip flips its own label to "Copied" for [Durations.COPY_CONFIRM] (1600ms)
  * and reverts. The confirmation is at the point of action, and it costs no
  * layout.
@@ -65,7 +65,7 @@ fun CopyChip(
         label = "copy-chip",
         modifier = modifier,
     ) { confirmed ->
-        SeekerChip(
+        ThraggChip(
             label = if (confirmed) "Copied" else label,
             // A check on the way out and nothing on the way in: Lucide's copy
             // glyph is not in the imported set yet (tools/import-lucide-icons.py

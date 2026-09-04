@@ -15,7 +15,7 @@ class SystemSpecsTest {
         appVersion = "0.0.4",
         versionCode = 4,
         hasUserland = true,
-        engineVersion = "seeker-engine 0.1.0",
+        engineVersion = "thragg-engine 0.1.0",
         zedCommit = "bc538def45",
         deviceModel = "Google Pixel 9 Pro",
         androidVersion = "Android 17 (API 37)",
@@ -29,7 +29,7 @@ class SystemSpecsTest {
             """
             App: 0.0.4 (4)
             Userland: Linux userland
-            Engine: seeker-engine 0.1.0
+            Engine: thragg-engine 0.1.0
             Zed: bc538def45
             Device: Google Pixel 9 Pro
             Android: Android 17 (API 37)

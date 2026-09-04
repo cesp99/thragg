@@ -108,7 +108,7 @@ class TerminalVendorTest {
         try {
             assertTrue("no pid reported", client.pid > 0)
 
-            val marker = "seeker-pty-ok"
+            val marker = "thragg-pty-ok"
             val command = "echo $marker\n".toByteArray()
             session.write(command, 0, command.size)
 
@@ -129,7 +129,7 @@ class TerminalVendorTest {
         val session = startShell(
             client,
             // Bold "styled", a title-setting OSC, and a bell.
-            arrayOf("sh", "-c", "printf '\\033]0;seeker-title\\007\\033[1mstyled\\033[0m\\n\\007'"),
+            arrayOf("sh", "-c", "printf '\\033]0;thragg-title\\007\\033[1mstyled\\033[0m\\n\\007'"),
         )
         try {
             val screen = awaitScreen(session, 10_000) { it.contains("styled") }
@@ -140,7 +140,7 @@ class TerminalVendorTest {
             // so a bare "[" is not evidence of a leak.)
             assertTrue("ESC leaked into the screen:\n$screen", !screen.contains('\u001B'))
             assertTrue("SGR leaked into the screen:\n$screen", !screen.contains("[1m"))
-            assertTrue("OSC leaked into the screen:\n$screen", !screen.contains("seeker-title"))
+            assertTrue("OSC leaked into the screen:\n$screen", !screen.contains("thragg-title"))
 
             // …and the SGR took effect rather than merely being swallowed: the
             // first cell of the screen is bold.
@@ -152,7 +152,7 @@ class TerminalVendorTest {
 
             assertTrue("session did not finish", client.finished.await(10, TimeUnit.SECONDS))
             assertEquals(0, session.exitStatus)
-            assertEquals("seeker-title", client.title)
+            assertEquals("thragg-title", client.title)
             assertTrue("bell not reported", client.bells > 0)
         } finally {
             instrumentation.runOnMainSync { session.finishIfRunning() }

@@ -25,7 +25,7 @@ Two engine facts from this session's reading shape the spec and contradicted all
 
 ## Navigation
 
-SHELL. One file, app/src/main/java/to/eyed/thragg/ui/shell/SeekerShell.kt, replacing WorkspaceScreen.kt. Structure: `Column { destination(weight = 1f); BottomNav }`. No title bar, no status bar, no tab strip, no dock, no pane tree. There is no `isWide`, no `WideLayoutMinWidth`, no `DockMinWidth`, no `MinEditorWidth`, and no window-size-class branch anywhere in the shell.
+SHELL. One file, app/src/main/java/to/eyed/thragg/ui/shell/ThraggShell.kt, replacing WorkspaceScreen.kt. Structure: `Column { destination(weight = 1f); BottomNav }`. No title bar, no status bar, no tab strip, no dock, no pane tree. There is no `isWide`, no `WideLayoutMinWidth`, no `DockMinWidth`, no `MinEditorWidth`, and no window-size-class branch anywhere in the shell.
 
 THREE DESTINATIONS, and nothing else is a destination. One floating capsule at the bottom (ShellNavBar.kt), 3 slots of 88dp inside it with a pill that slides between them: a tap sends the pill to the tab and shows it on the next frame; a drag anywhere on the bar carries the pill 1:1, ticks as it crosses a slot, is thrown on release toward where its velocity was going (never more than one tab from velocity alone), and the screen slides the same way. The bar area is 8dp + capsule (~57dp portrait, 44dp landscape) + 8dp + gesture inset, on the shell background with no hairline.
   ‹› Code   — the editor, full-bleed. Start destination.
@@ -346,11 +346,11 @@ The escape hatch. Everything the three buttons do not cover — `solana config`,
 ┌──────────────────────────────────────────┐
 │ escrow ▾   Shell           ⌗ Build   ⋮   │
 ├──────────────────────────────────────────┤
-│ root@seeker:~/escrow# solana balance     │
+│ root@thragg:~/escrow# solana balance     │
 │ 2.41 SOL                                 │
-│ root@seeker:~/escrow# anchor keys list   │
+│ root@thragg:~/escrow# anchor keys list   │
 │ escrow: Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEf…  │
-│ root@seeker:~/escrow# ▊                  │
+│ root@thragg:~/escrow# ▊                  │
 │                                          │
 │                                          │
 │                                          │
@@ -828,7 +828,7 @@ Nothing else may start deleting until this lands. Three verified couplings: (1) 
 
 ### P1 — Shell skeleton: nav, back, state, sheets
 
-*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/SeekerShell.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellState.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellBackHandler.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellNavBar.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/SheetScaffold.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/RouteStack.kt (new)`, `app/src/main/java/to/eyed/thragg/MainActivity.kt`, `app/src/test/java/to/eyed/thragg/ui/shell/ShellBackHandlerTest.kt (new)`, `app/src/test/java/to/eyed/thragg/ui/shell/RouteStackTest.kt (new)`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/ThraggShell.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellState.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellBackHandler.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellNavBar.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/SheetScaffold.kt (new)`, `app/src/main/java/to/eyed/thragg/ui/shell/RouteStack.kt (new)`, `app/src/main/java/to/eyed/thragg/MainActivity.kt`, `app/src/test/java/to/eyed/thragg/ui/shell/ShellBackHandlerTest.kt (new)`, `app/src/test/java/to/eyed/thragg/ui/shell/RouteStackTest.kt (new)`
 
 *Depends on:* P0
 

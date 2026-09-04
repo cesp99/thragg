@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.LocalReduceMotion
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.ZedRadius
 import to.eyed.thragg.ui.theme.rem
 
@@ -470,12 +470,12 @@ internal fun GhostIconButton(
  * the `error` key itself. Only `warning` changes shape, and it has to: it is
  * drawn as an icon and as a border, so it wants MARK_RATIO against the card it
  * lands on, and the raw key is 1.64:1 on Ayu Light. `warnMark` on
- * [LocalSeekerColors] is that key already solved.
+ * [LocalThraggColors] is that key already solved.
  */
 @Composable
 private fun severityColour(severity: NotificationSeverity): Color = when (severity) {
     NotificationSeverity.Info -> MaterialTheme.colorScheme.primary
-    NotificationSeverity.Warning -> LocalSeekerColors.current.warnMark
+    NotificationSeverity.Warning -> LocalThraggColors.current.warnMark
     NotificationSeverity.Error -> MaterialTheme.colorScheme.error
 }
 

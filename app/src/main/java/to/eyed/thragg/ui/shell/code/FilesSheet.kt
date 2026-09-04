@@ -57,8 +57,8 @@ import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoSmall
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.touchTarget
 import to.eyed.thragg.ui.workspace.OpenFilesState
@@ -104,7 +104,7 @@ fun FilesSheet(
     onOpenChanges: () -> Unit,
     /**
      * Projects & tools. It used to hang off the Code header's project chip,
-     * and a [to.eyed.thragg.ui.components.SeekerTopBar] has no slot for
+     * and a [to.eyed.thragg.ui.components.ThraggTopBar] has no slot for
      * one — its leading position belongs to back. This sheet is where the
      * question moved to, and it belongs here: this is the surface about
      * *where the files are*, and switching project is the largest version of
@@ -130,7 +130,7 @@ fun FilesSheet(
         title = "Files",
         field = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_magnifying_glass,
                     contentDescription = null,
                     tint = mutedIcon,
@@ -221,7 +221,7 @@ private fun ColumnScope.BrowseBody(
                         .clickable { onOpenFile(file.path) }
                         .padding(horizontal = MD.space4, vertical = MD.rowPadY),
                 ) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = if (file.isDirty) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
                         contentDescription = if (file.isDirty) "unsaved" else null,
                         tint = if (file.isDirty) {
@@ -253,7 +253,7 @@ private fun ColumnScope.BrowseBody(
                     // Through the model, never `close` directly: a dirty
                     // buffer must raise the unsaved-changes dialog the host
                     // composes, or the edits since the last save go silently.
-                    SeekerIconButton(
+                    ThraggIconButton(
                         icon = R.drawable.ic_ui_close,
                         description = "Close ${file.name}",
                         onClick = { files.requestClose(index) },
@@ -467,7 +467,7 @@ private fun SheetAction(@DrawableRes icon: Int, label: String, onClick: () -> Un
     TextButton(onClick = onClick) {
         // The words carry the meaning here, so the icon is decoration and the
         // button's own label is what a screen reader reads.
-        SeekerIcon(
+        ThraggIcon(
             icon = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,

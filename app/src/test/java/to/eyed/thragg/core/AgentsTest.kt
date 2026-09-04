@@ -60,7 +60,7 @@ class AgentsTest {
             id = "custom:Spettro",
             name = "Spettro",
             argv = listOf(
-                "/opt/seeker/agents/spettro/spettro",
+                "/opt/thragg/agents/spettro/spettro",
                 "-acp",
                 "--cwd",
                 Agents.PROJECT_ROOT_TOKEN,

@@ -43,7 +43,7 @@ object BackgroundWork {
     suspend fun <T> hold(context: Context, tag: String, block: suspend () -> T): T {
         val app = context.applicationContext
         val power = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val lock = power?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "seeker:$tag")
+        val lock = power?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "thragg:$tag")
         runCatching { lock?.acquire(WAKE_LOCK_MS) }
         runCatching { TerminalSessions.of(app).holdForBackgroundWork(tag, true) }
         try {

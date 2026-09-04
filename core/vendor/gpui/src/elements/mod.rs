@@ -8,7 +8,7 @@ mod image_cache;
 mod img;
 mod list;
 mod surface;
-// SEEKER PATCH: behind the off-by-default `images` feature — painting an
+// THRAGG PATCH: behind the off-by-default `images` feature — painting an
 // Svg element needs the SVG renderer.
 #[cfg(feature = "images")]
 mod svg;

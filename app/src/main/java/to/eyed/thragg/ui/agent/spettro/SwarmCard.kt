@@ -38,11 +38,11 @@ import to.eyed.thragg.core.OrchStatus
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
-import to.eyed.thragg.ui.theme.seekerSpring
+import to.eyed.thragg.ui.theme.thraggSpring
 
 /**
  * An Ultra swarm (docs/SPETTRO.md, "Ultra swarm card").
@@ -84,7 +84,7 @@ fun SwarmCard(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val muted = scheme.onSurfaceVariant
     val amberWash = colors.ultraAmber
     val amberInk = colors.warnInk
@@ -120,7 +120,7 @@ fun SwarmCard(
                     .heightIn(min = 36.dp)
                     .clickable(onClickLabel = "Ultra swarm") { open = !open },
             ) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_zap,
                     contentDescription = null,
                     tint = amberInk,
@@ -238,15 +238,15 @@ fun SwarmCard(
     }
 }
 
-/** See [WorkflowCard]'s own chevron: one drawable, rotated on [seekerSpring]. */
+/** See [WorkflowCard]'s own chevron: one drawable, rotated on [thraggSpring]. */
 @Composable
 private fun Chevron(open: Boolean) {
     val angle by animateFloatAsState(
         targetValue = if (open) 180f else 0f,
-        animationSpec = seekerSpring(),
+        animationSpec = thraggSpring(),
         label = "swarm-card-chevron",
     )
-    SeekerIcon(
+    ThraggIcon(
         icon = R.drawable.ic_ui_chevron_down,
         contentDescription = null,
         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -268,7 +268,7 @@ private fun WorktreePill(amber: Color, onClick: () -> Unit) {
             .clickable(onClickLabel = "What worktree isolation means") { onClick() }
             .padding(horizontal = MD.iconGap, vertical = MD.space05),
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_git_fork,
             contentDescription = null,
             tint = amber,

@@ -12,7 +12,7 @@ test-support = []
 [lints]
 workspace = true
 
-# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# THRAGG PATCH: inline tests are off — they need the dev-dependencies
 # stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
 [lib]
 test = false
@@ -24,6 +24,6 @@ anyhow.workspace = true
 prost.workspace = true
 serde.workspace = true
 
-# SEEKER PATCH: kept (proto/build.rs compiles zed.proto with prost).
+# THRAGG PATCH: kept (proto/build.rs compiles zed.proto with prost).
 [build-dependencies]
 prost-build.workspace = true

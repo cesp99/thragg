@@ -13,7 +13,7 @@ import to.eyed.thragg.core.CoreBridge
  * P1-4 benchmark: 10k random edits on a 100k-line buffer through the JNI
  * bridge, interleaved with visible-window line reads (the per-frame read
  * pattern of the future editor). Results go to logcat under the tag
- * "seeker-bench"; record them in agent-docs when run on real hardware.
+ * "thragg-bench"; record them in agent-docs when run on real hardware.
  *
  * Deterministic (fixed seed), ASCII-only so random byte offsets can be
  * clamped to valid boundaries cheaply.
@@ -61,7 +61,7 @@ class CoreBridgeBenchmark {
             fun stats(name: String, sorted: LongArray) {
                 val toUs = { n: Long -> n / 1_000.0 }
                 Log.i(
-                    "seeker-bench",
+                    "thragg-bench",
                     "$name: p50=${toUs(sorted[sorted.size / 2])}us " +
                         "p95=${toUs(sorted[(sorted.size * 95) / 100])}us " +
                         "p99=${toUs(sorted[(sorted.size * 99) / 100])}us " +

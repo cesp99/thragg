@@ -924,8 +924,8 @@ mod tests {
     fn buffer_roundtrip() {
         let engine = Engine::new();
         let id = engine.create_buffer("hello world");
-        engine.edit(id, 6, 11, "seeker").unwrap();
-        assert_eq!(engine.text(id).unwrap(), "hello seeker");
+        engine.edit(id, 6, 11, "thragg").unwrap();
+        assert_eq!(engine.text(id).unwrap(), "hello thragg");
         assert!(engine.close_buffer(id));
         assert_eq!(engine.text(id), Err(EngineError::UnknownBuffer(id)));
     }

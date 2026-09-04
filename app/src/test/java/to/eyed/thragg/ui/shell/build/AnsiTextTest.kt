@@ -33,7 +33,7 @@ class AnsiTextTest {
 
     @Test
     fun `an unstyled line is returned untouched and unspanned`() {
-        val line = "   Compiling seeker-program v0.1.0"
+        val line = "   Compiling thragg-program v0.1.0"
         val out = annotate(line)
         assertEquals(line, out.text)
         assertTrue(out.spanStyles.isEmpty())

@@ -36,12 +36,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.thragg.R
 import to.eyed.thragg.core.AgentPastSession
-import to.eyed.thragg.ui.components.SeekerSearchField
+import to.eyed.thragg.ui.components.ThraggSearchField
 import to.eyed.thragg.ui.shell.projects.relativeTime
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -288,7 +288,7 @@ fun SessionPicker(
             Text(
                 text = error,
                 style = MaterialTheme.typography.bodySmall,
-                color = LocalSeekerColors.current.dangerInk,
+                color = LocalThraggColors.current.dangerInk,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
@@ -357,17 +357,17 @@ fun SessionPicker(
                 .clickable(onClickLabel = "New session", onClick = onNew)
                 .padding(horizontal = 16.dp),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_plus,
                 contentDescription = null,
-                tint = LocalSeekerColors.current.accentMark,
+                tint = LocalThraggColors.current.accentMark,
                 size = IconSize.Inline,
                 modifier = Modifier.padding(end = 8.dp),
             )
             Text(
                 text = "New session",
                 style = MaterialTheme.typography.labelLarge,
-                color = LocalSeekerColors.current.accentInk,
+                color = LocalThraggColors.current.accentInk,
             )
         }
     }
@@ -429,11 +429,11 @@ private fun SessionRow(
             // A filled dot for a conversation this app is already holding
             // open, a hollow one for a conversation that only exists in the
             // agent's store.
-            SeekerIcon(
+            ThraggIcon(
                 icon = if (isOpen) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
                 contentDescription = if (isOpen) "open" else null,
                 tint = if (isOpen) {
-                    LocalSeekerColors.current.accentMark
+                    LocalThraggColors.current.accentMark
                 } else {
                     muted
                 },
@@ -514,7 +514,7 @@ private fun RowAction(label: String, subtitle: String, onClick: () -> Unit) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = LocalSeekerColors.current.accentInk,
+            color = LocalThraggColors.current.accentInk,
             maxLines = 1,
         )
         Text(
@@ -570,7 +570,7 @@ private fun ScopeControl(scope: SessionScope, onScopeChange: (SessionScope) -> U
 /**
  * The picker's search field, for the host to pin at the bottom of the sheet.
  *
- * [SeekerSearchField] is the app's one search pill — 20dp, `surfaceContainerHigh`,
+ * [ThraggSearchField] is the app's one search pill — 20dp, `surfaceContainerHigh`,
  * a hairline that warms to the accent while it holds the caret, and a clear
  * button that appears only once there is something to clear. This file used to
  * hand-roll an 8dp version of it with no focus state at all; every search field
@@ -582,7 +582,7 @@ fun SessionSearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SeekerSearchField(
+    ThraggSearchField(
         value = query,
         onValueChange = onQueryChange,
         placeholder = "Search conversations",

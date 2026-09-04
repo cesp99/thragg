@@ -37,7 +37,7 @@ the repository `README.md`.
 ### Local patches
 
 Everything under `src/` is verbatim upstream **except** for the one hunk set
-below. Any future change must be marked with a `// SEEKER PATCH:` comment,
+below. Any future change must be marked with a `// THRAGG PATCH:` comment,
 listed here, and reflected in the module's own `LICENSE.md` — GPLv3 s5(a)
 asks that a modified file say it was modified, and a `LICENSE.md` claiming
 the source is untouched when it is not is the kind of thing an OEM

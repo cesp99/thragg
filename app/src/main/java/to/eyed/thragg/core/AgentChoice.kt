@@ -22,7 +22,7 @@ import android.content.Context
  * deleted resolves to nothing, which is exactly right: the panel then falls
  * back to registering the bundled agent, as it does on a fresh install.
  *
- * **Where it is written.** The `seeker.agent` preferences file the agent screen
+ * **Where it is written.** The `thragg.agent` preferences file the agent screen
  * already keeps its one-time "how much should it ask?" record in, and not
  * settings.json. Two reasons, and they are the same two that put the record
  * there: settings.json is the file the user opens *in the editor*, so every key
@@ -37,7 +37,7 @@ object AgentChoice {
      * Shared with the agent screen's permission-question record — one file for
      * the panel's small facts about this device, named in one place.
      */
-    const val PREFS = "seeker.agent"
+    const val PREFS = "thragg.agent"
 
     private const val KEY_CHOSEN = "chosen_agent"
 

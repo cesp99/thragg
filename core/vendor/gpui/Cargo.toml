@@ -16,7 +16,7 @@ categories = ["gui"]
 workspace = true
 
 [features]
-# SEEKER PATCH: dropped "windows-manifest" — its `embed-resource`
+# THRAGG PATCH: dropped "windows-manifest" — its `embed-resource`
 # build-dependency went away with the other build/dev dependencies.
 default = ["font-kit", "wayland", "x11"]
 test-support = [
@@ -28,7 +28,7 @@ test-support = [
     "proptest",
 ]
 bench = ["test-support", "profiler", "dep:criterion"]
-# SEEKER PATCH: image decoding and SVG rasterization live behind this
+# THRAGG PATCH: image decoding and SVG rasterization live behind this
 # off-by-default feature. The engine drives gpui as a headless runtime — no
 # build of this app ever decodes an image or rasterizes an SVG — and the image
 # codecs plus resvg/usvg/ttf-parser are pure dead weight in the shipped .so.
@@ -66,7 +66,7 @@ screen-capture = [
 ]
 profiler = ["dep:hdrhistogram"]
 
-# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# THRAGG PATCH: inline tests are off — they need the dev-dependencies
 # stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
 [lib]
 test = false
@@ -90,7 +90,7 @@ futures-concurrency.workspace = true
 gpui_macros.workspace = true
 gpui_shared_string.workspace = true
 http_client.workspace = true
-# SEEKER PATCH: codec-free — the workspace pin's codec features move into
+# THRAGG PATCH: codec-free — the workspace pin's codec features move into
 # the off-by-default "images" feature above.
 image = { version = "0.25.1", default-features = false }
 inventory.workspace = true
@@ -108,7 +108,7 @@ raw-window-handle.workspace = true
 regex.workspace = true
 refineable.workspace = true
 scheduler.workspace = true
-# SEEKER PATCH: optional, behind the off-by-default "images" feature.
+# THRAGG PATCH: optional, behind the off-by-default "images" feature.
 resvg = { workspace = true, optional = true }
 usvg = { workspace = true, optional = true }
 ttf-parser = { version = "0.25", optional = true }

@@ -32,7 +32,7 @@ import to.eyed.thragg.ui.theme.MonoBody
  * THIS IS THE ONLY COMPONENT IN THE LIBRARY THAT READS `LocalZedTheme`, and it
  * must stay the only one — that is the seam contract, and a reviewer should be
  * able to check it with one grep over `ui/components/`. Everything else here
- * reads `MaterialTheme.colorScheme` and `LocalSeekerColors`.
+ * reads `MaterialTheme.colorScheme` and `LocalThraggColors`.
  *
  * It exists because the same snippet was being drawn eleven different ways in
  * `FontFamily.Monospace` — the SYSTEM mono, not the user's buffer face — over

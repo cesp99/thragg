@@ -53,18 +53,18 @@ of those notices is preserved here, in `core/vendor/VENDOR.md`, in
 
 - `core/vendor/gpui_shared_string`, `gpui_util`, `grammars` and
   `language_core` declare no `license` field in their `Cargo.toml`, so an
-  SPDX scanner reports four unlicensed packages inside `libseekercore.so`.
+  SPDX scanner reports four unlicensed packages inside `libthraggcore.so`.
   The information is on disk — the first two carry `LICENSE-APACHE`, the
   last two `LICENSE-GPL`, and `core/vendor/VENDOR.md` is correct about all
   four. Upstream Zed has the same gap; it does not bite there because Zed
   ships the repository and we ship a binary. Fix is four one-line additions,
-  each marked `SEEKER PATCH` so the next vendor sync does not revert it.
+  each marked `THRAGG PATCH` so the next vendor sync does not revert it.
 - `core/vendor/assets/` is the only one of the 51 vendored directories with
   no licence file. It holds Zed's repo-root `assets/settings/default.json`,
   GPL-3.0-or-later with Zed. Note before "fixing" it the obvious way: the
   `settings` crate embeds that directory with `#[folder = "../assets"]`, so
   dropping a `LICENSE-GPL` in there would compile the whole GPLv3 text into
-  `libseekercore.so`. Record it in `core/vendor/VENDOR.md` instead, or put
+  `libthraggcore.so`. Record it in `core/vendor/VENDOR.md` instead, or put
   the file somewhere rust-embed does not walk.
 
 **On the Zed commit.** `core/vendor/VENDOR.md` records `bc538def45 (local
@@ -106,7 +106,7 @@ here against the grammar's node names. This table is the summary either way.
 | Svelte | Zed's `html/highlights.scm` plus [tree-sitter-grammars/tree-sitter-svelte](https://github.com/tree-sitter-grammars/tree-sitter-svelte) v1.0.2 block-tag keywords and `queries/injections.scm` | GPL-3.0-or-later / MIT (© Amaan Qureshi) |
 
 The grammars themselves are ordinary crates.io dependencies, pinned in
-`core/Cargo.toml`; they are compiled into `libseekercore.so` and are covered
+`core/Cargo.toml`; they are compiled into `libthraggcore.so` and are covered
 by the crate section below.
 
 ## Icons
@@ -305,7 +305,7 @@ longer imports chrome glyphs at all — its `UI_ICONS` tuple is gone and it is
 now scoped to `file_icons/` alone. The two provenances no longer share a
 tool, and no re-import can resurrect a Zed logo.
 
-## Rust crates compiled into `libseekercore.so`
+## Rust crates compiled into `libthraggcore.so`
 
 `core/Cargo.lock` has 834 entries. The number that matters is the closure
 that actually links, which is smaller and which is what the notices bundle
@@ -435,7 +435,7 @@ fixes.
 module's JNI sources and is GPL-3.0-only with it.
 
 **Local modifications to proot**, applied by the build script and marked in
-the source with `SEEKER PATCH`. There are **two**, and an earlier version of
+the source with `THRAGG PATCH`. There are **two**, and an earlier version of
 this file listed one:
 
 1. `src/extension/ashmem_memfd/ashmem_memfd.c` — add `#include <string.h>`.

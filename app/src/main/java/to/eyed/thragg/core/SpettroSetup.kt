@@ -50,7 +50,7 @@ import org.json.JSONObject
  */
 object SpettroSetup {
 
-    private const val TAG = "seeker-spettro"
+    private const val TAG = "thragg-spettro"
 
     // --- what the screens read -------------------------------------------------
 

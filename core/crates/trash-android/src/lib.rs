@@ -75,7 +75,7 @@ pub fn root() -> PathBuf {
         .read()
         .unwrap()
         .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("seeker-trash"))
+        .unwrap_or_else(|| std::env::temp_dir().join("thragg-trash"))
 }
 
 /// Move `path` into the trash, returning the entry needed to restore it.
@@ -196,7 +196,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("seeker-trash-test-{name}-{}", unique_slot()));
+            std::env::temp_dir().join(format!("thragg-trash-test-{name}-{}", unique_slot()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

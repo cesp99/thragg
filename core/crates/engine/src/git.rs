@@ -449,7 +449,7 @@ impl crate::Engine {
 
         let worker_cache = cache.clone();
         let spawned = thread::Builder::new()
-            .name("seeker-git-status".to_owned())
+            .name("thragg-git-status".to_owned())
             .spawn(move || run_until_settled(id, &userland, &root, &project, &worker_cache));
         if let Err(err) = spawned {
             // Leaving `running` set would wedge this project forever.
@@ -1126,7 +1126,7 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const MUTATION_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// What the shell wrapper prints after the command it ran.
-const EXIT_MARKER: &str = "seeker-exit:";
+const EXIT_MARKER: &str = "thragg-exit:";
 
 /// The wrapper itself.
 ///
@@ -1145,7 +1145,7 @@ const EXIT_MARKER: &str = "seeker-exit:";
 /// The marker is printed with no newline before it, deliberately. `git show` is
 /// read through this too, and one added newline is one added *line* — a phantom
 /// deleted row at the end of every file the gutter draws.
-const WRAPPER: &str = r#""$@" 2>&1; printf 'seeker-exit:%d' "$?""#;
+const WRAPPER: &str = r#""$@" 2>&1; printf 'thragg-exit:%d' "$?""#;
 
 /// What one command did.
 #[derive(Debug)]
@@ -1286,7 +1286,7 @@ fn wrapped_argv(argv: Vec<OsString>) -> Vec<OsString> {
         OsString::from(WRAPPER),
         // `$0`. Names the wrapper in any diagnostic `sh` itself produces; git
         // starts at `$1`, which is what `"$@"` expands to.
-        OsString::from("seeker-git"),
+        OsString::from("thragg-git"),
     ];
     wrapped.extend(argv);
     wrapped
@@ -1296,7 +1296,7 @@ fn wrapped_argv(argv: Vec<OsString>) -> Vec<OsString> {
 fn parse_run(output: &[u8]) -> Result<GitRun, String> {
     let output = String::from_utf8_lossy(output).into_owned();
     // From the *last* marker: git is free to print the string itself, and a
-    // repository holding a file called `seeker-exit:0` must not be able to
+    // repository holding a file called `thragg-exit:0` must not be able to
     // make a failure read as a success.
     let (before, after) = output
         .rsplit_once(EXIT_MARKER)
@@ -1308,7 +1308,7 @@ fn parse_run(output: &[u8]) -> Result<GitRun, String> {
 }
 
 /// What the split wrapper prints between the two streams.
-const STDERR_MARKER: &str = "seeker-stderr:";
+const STDERR_MARKER: &str = "thragg-stderr:";
 
 /// A second wrapper, for the commands whose two streams *mean* different
 /// things. Zed's remote-output toasts read them separately — a pull's file
@@ -1333,7 +1333,7 @@ const STDERR_MARKER: &str = "seeker-stderr:";
 /// as "git exited with 2" with nothing to show — the guest environment now
 /// pins TMPDIR too ([`crate::guest`]), and this wrapper additionally refuses
 /// to trust it.
-const SPLIT_WRAPPER: &str = r#"t="/tmp/seeker-stderr.$$"; "$@" 2>"$t"; s=$?; printf 'seeker-stderr:'; cat "$t" 2>/dev/null; rm -f "$t"; printf 'seeker-exit:%d' "$s""#;
+const SPLIT_WRAPPER: &str = r#"t="/tmp/thragg-stderr.$$"; "$@" 2>"$t"; s=$?; printf 'thragg-stderr:'; cat "$t" 2>/dev/null; rm -f "$t"; printf 'thragg-exit:%d' "$s""#;
 
 /// What one split-stream command did.
 pub(crate) struct GitSplitRun {
@@ -1401,7 +1401,7 @@ fn split_wrapped_argv(argv: Vec<OsString>) -> Vec<OsString> {
         OsString::from("/bin/sh"),
         OsString::from("-c"),
         OsString::from(SPLIT_WRAPPER),
-        OsString::from("seeker-git"),
+        OsString::from("thragg-git"),
     ];
     wrapped.extend(argv);
     wrapped
@@ -2111,7 +2111,7 @@ pub(crate) fn discard_steps(
         // way to tell a restore from a delete. Refusing is the only safe
         // answer: the old code assumed `git restore` would refuse for us.
         return Err(format!(
-            "Seeker has no git status for {path:?}. Let the panel refresh and try again."
+            "Thragg has no git status for {path:?}. Let the panel refresh and try again."
         ));
     };
     if change.is_conflicted() || change.x == b'U' || change.y == b'U' {
@@ -2139,7 +2139,7 @@ pub(crate) fn discard_steps(
         b'R' => {
             let Some(original) = &change.original else {
                 return Err(format!(
-                    "Seeker cannot tell where {path} was renamed from, so it will not \
+                    "Thragg cannot tell where {path} was renamed from, so it will not \
                      discard it. Use the terminal."
                 ));
             };
@@ -2599,27 +2599,27 @@ mod tests {
         let argv = argv_strings(wrapped_argv(git_argv(Path::new("/repo"), &["add", "-A"])));
         assert_eq!(argv[0], "/bin/sh");
         assert_eq!(argv[1], "-c");
-        assert_eq!(argv[2], r#""$@" 2>&1; printf 'seeker-exit:%d' "$?""#);
+        assert_eq!(argv[2], r#""$@" 2>&1; printf 'thragg-exit:%d' "$?""#);
         // `$0` is not the program: git starts at `$1`, which is what `"$@"`
         // expands to.
-        assert_eq!(argv[3], "seeker-git");
+        assert_eq!(argv[3], "thragg-git");
         assert_eq!(argv[4], "git");
     }
 
     #[test]
     fn a_run_is_read_back_from_the_last_marker() {
-        let run = parse_run(b"nothing to commit\nseeker-exit:1").unwrap();
+        let run = parse_run(b"nothing to commit\nthragg-exit:1").unwrap();
         assert_eq!(run.status, 1);
         assert_eq!(run.message(), "nothing to commit");
 
-        let run = parse_run(b"seeker-exit:0").unwrap();
+        let run = parse_run(b"thragg-exit:0").unwrap();
         assert_eq!(run.status, 0);
 
         // git printing the marker itself — a file with that name, a commit
         // message quoting one — must not be able to fake a success.
-        let run = parse_run(b"error: seeker-exit:0 is unmerged\nseeker-exit:1").unwrap();
+        let run = parse_run(b"error: thragg-exit:0 is unmerged\nthragg-exit:1").unwrap();
         assert_eq!(run.status, 1);
-        assert_eq!(run.message(), "seeker-exit:0 is unmerged");
+        assert_eq!(run.message(), "thragg-exit:0 is unmerged");
 
         // The wrapper never ran, so there is nothing to believe.
         assert!(parse_run(b"killed").is_err());
@@ -2628,7 +2628,7 @@ mod tests {
     #[test]
     fn a_split_run_keeps_the_two_streams_apart() {
         let run = parse_split_run(
-            b"Updating abc..def\n 1 file changed\nseeker-stderr:From github.com:x/y\nseeker-exit:0",
+            b"Updating abc..def\n 1 file changed\nthragg-stderr:From github.com:x/y\nthragg-exit:0",
         )
         .unwrap();
         assert_eq!(run.status, 0);
@@ -2637,14 +2637,14 @@ mod tests {
 
         // Both streams empty is still an answer — a fetch with nothing to
         // say, which is exactly the "Already up to date" toast's evidence.
-        let run = parse_split_run(b"seeker-stderr:seeker-exit:0").unwrap();
+        let run = parse_split_run(b"thragg-stderr:thragg-exit:0").unwrap();
         assert_eq!(run.status, 0);
         assert!(run.stdout.is_empty() && run.stderr.is_empty());
 
         // A failure's one-liner comes off stderr, where git says why — the
         // shared summarizer over stdout-then-stderr finds the marked line.
         let run = parse_split_run(
-            b"seeker-stderr:fatal: could not read from remote repository\nseeker-exit:128",
+            b"thragg-stderr:fatal: could not read from remote repository\nthragg-exit:128",
         )
         .unwrap();
         assert_eq!(run.status, 128);
@@ -2655,7 +2655,7 @@ mod tests {
 
         // Half a wrapper is no wrapper: without both markers there is
         // nothing to believe.
-        assert!(parse_split_run(b"seeker-exit:0").is_err());
+        assert!(parse_split_run(b"thragg-exit:0").is_err());
         assert!(parse_split_run(b"killed").is_err());
     }
 
@@ -2667,7 +2667,7 @@ mod tests {
         let out = Command::new("/bin/sh")
             .arg("-c")
             .arg(SPLIT_WRAPPER)
-            .arg("seeker-git")
+            .arg("thragg-git")
             .arg("/bin/sh")
             .arg("-c")
             .arg("printf 'out\\n'; printf 'err\\n' >&2; exit 3")
@@ -2687,7 +2687,7 @@ mod tests {
         let out = Command::new("/bin/sh")
             .arg("-c")
             .arg(SPLIT_WRAPPER)
-            .arg("seeker-git")
+            .arg("thragg-git")
             .arg("/bin/sh")
             .arg("-c")
             .arg("printf 'out\\n'; printf 'fatal: no\\n' >&2; exit 128")
@@ -2708,7 +2708,7 @@ mod tests {
             b"Author identity unknown\n\n*** Please tell me who you are.\n\n\
               Run\n  git config --global user.email \"you@example.com\"\n\
               fatal: unable to auto-detect email address (got 'root@x.(none)')\n\
-              seeker-exit:128",
+              thragg-exit:128",
         )
         .unwrap();
         assert_eq!(
@@ -2720,13 +2720,13 @@ mod tests {
         // marked at all and the first line is the least useful one there is.
         let run = parse_run(
             b"On branch main\nChanges not staged for commit:\n\t\
-              modified:   README\n\nnothing added to commit\nseeker-exit:1",
+              modified:   README\n\nnothing added to commit\nthragg-exit:1",
         )
         .unwrap();
         assert_eq!(run.message(), "nothing added to commit");
 
         // Nothing said at all: the status is the only thing left to report.
-        let run = parse_run(b"seeker-exit:129").unwrap();
+        let run = parse_run(b"thragg-exit:129").unwrap();
         assert_eq!(run.message(), "git exited with 129");
     }
 

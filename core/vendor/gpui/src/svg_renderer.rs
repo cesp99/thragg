@@ -1,4 +1,4 @@
-// SEEKER PATCH: everything but the atlas key types (RenderSvgParams,
+// THRAGG PATCH: everything but the atlas key types (RenderSvgParams,
 // SvgSize, SMOOTH_SVG_SCALE_FACTOR) is behind the off-by-default `images`
 // feature — see Cargo.toml.
 use crate::{DevicePixels, SharedString, Size};

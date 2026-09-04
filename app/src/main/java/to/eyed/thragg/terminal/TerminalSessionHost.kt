@@ -298,7 +298,7 @@ class TerminalSessionHost(
         private set
 
     companion object {
-        private const val TAG = "seeker-term"
+        private const val TAG = "thragg-term"
 
         /**
          * Scrollback when settings say nothing — Zed's default. Build output

@@ -344,9 +344,9 @@ fun taskShellLine(task: TaskSpec): String = buildString {
     }
     append(task.commandLabel)
     if (task.showSummary) {
-        append("; __seeker_status=$?; printf '\\n%s\\n' ")
+        append("; __thragg_status=$?; printf '\\n%s\\n' ")
         append(shellQuote("Task `${task.label}` finished with exit code "))
-        append("\"\$__seeker_status\"; exit \"\$__seeker_status\"")
+        append("\"\$__thragg_status\"; exit \"\$__thragg_status\"")
     }
 }
 

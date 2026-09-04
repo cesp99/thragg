@@ -201,7 +201,7 @@ class BuildTasksTest {
             assertTrue(
                 "$line does not relink platform-tools as the default",
                 line.contains(
-                    "rustup toolchain link seeker ${BuildTasks.PLATFORM_TOOLS}/rust; rustup default seeker"
+                    "rustup toolchain link thragg ${BuildTasks.PLATFORM_TOOLS}/rust; rustup default thragg"
                 ),
             )
             // The name must never contain "solana": cargo-build-sbf uninstalls
@@ -221,7 +221,7 @@ class BuildTasksTest {
             )
             assertTrue(
                 "$line runs the guard after the build",
-                line.indexOf("rustup toolchain link seeker") <
+                line.indexOf("rustup toolchain link thragg") <
                     line.indexOf(command.display.substringBefore(' ')),
             )
         }
@@ -249,7 +249,7 @@ class BuildTasksTest {
             platformToolsVersion = null,
         )!!
         assertFalse(command.line.contains("--tools-version"))
-        assertTrue(command.line.contains("rustup toolchain link seeker"))
+        assertTrue(command.line.contains("rustup toolchain link thragg"))
         assertTrue(command.line.contains("cargo-build-sbf --version"))
     }
 

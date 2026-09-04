@@ -42,7 +42,7 @@ sealed interface UpdateStatus {
  */
 object ToolchainUpdates {
 
-    private const val TAG = "seeker-toolchain"
+    private const val TAG = "thragg-toolchain"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

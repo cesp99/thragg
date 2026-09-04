@@ -51,7 +51,7 @@ class WalletException(message: String) : Exception(message)
  *    cluster is the project's and not whatever the wallet app is pointed at.
  *
  * **What is remembered.** The address, the account label and the auth token,
- * in the `seeker.chain` preferences file shared with the cluster choice, so a
+ * in the `thragg.chain` preferences file shared with the cluster choice, so a
  * Settings row can say "Seed Vault · 7NJd…4kQz" after process death without
  * starting the wallet app. The token is remembered with the cluster it was
  * issued for: MWA tokens are per chain, and presenting a mainnet token on
@@ -70,7 +70,7 @@ class WalletException(message: String) : Exception(message)
 object SeedVaultWallet {
 
     /** Shared with ClusterStore: one preferences file for the chain layer's small facts. */
-    const val PREFS = "seeker.chain"
+    const val PREFS = "thragg.chain"
 
     private const val KEY_ADDRESS = "wallet.address"
     private const val KEY_LABEL = "wallet.label"

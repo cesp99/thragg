@@ -37,9 +37,9 @@ import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.projects.SheetTextField
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.workspace.Notifications
 
 /**
@@ -103,7 +103,7 @@ fun BranchSheet(
                 // The solved ink, not `error` raw: this is a sentence on a
                 // Material sheet and it has to clear 4.5:1 on it
                 // (docs/VISUAL.md, "THE HYBRID").
-                color = LocalSeekerColors.current.dangerInk,
+                color = LocalThraggColors.current.dangerInk,
                 modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),
             )
         }
@@ -170,7 +170,7 @@ private fun BranchRow(
         ) {
             val mark = leading ?: R.drawable.ic_ui_check.takeIf { isCurrent }
             if (mark != null) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = mark,
                     // Decoration for the create row (its label says "New
                     // branch"); for the current branch the row below carries

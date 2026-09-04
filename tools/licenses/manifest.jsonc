@@ -26,7 +26,7 @@
     },
     "engine": {
       "title": "Engine and terminal",
-      "note": "The editor engine is Zed's, vendored at one commit and built into libseekercore.so. The terminal is Termux's, vendored as two Gradle modules and built into libtermux.so."
+      "note": "The editor engine is Zed's, vendored at one commit and built into libthraggcore.so. The terminal is Termux's, vendored as two Gradle modules and built into libtermux.so."
     },
     "native": {
       "title": "Native binaries",
@@ -34,7 +34,7 @@
     },
     "rust": {
       "title": "Rust crates",
-      "note": "Every crate in the aarch64-linux-android link closure of libseekercore.so, generated from cargo. Not from Cargo.lock: the lock file resolves crates that no build of this app links."
+      "note": "Every crate in the aarch64-linux-android link closure of libthraggcore.so, generated from cargo. Not from Cargo.lock: the lock file resolves crates that no build of this app links."
     },
     "android": {
       "title": "Android libraries",
@@ -96,7 +96,7 @@
       "copyright": "Copyright (C) Zed Industries, Inc.",
       "url": "https://github.com/zed-industries/zed",
       "licenseFiles": ["licenses/GPL-3.0.txt", "licenses/Apache-2.0.txt"],
-      "note": "51 crate directories vendored at one commit and compiled into libseekercore.so. They are split across two licences and each one is listed individually under Rust crates with its own — the GPL set is the editor proper (text, rope, language, lsp, worktree, settings, theme), the Apache set is gpui and its infrastructure (collections, util, sum_tree, http_client).\n\nFour of them declare no license field in their Cargo.toml and are shown here with the licence file that is on disk beside them, per core/vendor/VENDOR.md: gpui_shared_string and gpui_util are Apache-2.0, grammars and language_core are GPL-3.0-or-later."
+      "note": "51 crate directories vendored at one commit and compiled into libthraggcore.so. They are split across two licences and each one is listed individually under Rust crates with its own — the GPL set is the editor proper (text, rope, language, lsp, worktree, settings, theme), the Apache set is gpui and its infrastructure (collections, util, sum_tree, http_client).\n\nFour of them declare no license field in their Cargo.toml and are shown here with the licence file that is on disk beside them, per core/vendor/VENDOR.md: gpui_shared_string and gpui_util are Apache-2.0, grammars and language_core are GPL-3.0-or-later."
     },
     {
       "id": "engine/termux-terminal-emulator",
@@ -118,7 +118,7 @@
       "copyright": "Copyright (C) Fredrik Fornwall and the Termux contributors",
       "url": "https://github.com/termux/termux-app",
       "licenseFiles": ["licenses/GPL-3.0.txt", "licenses/Apache-2.0.txt"],
-      "note": "Vendored as a Gradle module and MODIFIED: TerminalView.java carries three hunks marked SEEKER PATCH that add the search highlight. GPLv3 s5(a) requires modified files to say so and they do, in place; vendor/VENDOR.md is the full record. Same Android Terminal Emulator heritage as terminal-emulator."
+      "note": "Vendored as a Gradle module and MODIFIED: TerminalView.java carries three hunks marked THRAGG PATCH that add the search highlight. GPLv3 s5(a) requires modified files to say so and they do, in place; vendor/VENDOR.md is the full record. Same Android Terminal Emulator heritage as terminal-emulator."
     },
 
     // ── Native binaries ──────────────────────────────────────────────────
@@ -131,7 +131,7 @@
       "copyright": "Copyright (C) the PRoot authors; Termux fork",
       "url": "https://github.com/termux/proot",
       "licenseFiles": ["licenses/GPL-2.0.txt"],
-      "note": "Shipped as lib/*/libproot_exec.so and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked SEEKER PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
+      "note": "Shipped as lib/*/libproot_exec.so and executed as a standalone program, never linked into the app — so as far as the rest of this package is concerned it is mere aggregation and it keeps its own terms.\n\nIt is GPL-2.0-OR-LATER, not GPL-2.0-only: the Termux fork inherits proot-me/proot's \"version 2 or (at your option) any later version\". That is load-bearing, because talloc is LGPL-3.0-or-later and LGPLv3 into GPL-2-only would not have worked.\n\nMODIFIED, in two places, both marked THRAGG PATCH in the source and both in the corresponding-source archive: an added #include <string.h> in src/extension/ashmem_memfd/ashmem_memfd.c, and ~90 lines in src/tracee/event.c adding adopt_thread_exec_state() so that execve(2) from a non-leader thread does not lose the tracee."
     },
     {
       "id": "native/talloc",
@@ -457,11 +457,11 @@
 
   // Rows the generated Rust closure cannot answer for itself. Four vendored
   // Zed crates declare no `license` in their Cargo.toml, which makes an SPDX
-  // scanner report four unlicensed packages inside libseekercore.so. The
+  // scanner report four unlicensed packages inside libthraggcore.so. The
   // information is on disk — each carries a LICENSE-APACHE or a LICENSE-GPL —
   // and core/vendor/VENDOR.md is correct about all four. Upstream Zed has the
   // same gap. The real fix is four one-line additions to those Cargo.toml
-  // files, marked SEEKER PATCH; until someone can do that without colliding
+  // files, marked THRAGG PATCH; until someone can do that without colliding
   // with a build in flight, this is where the answer lives, and the generator
   // FAILS if a crate has no licence and no entry here.
   "rustLicenceOverrides": {

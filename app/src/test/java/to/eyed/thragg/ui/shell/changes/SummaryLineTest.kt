@@ -9,7 +9,7 @@ import to.eyed.thragg.core.GitFileStatus
 /**
  * The two subtitles the changes package prints, pinned.
  *
- * Both are the second line of a `SeekerTopBar` — `3 files · +128 −47` over
+ * Both are the second line of a `ThraggTopBar` — `3 files · +128 −47` over
  * Changes, `2 errors · 5 warnings` over Problems — and both are pure functions
  * for the reason every sentence in this package is one: the wording is the
  * product, the arithmetic behind it is easy to get subtly wrong, and neither

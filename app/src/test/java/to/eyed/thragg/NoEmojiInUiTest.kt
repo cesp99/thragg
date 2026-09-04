@@ -199,7 +199,7 @@ class NoEmojiInUiTest {
         assertTrue(
             "A glyph in a Text is not an icon: it renders at the font's weight, cannot be tinted or\n" +
                 "sized with the chrome around it, and shows tofu where the face lacks the codepoint.\n" +
-                "Use a drawable through ui/theme/Icons.kt (SeekerIcon / SeekerIconButton).\n\n" +
+                "Use a drawable through ui/theme/Icons.kt (ThraggIcon / ThraggIconButton).\n\n" +
                 grew.entries.joinToString("\n") { (f, n) ->
                     "$f: $n now, ${baseline[f] ?: 0} allowed"
                 } + "\n\n" + offences.filter { it.substringBefore(':') in grew }.joinToString("\n"),

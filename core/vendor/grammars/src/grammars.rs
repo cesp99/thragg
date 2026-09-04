@@ -21,7 +21,7 @@ pub fn native_grammars() -> Vec<(&'static str, tree_sitter::Language)> {
         ("cpp", tree_sitter_cpp::LANGUAGE.into()),
         ("css", tree_sitter_css::LANGUAGE.into()),
         ("diff", tree_sitter_diff::LANGUAGE.into()),
-        // SEEKER PATCH: the grammars below are ours, not Zed's built-in set
+        // THRAGG PATCH: the grammars below are ours, not Zed's built-in set
         // — Zed ships them as extensions, which this app has no runtime for.
         // See core/vendor/VENDOR.md and docs/THIRD_PARTY.md.
         ("dockerfile", tree_sitter_dockerfile::LANGUAGE.into()),

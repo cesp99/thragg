@@ -216,7 +216,7 @@ object BuildTasks {
      *
      * platform-tools' *rust* bin is deliberately **not** on this path.
      * `cargo-build-sbf` reaches that toolchain through rustup — it is linked
-     * as the `seeker` toolchain (`rustup toolchain link seeker …`) — and a
+     * as the `thragg` toolchain (`rustup toolchain link thragg …`) — and a
      * second `cargo` earlier on the path than `$CARGO_HOME/bin` would shadow
      * the `cargo-build-sbf` shim that the `cargo build-sbf` subcommand form
      * depends on. The fallback in [buildCommand] names that cargo by its
@@ -445,7 +445,7 @@ object BuildTasks {
      * (directly, or through `anchor`). Two repairs, both learned in the same
      * device rehearsal (2026-08) and both idempotent:
      *
-     *  1. **Relink rustup's default toolchain, named `seeker`.**
+     *  1. **Relink rustup's default toolchain, named `thragg`.**
      *     `cargo-build-sbf` (4.2.0, src/toolchain.rs) takes the first rustup
      *     toolchain whose *name contains "solana"* and, unless it is the
      *     `<rustc>-sbpf-solana-<tag>` entry it wants, *uninstalls* it before
@@ -453,7 +453,7 @@ object BuildTasks {
      *     the default was deleted by every build, and the IDL step of the
      *     same `anchor build` (which runs on the default toolchain) died
      *     with "override toolchain 'solana' is not installed". Named
-     *     `seeker`, the driver never looks at it. The link+default pair is
+     *     `thragg`, the driver never looks at it. The link+default pair is
      *     re-run unconditionally — both are idempotent, ~100 ms under proot
      *     — so a phone set up while the name was `solana`, or one whose
      *     default was left dangling, is repaired by its next build.
@@ -483,7 +483,7 @@ object BuildTasks {
             append("\$(cargo-build-sbf --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+' | head -n1)")
         }
         return "{ [ -d $PLATFORM_TOOLS/rust ] && { " +
-            "rustup toolchain link seeker $PLATFORM_TOOLS/rust; rustup default seeker; " +
+            "rustup toolchain link thragg $PLATFORM_TOOLS/rust; rustup default thragg; " +
             "for v in $versions; do " +
             "mkdir -p $TOOLS_CACHE/\$v && ln -sfn $PLATFORM_TOOLS $TOOLS_CACHE/\$v/platform-tools; " +
             "done; }; } >/dev/null 2>&1; "

@@ -57,7 +57,7 @@ use crate::{
     colors::{Colors, GlobalColors},
     hash, init_app_menus,
 };
-// SEEKER PATCH: behind the off-by-default `images` feature — see Cargo.toml.
+// THRAGG PATCH: behind the off-by-default `images` feature — see Cargo.toml.
 #[cfg(feature = "images")]
 use crate::SvgRenderer;
 
@@ -204,7 +204,7 @@ impl Application {
         let mut context_lock = self.0.borrow_mut();
         let asset_source = Arc::new(asset_source);
         context_lock.asset_source = asset_source.clone();
-        // SEEKER PATCH: behind the off-by-default `images` feature.
+        // THRAGG PATCH: behind the off-by-default `images` feature.
         #[cfg(feature = "images")]
         {
             context_lock.svg_renderer = SvgRenderer::new(asset_source);
@@ -745,7 +745,7 @@ pub struct App {
     // assets
     pub(crate) loading_assets: FxHashMap<(TypeId, u64), Box<dyn Any>>,
     asset_source: Arc<dyn AssetSource>,
-    // SEEKER PATCH: behind the off-by-default `images` feature.
+    // THRAGG PATCH: behind the off-by-default `images` feature.
     #[cfg(feature = "images")]
     pub(crate) svg_renderer: SvgRenderer,
     http_client: Arc<dyn HttpClient>,
@@ -1596,7 +1596,7 @@ impl App {
     }
 
     /// Returns the SVG renderer used by the application.
-    // SEEKER PATCH: behind the off-by-default `images` feature.
+    // THRAGG PATCH: behind the off-by-default `images` feature.
     #[cfg(feature = "images")]
     pub fn svg_renderer(&self) -> SvgRenderer {
         self.svg_renderer.clone()

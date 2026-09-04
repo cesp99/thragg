@@ -31,8 +31,8 @@ import java.util.Locale
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.revealItem
 
@@ -135,7 +135,7 @@ fun <T> DrillPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_arrow_left,
                 description = "Back",
                 onClick = onBack,
@@ -150,7 +150,7 @@ fun <T> DrillPage(
             )
         }
         if (searchable) {
-            SeekerSearchField(
+            ThraggSearchField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "Search ${title.lowercase(Locale.getDefault())}…",
@@ -251,7 +251,7 @@ fun DrillRow(
             }
         }
         if (selected) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_check,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,

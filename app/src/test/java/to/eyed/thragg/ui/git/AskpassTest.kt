@@ -113,13 +113,13 @@ class AskpassTest {
     @Test
     fun theCloneEnvironmentCarriesTheHelperAndNothingThatSilencesIt() {
         val setup = AskpassSetup.parse(
-            """{"env":["GIT_ASKPASS=/tmp/seeker-askpass-1/askpass.sh",""" +
-                """"SSH_ASKPASS=/tmp/seeker-askpass-1/askpass.sh","SSH_ASKPASS_REQUIRE=force"],""" +
+            """{"env":["GIT_ASKPASS=/tmp/thragg-askpass-1/askpass.sh",""" +
+                """"SSH_ASKPASS=/tmp/thragg-askpass-1/askpass.sh","SSH_ASKPASS_REQUIRE=force"],""" +
                 """"args":["-c","credential.helper=cache --timeout=3600"]}""",
         )
         val environment = GitClone.gitEnvironment(setup)
         assertTrue("GIT_TERMINAL_PROMPT=0" in environment)
-        assertTrue("GIT_ASKPASS=/tmp/seeker-askpass-1/askpass.sh" in environment)
+        assertTrue("GIT_ASKPASS=/tmp/thragg-askpass-1/askpass.sh" in environment)
         assertTrue("SSH_ASKPASS_REQUIRE=force" in environment)
         // BatchMode would silence the passphrase prompt the helper carries.
         assertTrue(environment.none { "BatchMode" in it })

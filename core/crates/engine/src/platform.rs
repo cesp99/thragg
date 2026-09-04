@@ -104,7 +104,7 @@ impl HeadlessDispatcher {
         for i in 0..thread_count {
             let mut receiver: PriorityQueueReceiver<RunnableVariant> = background_receiver.clone();
             thread::Builder::new()
-                .name(format!("seeker-worker-{i}"))
+                .name(format!("thragg-worker-{i}"))
                 .spawn(move || {
                     while let Ok(runnable) = receiver.pop() {
                         let location = runnable.metadata().location;
@@ -125,7 +125,7 @@ impl HeadlessDispatcher {
         {
             let timers = timers.clone();
             thread::Builder::new()
-                .name("seeker-timer".to_owned())
+                .name("thragg-timer".to_owned())
                 .spawn(move || {
                     let mut state = timers.state.lock();
                     loop {
@@ -205,7 +205,7 @@ impl PlatformDispatcher for HeadlessDispatcher {
 
     fn spawn_realtime(&self, f: Box<dyn FnOnce() + Send>) {
         thread::Builder::new()
-            .name("seeker-realtime".to_owned())
+            .name("thragg-realtime".to_owned())
             .spawn(f)
             .expect("failed to spawn engine realtime thread");
     }

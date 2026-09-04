@@ -40,7 +40,7 @@ import to.eyed.thragg.terminal.Userland
  */
 object SpettroInstall {
 
-    private const val TAG = "seeker-agent"
+    private const val TAG = "thragg-agent"
 
     /** How long the guest gets to answer `--help` before it is killed. */
     private const val PROBE_TIMEOUT_SECONDS = "10"

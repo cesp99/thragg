@@ -67,8 +67,8 @@ installer runs `rustup-init -y --default-toolchain none`, which downloads no
 compiler at all, and then points it at the toolchain we already have:
 
 ```sh
-rustup toolchain link seeker /opt/solana/platform-tools/rust
-rustup default seeker
+rustup toolchain link thragg /opt/solana/platform-tools/rust
+rustup default thragg
 ```
 
 The name is load-bearing. `cargo-build-sbf` 4.2.0 (`src/toolchain.rs`,
@@ -79,7 +79,7 @@ linking its own. Until 2026-09-02 the default was linked as `solana`, so
 every build deleted it, and `anchor build` — whose IDL step runs `cargo
 test` on the *default* toolchain after `cargo build-sbf` returns — failed
 with "override toolchain 'solana' is not installed" on every phone. Named
-`seeker` it is invisible to the driver, which links and relinks its own
+`thragg` it is invisible to the driver, which links and relinks its own
 `1.95.0-sbpf-solana-v1.52`-style entries beside it into the seeded cache
 symlinks (see the manifest's `toolsCacheSeedsNote` for why each tag is
 seeded). `BuildTasks.toolchainGuard` re-runs the link+default pair before
@@ -117,7 +117,7 @@ Verified afterwards on the device: `cargo-build-sbf 4.2.0`, driving
 
 Measured on a Solana Seeker (MediaTek, 4×A76 + 4×A55, 7.4 GB) over a home
 Wi-Fi on 2026-09-02, from a wiped rootfs, with the timings the installer logs
-(`adb logcat -s seeker-toolchain`; they are also written to
+(`adb logcat -s thragg-toolchain`; they are also written to
 `files/solana-toolchain.json` and are what the onboarding quotes once a phone
 has a full set of its own).
 

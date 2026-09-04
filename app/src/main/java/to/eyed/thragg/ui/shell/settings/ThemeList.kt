@@ -40,14 +40,14 @@ import to.eyed.thragg.core.ThemeSelection
 import to.eyed.thragg.ui.components.Choice
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerSearchField
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggSearchField
 import to.eyed.thragg.ui.components.SegmentedSelect
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ZedTheme
 import to.eyed.thragg.ui.theme.ZedThemes
 
@@ -161,7 +161,7 @@ fun ThemeList(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            SeekerSearchField(
+            ThraggSearchField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "Filter themes…",
@@ -224,7 +224,7 @@ private fun LazyListScope.themeGroup(
     if (entries.isEmpty()) return
     item(key = "$key-header") { SectionHeader(title) }
     item(key = key) {
-        SeekerCard(modifier = Modifier.fillMaxWidth()) {
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
             entries.forEachIndexed { index, entry ->
                 if (index > 0) HairlineDivider()
                 ThemeRow(
@@ -296,7 +296,7 @@ private fun ThemeRow(entry: ThemeEntry, isSelected: Boolean, onClick: () -> Unit
             )
         }
         if (isSelected) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_check,
                 contentDescription = null,
                 tint = scheme.primary,

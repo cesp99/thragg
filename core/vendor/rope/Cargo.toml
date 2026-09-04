@@ -21,7 +21,7 @@ util.workspace = true
 ztracing.workspace = true
 tracing.workspace = true
 
-# SEEKER PATCH: dropped the criterion benchmark (benches/ removed).
+# THRAGG PATCH: dropped the criterion benchmark (benches/ removed).
 [dev-dependencies]
 ctor.workspace = true
 gpui = { workspace = true, features = ["test-support"] }

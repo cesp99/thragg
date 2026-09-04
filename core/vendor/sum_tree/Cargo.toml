@@ -13,7 +13,7 @@ workspace = true
 path = "src/sum_tree.rs"
 doctest = false
 
-# SEEKER PATCH: dropped optional `proptest` dependency (git-pinned fork
+# THRAGG PATCH: dropped optional `proptest` dependency (git-pinned fork
 # upstream) and the proptest-based property_test module; test-support is now
 # an empty feature.
 [dependencies]

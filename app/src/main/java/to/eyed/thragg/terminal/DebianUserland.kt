@@ -42,7 +42,7 @@ internal fun createUserlandBackend(): UserlandBackend = DebianUserland
 internal fun prootScratch(context: android.content.Context): java.io.File =
     java.io.File(context.cacheDir, "proot-terminal").apply { mkdirs() }
 
-private const val TAG = "seeker-userland"
+private const val TAG = "thragg-userland"
 
 /** Debian's official container base image. `slim` is the smallest with apt. */
 private const val IMAGE = "library/debian"
@@ -69,14 +69,14 @@ private object DebianUserland : UserlandBackend {
     private fun rootfs(context: Context) = File(context.filesDir, "debian")
 
     /** Written last, so its presence means a complete install. */
-    private fun marker(context: Context) = File(rootfs(context), ".seeker-userland")
+    private fun marker(context: Context) = File(rootfs(context), ".thragg-userland")
 
     /**
      * The image's hard-link entries, one `path<TAB>target` line each, written
      * at install time so [healHardLinks] can re-check them cheaply on every
      * session without re-reading a 30 MB archive that is long deleted.
      */
-    private fun hardLinkIndex(root: File) = File(root, ".seeker-hardlinks")
+    private fun hardLinkIndex(root: File) = File(root, ".thragg-hardlinks")
 
     private fun proot(context: Context) =
         File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
@@ -558,11 +558,11 @@ private object DebianUserland : UserlandBackend {
     /** The few things a container image leaves to whoever starts it. */
     private fun configure(context: Context, root: File) {
         File(root, "etc/resolv.conf").writeText(resolvConf(context))
-        File(root, "etc/hostname").writeText("seeker\n")
+        File(root, "etc/hostname").writeText("thragg\n")
         // apt in a proot has no reason to fsync every file, and it is slow on
         // a phone; this is the same tuning proot-distro applies.
         File(root, "etc/apt/apt.conf.d").mkdirs()
-        File(root, "etc/apt/apt.conf.d/99seeker").writeText(
+        File(root, "etc/apt/apt.conf.d/99thragg").writeText(
             """
             Acquire::Retries "3";
             DPkg::Use-Pty "0";
@@ -709,8 +709,8 @@ internal object GuestHosts {
      */
     val PINNED = listOf("index.crates.io", "static.crates.io", "crates.io", "api.spettro.app")
 
-    const val BEGIN = "# seeker-pinned begin — rewritten per session; edit outside this block"
-    const val END = "# seeker-pinned end"
+    const val BEGIN = "# thragg-pinned begin — rewritten per session; edit outside this block"
+    const val END = "# thragg-pinned end"
 
     /**
      * [existing] with this app's managed block replaced (or appended), and

@@ -29,7 +29,7 @@ import org.json.JSONObject
 import to.eyed.thragg.core.CoreBridge
 import to.eyed.thragg.core.ResumedEffect
 import to.eyed.thragg.core.pollVersion
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MonoSmall
 
 /**
@@ -127,7 +127,7 @@ fun LspLogsPane(
             // `warnInk`, solved: a `[stderr]` line is the one thing in this
             // list worth finding at a glance, and the raw `warning` key is
             // 1.64:1 on Ayu Light's panel.
-            val warning = LocalSeekerColors.current.warnInk
+            val warning = LocalThraggColors.current.warnInk
             SelectionContainer {
                 LazyColumn(
                     state = listState,

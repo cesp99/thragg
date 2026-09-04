@@ -94,7 +94,7 @@ pub use toolchain::{
     LanguageToolchainStore, LocalLanguageToolchainStore, Toolchain, ToolchainList, ToolchainLister,
     ToolchainMetadata, ToolchainScope,
 };
-// SEEKER PATCH: WasmStore/wasmtime imports dropped with tree-sitter's "wasm"
+// THRAGG PATCH: WasmStore/wasmtime imports dropped with tree-sitter's "wasm"
 // feature — all grammars in this app are statically linked.
 use tree_sitter::{self, QueryCursor};
 use util::rel_path::RelPath;
@@ -133,7 +133,7 @@ pub fn with_parser<F, R>(func: F) -> R
 where
     F: FnOnce(&mut Parser) -> R,
 {
-    // SEEKER PATCH: upstream attaches a WasmStore to every pooled parser so
+    // THRAGG PATCH: upstream attaches a WasmStore to every pooled parser so
     // .wasm grammars can load; with tree-sitter's "wasm" feature off (all
     // grammars are statically linked) a plain parser is all there is.
     let mut parser = PARSERS.lock().pop().unwrap_or_else(Parser::new);

@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.mutedIcon
 
 /**
@@ -60,7 +60,7 @@ fun SectionHeader(
         horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
     ) {
         if (icon != null) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = icon,
                 contentDescription = null,
                 tint = mutedIcon,

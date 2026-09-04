@@ -28,7 +28,7 @@ class RemoteOutputTest {
 
     @Test
     fun aFetchThatMovedNamesItsRemoteAndAFetchAllDoesNot() {
-        val moved = output(stderr = "From github.com:cesp99/seeker\n   abc..def  main -> origin/main\n")
+        val moved = output(stderr = "From github.com:cesp99/thragg\n   abc..def  main -> origin/main\n")
         val one = formatRemoteOutput(RemoteAction.Fetch("origin"), moved)
         assertEquals("Synchronized with origin", one.message)
         assertEquals(RemoteToastStyle.WithLog, one.style)

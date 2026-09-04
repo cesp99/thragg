@@ -22,32 +22,32 @@ class GitCloneTest {
 
     @Test
     fun derivesNameFromAnHttpsUrl() {
-        assertEquals("seeker", GitCloneUrl.projectName("https://github.com/cesp99/seeker"))
-        assertEquals("seeker", GitCloneUrl.projectName("https://github.com/cesp99/seeker.git"))
-        assertEquals("seeker", GitCloneUrl.projectName("http://example.com/git/seeker.git"))
+        assertEquals("thragg", GitCloneUrl.projectName("https://github.com/cesp99/thragg"))
+        assertEquals("thragg", GitCloneUrl.projectName("https://github.com/cesp99/thragg.git"))
+        assertEquals("thragg", GitCloneUrl.projectName("http://example.com/git/thragg.git"))
     }
 
     @Test
     fun derivesNameFromAnSshUrl() {
         // scp-style: no scheme, and a colon where a slash would be.
-        assertEquals("seeker", GitCloneUrl.projectName("git@github.com:eyed/seeker.git"))
-        assertEquals("seeker", GitCloneUrl.projectName("git@github.com:eyed/seeker"))
-        assertEquals("seeker", GitCloneUrl.projectName("ssh://git@github.com/cesp99/seeker.git"))
-        assertEquals("seeker", GitCloneUrl.projectName("ssh://git@host:2222/eyed/seeker.git/"))
+        assertEquals("thragg", GitCloneUrl.projectName("git@github.com:eyed/thragg.git"))
+        assertEquals("thragg", GitCloneUrl.projectName("git@github.com:eyed/thragg"))
+        assertEquals("thragg", GitCloneUrl.projectName("ssh://git@github.com/cesp99/thragg.git"))
+        assertEquals("thragg", GitCloneUrl.projectName("ssh://git@host:2222/eyed/thragg.git/"))
     }
 
     @Test
     fun ignoresTrailingSlashesAndQueryStrings() {
-        assertEquals("seeker", GitCloneUrl.projectName("https://github.com/cesp99/seeker/"))
-        assertEquals("seeker", GitCloneUrl.projectName("https://github.com/cesp99/seeker.git/"))
-        assertEquals("seeker", GitCloneUrl.projectName("  https://github.com/cesp99/seeker  "))
-        assertEquals("seeker", GitCloneUrl.projectName("https://github.com/cesp99/seeker.git#main"))
+        assertEquals("thragg", GitCloneUrl.projectName("https://github.com/cesp99/thragg/"))
+        assertEquals("thragg", GitCloneUrl.projectName("https://github.com/cesp99/thragg.git/"))
+        assertEquals("thragg", GitCloneUrl.projectName("  https://github.com/cesp99/thragg  "))
+        assertEquals("thragg", GitCloneUrl.projectName("https://github.com/cesp99/thragg.git#main"))
     }
 
     @Test
     fun acceptsAPlainLocalPath() {
-        assertEquals("seeker", GitCloneUrl.projectName("/srv/git/seeker.git"))
-        assertEquals("seeker", GitCloneUrl.projectName("seeker"))
+        assertEquals("thragg", GitCloneUrl.projectName("/srv/git/thragg.git"))
+        assertEquals("thragg", GitCloneUrl.projectName("thragg"))
     }
 
     @Test
@@ -135,7 +135,7 @@ class GitCloneTest {
             CloneProgress("Enumerating objects", null),
             GitProgress.parse("remote: Enumerating objects: 40, done."),
         )
-        assertEquals(CloneProgress("Cloning", null), GitProgress.parse("Cloning into 'seeker'..."))
+        assertEquals(CloneProgress("Cloning", null), GitProgress.parse("Cloning into 'thragg'..."))
     }
 
     @Test
@@ -195,7 +195,7 @@ class GitCloneTest {
  * phases prefixed by `remote:` because they happen on the server.
  */
 private val TRANSCRIPT = buildString {
-    append("Cloning into 'seeker'...\n")
+    append("Cloning into 'thragg'...\n")
     append("remote: Enumerating objects: 60, done.\r\n")
     append("remote: Counting objects:   1% (1/60)\r")
     append("remote: Counting objects:  50% (30/60)\r")

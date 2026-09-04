@@ -46,9 +46,9 @@ import to.eyed.thragg.ui.components.outlinedButtonEdge
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 
 // ---------------------------------------------------------------------------
 // The pure half
@@ -274,7 +274,7 @@ fun PermissionSheet(
     queuePosition: Int = 1,
     queueDepth: Int = 1,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
 
     val options = remember(request.key, request.options) { PermissionPrompt.order(request.options) }
     val custom = remember(request.key) { options.firstOrNull { it.isCustomInput } }
@@ -365,7 +365,7 @@ fun PermissionSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = PermissionPrompt.icon(request),
                     contentDescription = null,
                     tint = colors.accentMark,
@@ -502,7 +502,7 @@ private fun OptionButton(
  */
 @Composable
 private fun RecommendedTag() {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Text(
         text = "Recommended",
         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),

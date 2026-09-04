@@ -42,7 +42,7 @@ use crate::{
     RenderImage, RenderImageParams, RenderSvgParams, Scene, ShapedGlyph, ShapedRun, SharedString,
     Size, SystemWindowTab, Task, Window, WindowControlArea, hash, point, px, size,
 };
-// SEEKER PATCH: decoding is behind the off-by-default `images` feature — see
+// THRAGG PATCH: decoding is behind the off-by-default `images` feature — see
 // Cargo.toml.
 #[cfg(feature = "images")]
 use crate::SvgRenderer;
@@ -55,7 +55,7 @@ use async_task::Runnable;
 use futures::channel::oneshot;
 #[cfg(any(test, feature = "test-support"))]
 use image::RgbaImage;
-// SEEKER PATCH: behind the off-by-default `images` feature — the gif codec
+// THRAGG PATCH: behind the off-by-default `images` feature — the gif codec
 // is only compiled with it.
 #[cfg(feature = "images")]
 use image::codecs::gif::GifDecoder;
@@ -70,7 +70,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
-// SEEKER PATCH: only the images-gated decode paths read from a Cursor.
+// THRAGG PATCH: only the images-gated decode paths read from a Cursor.
 #[cfg(feature = "images")]
 use std::io::Cursor;
 use std::ops;
@@ -2502,7 +2502,7 @@ pub struct Image {
     pub id: u64,
 }
 
-// SEEKER PATCH: behind the off-by-default `images` feature — without codecs
+// THRAGG PATCH: behind the off-by-default `images` feature — without codecs
 // a decoder can never be built.
 #[cfg(feature = "images")]
 pub(crate) fn decode_static_image(
@@ -2594,7 +2594,7 @@ impl Image {
     }
 
     /// Convert the clipboard image to an `ImageData` object.
-    // SEEKER PATCH: behind the off-by-default `images` feature — decoding
+    // THRAGG PATCH: behind the off-by-default `images` feature — decoding
     // needs the codecs and the SVG renderer.
     #[cfg(feature = "images")]
     pub fn to_image_data(&self, svg_renderer: SvgRenderer) -> Result<Arc<RenderImage>> {

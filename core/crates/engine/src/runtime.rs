@@ -54,7 +54,7 @@ impl Runtime {
         let (jobs, mut incoming) = mpsc::unbounded::<Job>();
 
         thread::Builder::new()
-            .name("seeker-engine".to_owned())
+            .name("thragg-engine".to_owned())
             .stack_size(ENGINE_STACK_SIZE)
             .spawn(move || {
                 let app = Application::with_platform(Rc::new(HeadlessPlatform::new()));

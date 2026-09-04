@@ -2,7 +2,7 @@
 use crate::Inspector;
 #[cfg(feature = "profiler")]
 use crate::profiler;
-// SEEKER PATCH: behind the off-by-default `images` feature — only paint_svg
+// THRAGG PATCH: behind the off-by-default `images` feature — only paint_svg
 // uses these.
 #[cfg(feature = "images")]
 use crate::{RenderSvgParams, SMOOTH_SVG_SCALE_FACTOR};
@@ -4319,7 +4319,7 @@ impl Window {
     /// Paint a monochrome SVG into the scene for the next frame at the current stacking context.
     ///
     /// This method should only be called as part of the paint phase of element drawing.
-    // SEEKER PATCH: behind the off-by-default `images` feature — rasterizing
+    // THRAGG PATCH: behind the off-by-default `images` feature — rasterizing
     // needs the SVG renderer.
     #[cfg(feature = "images")]
     pub fn paint_svg(

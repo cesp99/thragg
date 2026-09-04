@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 
 /**
  * Nothing here — said in a way that names the way out.
@@ -83,7 +83,7 @@ fun EmptyState(
                     .border(MD.hairline, scheme.outlineVariant, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = icon,
                     contentDescription = null,
                     tint = scheme.onSurfaceVariant,

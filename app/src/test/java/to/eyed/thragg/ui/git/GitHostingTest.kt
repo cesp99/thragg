@@ -18,9 +18,9 @@ class GitHostingTest {
     // What Zed's `parse_remote_url` accepts (github.rs:192-212).
     @Test
     fun theThreeGitSpellingsAllParse() {
-        assertEquals("cesp99/seeker", githubRepoSlug("https://github.com/cesp99/seeker.git"))
-        assertEquals("cesp99/seeker", githubRepoSlug("git@github.com:cesp99/seeker.git"))
-        assertEquals("cesp99/seeker", githubRepoSlug("ssh://git@github.com/cesp99/seeker.git"))
+        assertEquals("cesp99/thragg", githubRepoSlug("https://github.com/cesp99/thragg.git"))
+        assertEquals("cesp99/thragg", githubRepoSlug("git@github.com:cesp99/thragg.git"))
+        assertEquals("cesp99/thragg", githubRepoSlug("ssh://git@github.com/cesp99/thragg.git"))
     }
 
     @Test
@@ -67,8 +67,8 @@ class GitHostingTest {
     @Test
     fun theCommitUrlIsThePermalink() {
         assertEquals(
-            "https://github.com/cesp99/seeker/commit/abc123def",
-            githubCommitUrl("git@github.com:cesp99/seeker.git", "abc123def"),
+            "https://github.com/cesp99/thragg/commit/abc123def",
+            githubCommitUrl("git@github.com:cesp99/thragg.git", "abc123def"),
         )
         assertNull(githubCommitUrl("https://gitlab.com/a/b.git", "abc"))
     }

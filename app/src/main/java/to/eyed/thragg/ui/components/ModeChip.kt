@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 
 /**
@@ -19,7 +19,7 @@ import to.eyed.thragg.ui.theme.MD
  *
  * A label, not a control — tapping the mode happens in the config sheet, and a
  * chip that looks pressable but is not is worse than one that does not. The
- * tint comes from `SeekerColors.modeColor`, which is the TUI's table
+ * tint comes from `ThraggColors.modeColor`, which is the TUI's table
  * (`styles.go`) and spettro-android's `SpettroColors.kt:69-96`, so "plan" is
  * the same purple on the phone as in the terminal. That agreement is the
  * reason these hues are the one thing in the app not derived from the user's
@@ -41,7 +41,7 @@ fun ModeChip(
     modifier: Modifier = Modifier,
     colorName: String? = null,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val key = colorName ?: name
     Text(
         text = name,

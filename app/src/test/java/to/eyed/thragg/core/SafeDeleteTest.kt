@@ -25,7 +25,7 @@ class SafeDeleteTest {
         File(root, "usr/bin").mkdirs()
         File(root, "usr/bin/git").writeText("not really git")
         File(root, "etc").mkdirs()
-        File(root, "etc/hostname").writeText("seeker")
+        File(root, "etc/hostname").writeText("thragg")
 
         assertTrue(SafeDelete.deleteTree(root))
         assertFalse(root.exists())

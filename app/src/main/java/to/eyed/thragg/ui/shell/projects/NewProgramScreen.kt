@@ -42,7 +42,7 @@ import to.eyed.thragg.ui.components.BottomActions
 import to.eyed.thragg.ui.components.BottomActionsGap
 import to.eyed.thragg.ui.components.Choice
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
+import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.components.SegmentedSelect
 import to.eyed.thragg.ui.components.fadeUnderBottomActions
 import to.eyed.thragg.ui.shell.Destination
@@ -219,7 +219,7 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
             // that cannot exist. It is here to be *read* — the one question
             // "where did my program go" needs an answer on the screen that
             // made it.
-            SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            ThraggCard(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = projectsDir?.let { "$it/${trimmed.ifEmpty { "escrow" }}" } ?: "",
                     style = MonoSmall,

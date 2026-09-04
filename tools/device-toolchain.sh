@@ -11,7 +11,7 @@
 #     never want a rustc from it
 #   * unpacking 1.4 GB through proot is far slower than unpacking beside it
 #
-# It installs into /data/local/tmp/seekerlab rather than app storage, so it can
+# It installs into /data/local/tmp/thragglab rather than app storage, so it can
 # be run and re-run without the app. See docs/SOLANA.md for the design.
 #
 # Usage:  tools/device-toolchain.sh [step...]
@@ -19,9 +19,9 @@
 #         tools/device-toolchain.sh rootfs apt # just those steps
 set -euo pipefail
 
-LAB=/data/local/tmp/seekerlab
+LAB=/data/local/tmp/thragglab
 HERE="$(cd "$(dirname "$0")" && pwd)"
-WORK="${SEEKER_WORK:-$HERE/../.lab}"
+WORK="${THRAGG_WORK:-$HERE/../.lab}"
 PLATFORM_TOOLS_VERSION="${PLATFORM_TOOLS_VERSION:-v1.57}"
 # What cargo-build-sbf 4.2.0 itself pins and downloads when its cache is cold
 # and no --tools-version is passed — proven by the 2026-08 device rehearsal,
@@ -106,7 +106,7 @@ step_platform_tools() {
 }
 
 step_rustup() {
-  say "rustup (manager only) + link platform-tools as the 'seeker' toolchain"
+  say "rustup (manager only) + link platform-tools as the 'thragg' toolchain"
   # cargo-build-sbf execs rustup and dies with "Failed to execute rustup"
   # otherwise. We want the manager, never a compiler: --default-toolchain none
   # downloads no rustc at all. Then the toolchain we already have is linked in
@@ -114,12 +114,12 @@ step_rustup() {
   adbsh "$LAB/guest.sh /bin/bash -c '
     curl -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh
     sh /tmp/rustup-init.sh -y --default-toolchain none --no-modify-path >/dev/null
-    # Named 'seeker', NOT 'solana': cargo-build-sbf uninstalls the first rustup
+    # Named 'thragg', NOT 'solana': cargo-build-sbf uninstalls the first rustup
     # toolchain whose name contains "solana" unless it is its own
     # <rustc>-sbpf-solana-<tag> entry (src/toolchain.rs, link_solana_toolchain),
     # which took the default toolchain out from under anchor's IDL step.
-    rustup toolchain link seeker /opt/solana/platform-tools/rust
-    rustup default seeker
+    rustup toolchain link thragg /opt/solana/platform-tools/rust
+    rustup default thragg
     rustup toolchain list'"
 }
 
@@ -183,7 +183,7 @@ step_verify() {
   # fails both when the link is gone and when it dangles; relinking is
   # idempotent, so running it before every build costs nothing.
   adbsh "$LAB/guest.sh /bin/bash -c '
-    rustup toolchain link seeker /opt/solana/platform-tools/rust && rustup default seeker
+    rustup toolchain link thragg /opt/solana/platform-tools/rust && rustup default thragg
     cd /projects/hello_solana
     time cargo-build-sbf --tools-version $PLATFORM_TOOLS_VERSION 2>&1 | tail -5
     ls -la target/deploy/

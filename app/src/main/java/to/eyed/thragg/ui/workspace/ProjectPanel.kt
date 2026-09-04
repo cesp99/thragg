@@ -105,7 +105,7 @@ import to.eyed.thragg.core.ShowDiagnostics
 import to.eyed.thragg.core.TrashResult
 import to.eyed.thragg.core.TrashedEntry
 import to.eyed.thragg.ui.editor.FileDiagnostics
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.LocalUiFontSize
 import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.glyphHeight
@@ -732,8 +732,8 @@ fun ProjectPanel(
         // The panel's plain name colour is `text.muted`, not `text` —
         // `entry_label_color(false)` (items.rs:2177-2183); a marked row's name
         // is promoted in the row itself.
-        val seeker = LocalSeekerColors.current
-        val cardGround = seeker.cardGround
+        val thragg = LocalThraggColors.current
+        val cardGround = thragg.cardGround
         val colours = remember(theme, onSurfaceVariant, cardGround) {
             GitStatusColours
                 .forProjectPanel(theme, onSurfaceVariant, onSurfaceVariant)
@@ -749,7 +749,7 @@ fun ProjectPanel(
         // `warnInk`, not the raw `warning` key: a diagnostic mark outranks git
         // status on a row's NAME, so it is body text on the sheet and has to
         // clear 4.5:1 there — Ayu Light's raw `warning` is 1.64:1.
-        val warnInk = seeker.warnInk
+        val warnInk = thragg.warnInk
         // Zed's `get_item_color` gives the panel `element_hover` for hover and
         // `element_selected` for a marked row rather than the generic ListItem
         // ramp (project_panel.rs:611-629). Only the SELECTED half survives as

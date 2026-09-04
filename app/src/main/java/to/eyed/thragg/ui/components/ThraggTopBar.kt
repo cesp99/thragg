@@ -17,7 +17,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 
 /**
@@ -72,7 +72,7 @@ import to.eyed.thragg.ui.theme.mutedIcon
  * own arithmetic is right.
  */
 @Composable
-fun SeekerTopBar(
+fun ThraggTopBar(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
@@ -106,7 +106,7 @@ fun SeekerTopBar(
         },
         navigationIcon = {
             if (onBack != null) {
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = R.drawable.ic_ui_arrow_left,
                     description = "Back",
                     onClick = onBack,

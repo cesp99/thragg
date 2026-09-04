@@ -4,7 +4,7 @@ use crate::{
     Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
     SharedString, SharedUri, StyleRefinement, Styled, Task, Window, px,
 };
-// SEEKER PATCH: decoding is behind the off-by-default `images` feature — see
+// THRAGG PATCH: decoding is behind the off-by-default `images` feature — see
 // Cargo.toml. Without it the asset loaders return an error instead.
 #[cfg(feature = "images")]
 use crate::{decode_static_image, decode_static_image_from_decoder};
@@ -610,7 +610,7 @@ impl Asset for ImageDecoder {
     type Source = Arc<Image>;
     type Output = Result<Arc<RenderImage>, ImageCacheError>;
 
-    // SEEKER PATCH: decoding is behind the off-by-default `images` feature.
+    // THRAGG PATCH: decoding is behind the off-by-default `images` feature.
     #[cfg(feature = "images")]
     fn load(
         source: Self::Source,
@@ -620,7 +620,7 @@ impl Asset for ImageDecoder {
         async move { source.to_image_data(renderer).map_err(Into::into) }
     }
 
-    // SEEKER PATCH: without the `images` feature there are no codecs and no
+    // THRAGG PATCH: without the `images` feature there are no codecs and no
     // SVG renderer, so loading an image can only fail.
     #[cfg(not(feature = "images"))]
     fn load(
@@ -645,7 +645,7 @@ impl Asset for ImageAssetLoader {
     type Source = Resource;
     type Output = Result<Arc<RenderImage>, ImageCacheError>;
 
-    // SEEKER PATCH: decoding is behind the off-by-default `images` feature.
+    // THRAGG PATCH: decoding is behind the off-by-default `images` feature.
     #[cfg(feature = "images")]
     fn load(
         source: Self::Source,
@@ -771,7 +771,7 @@ impl Asset for ImageAssetLoader {
         }
     }
 
-    // SEEKER PATCH: without the `images` feature there are no codecs and no
+    // THRAGG PATCH: without the `images` feature there are no codecs and no
     // SVG renderer, so fetching the resource would only feed a failing decode.
     #[cfg(not(feature = "images"))]
     fn load(
@@ -813,7 +813,7 @@ pub enum ImageCacheError {
     #[error("image error: {0}")]
     Image(Arc<ImageError>),
     /// An error that occurred while processing an SVG.
-    // SEEKER PATCH: behind the off-by-default `images` feature — usvg is
+    // THRAGG PATCH: behind the off-by-default `images` feature — usvg is
     // optional.
     #[cfg(feature = "images")]
     #[error("svg error: {0}")]
@@ -832,7 +832,7 @@ impl From<io::Error> for ImageCacheError {
     }
 }
 
-// SEEKER PATCH: behind the off-by-default `images` feature — usvg is
+// THRAGG PATCH: behind the off-by-default `images` feature — usvg is
 // optional.
 #[cfg(feature = "images")]
 impl From<usvg::Error> for ImageCacheError {

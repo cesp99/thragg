@@ -315,7 +315,7 @@ impl crate::Engine {
         let include_ignored = options.include_ignored;
         let worker = search.clone();
         let spawned = thread::Builder::new()
-            .name("seeker-project-search".to_owned())
+            .name("thragg-project-search".to_owned())
             .spawn(move || {
                 let Some(folders) = await_scan(&worker, &state) else {
                     return;

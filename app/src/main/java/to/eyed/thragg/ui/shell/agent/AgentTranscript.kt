@@ -63,21 +63,21 @@ import to.eyed.thragg.ui.agent.spettro.activationGlow
 import to.eyed.thragg.ui.agent.spettro.rememberActivationBrush
 import to.eyed.thragg.ui.common.MarkdownText
 import to.eyed.thragg.ui.components.DiffStatLabel
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerSpinner
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.components.ZedCodeBlock
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoSmall
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.animateSize
 import to.eyed.thragg.ui.theme.effectSpec
-import to.eyed.thragg.ui.theme.seekerSpring
+import to.eyed.thragg.ui.theme.thraggSpring
 import to.eyed.thragg.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -614,7 +614,7 @@ private fun UserBubble(entry: AgentEntry.User, onRestore: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(MD.space1),
                     modifier = Modifier.padding(top = MD.space1),
                 ) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = R.drawable.ic_ui_rotate_ccw,
                         contentDescription = null,
                         tint = scheme.onSecondaryContainer.copy(alpha = 0.7f),
@@ -661,7 +661,7 @@ private fun AssistantRow(
         if (thoughts.isNotEmpty()) {
             val turn by animateFloatAsState(
                 targetValue = if (thinkingOpen) 90f else 0f,
-                animationSpec = seekerSpring(),
+                animationSpec = thraggSpring(),
                 label = "reasoning-chevron",
             )
             Row(
@@ -674,14 +674,14 @@ private fun AssistantRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
             ) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_chevron_right,
                     contentDescription = null,
                     tint = scheme.onSurfaceVariant,
                     size = IconSize.Marker,
                     modifier = Modifier.rotate(turn),
                 )
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_brain,
                     contentDescription = null,
                     tint = scheme.onSurfaceVariant,
@@ -753,7 +753,7 @@ private fun SystemPill(text: String) {
             // Decorative: the words beside it already say what happened, so a
             // description here would make a screen reader say it twice.
             if (icon != null) {
-                SeekerIcon(icon, null, scheme.onSurfaceVariant, size = IconSize.Marker)
+                ThraggIcon(icon, null, scheme.onSurfaceVariant, size = IconSize.Marker)
             }
             Text(
                 text = words,
@@ -781,7 +781,7 @@ private fun UnsupportedRow() {
 @Composable
 private fun CompletedPlanCard(entry: AgentEntry.CompletedPlan) {
     if (entry.entries.isEmpty()) return
-    SeekerCard(modifier = Modifier.fillMaxWidth()) {
+    ThraggCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(horizontal = MD.space3, vertical = MD.rowPadY),
             verticalArrangement = Arrangement.spacedBy(MD.space05),
@@ -831,7 +831,7 @@ private fun ToolCallRow(
     onOpenPermission: (AgentEntry.ToolCall) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val waiting = call.status == ToolCallStatus.WaitingForConfirmation
     val failed = call.status == ToolCallStatus.Failed
     val agent = isSubAgent(call)
@@ -862,7 +862,7 @@ private fun ToolCallRow(
     }
     val turn by animateFloatAsState(
         targetValue = if (open && !waiting) 90f else 0f,
-        animationSpec = seekerSpring(),
+        animationSpec = thraggSpring(),
         label = "tool-row-chevron",
     )
 
@@ -910,7 +910,7 @@ private fun ToolCallRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = toolIcon(call),
                     // The verb beside it is the label; this is the picture of it.
                     contentDescription = null,
@@ -936,7 +936,7 @@ private fun ToolCallRow(
                 DiffStatLabel(added = added, removed = removed)
                 ToolStatusMark(call.status)
                 if (hasBody) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = R.drawable.ic_ui_chevron_right,
                         contentDescription = null,
                         tint = scheme.onSurfaceVariant,
@@ -1009,7 +1009,7 @@ private fun ToolCallRow(
                             style = MaterialTheme.typography.labelMedium,
                             color = scheme.onSurfaceVariant,
                         )
-                        SeekerIcon(
+                        ThraggIcon(
                             icon = R.drawable.ic_ui_chevron_right,
                             contentDescription = null,
                             tint = scheme.onSurfaceVariant,
@@ -1055,7 +1055,7 @@ private fun SubAgentHeader(
     chevronTurn: Float,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val task = subAgentTask(call)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(MD.space05)) {
         Row(
@@ -1063,7 +1063,7 @@ private fun SubAgentHeader(
             horizontalArrangement = Arrangement.spacedBy(MD.space2),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_agent,
                 contentDescription = null,
                 tint = colors.agentInk,
@@ -1091,7 +1091,7 @@ private fun SubAgentHeader(
             Spacer(Modifier.weight(1f))
             ToolStatusMark(call.status)
             if (showChevron) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_chevron_right,
                     contentDescription = null,
                     tint = scheme.onSurfaceVariant,
@@ -1130,10 +1130,10 @@ private data class MonoSheetRequest(val title: String, val body: String)
 @Composable
 private fun ToolStatusMark(status: ToolCallStatus) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     when (status) {
         ToolCallStatus.Pending, ToolCallStatus.InProgress ->
-            SeekerSpinner(size = 12.dp, color = scheme.primary)
+            ThraggSpinner(size = 12.dp, color = scheme.primary)
 
         ToolCallStatus.WaitingForConfirmation -> Text(
             text = "asks",
@@ -1146,7 +1146,7 @@ private fun ToolStatusMark(status: ToolCallStatus) {
             contentDescription = "done",
         )
 
-        ToolCallStatus.Failed -> SeekerIcon(
+        ToolCallStatus.Failed -> ThraggIcon(
             icon = R.drawable.ic_ui_close,
             contentDescription = "failed",
             tint = colors.dangerInk,
@@ -1260,7 +1260,7 @@ private fun TerminalBlock(
             horizontalArrangement = Arrangement.spacedBy(MD.space2),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (terminal.running) SeekerSpinner(size = 12.dp, color = scheme.primary)
+            if (terminal.running) ThraggSpinner(size = 12.dp, color = scheme.primary)
             Text(
                 text = "Open full output",
                 style = MaterialTheme.typography.labelLarge,

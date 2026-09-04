@@ -215,7 +215,7 @@ impl crate::Engine {
         let buffers = self.buffers.clone();
         let worker = cache.clone();
         let spawned = thread::Builder::new()
-            .name("seeker-git-diff".to_owned())
+            .name("thragg-git-diff".to_owned())
             .spawn(move || diff_until_settled(id, &userland, &path, &buffers, &worker));
         if let Err(err) = spawned {
             // Leaving `running` set would wedge this buffer's gutter forever.

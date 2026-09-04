@@ -86,7 +86,7 @@ import java.util.zip.GZIPInputStream
  */
 object ToolchainInstaller {
 
-    private const val TAG = "seeker-toolchain"
+    private const val TAG = "thragg-toolchain"
 
     /** Progress is reported at most this often; a phone need not see more. */
     private const val PROGRESS_INTERVAL_MS = 250L

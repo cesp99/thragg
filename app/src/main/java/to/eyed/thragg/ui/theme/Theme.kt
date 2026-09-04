@@ -21,7 +21,7 @@ import to.eyed.thragg.core.AppSettings
  * colour so the editor looks like Zed everywhere. Every colour comes from
  * Zed's theme JSON parsed by [ZedTheme], with `theme_overrides` laid over it,
  * and `ZedTheme.palette()` turns that one source into both the Material
- * `ColorScheme` and [SeekerColors] in a single pass. A wallpaper primary would
+ * `ColorScheme` and [ThraggColors] in a single pass. A wallpaper primary would
  * appear nowhere in the editor, which is exactly the clash the hybrid exists
  * to prevent. The two fonts and the icon theme come from settings.json the
  * same way.
@@ -117,7 +117,7 @@ fun ThraggTheme(
     val reduceMotion = rememberReduceMotion(settings)
     CompositionLocalProvider(
         LocalZedTheme provides theme,
-        LocalSeekerColors provides palette.seeker,
+        LocalThraggColors provides palette.thragg,
         LocalAppSettings provides settings,
         LocalReduceMotion provides reduceMotion,
         LocalUiFontSize provides fonts.uiSize,
@@ -151,7 +151,7 @@ fun ThraggTheme(
         // animation in the app reads them through effectSpec/spatialSpec.
         MaterialTheme(
             colorScheme = palette.scheme,
-            shapes = SeekerShapes,
+            shapes = ThraggShapes,
             // Keyed on the face alone: this scale is fixed sp on purpose, so a
             // Material sheet does not resize because someone changed the size
             // of the font in their editor. ZedSurface re-provides the scale

@@ -67,7 +67,7 @@ pub struct FakeLanguageServerEntry {
     pub _server: Option<lsp::FakeLanguageServer>,
 }
 
-// SEEKER PATCH: upstream also has `Loaded`/`Loading` variants for grammars
+// THRAGG PATCH: upstream also has `Loaded`/`Loading` variants for grammars
 // compiled to .wasm and loaded from disk at runtime. That path needs
 // tree-sitter's "wasm" feature (the whole Cranelift/Wasmtime stack), which this
 // build turns off — every grammar is statically linked, so an `Unloaded` .wasm
@@ -726,7 +726,7 @@ impl LanguageRegistry {
                 AvailableGrammar::Native(grammar) => {
                     tx.send(Ok(grammar.clone())).ok();
                 }
-                // SEEKER PATCH: upstream reads the .wasm file and loads it
+                // THRAGG PATCH: upstream reads the .wasm file and loads it
                 // through the parser's WasmStore here. This build has no
                 // Wasmtime, so registering a .wasm grammar is the mistake — the
                 // error names it rather than pretending the file is bad.

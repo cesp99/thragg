@@ -87,13 +87,13 @@ import to.eyed.thragg.ui.shell.build.CodeJump
 import to.eyed.thragg.ui.shell.projects.ProjectsSheet
 import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.pressScale
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.ZedSurface
 import to.eyed.thragg.ui.theme.mutedIcon
@@ -832,7 +832,7 @@ fun CodeScreen(
  * Everything you press once a minute is in the file bar at the bottom, which
  * is the whole reachability argument (docs/UI.md, "Why", defect 3).
  *
- * It is the shared [SeekerTopBar] now, which is what makes it 56dp with the
+ * It is the shared [ThraggTopBar] now, which is what makes it 56dp with the
  * app's other bars rather than 44dp on its own, gives it the window insets and
  * the bar semantics, and puts the file's directory on a second line instead of
  * squeezing project and file onto one 400dp row. **The file is the title**:
@@ -841,7 +841,7 @@ fun CodeScreen(
  * where it identifies without competing.
  *
  * The project chip that used to open Projects & tools went with the old row —
- * a `SeekerTopBar` has one leading slot and it belongs to back. The sheet is
+ * a `ThraggTopBar` has one leading slot and it belongs to back. The sheet is
  * still two taps away and from the same thumb: the file bar's tree button
  * opens Files & Find, which carries Projects in its action row. With no
  * project open the empty state carries it as a button, which is the case that
@@ -857,7 +857,7 @@ private fun CodeTopBar(
     onOverflow: () -> Unit,
 ) {
     val directory = file?.path?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
-    SeekerTopBar(
+    ThraggTopBar(
         title = file?.name ?: projectName ?: "No project",
         subtitle = when {
             file == null -> projectName?.let { "no file open" }
@@ -868,7 +868,7 @@ private fun CodeTopBar(
                 // The unsaved mark sits with the actions rather than beside the
                 // title: a dot inside a `titleLarge` line reads as punctuation,
                 // and this one is a *state*.
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_dot,
                     contentDescription = "unsaved",
                     tint = MaterialTheme.colorScheme.primary,
@@ -876,7 +876,7 @@ private fun CodeTopBar(
                     modifier = Modifier.padding(end = MD.space1),
                 )
             }
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_magnifying_glass,
                 // It searches *this buffer* — the file bar's magnifier is the
                 // one that searches the project. The two were both labelled
@@ -891,7 +891,7 @@ private fun CodeTopBar(
             if (errorCount > 0) {
                 ProblemsAction(errorCount, onProblems)
             }
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_more_vertical,
                 description = "More",
                 onClick = onOverflow,
@@ -907,7 +907,7 @@ private fun ProblemsAction(errorCount: Int, onClick: () -> Unit) {
     // The solved ink, not `error` raw: this is a label on the Material half and
     // it has to clear 4.5:1 on the bar it sits in (docs/VISUAL.md, "THE
     // HYBRID" — inks in the Material half are solved).
-    val tint = LocalSeekerColors.current.removedInk
+    val tint = LocalThraggColors.current.removedInk
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -917,7 +917,7 @@ private fun ProblemsAction(errorCount: Int, onClick: () -> Unit) {
             .padding(horizontal = MD.iconGap, vertical = MD.space2)
             .semantics { contentDescription = "$errorCount problems" },
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_close,
             contentDescription = null,
             tint = tint,

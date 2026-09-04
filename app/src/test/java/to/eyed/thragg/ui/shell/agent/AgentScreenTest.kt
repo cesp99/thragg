@@ -441,7 +441,7 @@ class AgentScreenTest {
 
     /**
      * The bar names the CONVERSATION and falls back to the project only when
-     * the thread has no name yet — a title of `seeker-ide` with one project
+     * the thread has no name yet — a title of `thragg-ide` with one project
      * open says nothing the Projects control beside it does not already say.
      *
      * (`tickerLabel` used to be tested here. It is gone: the elapsed/token
@@ -451,9 +451,9 @@ class AgentScreenTest {
      */
     @Test
     fun theTitleNamesTheThreadAndFallsBackToTheProject() {
-        assertEquals("Fix the resume crash", barTitle("Fix the resume crash", "seeker-ide"))
-        assertEquals("seeker-ide", barTitle(null, "seeker-ide"))
-        assertEquals("seeker-ide", barTitle("  ", "seeker-ide"))
+        assertEquals("Fix the resume crash", barTitle("Fix the resume crash", "thragg-ide"))
+        assertEquals("thragg-ide", barTitle(null, "thragg-ide"))
+        assertEquals("thragg-ide", barTitle("  ", "thragg-ide"))
         assertEquals("No project", barTitle(null, null))
     }
 
@@ -466,9 +466,9 @@ class AgentScreenTest {
      */
     @Test
     fun theSubtitleNamesTheAgentAndTheProjectTheTitleGaveUp() {
-        assertEquals("Spettro · seeker-ide", barSubtitle("Spettro", "seeker-ide", "Fix the crash"))
-        assertEquals("Spettro", barSubtitle("Spettro", "seeker-ide", null))
-        assertEquals("Spettro", barSubtitle("Spettro", "seeker-ide", " "))
+        assertEquals("Spettro · thragg-ide", barSubtitle("Spettro", "thragg-ide", "Fix the crash"))
+        assertEquals("Spettro", barSubtitle("Spettro", "thragg-ide", null))
+        assertEquals("Spettro", barSubtitle("Spettro", "thragg-ide", " "))
         assertEquals("Agent", barSubtitle("Agent", null, "Fix the crash"))
     }
 

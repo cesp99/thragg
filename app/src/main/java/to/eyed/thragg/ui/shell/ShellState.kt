@@ -91,7 +91,7 @@ class ShellState {
      * was not a swipe — a tap, a notification, a seam.
      *
      * The shell's transition reads it to decide whether the new destination
-     * slides in or simply appears (SeekerShell.kt, `surfaceTransition`). A
+     * slides in or simply appears (ThraggShell.kt, `surfaceTransition`). A
      * tap shows the tab on the next frame, because a tab is tapped tens of
      * times a session and every frame of travel there is a frame of waiting;
      * a swipe is a *gesture with a direction*, and the screen following that
@@ -231,7 +231,7 @@ class ShellState {
 
     /**
      * A hardware key that reached the shell — see the pre-IME pass in
-     * SeekerShell.kt. There is no keymap behind this: the nine bindings a
+     * ThraggShell.kt. There is no keymap behind this: the nine bindings a
      * paired Bluetooth keyboard gets are hard-coded in EditorInput.kt
      * (docs/UI.md, "Navigation"), and this seam exists so a chord Gboard would
      * otherwise eat can be offered to whoever is on screen. Returns true when

@@ -144,7 +144,7 @@ suspend fun LazyListState.revealBy(delta: Float) {
  * (see [LocalReduceMotion]).
  */
 @Composable
-fun <T> seekerSpring(): FiniteAnimationSpec<T> =
+fun <T> thraggSpring(): FiniteAnimationSpec<T> =
     if (LocalReduceMotion.current) snap() else spring(stiffness = Spring.StiffnessMediumLow)
 
 /**
@@ -207,7 +207,7 @@ private const val SPATIAL_STIFFNESS = 800f
 /**
  * The size spring, with the threshold that stops it running on invisibly.
  *
- * [seekerSpring] leaves `visibilityThreshold` null, which resolves to 0.01 —
+ * [thraggSpring] leaves `visibilityThreshold` null, which resolves to 0.01 —
  * a hundredth of a pixel, so a box "finishes" arriving long after it has
  * stopped moving on screen and holds a frame callback while it does.
  * `IntSize.VisibilityThreshold` is one pixel on each axis, which is the
@@ -220,7 +220,7 @@ private val SizeSpring = spring(
 )
 
 /**
- * Animate this composable's size changes on [seekerSpring].
+ * Animate this composable's size changes on [thraggSpring].
  *
  * Reach for this rather than `animateContentSize()` — the bare call takes
  * Compose's default spring and, more to the point, reads no reduce-motion
@@ -235,7 +235,7 @@ fun Modifier.animateSize(): Modifier =
  * The durations that are a duration rather than a spring, each with its
  * reason.
  *
- * Anything that answers "how long" and is not [seekerSpring], [effectSpec] or
+ * Anything that answers "how long" and is not [thraggSpring], [effectSpec] or
  * [spatialSpec] is here, so the same event has the same length everywhere it
  * is drawn. A number that appears in two files eventually appears as two
  * numbers.

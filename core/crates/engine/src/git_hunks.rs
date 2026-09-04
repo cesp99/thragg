@@ -323,9 +323,9 @@ impl crate::Engine {
 fn patch_file_path(repo_root: &Path) -> PathBuf {
     let git_dir = repo_root.join(".git");
     if git_dir.is_dir() {
-        git_dir.join("seeker-hunk.patch")
+        git_dir.join("thragg-hunk.patch")
     } else {
-        repo_root.join(".seeker-hunk.patch")
+        repo_root.join(".thragg-hunk.patch")
     }
 }
 

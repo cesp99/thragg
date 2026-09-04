@@ -58,10 +58,10 @@ import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.NoticeCard
 import to.eyed.thragg.ui.components.RunTicker
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerChip
-import to.eyed.thragg.ui.components.SeekerSpinner
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggChip
+import to.eyed.thragg.ui.components.ThraggSpinner
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.editor.DiagnosticSeverity
@@ -72,12 +72,12 @@ import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.code.CodeBuildSeam
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoSmall
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.effectSpec
@@ -92,11 +92,11 @@ import to.eyed.thragg.ui.workspace.Notifications
  * The Build destination — the screen the app exists for.
  *
  * FOUR BANDS, TOP TO BOTTOM (docs/VISUAL.md, "Every other screen" → Build): a
- * 56dp [SeekerTopBar] carrying the target as its subtitle and the run control
+ * 56dp [ThraggTopBar] carrying the target as its subtitle and the run control
  * as a filled button; a 36dp [BuildStatusStrip] that *reports* and never acts;
- * the problems as [SeekerCard]s you can tap into Code; and the log as a Zed
+ * the problems as [ThraggCard]s you can tap into Code; and the log as a Zed
  * island in the buffer's own face. Everything except that island is Material —
- * `MaterialTheme.colorScheme` and `LocalSeekerColors`, no `theme.color(...)`
+ * `MaterialTheme.colorScheme` and `LocalThraggColors`, no `theme.color(...)`
  * read anywhere in this file — because the log is the only part of this screen
  * that has to agree with tree-sitter, and the rest is an app.
  *
@@ -215,7 +215,7 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
  * than one that never worked. **This is called from the Build destination's
  * composition, so the editor's ▶ works from the moment Build has been opened
  * once.** Making it work on the very first frame of a cold start needs one
- * line in `SeekerShell.kt`, which wave 1 owns — see this chunk's handoffs.
+ * line in `ThraggShell.kt`, which wave 1 owns — see this chunk's handoffs.
  */
 object BuildBootstrap {
     fun install(state: ShellState, context: Context) {
@@ -249,7 +249,7 @@ private fun BuildBar(
     val projectName = state.project?.rootName
     val runnable = layout != null && unavailableReason(context, layout) == null
 
-    SeekerTopBar(
+    ThraggTopBar(
         title = if (inShell) "Shell" else "Build",
         subtitle = when {
             projectName == null -> "No project open"
@@ -261,7 +261,7 @@ private fun BuildBar(
             // The mode switch, and the app's only route to a terminal. The
             // label always names where the tap GOES rather than where you are,
             // which is the rule the old `⌗ Shell` chip already followed.
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_terminal,
                 description = if (inShell) "Leave the shell" else "Open the shell",
                 onClick = { ShellModes.toggle(root) },
@@ -282,7 +282,7 @@ private fun BuildBar(
                 )
             }
             Box {
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = R.drawable.ic_ui_more_vertical,
                     description = "More",
                     onClick = { overflow = true },
@@ -374,7 +374,7 @@ private fun RunControl(running: Boolean, enabled: Boolean, onClick: () -> Unit) 
             ),
         contentAlignment = Alignment.Center,
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = if (running) R.drawable.ic_ui_stop else R.drawable.ic_ui_play,
             contentDescription = label,
             tint = ink,
@@ -402,7 +402,7 @@ private fun RunControl(running: Boolean, enabled: Boolean, onClick: () -> Unit) 
 @Composable
 private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val running = BuildRunner.isRunning
     val issues = BuildRunner.lastIssues
     val errors = issues.count { it.severity == DiagnosticSeverity.Error }
@@ -424,7 +424,7 @@ private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
                 // A run the shell state has not caught up with yet: the
                 // spinner still says "going", which is the only claim the
                 // strip can honestly make without a start time.
-                SeekerSpinner(size = 12.dp)
+                ThraggSpinner(size = 12.dp)
             }
             Text(
                 text = BuildRunner.runningAction?.progressLabel ?: "Working",
@@ -487,7 +487,7 @@ private fun restLabel(state: ShellState): String = when {
 @Composable
 private fun IssueCounts(errors: Int, warnings: Int) {
     if (errors == 0 && warnings == 0) return
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     Row(horizontalArrangement = Arrangement.spacedBy(MD.space1)) {
         if (errors > 0) {
             Text(
@@ -588,7 +588,7 @@ private fun BuildBody(
                         body = notice.message,
                         actions = {
                             if (notice.setup) {
-                                SeekerChip(
+                                ThraggChip(
                                     label = "Set up the toolchain",
                                     onClick = { state.push(Route.Setup) },
                                     tint = MaterialTheme.colorScheme.primary,
@@ -606,14 +606,14 @@ private fun BuildBody(
                         title = "The build failed",
                         body = failureBody(state.build as? BuildState.Failed),
                         actions = {
-                            SeekerChip(
+                            ThraggChip(
                                 label = "Retry",
                                 onClick = {
                                     BuildRunner.start(context, state, BuildAction.Build)
                                 },
                                 tint = MaterialTheme.colorScheme.primary,
                             )
-                            SeekerChip(
+                            ThraggChip(
                                 label = "Fix with agent",
                                 onClick = {
                                     askAgent(
@@ -644,7 +644,7 @@ private fun BuildBody(
                     // none — a run that produced only warnings — it is the
                     // single, whole representation the warnings get here.
                     val rest = issues.size - preview.size
-                    SeekerChip(
+                    ThraggChip(
                         label = if (preview.isEmpty()) {
                             "$rest ${plural(rest, "warning")} in Problems"
                         } else {
@@ -700,9 +700,9 @@ private fun BuildBody(
 @Composable
 private fun BuildIssueCard(issue: BuildIssue, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val isError = issue.severity == DiagnosticSeverity.Error
-    SeekerCard(
+    ThraggCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(MD.radiusSm),
         onClick = onClick,
@@ -716,7 +716,7 @@ private fun BuildIssueCard(issue: BuildIssue, onClick: () -> Unit) {
                 .padding(horizontal = MD.space3, vertical = MD.rowPadY),
             horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = if (isError) R.drawable.ic_ui_close else R.drawable.ic_ui_warning,
                 contentDescription = if (isError) "error" else "warning",
                 tint = if (isError) colors.removedMark else colors.warnMark,
@@ -879,7 +879,7 @@ internal fun FlatButton(
             modifier = Modifier.padding(horizontal = MD.space2),
         ) {
             if (icon != null) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = icon,
                     contentDescription = null,
                     tint = ink,
@@ -895,7 +895,7 @@ internal fun FlatButton(
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (trailingIcon != null) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = trailingIcon,
                     contentDescription = null,
                     tint = ink,

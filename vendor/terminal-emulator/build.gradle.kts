@@ -14,7 +14,7 @@ android {
     compileSdk {
         version = release(37)
     }
-    ndkVersion = providers.gradleProperty("seeker.ndkVersion").get()
+    ndkVersion = providers.gradleProperty("thragg.ndkVersion").get()
 
     defaultConfig {
         minSdk = 31
@@ -29,7 +29,7 @@ android {
         }
 
         // The ABIs the engine is built for (app/build.gradle.kts rustAbis).
-        // Shipping libtermux.so for an ABI without libseekercore.so would be
+        // Shipping libtermux.so for an ABI without libthraggcore.so would be
         // a terminal in an app that cannot open a file.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

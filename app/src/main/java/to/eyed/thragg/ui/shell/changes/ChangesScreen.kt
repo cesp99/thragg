@@ -74,21 +74,21 @@ import to.eyed.thragg.ui.shell.Route
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.components.DiffStatLabel
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerChip
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggChip
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.SectionHeader
 import to.eyed.thragg.ui.shell.build.CodeJump
 import to.eyed.thragg.ui.shell.projects.ProjectWork
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoBody
 import to.eyed.thragg.ui.theme.MonoSmall
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerColors
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggColors
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.touchTarget
@@ -127,7 +127,7 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
 
     if (project == null || !isGitPanelSupported) {
         Column(modifier = modifier.fillMaxSize()) {
-            SeekerTopBar(title = "Changes", onBack = { state.pop() })
+            ThraggTopBar(title = "Changes", onBack = { state.pop() })
             HairlineDivider()
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -265,7 +265,7 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
                 // with parts, and eleven separate cards down a 400dp column is
                 // eleven borders where one is meant (docs/VISUAL.md, "Changes").
                 item(key = "agent-rows") {
-                    SeekerCard {
+                    ThraggCard {
                         model.agent.forEachIndexed { index, row ->
                             if (index > 0) HairlineDivider()
                             AgentRow(row) { state.push(Route.Diff(row.path)) }
@@ -282,7 +282,7 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
                     )
                 }
                 item(key = "git-rows") {
-                    SeekerCard {
+                    ThraggCard {
                         model.git.forEachIndexed { index, row ->
                             if (index > 0) HairlineDivider()
                             GitRow(
@@ -409,8 +409,8 @@ private enum class ChangesSheet { Commit, Branches }
 /**
  * `Changes · 3 files +128 −47`, with the branch chip and the ⋮ in the bar.
  *
- * This is the route's own [SeekerTopBar] rather than a strip under a shared
- * one, which is why [SeekerShell]'s frame stopped drawing a bar for it: the
+ * This is the route's own [ThraggTopBar] rather than a strip under a shared
+ * one, which is why [ThraggShell]'s frame stopped drawing a bar for it: the
  * bar is where a branch belongs — it is the *identity* of what is being looked
  * at, in the same slot the Code destination puts the file — and a screen that
  * had both would spend 92dp on two rows of chrome before the first file.
@@ -435,12 +435,12 @@ private fun ChangesHeader(
     var remoteMenu by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
     val branch = status.branch
-    SeekerTopBar(
+    ThraggTopBar(
         title = "Changes",
         subtitle = subtitle,
         onBack = onBack,
         actions = {
-            SeekerChip(
+            ThraggChip(
                 label = branch?.name ?: "no branch",
                 onClick = onOpenBranches,
                 enabled = status.hasRepo,
@@ -486,7 +486,7 @@ private fun ChangesHeader(
                 }
             }
             Box {
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = R.drawable.ic_ui_more_vertical,
                     description = "More",
                     onClick = { overflow = true },
@@ -568,7 +568,7 @@ private fun GitRow(
     onToggleStage: () -> Unit,
     onLongPress: () -> Unit,
 ) {
-    val colours = LocalSeekerColors.current
+    val colours = LocalThraggColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -615,7 +615,7 @@ private fun GitRow(
  */
 private fun statusInk(
     change: GitChange,
-    colours: SeekerColors,
+    colours: ThraggColors,
     neutral: androidx.compose.ui.graphics.Color,
 ): androidx.compose.ui.graphics.Color = when (paintedStatus(change)) {
     PanelStatus.Added, PanelStatus.Untracked -> colours.addedInk
@@ -628,7 +628,7 @@ private fun statusInk(
 /** `⚠ conflict — Anchor.toml ›`, its own block because it blocks the commit. */
 @Composable
 private fun ConflictRow(change: GitChange, onOpen: () -> Unit) {
-    val ink = LocalSeekerColors.current.dangerInk
+    val ink = LocalThraggColors.current.dangerInk
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -638,7 +638,7 @@ private fun ConflictRow(change: GitChange, onOpen: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_warning,
             // Decoration: the sentence beside it already says "conflict".
             contentDescription = null,
@@ -801,7 +801,7 @@ private fun StageBox(mark: StageMark, onToggle: () -> Unit, modifier: Modifier =
 private fun AheadBehind(@DrawableRes icon: Int, count: Int, modifier: Modifier = Modifier) {
     val tint = MaterialTheme.colorScheme.onSurfaceVariant
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
-        SeekerIcon(icon = icon, contentDescription = null, tint = tint, size = IconSize.Marker)
+        ThraggIcon(icon = icon, contentDescription = null, tint = tint, size = IconSize.Marker)
         Text(
             text = "$count",
             // Tabular, because both numbers move on every fetch and a `1`

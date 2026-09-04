@@ -20,7 +20,7 @@ class GitRemotesTest {
         val list = GitRemoteList.parse(
             """
             {"remotes":[
-               {"name":"origin","url":"git@github.com:cesp99/seeker.git"},
+               {"name":"origin","url":"git@github.com:cesp99/thragg.git"},
                {"name":"fork","url":"https://example.com/someone/fork.git"}],
              "error":null}
             """

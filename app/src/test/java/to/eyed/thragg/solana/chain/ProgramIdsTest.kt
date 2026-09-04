@@ -29,7 +29,7 @@ class ProgramIdsTest {
 
     @Before
     fun setUp() {
-        root = Files.createTempDirectory("seeker-program-ids").toFile()
+        root = Files.createTempDirectory("thragg-program-ids").toFile()
     }
 
     @After

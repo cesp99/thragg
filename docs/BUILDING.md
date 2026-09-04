@@ -99,11 +99,11 @@ Both proot and talloc are GPL-2.0-or-later. See docs/THIRD_PARTY.md for
 provenance and the source offer that obligation implies.
 
 The `cargoNdkBuild` Gradle task cross-compiles `core/` to
-`libseekercore.so` for each supported ABI and drops it into
+`libthraggcore.so` for each supported ABI and drops it into
 `app/src/main/jniLibs/` (generated, gitignored) before the APK is
 packaged. The NDK path is derived from `sdk.dir` in `local.properties`
 (falling back to `$ANDROID_HOME`); the NDK version pin lives in
-`gradle.properties` (`seeker.ndkVersion`) and is shared with the
+`gradle.properties` (`thragg.ndkVersion`) and is shared with the
 vendored terminal modules.
 
 Two more Gradle modules live under `vendor/`: `terminal-emulator` and

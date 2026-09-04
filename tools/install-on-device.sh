@@ -75,7 +75,7 @@ wait_for_device
 if [ "$BUILD" = 1 ]; then
   say "building (arm64 only)"
   cd "$ROOT"
-  ./gradlew assembleDebug -Pseeker.abis=arm64-v8a --console=plain
+  ./gradlew assembleDebug -Pthragg.abis=arm64-v8a --console=plain
 fi
 
 [ -f "$APK" ] || { echo "no APK at $APK" >&2; exit 1; }

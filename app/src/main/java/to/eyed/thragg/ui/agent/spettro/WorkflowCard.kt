@@ -42,12 +42,12 @@ import to.eyed.thragg.ui.components.ZedCodeBlock
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.TabularNums
-import to.eyed.thragg.ui.theme.seekerSpring
+import to.eyed.thragg.ui.theme.thraggSpring
 
 /**
  * A workflow run, live.
@@ -138,7 +138,7 @@ fun WorkflowCard(
                 // phases with members hanging off them — and the swarm already
                 // wears its own distinguishing property (the Ultra bolt). A
                 // goal mark would not have told the two apart.
-                SeekerIcon(
+                ThraggIcon(
                     icon = R.drawable.ic_ui_git_graph,
                     contentDescription = null,
                     tint = muted,
@@ -279,7 +279,7 @@ fun WorkflowScriptRow(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val muted = scheme.onSurfaceVariant
     var sheet by rememberSaveable(script.tool.key) { mutableStateOf(false) }
 
@@ -293,7 +293,7 @@ fun WorkflowScriptRow(
                 .clickable(onClickLabel = "Workflow script") { sheet = true }
                 .padding(horizontal = MD.space2),
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_git_graph,
                 contentDescription = null,
                 tint = muted,
@@ -344,7 +344,7 @@ fun WorkflowScriptRow(
  * The card's disclosure: down when it is closed, up when it is open.
  *
  * One chevron rotated rather than two drawables swapped, so it joins the
- * single [seekerSpring] every other expand in the app rides — and so
+ * single [thraggSpring] every other expand in the app rides — and so
  * reduce-motion snaps it in one place rather than in twenty
  * (docs/VISUAL.md, "Foundations", MOTION).
  */
@@ -352,10 +352,10 @@ fun WorkflowScriptRow(
 private fun Chevron(open: Boolean) {
     val angle by animateFloatAsState(
         targetValue = if (open) 180f else 0f,
-        animationSpec = seekerSpring(),
+        animationSpec = thraggSpring(),
         label = "run-card-chevron",
     )
-    SeekerIcon(
+    ThraggIcon(
         icon = R.drawable.ic_ui_chevron_down,
         contentDescription = null,
         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -549,7 +549,7 @@ private fun ScriptBody(script: WorkflowScript) {
             Text(
                 text = script.error,
                 style = MaterialTheme.typography.labelMedium,
-                color = LocalSeekerColors.current.dangerInk,
+                color = LocalThraggColors.current.dangerInk,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )

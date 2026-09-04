@@ -34,7 +34,7 @@ impl HighlightWorker {
     pub fn new(buffers: Buffers) -> HighlightWorker {
         let (requests, incoming) = channel();
         thread::Builder::new()
-            .name("seeker-highlight".to_owned())
+            .name("thragg-highlight".to_owned())
             .spawn(move || run(buffers, incoming))
             .expect("failed to spawn the highlight worker");
         HighlightWorker { requests }

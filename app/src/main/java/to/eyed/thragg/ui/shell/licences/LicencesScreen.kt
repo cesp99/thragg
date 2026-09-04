@@ -36,8 +36,8 @@ import to.eyed.thragg.R
 import to.eyed.thragg.ui.components.CopyChip
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerSearchField
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggSearchField
 import to.eyed.thragg.ui.shell.Route
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.MD
@@ -80,7 +80,7 @@ import to.eyed.thragg.ui.theme.RowChevron
  * producing a screen that is missing a row.
  *
  * The Material pass is mechanical and deliberately so (docs/VISUAL.md,
- * "Licences"): the shared [SectionHeader] per licence family, [SeekerCard]
+ * "Licences"): the shared [SectionHeader] per licence family, [ThraggCard]
  * groups of rows with a [HairlineDivider] between, the shared filter pill, and
  * the licence text left as Material prose — it is prose, and setting it in the
  * buffer face at 13sp would be both harder to read and a category error about
@@ -127,7 +127,7 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
                 // a user who has typed into one knows what this is. No
                 // autofocus: arriving at a compliance screen with the keyboard
                 // up hides the notices the screen exists to show.
-                SeekerSearchField(
+                ThraggSearchField(
                     value = query,
                     onValueChange = { query = it },
                     placeholder = stringResource(R.string.licences_search_placeholder),
@@ -164,7 +164,7 @@ fun LicencesScreen(state: ShellState, modifier: Modifier = Modifier) {
             // rows are lazy at all: a group here can be six hundred long, and
             // a group-shaped card would be one item six hundred rows tall.
             itemsIndexed(group.components, key = { _, it -> it.id }) { index, component ->
-                SeekerCard(
+                ThraggCard(
                     modifier = Modifier.fillMaxWidth(),
                     // The group is one card drawn one row at a time: the
                     // corners are rounded only at its two ends, so six hundred
@@ -278,7 +278,7 @@ private fun LegalNotices(state: ShellState) {
             style = MaterialTheme.typography.bodySmall,
             color = scheme.onSurfaceVariant,
         )
-        SeekerCard(modifier = Modifier.fillMaxWidth().padding(top = MD.space2)) {
+        ThraggCard(modifier = Modifier.fillMaxWidth().padding(top = MD.space2)) {
             SelectionContainer {
                 Column(modifier = Modifier.padding(MD.space3)) {
                     Text(

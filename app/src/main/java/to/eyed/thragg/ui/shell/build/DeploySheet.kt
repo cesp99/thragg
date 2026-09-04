@@ -48,8 +48,8 @@ import to.eyed.thragg.solana.chain.SeedVaultWallet
 import to.eyed.thragg.solana.toolchain.formatBytes
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.NoticeCard
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerChip
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggChip
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
@@ -230,7 +230,7 @@ internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit) {
                     severity = Severity.Error,
                     title = "Could not reach $where",
                     body = "A deploy has to know what $where already has at this id before it starts.",
-                    actions = { SeekerChip(label = "Try again", onClick = { retry++ }) },
+                    actions = { ThraggChip(label = "Try again", onClick = { retry++ }) },
                 )
             }
             // Doze suspends the network for an app the user has not exempted,
@@ -244,7 +244,7 @@ internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit) {
                     title = "Android may pause this while the screen is off",
                     body = "A deploy takes minutes of network. Letting Thragg run unrestricted keeps it going in your pocket.",
                     actions = {
-                        SeekerChip(
+                        ThraggChip(
                             label = "Allow in background",
                             onClick = { BackgroundWork.requestUnrestricted(context) },
                             tint = MaterialTheme.colorScheme.primary,
@@ -299,7 +299,7 @@ internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit) {
                 )
             }
 
-            SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            ThraggCard(modifier = Modifier.fillMaxWidth()) {
                 FactRow(label = "Cluster", value = where)
                 HairlineDivider()
                 FactRow(

@@ -243,12 +243,12 @@ class LanguageConfigTest {
     /** A YAML value on the same line does not open one. */
     @Test
     fun enterAfterAYamlValueDoesNot() {
-        val (state, buffer) = editorOf("name: seeker\n", "yaml")
+        val (state, buffer) = editorOf("name: thragg\n", "yaml")
         state.setCarets(listOf(Caret(0, 14)), Caret(0, 14))
 
         state.insertNewline()
 
-        assertEquals("name: seeker\n\n", buffer.text)
+        assertEquals("name: thragg\n\n", buffer.text)
     }
 
     /** Rust has no pattern; its braces carry `newline` instead. */

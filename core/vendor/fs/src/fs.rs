@@ -448,7 +448,7 @@ impl FileHandle for std::fs::File {
         Ok(path)
     }
 
-    // SEEKER PATCH: android behaves as linux here.
+    // THRAGG PATCH: android behaves as linux here.
     #[cfg(any(target_os = "linux", target_os = "android"))]
     fn current_path(&self, _: &Arc<dyn Fs>) -> Result<PathBuf> {
         let fd = self.as_fd();
@@ -576,7 +576,7 @@ impl RealFs {
     }
 }
 
-// SEEKER PATCH: android behaves as linux here.
+// THRAGG PATCH: android behaves as linux here.
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
 fn rename_without_replace(source: &Path, target: &Path) -> io::Result<()> {
     let source = path_to_c_string(source)?;
@@ -585,7 +585,7 @@ fn rename_without_replace(source: &Path, target: &Path) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     let result = unsafe { libc::renamex_np(source.as_ptr(), target.as_ptr(), libc::RENAME_EXCL) };
 
-    // SEEKER PATCH: android behaves as linux here.
+    // THRAGG PATCH: android behaves as linux here.
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let result = unsafe {
         libc::syscall(
@@ -625,7 +625,7 @@ fn rename_without_replace(source: &Path, target: &Path) -> io::Result<()> {
     .map_err(|_| io::Error::last_os_error())
 }
 
-// SEEKER PATCH: android behaves as linux here.
+// THRAGG PATCH: android behaves as linux here.
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
 fn path_to_c_string(path: &Path) -> io::Result<CString> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| {
@@ -783,7 +783,7 @@ impl Fs for RealFs {
         }
 
         let use_metadata_fallback = {
-            // SEEKER PATCH: android behaves as linux here.
+            // THRAGG PATCH: android behaves as linux here.
             #[cfg(any(
                 target_os = "macos",
                 target_os = "linux",
@@ -1398,7 +1398,7 @@ impl Fs for RealFs {
     }
 }
 
-// SEEKER PATCH: android behaves as linux here.
+// THRAGG PATCH: android behaves as linux here.
 #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd")))]
 impl Watcher for RealWatcher {
     fn add(&self, _: &Path) -> Result<()> {

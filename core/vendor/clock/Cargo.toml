@@ -20,7 +20,7 @@ parking_lot = { workspace = true, optional = true }
 serde.workspace = true
 smallvec.workspace = true
 
-# SEEKER PATCH: cfg(test) code in system_clock.rs uses parking_lot, which
+# THRAGG PATCH: cfg(test) code in system_clock.rs uses parking_lot, which
 # upstream only gets via crates that enable test-support; declare it as a
 # dev-dependency so `cargo test -p clock` builds standalone.
 [dev-dependencies]

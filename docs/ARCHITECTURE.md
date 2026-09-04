@@ -9,7 +9,7 @@ Thragg is a two-language project with one strict boundary.
 │  fold/tablet adaptive layouts · IME · SAF storage       │
 ├────────────────── JNI (CoreBridge) ─────────────────────┤
 │  core/ — Rust (cargo workspace, built via cargo-ndk)    │
-│  crates/jni-bridge  → libseekercore.so (cdylib)       │
+│  crates/jni-bridge  → libthraggcore.so (cdylib)       │
 │  crates/engine      → buffers, syntax, LSP, ACP, git    │
 └─────────────────────────────────────────────────────────┘
 ```

@@ -7,11 +7,11 @@ import org.junit.Test
 /**
  * The hybrid, enforced by grep.
  *
- * Seeker looks like two things on purpose. Where it is an editor it looks like
+ * Thragg looks like two things on purpose. Where it is an editor it looks like
  * Zed, because the buffer, the terminal and the diff have to agree with
  * tree-sitter's colours; where it is an app it looks like Android, because it
  * is one. Both halves come out of one `remember(theme)` — `ZedTheme.palette()`
- * produces the M3 `ColorScheme` and the `SeekerColors` together — so they
+ * produces the M3 `ColorScheme` and the `ThraggColors` together — so they
  * cannot disagree about a hue. What they *can* do, and what no reviewer will
  * catch twice, is drift about which half a given screen is in.
  *
@@ -23,7 +23,7 @@ import org.junit.Test
  *    inks are Zed's own keys, drawn **raw**, because Zed draws them raw and
  *    the point of that half is to look like Zed;
  *  - a file under [MATERIAL_HALF] must not read `LocalZedTheme`. Its inks come
- *    from the solved scheme and from `LocalSeekerColors`, because a Material
+ *    from the solved scheme and from `LocalThraggColors`, because a Material
  *    surface has to clear 4.5:1 and Ayu Light's `text.muted` is 2.79:1 on the
  *    panel it would be drawn on.
  *
@@ -207,7 +207,7 @@ class SeamTest {
             allowed = materialReadingZed,
             rule = "A file under ui/shell, ui/agent, ui/common or ui/components is the app half\n" +
                 "and must not read LocalZedTheme. Use MaterialTheme.colorScheme and\n" +
-                "LocalSeekerColors, whose inks are solved for contrast — Ayu Light's raw\n" +
+                "LocalThraggColors, whose inks are solved for contrast — Ayu Light's raw\n" +
                 "text.muted is 2.79:1 and its created is 2.11:1.\n" +
                 "A code snippet inside a sheet is the one exception, and it is a component:\n" +
                 "ui/components/ZedCodeBlock.kt.",
@@ -236,7 +236,7 @@ class SeamTest {
                 "without reading LocalZedTheme, so the seam rule above cannot see it. That is\n" +
                 "how forty raw Zed colours were drawn inside a Material sheet for a release.\n" +
                 "Take the colours themselves — MaterialTheme.colorScheme roles, or\n" +
-                "LocalSeekerColors for what M3 has no role for — not the theme they came\n" +
+                "LocalThraggColors for what M3 has no role for — not the theme they came\n" +
                 "from. GitStatusColours is the one exception and it is baselined:\n" +
                 "version-control HUES carry meaning across the editor, the diff and the tree,\n" +
                 "so they stay Zed's and only their lightness is solved.",
@@ -275,7 +275,7 @@ class SeamTest {
                 "surfaceContainer. It may hold LocalZedTheme for ONE thing — handing it to\n" +
                 "GitStatusColours.forProjectPanel, whose hues mean the same as the diff's —\n" +
                 "and must paint everything else from MaterialTheme.colorScheme and\n" +
-                "LocalSeekerColors. These lines paint with it:\n" +
+                "LocalThraggColors. These lines paint with it:\n" +
                 painting.joinToString("\n") { "  " + it.trim() },
             painting.isEmpty(),
         )

@@ -31,7 +31,7 @@ work="$repo_root/build/proot"
 out_root="$repo_root/app/src/main/jniLibs"
 
 # The NDK pin is shared with cargo-ndk and the terminal modules.
-ndk_version="$(sed -n 's/^seeker\.ndkVersion=//p' "$repo_root/gradle.properties")"
+ndk_version="$(sed -n 's/^thragg\.ndkVersion=//p' "$repo_root/gradle.properties")"
 sdk_dir="${ANDROID_HOME:-$HOME/Android/Sdk}"
 if [ -f "$repo_root/local.properties" ]; then
     sdk_dir="$(sed -n 's/^sdk\.dir=//p' "$repo_root/local.properties" || true)"
@@ -108,14 +108,14 @@ cat > tallocinc/config.h <<'EOF'
 #define HAVE_GCC_ATOMIC_BUILTINS 1
 EOF
 
-# SEEKER PATCH: clang 18+ makes implicit function declarations an error, and
+# THRAGG PATCH: clang 18+ makes implicit function declarations an error, and
 # this file uses strcmp/memset without including <string.h>. Idempotent.
 ashmem="proot-$PROOT_VERSION/src/extension/ashmem_memfd/ashmem_memfd.c"
-if ! grep -q "SEEKER PATCH" "$ashmem"; then
-    sed -i '0,/#include <stdlib.h>/s//#include <stdlib.h>\n#include <string.h>     \/* SEEKER PATCH: strcmp\/memset *\//' "$ashmem"
+if ! grep -q "THRAGG PATCH" "$ashmem"; then
+    sed -i '0,/#include <stdlib.h>/s//#include <stdlib.h>\n#include <string.h>     \/* THRAGG PATCH: strcmp\/memset *\//' "$ashmem"
 fi
 
-# SEEKER PATCH: execve(2) from a non-leader thread. The kernel gives the
+# THRAGG PATCH: execve(2) from a non-leader thread. The kernel gives the
 # exec'ing thread the leader's tid before PTRACE_EVENT_EXEC, so proot's
 # per-tid execve state (load info, saved registers, the PTRACE_SYSCALL
 # restart the exit stage needs) is stranded on a Tracee whose tid no longer

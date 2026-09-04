@@ -159,7 +159,7 @@ object MD {
  * radii and a pill is a *shape*, not a rung — the chips and fields that want
  * one say `RoundedCornerShape(MD.pill)`.
  */
-val SeekerShapes = Shapes(
+val ThraggShapes = Shapes(
     extraSmall = RoundedCornerShape(MD.radiusXs),
     small = RoundedCornerShape(MD.radiusSm),
     medium = RoundedCornerShape(MD.radiusMd),

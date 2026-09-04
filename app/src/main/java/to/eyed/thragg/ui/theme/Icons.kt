@@ -96,7 +96,7 @@ object IconSize {
  * "button", which is the same as not having it.
  */
 @Composable
-fun SeekerIcon(
+fun ThraggIcon(
     @DrawableRes icon: Int,
     contentDescription: String?,
     tint: Color,
@@ -128,7 +128,7 @@ fun SeekerIcon(
  * rather than what is drawn ("magnifier").
  */
 @Composable
-fun SeekerIconButton(
+fun ThraggIconButton(
     @DrawableRes icon: Int,
     description: String,
     onClick: () -> Unit,
@@ -144,7 +144,7 @@ fun SeekerIconButton(
             .clip(RoundedCornerShape(4.dp))
             .clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
     ) {
-        SeekerIcon(icon = icon, contentDescription = description, tint = tint, size = size)
+        ThraggIcon(icon = icon, contentDescription = description, tint = tint, size = size)
     }
 }
 
@@ -197,7 +197,7 @@ val mutedIcon: Color
  */
 val accentIcon: Color
     @Composable get() =
-        LocalIconTint.current?.accent ?: LocalSeekerColors.current.accentMark
+        LocalIconTint.current?.accent ?: LocalThraggColors.current.accentMark
 
 /**
  * The `›` at the end of a row that opens something.
@@ -209,7 +209,7 @@ val accentIcon: Color
  */
 @Composable
 fun RowChevron(modifier: Modifier = Modifier, tint: Color = mutedIcon) {
-    SeekerIcon(
+    ThraggIcon(
         icon = R.drawable.ic_ui_chevron_right,
         contentDescription = null,
         tint = tint,
@@ -227,7 +227,7 @@ fun RowChevron(modifier: Modifier = Modifier, tint: Color = mutedIcon) {
  */
 @Composable
 fun DisclosureMark(open: Boolean, modifier: Modifier = Modifier, tint: Color = mutedIcon) {
-    SeekerIcon(
+    ThraggIcon(
         icon = if (open) {
             R.drawable.ic_ui_chevron_down
         } else {
@@ -255,7 +255,7 @@ fun DisclosureMark(open: Boolean, modifier: Modifier = Modifier, tint: Color = m
  */
 @Composable
 fun ChipCaret(modifier: Modifier = Modifier, tint: Color = mutedIcon) {
-    SeekerIcon(
+    ThraggIcon(
         icon = R.drawable.ic_ui_chevron_down,
         contentDescription = null,
         tint = tint,
@@ -280,7 +280,7 @@ fun SelectionMark(
     modifier: Modifier = Modifier,
     size: Dp = IconSize.Inline,
 ) {
-    SeekerIcon(
+    ThraggIcon(
         icon = when {
             multi && selected -> R.drawable.ic_ui_checkbox_checked
             multi -> R.drawable.ic_ui_checkbox

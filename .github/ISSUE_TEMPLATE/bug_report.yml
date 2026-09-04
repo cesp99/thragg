@@ -29,5 +29,5 @@ body:
     id: logs
     attributes:
       label: Logcat
-      description: If it crashed or misbehaved — `adb logcat | grep seeker`.
+      description: If it crashed or misbehaved — `adb logcat | grep thragg`.
       render: shell

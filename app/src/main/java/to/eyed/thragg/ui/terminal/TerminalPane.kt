@@ -36,7 +36,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
-import to.eyed.thragg.ui.components.SeekerIndeterminateBar
+import to.eyed.thragg.ui.components.ThraggIndeterminateBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -341,7 +341,7 @@ fun TerminalDock(
     }
 
     val client = remember {
-        SeekerTerminalViewClient(
+        ThraggTerminalViewClient(
             context = context,
             sticky = sticky,
             currentHost = { state.active },
@@ -887,8 +887,8 @@ private fun UserlandBanner(
             if (fraction == null) {
                 // The stepped bar, not M3's: the stock indeterminate
                 // indicator invalidates every frame for as long as the
-                // install runs (see SeekerIndeterminateBar).
-                SeekerIndeterminateBar(
+                // install runs (see ThraggIndeterminateBar).
+                ThraggIndeterminateBar(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     trackColor = trackColor,
                 )
@@ -1110,7 +1110,7 @@ private fun showSoftKeyboard(context: Context, view: TerminalView) {
  * The view's side of the contract: what it may ask us, and the one place
  * workspace chords are stolen from the shell.
  */
-private class SeekerTerminalViewClient(
+private class ThraggTerminalViewClient(
     private val context: Context,
     private val sticky: StickyModifiers,
     private val currentHost: () -> TerminalSessionHost?,

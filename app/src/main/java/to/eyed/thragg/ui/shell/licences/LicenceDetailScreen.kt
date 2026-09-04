@@ -25,7 +25,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
+import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoSmall
 
@@ -103,7 +103,7 @@ fun LicenceDetailScreen(
             // spreadsheet wants the name, the version and the SPDX id
             // together, and three separate selections is three chances to
             // paste half of one.
-            SeekerCard(modifier = Modifier.fillMaxWidth().padding(top = MD.space4)) {
+            ThraggCard(modifier = Modifier.fillMaxWidth().padding(top = MD.space4)) {
                 SelectionContainer {
                     Column(modifier = Modifier.fillMaxWidth().padding(MD.space3)) {
                         Text(

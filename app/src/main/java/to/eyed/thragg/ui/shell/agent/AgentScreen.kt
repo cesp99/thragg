@@ -1,4 +1,4 @@
-// `SeekerTopBar` takes a `TopAppBarScrollBehavior?`, which is still an
+// `ThraggTopBar` takes a `TopAppBarScrollBehavior?`, which is still an
 // experimental type in material3 1.4.0, so every caller of it repeats this one
 // line — the component's own KDoc says so. Nothing else in this file is
 // experimental.
@@ -103,8 +103,8 @@ import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.NoticeCard
 import to.eyed.thragg.ui.components.RunTicker
-import to.eyed.thragg.ui.components.SeekerChip
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggChip
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.shell.Route
@@ -113,9 +113,9 @@ import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.projects.AgentThreadSeed
 import to.eyed.thragg.ui.shell.projects.ProjectsSheet
 import to.eyed.thragg.ui.theme.Durations
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.animateSize
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.revealItem
@@ -189,7 +189,7 @@ internal fun agentDisplayName(connected: String?, chosen: String?): String =
  *
  * THE BAR NAMES THE CONVERSATION, not the window it is in. One project is
  * open at a time and its name is already on the Projects control beside this
- * text, so a title reading `seeker-ide` spent the widest, boldest slot on the
+ * text, so a title reading `thragg-ide` spent the widest, boldest slot on the
  * screen telling the user the one thing they could not have got wrong. The
  * thread's own name is the thing that differs between the threads `+` makes
  * and that the picker lists, and it is the only line on this screen that says
@@ -208,7 +208,7 @@ internal fun barTitle(threadTitle: String?, projectName: String?): String =
         ?: "No project"
 
 /**
- * `Spettro · seeker-ide` — the top bar's second line.
+ * `Spettro · thragg-ide` — the top bar's second line.
  *
  * THE MODE IS GONE FROM HERE, and that is the fix rather than an omission.
  * It was being said three times at once — this line, the status strip's
@@ -764,17 +764,17 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        SeekerTopBar(
+        ThraggTopBar(
             title = barTitle(thread?.title, project?.rootName),
             subtitle = barSubtitle(agentName, project?.rootName, thread?.title),
             actions = {
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = R.drawable.ic_ui_chevron_down,
                     description = "Projects",
                     onClick = { sheet = AgentSheet.Projects },
                     tint = mutedIcon,
                 )
-                SeekerIconButton(
+                ThraggIconButton(
                     icon = R.drawable.ic_ui_plus,
                     description = "New thread",
                     onClick = { newThread() },
@@ -1425,7 +1425,7 @@ private fun AgentStatusStrip(
     onOpenContext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LocalSeekerColors.current
+    val colors = LocalThraggColors.current
     val hasUsage = (state.usage?.size ?: 0L) > 0L
     val busy = state.isBusy && startedAt > 0L
     // Nothing to report is a strip that is not there, rather than an empty
@@ -1479,7 +1479,7 @@ private fun AgentStatusStrip(
 @Composable
 private fun OverflowAction(badge: String?, onClick: () -> Unit) {
     Box {
-        SeekerIconButton(
+        ThraggIconButton(
             icon = R.drawable.ic_ui_more_vertical,
             description = if (badge == null) "More" else "More — $badge",
             onClick = onClick,
@@ -1617,7 +1617,7 @@ private fun TranscriptTail(
                 text = notice.text,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (notice.isError) {
-                    LocalSeekerColors.current.dangerInk
+                    LocalThraggColors.current.dangerInk
                 } else {
                     scheme.onSurfaceVariant
                 },
@@ -1746,7 +1746,7 @@ private fun AgentEmpty(
                             verticalArrangement = Arrangement.spacedBy(MD.space2),
                         ) {
                             for (prompt in suggestions) {
-                                SeekerChip(label = prompt, onClick = { onSuggest(prompt) })
+                                ThraggChip(label = prompt, onClick = { onSuggest(prompt) })
                             }
                         }
                     }

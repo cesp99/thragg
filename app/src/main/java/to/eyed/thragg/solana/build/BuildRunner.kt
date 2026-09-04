@@ -67,7 +67,7 @@ import java.io.File
  */
 object BuildRunner {
 
-    private const val TAG = "seeker-build"
+    private const val TAG = "thragg-build"
 
     /** The log the Build destination draws. Cleared at the start of each run. */
     val log = BuildLog()

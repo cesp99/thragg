@@ -31,8 +31,8 @@ import androidx.compose.ui.graphics.graphicsLayer
  * to their `clickable`/`Surface`/`Button`, and this reads it.
  *
  * WHERE IT GOES, and where it does not. On the things that are drawn as
- * objects — [SeekerCard][to.eyed.thragg.ui.components.SeekerCard] with an
- * `onClick`, a [SeekerChip][to.eyed.thragg.ui.components.SeekerChip], the
+ * objects — [ThraggCard][to.eyed.thragg.ui.components.ThraggCard] with an
+ * `onClick`, a [ThraggChip][to.eyed.thragg.ui.components.ThraggChip], the
  * composer's circles, the Build run control, a filled button. Not on rows in
  * a list and not on the navigation bar: a row is a region of a surface and a
  * region does not shrink, and the bar is touched a hundred times a day, which

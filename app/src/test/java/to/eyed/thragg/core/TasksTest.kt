@@ -141,7 +141,7 @@ class TasksTest {
         val line = taskShellLine(task("Test 'it'", command = "cargo test -- it"))
         assertTrue(line.startsWith("printf '%s\\n' '⏵ cargo test -- it'; cargo test -- it; "))
         assertTrue(line.contains("finished with exit code"))
-        assertTrue(line.endsWith("exit \"\$__seeker_status\""))
+        assertTrue(line.endsWith("exit \"\$__thragg_status\""))
         // Without either flag the line is the command and nothing else.
         assertEquals(
             "cargo test -- it",

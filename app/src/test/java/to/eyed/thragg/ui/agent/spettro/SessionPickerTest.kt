@@ -25,7 +25,7 @@ class SessionPickerTest {
 
     private fun session(
         id: String,
-        cwd: String = "/home/user/projects/seeker-ide",
+        cwd: String = "/home/user/projects/thragg-ide",
         title: String? = null,
         updatedAt: String? = null,
     ) = AgentPastSession(sessionId = id, cwd = cwd, title = title, updatedAt = updatedAt)

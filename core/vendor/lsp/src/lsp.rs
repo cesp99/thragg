@@ -2009,7 +2009,7 @@ impl FakeLanguageServer {
             .on_request::<T, _, _>(move |params, cx| {
                 let result = handler(params, cx.clone());
                 let responded_tx = responded_tx.clone();
-                // SEEKER PATCH: no `simulate_random_delay` — it is gpui's
+                // THRAGG PATCH: no `simulate_random_delay` — it is gpui's
                 // TestDispatcher fuzzing knob, behind gpui's `test-support`
                 // feature, and the engine drives this fake on its headless
                 // runtime, where the dispatcher is not a test one.

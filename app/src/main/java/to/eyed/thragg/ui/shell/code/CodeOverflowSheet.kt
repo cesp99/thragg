@@ -19,7 +19,7 @@ import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.touchTarget
 import to.eyed.thragg.ui.workspace.OpenFile
@@ -120,7 +120,7 @@ private fun OverflowRow(
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = MD.space4, vertical = MD.space3),
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = icon,
             // Decoration: the label beside it is the row's name.
             contentDescription = null,

@@ -146,8 +146,8 @@ import to.eyed.thragg.ui.workspace.GitStatusColours
 import kotlin.math.floor
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalZedTheme
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.ZedTheme
 
 private const val HIGHLIGHT_POLL_MILLIS = 100L
@@ -3199,7 +3199,7 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
             .semantics { contentDescription = label },
     ) {
         if (icon != null) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = icon,
                 // The Box above is the labelled node; this is its picture.
                 contentDescription = null,
@@ -3309,7 +3309,7 @@ private fun CardIconAction(
     description: String,
     onClick: () -> Unit,
 ) {
-    SeekerIconButton(
+    ThraggIconButton(
         icon = icon,
         description = description,
         onClick = onClick,

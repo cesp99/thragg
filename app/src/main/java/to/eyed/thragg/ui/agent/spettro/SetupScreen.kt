@@ -41,9 +41,9 @@ import to.eyed.thragg.ui.components.NoticeCard
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.IconSize
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.RowChevron
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.touchTarget
 
 /**
@@ -178,7 +178,7 @@ fun SpettroSetupScreen(
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodySmall,
-                    color = LocalSeekerColors.current.dangerInk,
+                    color = LocalThraggColors.current.dangerInk,
                 )
             }
 
@@ -296,7 +296,7 @@ private fun SetupCard(
             modifier = Modifier.width(28.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = icon,
                 contentDescription = null,
                 tint = text,
@@ -317,7 +317,7 @@ private fun SetupCard(
                     Text(
                         text = badge,
                         style = MaterialTheme.typography.labelSmall,
-                        color = LocalSeekerColors.current.addedInk,
+                        color = LocalThraggColors.current.addedInk,
                     )
                 }
             }
@@ -387,7 +387,7 @@ fun SpettroSetupBanner(onOpen: () -> Unit, modifier: Modifier = Modifier) {
                 text = "Set up",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
-                color = LocalSeekerColors.current.accentInk,
+                color = LocalThraggColors.current.accentInk,
             )
         }
     }

@@ -127,4 +127,4 @@ The full register is `docs/THIRD_PARTY.md`, and the licence and obligation
 analysis is `docs/LICENSING.md`. Both are the right place to look when
 triaging a CVE against something this project vendors — Zed's crates,
 Termux's terminal, proot, talloc, or one of the crates.io dependencies
-linked into `libseekercore.so`.
+linked into `libthraggcore.so`.

@@ -35,8 +35,8 @@ import to.eyed.thragg.ui.agent.MentionSection
 import to.eyed.thragg.ui.agent.OpenBufferRef
 import to.eyed.thragg.ui.agent.defaultSection
 import to.eyed.thragg.ui.agent.mentionChoices
-import to.eyed.thragg.ui.components.SeekerChip
-import to.eyed.thragg.ui.components.SeekerSearchField
+import to.eyed.thragg.ui.components.ThraggChip
+import to.eyed.thragg.ui.components.ThraggSearchField
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.code.CodeState
@@ -113,9 +113,9 @@ fun MentionSheet(
         title = "Add context",
         // The same pill the composer has, in the same place the composer's is:
         // a user who has typed a message knows what this is before reading it
-        // (docs/VISUAL.md, "The component library", SeekerSearchField).
+        // (docs/VISUAL.md, "The component library", ThraggSearchField).
         field = {
-            SeekerSearchField(
+            ThraggSearchField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "Search " + section.title.lowercase(),
@@ -178,7 +178,7 @@ private val RowHeight = 60.dp
  * It replaces `MentionSectionStrip` (ContextPicker.kt), which drew each mode
  * as a 3dp-padded `Text` on `element.selected` — a Zed read, in a sheet that
  * is Material on both sides of it, at a target well under 48dp. These are
- * [SeekerChip]s: the same pill the rest of the app filters with, tinted at 14%
+ * [ThraggChip]s: the same pill the rest of the app filters with, tinted at 14%
  * when they are the mode showing, and each one announcing its own selected
  * state rather than relying on a colour a screen reader cannot see.
  */
@@ -198,7 +198,7 @@ private fun SectionStrip(
         items(MentionSection.entries.size, key = { MentionSection.entries[it].name }) { index ->
             val entry = MentionSection.entries[index]
             val on = entry == selected
-            SeekerChip(
+            ThraggChip(
                 label = entry.title,
                 onClick = { onSelect(entry) },
                 tint = if (on) scheme.primary else null,

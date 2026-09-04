@@ -61,13 +61,13 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import to.eyed.thragg.R
-import to.eyed.thragg.ui.components.SeekerSpinner
+import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalReduceMotion
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.effectSpec
 import to.eyed.thragg.ui.theme.glyphHeight
 
@@ -104,7 +104,7 @@ import to.eyed.thragg.ui.theme.glyphHeight
  *
  * TAP AND DRAG ARE THE SAME MOTION. A tap sends the pill to the tapped tab on
  * a critically damped spring while the destination itself shows on the next
- * frame with no motion (SeekerShell.kt, `surfaceTransition`; a tab is tapped
+ * frame with no motion (ThraggShell.kt, `surfaceTransition`; a tab is tapped
  * tens of times a session). A drag anywhere on the bar takes the pill with
  * the finger, 1:1 and from wherever it was — grabbing it mid-flight stops
  * the flight, so a tap can be caught and reversed — with a tick as it
@@ -254,7 +254,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                 // versions drew a 26dp arc, and then an 11dp check, across a
                 // 24dp triangle: two marks fighting for the same 24dp,
                 // unreadable at a glance. The braille spinner is the app's
-                // one "running" mark (SeekerSpinner.kt); the tick takes the
+                // one "running" mark (ThraggSpinner.kt); the tick takes the
                 // slot for its [BuildState.SUCCESS_TICK_MS] and hands the ▶
                 // back. Only Failed stays a corner dot — it coexists with the
                 // ▶ indefinitely, which is exactly what a badge is for.
@@ -348,10 +348,10 @@ private fun NavItem(
                             contentDescription = "$label — running"
                         },
                     ) {
-                        SeekerSpinner(size = IconSize.Nav, color = ink)
+                        ThraggSpinner(size = IconSize.Nav, color = ink)
                     }
                 } else if (succeeded()) {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = R.drawable.ic_ui_check,
                         contentDescription = "$label — the last run succeeded",
                         // The solved added ink rather than `created` raw: this
@@ -360,11 +360,11 @@ private fun NavItem(
                         // draws `created` at 2.11:1 (docs/VISUAL.md, "THE
                         // HYBRID"). The green is the information here, so it
                         // overrides the slot's selection tint.
-                        tint = LocalSeekerColors.current.addedMark,
+                        tint = LocalThraggColors.current.addedMark,
                         size = IconSize.Nav,
                     )
                 } else {
-                    SeekerIcon(
+                    ThraggIcon(
                         icon = icon,
                         contentDescription = if (landscape) label else null,
                         tint = ink,

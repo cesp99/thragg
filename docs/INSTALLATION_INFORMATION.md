@@ -79,10 +79,10 @@ Which produces an unsigned `app-<abi>-release-unsigned.apk` under
 
 ```
 keytool -genkey -v -keystore my-release.jks -keyalg RSA -keysize 4096 \
-        -validity 10000 -alias seeker
+        -validity 10000 -alias thragg
 
 $ANDROID_HOME/build-tools/<version>/apksigner sign \
-        --ks my-release.jks --ks-key-alias seeker \
+        --ks my-release.jks --ks-key-alias thragg \
         --out thragg-signed.apk \
         app-arm64-v8a-release-unsigned.apk
 ```

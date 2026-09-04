@@ -502,8 +502,8 @@ mod tests {
     /// the fetch URL, and lines that are not records drop.
     #[test]
     fn a_remote_listing_parses_and_dedupes() {
-        let output = "origin\thttps://github.com/cesp99/seeker.git (fetch)\n\
-origin\thttps://github.com/cesp99/seeker-push.git (push)\n\
+        let output = "origin\thttps://github.com/cesp99/thragg.git (fetch)\n\
+origin\thttps://github.com/cesp99/thragg-push.git (push)\n\
 fork\tgit@example.com:someone/fork.git (fetch)\n\
 fork\tgit@example.com:someone/fork.git (push)\n";
         let remotes = parse_remotes(output);
@@ -511,7 +511,7 @@ fork\tgit@example.com:someone/fork.git (push)\n";
         assert_eq!(remotes[0].name, "origin");
         // The first line — the fetch URL, which is the one github.com
         // detection wants.
-        assert_eq!(remotes[0].url, "https://github.com/cesp99/seeker.git");
+        assert_eq!(remotes[0].url, "https://github.com/cesp99/thragg.git");
         assert_eq!(remotes[1].name, "fork");
         assert_eq!(remotes[1].url, "git@example.com:someone/fork.git");
 

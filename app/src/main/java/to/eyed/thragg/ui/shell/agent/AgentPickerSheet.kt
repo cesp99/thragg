@@ -30,7 +30,7 @@ import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.components.SelectRow
 import to.eyed.thragg.ui.theme.LocalAppSettings
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 
 /**
@@ -136,7 +136,7 @@ fun AgentPickerSheet(
                     // names the download; a rewrite of it names nothing.
                     text = message,
                     style = MaterialTheme.typography.bodySmall,
-                    color = LocalSeekerColors.current.dangerInk,
+                    color = LocalThraggColors.current.dangerInk,
                     modifier = Modifier.padding(vertical = MD.space2),
                 )
                 LinkRow("Set up the toolchain", onOpenSetup)
@@ -198,7 +198,7 @@ private fun LinkRow(label: String, onClick: () -> Unit) {
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
-        color = LocalSeekerColors.current.accentInk,
+        color = LocalThraggColors.current.accentInk,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClickLabel = label, onClick = onClick)

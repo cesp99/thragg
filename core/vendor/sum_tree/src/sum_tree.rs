@@ -1,5 +1,5 @@
 mod cursor;
-// SEEKER PATCH: property_test module removed (depended on a git-pinned
+// THRAGG PATCH: property_test module removed (depended on a git-pinned
 // proptest fork).
 mod tree_map;
 

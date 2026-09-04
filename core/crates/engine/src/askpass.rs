@@ -91,13 +91,13 @@ esac
 "#;
 
 /// What every helper directory under the rootfs's `/tmp` is named after. The
-/// full name is `seeker-askpass-<pid>-<n>`: the pid so a launch never reads
+/// full name is `thragg-askpass-<pid>-<n>`: the pid so a launch never reads
 /// a dead launch's pipe, and so [`sweep`] knows which ones are dead; the
 /// counter so two servers of *this* process never collide (see [`INSTANCE`]).
-const DIR_PREFIX: &str = "seeker-askpass-";
+const DIR_PREFIX: &str = "thragg-askpass-";
 
 /// Numbers the servers this process starts, so each gets a directory of its
-/// own: `seeker-askpass-<pid>-<n>`. The pid alone is not enough — the
+/// own: `thragg-askpass-<pid>-<n>`. The pid alone is not enough — the
 /// platform layer configures the userland more than once per process (its
 /// installer state is re-observed on every recomposition), and with one
 /// directory per pid the *old* server's [`Drop`] removed the *new* server's

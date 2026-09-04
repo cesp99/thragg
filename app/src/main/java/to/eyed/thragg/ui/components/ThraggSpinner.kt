@@ -50,7 +50,7 @@ import to.eyed.thragg.ui.theme.LocalReduceMotion
  * spinner does exactly this (docs/VISUAL.md, "Foundations", MOTION).
  */
 @Composable
-fun SeekerSpinner(
+fun ThraggSpinner(
     modifier: Modifier = Modifier,
     size: Dp = 16.dp,
     color: Color = MaterialTheme.colorScheme.primary,
@@ -80,7 +80,7 @@ fun SeekerSpinner(
     }
 }
 
-/** How many resting places [SeekerIndeterminateBar]'s segment sweeps through. */
+/** How many resting places [ThraggIndeterminateBar]'s segment sweeps through. */
 private const val BAR_STEPS = 12
 
 /**
@@ -96,14 +96,14 @@ private const val BAR_STEPS = 12
  * spinner's own quantised cadence, so a working row costs a handful of
  * invalidations a second instead of 120.
  *
- * Reduce-motion stops the sweep and keeps the segment, for [SeekerSpinner]'s
+ * Reduce-motion stops the sweep and keeps the segment, for [ThraggSpinner]'s
  * reason: "running" is information, the travel is decoration.
  *
  * Determinate progress is not this component's job — a real fraction should
  * keep using the stock indicator, which only redraws when the fraction moves.
  */
 @Composable
-fun SeekerIndeterminateBar(
+fun ThraggIndeterminateBar(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     trackColor: Color = MaterialTheme.colorScheme.surfaceVariant,

@@ -56,14 +56,14 @@ import to.eyed.thragg.solana.chain.Transaction
 import to.eyed.thragg.ui.components.CopyChip
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
-import to.eyed.thragg.ui.components.SeekerCard
-import to.eyed.thragg.ui.components.SeekerChip
-import to.eyed.thragg.ui.components.SeekerSpinner
+import to.eyed.thragg.ui.components.ThraggCard
+import to.eyed.thragg.ui.components.ThraggChip
+import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.outlinedButtonEdge
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.workspace.ContextMenu
 import to.eyed.thragg.ui.workspace.ContextMenuItem
@@ -412,7 +412,7 @@ internal fun WalletSheet(
             verticalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
             SectionHeader("Seed Vault")
-            SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            ThraggCard(modifier = Modifier.fillMaxWidth()) {
                 if (wallet != null) {
                     FactRow(label = "Address", value = wallet, trailing = { CopyChip(text = wallet) })
                     if (walletLabel != null) {
@@ -453,7 +453,7 @@ internal fun WalletSheet(
             }
 
             SectionHeader("Deploy key", modifier = Modifier.padding(top = MD.space2))
-            SeekerCard(modifier = Modifier.fillMaxWidth()) {
+            ThraggCard(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Signs buffer writes so the wallet is asked once, not two hundred times. " +
                         "Funded by mining devnet's proof-of-work faucet, by the faucet on testnet, and by Seed Vault on mainnet.",
@@ -517,14 +517,14 @@ internal fun WalletSheet(
 
             if (buffers.isNotEmpty()) {
                 SectionHeader("Open buffers", modifier = Modifier.padding(top = MD.space2))
-                SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                ThraggCard(modifier = Modifier.fillMaxWidth()) {
                     buffers.forEachIndexed { index, buffer ->
                         if (index > 0) HairlineDivider()
                         FactRow(
                             label = Base58.short(buffer.address),
                             value = bufferDetail(buffer.cluster.display, buffer.programId),
                             trailing = {
-                                SeekerChip(label = "Reclaim", enabled = !keyBusy, onClick = { reclaim(buffer) })
+                                ThraggChip(label = "Reclaim", enabled = !keyBusy, onClick = { reclaim(buffer) })
                             },
                         )
                     }
@@ -533,7 +533,7 @@ internal fun WalletSheet(
 
             if (programs.isNotEmpty()) {
                 SectionHeader("Deployed from this phone", modifier = Modifier.padding(top = MD.space2))
-                SeekerCard(modifier = Modifier.fillMaxWidth()) {
+                ThraggCard(modifier = Modifier.fillMaxWidth()) {
                     programs.forEachIndexed { index, program ->
                         if (index > 0) HairlineDivider()
                         DeployedRow(
@@ -602,7 +602,7 @@ private fun BalanceRow(
                     horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
                     modifier = Modifier.padding(top = MD.space05),
                 ) {
-                    SeekerSpinner(size = 12.dp)
+                    ThraggSpinner(size = 12.dp)
                     Text(
                         text = "asking ${cluster.display}…",
                         style = MaterialTheme.typography.bodySmall,
@@ -618,7 +618,7 @@ private fun BalanceRow(
                 )
             }
         }
-        SeekerChip(label = "Refresh", enabled = !loading, onClick = onRefresh)
+        ThraggChip(label = "Refresh", enabled = !loading, onClick = onRefresh)
     }
 }
 
@@ -645,7 +645,7 @@ private fun ActionRow(
             .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {
         if (busy) {
-            SeekerSpinner()
+            ThraggSpinner()
             Text(
                 text = busyLabel,
                 style = MaterialTheme.typography.bodySmall,
@@ -711,7 +711,7 @@ private fun DeployedRow(
             )
         }
         Box {
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_more_vertical,
                 description = "More",
                 onClick = { menu = true },

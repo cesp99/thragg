@@ -72,7 +72,7 @@ internal object NoIndication : IndicationNodeFactory {
  * describes has not actually been in force.
  *
  * Shapes are inherited rather than restated: the 3-argument `MaterialTheme`
- * defaults `shapes` to the current one, so [SeekerShapes] carries through. The
+ * defaults `shapes` to the current one, so [ThraggShapes] carries through. The
  * Zed half measures its own corners in [ZedRadius] and only reaches for the
  * Material scale through stock components, which should look the same on both
  * sides of the seam.

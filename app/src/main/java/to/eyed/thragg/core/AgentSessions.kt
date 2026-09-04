@@ -124,7 +124,7 @@ class AgentThread internal constructor(
  */
 object AgentSessions {
 
-    private const val TAG = "seeker-agent"
+    private const val TAG = "thragg-agent"
 
     /** Zed's cut for a title taken from a message (thread_view.rs:1730). */
     private const val PROVISIONAL_TITLE_MAX = 200

@@ -74,7 +74,7 @@ import to.eyed.thragg.ui.shell.settings.SettingsScreen
 import to.eyed.thragg.ui.shell.setup.SetupScreen
 import to.eyed.thragg.ui.agent.spettro.SpettroSettingsScreen
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.workspace.NotificationHost
@@ -99,7 +99,7 @@ import to.eyed.thragg.ui.workspace.Notifications
  * destination, and P2, P3 and P4 land by replacing one call site each below.
  */
 @Composable
-fun SeekerShell(
+fun ThraggShell(
     /**
      * settings.json, read once by the activity and re-read on every change.
      * The shell itself uses none of it — it is the editor's and the settings
@@ -301,7 +301,7 @@ fun SeekerShell(
  * What the shell is showing: the destination, whatever route is over it, and
  * how deep that route sits.
  *
- * One value class where [SeekerShell] used to read `state` twice, because
+ * One value class where [ThraggShell] used to read `state` twice, because
  * [AnimatedContent] holds the *previous* one of these while the next animates
  * in — and the previous destination, route and depth are exactly the three
  * facts the transition needs and the live `state` no longer has.
@@ -457,7 +457,7 @@ private fun ShellBootstrap(state: ShellState) {
  *
  * A plain top-level var, outside the composition and outside [ShellState]: it
  * is not drawn, nothing observes it, and its whole job is to be *older* than
- * the composition that reads it. See the effect in [SeekerShell].
+ * the composition that reads it. See the effect in [ThraggShell].
  */
 private var agentPanelRequestAnswered = 0
 
@@ -622,14 +622,14 @@ private fun RouteHost(
             // bar is the route's own — Changes needs a branch chip in it,
             // Problems a pair of counts under the title, Licences a subtitle —
             // so the end state is that every screen draws its own
-            // [SeekerTopBar] and this frame draws none. Until the screens that
+            // [ThraggTopBar] and this frame draws none. Until the screens that
             // are still being converted have theirs, they get this: the same
             // component, with the title the route already carries and a back
             // arrow, so no route is ever *unbarred* and no route is ever
             // barred twice. A chunk lands its own bar and adds its route to
             // [ownsItsBar]; when the list holds all of them, this branch and
             // `Route.title` go with it.
-            SeekerTopBar(title = route.title, onBack = { state.pop() })
+            ThraggTopBar(title = route.title, onBack = { state.pop() })
             HairlineDivider()
         }
         Box(
@@ -673,7 +673,7 @@ private fun RouteHost(
 }
 
 /**
- * Whether this route draws its own [SeekerTopBar] and must not be given the
+ * Whether this route draws its own [ThraggTopBar] and must not be given the
  * shared one.
  *
  * Three so far — the three this pass converted. Each of them needs something

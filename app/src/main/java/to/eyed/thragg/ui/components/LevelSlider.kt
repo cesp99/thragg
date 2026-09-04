@@ -62,7 +62,7 @@ import to.eyed.thragg.ui.theme.spatialSpec
  * before you read a word of it.
  *
  * This is the component the redesign is really about. Thinking effort is an
- * ordered intensity — off, low, medium, high, ultra — and Seeker drew it as a
+ * ordered intensity — off, low, medium, high, ultra — and Thragg drew it as a
  * radio list, which hides the one property that matters: that the options are
  * a sequence and that picking a later one costs more. A slider says it in the
  * control's shape, and the saturation ramp says it again in colour, so the

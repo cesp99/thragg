@@ -31,7 +31,7 @@ import to.eyed.thragg.R
 import to.eyed.thragg.core.AppSettings
 import to.eyed.thragg.core.ThemeMode
 import to.eyed.thragg.core.ThemeSelection
-import to.eyed.thragg.ui.theme.LocalSeekerColors
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.ThraggTheme
 
@@ -137,9 +137,9 @@ private fun NoticesLightPreview() {
 /** Chrome, marks and readouts: the pieces that appear on every screen. */
 @Composable
 private fun Gallery() {
-    val colors = LocalSeekerColors.current
-    SeekerTopBar(
-        title = "seeker-ide",
+    val colors = LocalThraggColors.current
+    ThraggTopBar(
+        title = "thragg-ide",
         subtitle = "Spettro · coding",
         onBack = {},
         actions = {},
@@ -149,7 +149,7 @@ private fun Gallery() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.space3),
     ) {
-        SeekerSpinner()
+        ThraggSpinner()
         StatusDot(color = MaterialTheme.colorScheme.onSurfaceVariant)
         StatusDot(color = colors.warnMark, pulsing = true)
         DiffStatLabel(added = 24, removed = 6)
@@ -159,12 +159,12 @@ private fun Gallery() {
     HairlineDivider()
     SectionHeader(text = "Chips")
     Row(horizontalArrangement = Arrangement.spacedBy(MD.space2)) {
-        SeekerChip(label = "lib.rs", onClick = {}, leading = R.drawable.ic_file_rust)
-        SeekerChip(label = "main", onClick = {}, tint = colors.accentInk)
-        SeekerChip(label = "Off", onClick = {}, enabled = false)
+        ThraggChip(label = "lib.rs", onClick = {}, leading = R.drawable.ic_file_rust)
+        ThraggChip(label = "main", onClick = {}, tint = colors.accentInk)
+        ThraggChip(label = "Off", onClick = {}, enabled = false)
     }
     CopyChip(text = "cargo build-sbf")
-    SeekerCard {
+    ThraggCard {
         Column(modifier = Modifier.padding(MD.space3)) {
             Text(
                 text = "A card is a fill step and a hairline.",
@@ -270,7 +270,7 @@ private fun Selectors() {
         selected = picked == "once",
         onSelect = { picked = "once" },
     )
-    SeekerSearchField(
+    ThraggSearchField(
         value = query,
         onValueChange = { query = it },
         placeholder = "Search models…",

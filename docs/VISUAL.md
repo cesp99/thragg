@@ -8,7 +8,7 @@ like Android, because it is one.
 
 This page is how those two halves are made to agree rather than clash. The
 reference for the Material half is `spettro-android`, a native ACP client for
-the same agent Seeker bundles, and its `ChatConfigSheet.kt` in particular.
+the same agent Thragg bundles, and its `ChatConfigSheet.kt` in particular.
 
 ## The hybrid
 
@@ -56,9 +56,9 @@ WHY THIS IS NOT OPTIONAL — measured across all 11 bundled themes, `text.muted`
 NEW FILE `ui/theme/MaterialBridge.kt`:
 ```kotlin
 @Immutable
-class SeekerPalette(val scheme: ColorScheme, val seeker: SeekerColors)
+class ThraggPalette(val scheme: ColorScheme, val thragg: ThraggColors)
 
-fun ZedTheme.palette(): SeekerPalette
+fun ZedTheme.palette(): ThraggPalette
 ```
 BAND A — PINNED, no maths, straight from Zed's own keys. Zed's JSON already contains a real five-rung neutral ladder and it runs the right way in BOTH appearances (measured luminance, One Dark: .025 .034 .034 .045 .052; One Light: .956 .831 .831 .738 .716 — away from the canvas in both, which is exactly M3's convention). So the ladder maps unmodified:
 `background←editor.background · surface←panel.background · surfaceVariant←element.background · surfaceContainerLowest←editor.background · surfaceContainerLow←element.background · surfaceContainer←elevated_surface.background · surfaceContainerHigh←element.hover · surfaceContainerHighest←background · outline←border · outlineVariant←border.variant · error←error · inverseSurface←text · inverseOnSurface←editor.background`.
@@ -88,10 +88,10 @@ Derivation is by BLENDING TOWARD THE THEME'S OWN EXTREMES, never by HCT tone ste
 `tertiary` is the ONE fixed hue: sub-agents and skills are Spettro's shared vocabulary across the TUI, desktop and mobile, and deriving them from the user's editor theme would break a cross-front-end agreement. This is the argument ConfigChips.kt:412 already makes for mode tints, applied consistently.
 Base scheme is `darkColorScheme()` / `lightColorScheme()` chosen by `theme.isDark` — keep Theme.kt:117-119's rule and its comment (previewing a light theme on a dark device must give light scrollbars). Do NOT use `expressiveLightColorScheme()`: there is no dark twin in any version, so it would make the two appearances structurally different.
 
-BAND C — `SeekerColors`, the second local, for what M3 has no role for. Produced by the same call, so it cannot drift (this answers the sa-chat study's objection to a second layer while keeping the sa-system and seek studies' benefit):
+BAND C — `ThraggColors`, the second local, for what M3 has no role for. Produced by the same call, so it cannot drift (this answers the sa-chat study's objection to a second layer while keeping the sa-system and seek studies' benefit):
 ```kotlin
 @Immutable
-class SeekerColors(
+class ThraggColors(
     val isDark: Boolean,
     val hairline: Color,          // color("border.variant") — Zed's own hairline, not an 8% wash
     val cardGround: Color,        // lerp(surfaceContainer, worstTint, 0.08f)
@@ -105,7 +105,7 @@ class SeekerColors(
     fun modeColor(name: String?): Color
     fun modeInk(name: String?): Color = readable(modeColor(name), cardGround)
 }
-val LocalSeekerColors = staticCompositionLocalOf<SeekerColors> { error("SeekerColors not provided") }
+val LocalThraggColors = staticCompositionLocalOf<ThraggColors> { error("ThraggColors not provided") }
 ```
 Every `*Ink` is solved at TEXT_RATIO against `cardGround`, every `*Mark` at MARK_RATIO. `cardGround` is not the bare canvas: a card is the surface under a 5-7% tint wash, and an ink solved to exactly 4.5:1 on the canvas arrives at ~4.16:1 on the card. `modeColor` adopts spettro-android's COMPLETE table (SpettroColors.kt:69-96) because `spettro.agents.toml` emits manifest colour NAMES, which Seeker's `modeTintArgb` (ConfigChips.kt:412-423) does not handle: blue #A78BFA, green #34D399, cyan #60A5FA, yellow #F59E0B, magenta #C084FC, purple #BD93F9, red #EF4444, then id fallbacks plan→#BD93F9, coding/code→#34D399, chat/ask→#60A5FA, else accent. Keep Seeker's `category != "mode" → null` guard.
 
@@ -114,14 +114,14 @@ RUNTIME PROPAGATION. Unchanged in shape, one line added. `ThraggTheme` already f
 val palette = remember(theme) { theme.palette() }
 CompositionLocalProvider(
     LocalZedTheme provides theme,
-    LocalSeekerColors provides palette.seeker,
+    LocalThraggColors provides palette.thragg,
     LocalReduceMotion provides reduceMotion,
     /* … existing font/icon/settings locals … */
     // NOTE: LocalIndication and LocalLayoutDirection are NO LONGER provided here.
 ) {
     MaterialExpressiveTheme(              // public in 1.4.0; motionScheme omitted so the
         colorScheme = palette.scheme,     // expressive default (internal to name) is taken
-        shapes = SeekerShapes,
+        shapes = ThraggShapes,
         typography = remember(uiFontFamily) { materialTypography(uiFontFamily) },
         content = content,
     )
@@ -150,7 +150,7 @@ fun ZedSurface(content: @Composable () -> Unit) {
 }
 ```
 ZED-PAINTED (wrapped in `ZedSurface`, keep `theme.color(...)`, keep `rem()`/`ZedRadius`, keep `NoIndication`) — 499 call sites: `ui/editor/` (94), `ui/git/` (230), `ui/preview/` (60), `ui/search/` (43), `ui/diagnostics/` (28), `ui/terminal/` (24), `ui/media/` (14), `ui/tasks/` (6), plus `ui/shell/changes/DiffScreen.kt` and the editor host inside `ui/shell/code/CodeScreen.kt`.
-MATERIAL-PAINTED (read `MaterialTheme.colorScheme` + `LocalSeekerColors`, `MD.*` spacing, ripple on) — 760 call sites across 46 live files: all of `ui/shell/` except the two above, all of `ui/agent/`, all of `ui/common/`.
+MATERIAL-PAINTED (read `MaterialTheme.colorScheme` + `LocalThraggColors`, `MD.*` spacing, ripple on) — 760 call sites across 46 live files: all of `ui/shell/` except the two above, all of `ui/agent/`, all of `ui/common/`.
 NoIndication was defended as "the loudest single 'not Zed' tell a Compose port can carry", and that is correct — for the editor. In a Material sheet a row that does not respond to a press is the loudest single "not a real Android app" tell, which is the owner's verdict. Scoping it is the resolution; deleting it in either direction is not.
 `LocalLayoutDirection provides Ltr` moves into `ZedSurface` because the reason for it is real and local: the editor draws indent guides, tab borders and focus rails at absolute x in `drawBehind`. The Material half becomes RTL-correct. Chunk owners must grep their files for `drawBehind`/`drawWithContent` before landing.
 
@@ -163,21 +163,21 @@ fun ZedCodeBlock(
     maxLines: Int = Int.MAX_VALUE, wrap: Boolean = false,
 )
 ```
-Fill `LocalZedTheme.current.color("editor.background")`, ink `editor.foreground`, face `LocalBufferFontFamily.current` with `LocalBufferFontFeatures.current`, spans from `theme.spanStyle()`, `softWrap = false` + horizontal scroll, `SelectionContainer`, radius `MD.radiusSm` (8dp) — and a **1dp `MaterialTheme.colorScheme.outlineVariant` border**, because the island's EDGE belongs to the sheet and that is what stops it reading as a hole. `+`/`-` lines inside the island use Zed's `created`/`deleted` raw. Outside the island — a `+24 −6` on a card header, a "3 failed" label — use `LocalSeekerColors.addedInk/removedInk/dangerInk`, solved.
+Fill `LocalZedTheme.current.color("editor.background")`, ink `editor.foreground`, face `LocalBufferFontFamily.current` with `LocalBufferFontFeatures.current`, spans from `theme.spanStyle()`, `softWrap = false` + horizontal scroll, `SelectionContainer`, radius `MD.radiusSm` (8dp) — and a **1dp `MaterialTheme.colorScheme.outlineVariant` border**, because the island's EDGE belongs to the sheet and that is what stops it reading as a hole. `+`/`-` lines inside the island use Zed's `created`/`deleted` raw. Outside the island — a `+24 −6` on a card header, a "3 failed" label — use `LocalThraggColors.addedInk/removedInk/dangerInk`, solved.
 
 TWO SMALL FIXES TO SHIP WITH THE BRIDGE. Add to `ZedTheme.DERIVED` (ZedTheme.kt:133): `"success" to "created"`, `"info" to "text.accent"` — that collapses the five double-fallback idioms at ShellNavBar.kt:259, GitGraphPane.kt:1000/1095, OrchBits.kt:134. And fix two real bugs: OrchBits.kt:150-157 bakes One Dark's ANSI hexes as a fallback table (under Gruvbox it paints One Dark — read the live `terminal.ansi.*` keys), and GitGraphPane.kt:528-532 bakes a five-lane graph palette when `theme.playerColor(index)` (ZedTheme.kt:41-45) exists for exactly that.
 
 ## Foundations
 
-FILE MAP. `ui/theme/Contrast.kt` (new) — solver. `ui/theme/MaterialBridge.kt` (new) — `ZedTheme.palette()`, `SeekerColors`, `LocalSeekerColors`. `ui/theme/Surfaces.kt` (new) — `ZedSurface`, `NoIndication` (moved out of Theme.kt). `ui/theme/Shape.kt` (new) — `object MD`, `SeekerShapes`. `ui/theme/Theme.kt` (edit) — root, now Material-first. `ui/theme/Type.kt` (edit) — `zedTypography` unchanged, `materialTypography` added, `MonoBody`/`MonoSmall`/`TabularNums` added. `ui/theme/Motion.kt` (edit) — `LocalReduceMotion` unchanged, motion tokens added. `ui/theme/Rem.kt`, `Icons.kt`, `TouchTarget.kt`, `Fonts.kt`, `ZedTheme.kt`, `ZedThemes.kt`, `UserThemes.kt`, `ThemeStore.kt` — unchanged except the two `DERIVED` entries.
+FILE MAP. `ui/theme/Contrast.kt` (new) — solver. `ui/theme/MaterialBridge.kt` (new) — `ZedTheme.palette()`, `ThraggColors`, `LocalThraggColors`. `ui/theme/Surfaces.kt` (new) — `ZedSurface`, `NoIndication` (moved out of Theme.kt). `ui/theme/Shape.kt` (new) — `object MD`, `ThraggShapes`. `ui/theme/Theme.kt` (edit) — root, now Material-first. `ui/theme/Type.kt` (edit) — `zedTypography` unchanged, `materialTypography` added, `MonoBody`/`MonoSmall`/`TabularNums` added. `ui/theme/Motion.kt` (edit) — `LocalReduceMotion` unchanged, motion tokens added. `ui/theme/Rem.kt`, `Icons.kt`, `TouchTarget.kt`, `Fonts.kt`, `ZedTheme.kt`, `ZedThemes.kt`, `UserThemes.kt`, `ThemeStore.kt` — unchanged except the two `DERIVED` entries.
 
 COLOUR ROLES — see THE HYBRID for the full table. Call-site idiom, both halves:
 ```kotlin
-val colors = LocalSeekerColors.current            // once, at the top
+val colors = LocalThraggColors.current            // once, at the top
 Text(style = …, color = MaterialTheme.colorScheme.onSurfaceVariant)
 Icon(tint = colors.accentMark)
 ```
-The 760 Material-half sites invert their polarity. Today every one is `theme.color("key", MaterialTheme.colorScheme.role)` — a Zed read with an M3 fallback that never fires. It becomes a bare `MaterialTheme.colorScheme.role` with no Zed read at all. This is mechanical but NOT sed-able, and there are three traps: `text.muted` is `onSurfaceVariant` on a surface but `onSurface.copy(alpha = 0.6f)` inside a container; `ghost_element.hover` (51 sites) has no colour answer at all under M3 — it is a state layer and it comes back from the restored ripple, so those sites DELETE their background rather than remap it; `element.selected` is `secondaryContainer`. Highest-leverage two lines in the codebase: `mutedIcon` and `accentIcon` (Icons.kt:216-227) are `@Composable get()` properties reading `LocalZedTheme`, and they are the default tint of `RowChevron`, `DisclosureMark`, `ChipCaret` and `SelectionMark` — i.e. of nearly every icon in every sheet and row. Redefine them to read `MaterialTheme.colorScheme.onSurfaceVariant` / `LocalSeekerColors.current.accentMark`, and give `ZedSurface` a `LocalIconTint` override that restores the Zed reads for the editor half. Changing those two definitions retints most of the Material half in one commit.
+The 760 Material-half sites invert their polarity. Today every one is `theme.color("key", MaterialTheme.colorScheme.role)` — a Zed read with an M3 fallback that never fires. It becomes a bare `MaterialTheme.colorScheme.role` with no Zed read at all. This is mechanical but NOT sed-able, and there are three traps: `text.muted` is `onSurfaceVariant` on a surface but `onSurface.copy(alpha = 0.6f)` inside a container; `ghost_element.hover` (51 sites) has no colour answer at all under M3 — it is a state layer and it comes back from the restored ripple, so those sites DELETE their background rather than remap it; `element.selected` is `secondaryContainer`. Highest-leverage two lines in the codebase: `mutedIcon` and `accentIcon` (Icons.kt:216-227) are `@Composable get()` properties reading `LocalZedTheme`, and they are the default tint of `RowChevron`, `DisclosureMark`, `ChipCaret` and `SelectionMark` — i.e. of nearly every icon in every sheet and row. Redefine them to read `MaterialTheme.colorScheme.onSurfaceVariant` / `LocalThraggColors.current.accentMark`, and give `ZedSurface` a `LocalIconTint` override that restores the Zed reads for the editor half. Changing those two definitions retints most of the Material half in one commit.
 
 THE `secondaryContainer` TRAP — read this before dropping in any stock M3 component. `element.selected` maps to `secondaryContainer`, and that mapping is right for what the role *is* (a fill) and wrong for what M3 *uses it for* (a state). Material spends the role on selection: `NavigationBarTokens.ItemActiveIndicatorColor`, `SliderTokens.InactiveTrackColor` (plus the tick cross-wiring in `defaultSliderColors`, which paints each half's ticks in the other half's track colour), `ProgressIndicatorTokens.TrackColor`, `FilterChipTokens.FlatSelectedContainerColor`, `InputChipTokens.SelectedContainerColor`, `OutlinedSegmentedButtonTokens.SelectedContainerColor`, `NavigationDrawerTokens.ActiveIndicatorColor`, `FilledTonalButtonTokens`/`FilledTonalIconButtonTokens.ContainerColor`. In a stock palette that role is a pale tint of the seed, far from every surface. Here it is a real fill measured a step BEYOND `surfaceContainerHighest` on all eleven bundled themes in both appearances, at 1.31–1.57:1 against `surface` — so a stock default draws the loudest raised panel in the app where a *state* was wanted, and no theme rescues it. THE RULE: any component in the list above names its colour parameter at the call site. A selection is `primary.copy(alpha = 0.16f)`; an unspent track is `surfaceContainerHighest`; in the Zed half it is a Zed key (`element.background`) rather than an M3 role. This shipped twice — `ShellNavBar`'s pill and `SettingsScreen`'s `SliderRow` track — and both were caught by looking at the phone, so it is now two tests: `MaterialBridgeTest.secondaryContainer is a sixth fill rung, not a state, on every theme` measures the role against the ladder, and `StockDefaultsTest` fails the build when a file imports one of those components without writing the override.
 
@@ -214,7 +214,7 @@ object MD {                      // the Material half's 4dp grid — fixed dp, n
     val pill = 20.dp; val hairline = 1.dp
     val rowMin = 48.dp; val barHeight = 56.dp; val stripHeight = 36.dp
 }
-val SeekerShapes = Shapes(extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp),
+val ThraggShapes = Shapes(extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp),
     medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(16.dp),
     extraLarge = RoundedCornerShape(24.dp))
 ```
@@ -229,7 +229,7 @@ Sheets: `containerColor = surfaceContainer` for a sheet whose body is a bare lis
 MOTION — `ui/theme/Motion.kt`. `LocalReduceMotion` + `rememberReduceMotion` + `Motion.isReduced` + `revealItem`/`revealBy` are unchanged and are the part of Seeker that is already better than both references; every token below routes through them.
 ```kotlin
 /** The one spring. Every expand/collapse, every chevron, every animateContentSize. */
-@Composable fun <T> seekerSpring(): FiniteAnimationSpec<T> =
+@Composable fun <T> thraggSpring(): FiniteAnimationSpec<T> =
     if (LocalReduceMotion.current) snap() else spring(stiffness = Spring.StiffnessMediumLow)
 
 /** Colour and alpha. MaterialTheme.motionScheme is public in 1.4.0. */
@@ -240,7 +240,7 @@ MOTION — `ui/theme/Motion.kt`. `LocalReduceMotion` + `rememberReduceMotion` + 
 @Composable fun <T> spatialSpec(): FiniteAnimationSpec<T> =
     if (LocalReduceMotion.current) snap() else MaterialTheme.motionScheme.fastSpatialSpec()
 
-@Composable fun Modifier.animateSize(): Modifier = animateContentSize(seekerSpring<IntSize>())
+@Composable fun Modifier.animateSize(): Modifier = animateContentSize(thraggSpring<IntSize>())
 ```
 NAMED DURATIONS, each with its reason: **180ms in / 240ms out** on the live-run strip and any band that appears and disappears (`fadeIn + expandVertically` / `fadeOut + shrinkVertically`) — slower out than in so a finishing run settles rather than blinking away, reinforced by a **4000ms hold** during which a finished run is re-read for its FINAL counts. **120ms** fade for an assistant markdown block (existing, keep — Spettro's stream has draft-reset semantics ACP cannot express). **150-250ms** for every colour/alpha tween; nothing outside that band. **400ms / 8 quantised frames** for the braille spinner (already correct at OrchBits.kt:303). **1Hz** for the run ticker — the spinner carries the motion; re-laying out a text run at 60fps to advance a seconds counter is wasted work. **1600ms** then revert, for a copy confirmation (replaces any snackbar). **±width/3 horizontal slide + fade** for an in-sheet drill push, direction chosen by whether a page is opening or closing. **Vertical slide in the direction of travel** for the thinking level pill (`rising = target > initial` → enter from +h, else −h): a label that moves up when the value goes up carries a large share of the "feels designed" impression for about eight lines of code.
 PRESS, HAPTICS AND TOASTS — the three things that answer the finger rather than the state. **Press** is `pressScale` (see the component library): 97% on the frame of the press, critically damped back, on every control drawn as an object and on nothing drawn as a row. **Haptics** fire on the two acts that COMMIT and on nothing else: `HapticFeedbackType.Confirm` when a message leaves the composer and when a build starts. Not on Stop (a cancel is not a success), not on a nav-bar tap, not on a keystroke — feedback that fires on everything trains the hand to ignore all of it. The level slider's `SegmentTick` per detent is the one other haptic and it is a different kind: a texture under a drag, not a confirmation. **Toasts** enter the way they leave — up from the bottom edge the stack sits on, `fadeIn + slideInVertically(height/2)` over BAND_IN — and leave by `LazyColumn.animateItem`'s BAND_OUT fade with the stack settling into the gap on the size spring, so a message never vanishes between two frames. A toast is SWIPED AWAY sideways: 1:1 with the finger, thinning as it travels, and on release the resting place is PROJECTED from the velocity (`(v/1000)·0.998/0.002`, Apple's scroll-deceleration form) before it is compared with half the width — so a quick flick that lets go 40px in dismisses, and a long drag thrown back home does not. The settle is damping 0.8: the card was thrown, and a little overshoot is what makes the release the same object the finger was holding. `dismissesToast()` is a pure function with a host test.
@@ -251,8 +251,8 @@ NOTHING ANIMATES IN SCROLLBACK. No shimmer sweep over prose, no gradient crossin
 STOCK-M3 SUBSTITUTIONS (things 1.4.0 cannot do, and what to build instead):
 1. `SliderDefaults.Track(trackCornerSize = 12.dp, …)` is internal. Use the public `Track(sliderState, modifier, enabled, colors, drawStopIndicator = null, drawTick = { off, c -> drawCircle(c, 2.5.dp.toPx(), off) }, thumbTrackGapSize = 0.dp, trackInsideCornerSize = 6.dp)`. The only loss is the outer corner radius — the track keeps its default full-pill ends instead of a 12dp square-ish end; the inside corners and the per-level dots are there. **THE GAP IS 0, and that was a correction on the device, not a preference.** `drawTrack` measures `thumbTrackGapSize` from the handle's CENTRE (`thumbWidth / 2 + gap`), so at a value of zero — where the active track has no width and is not drawn at all — the *inactive* track began 11dp to the right of a handle sitting at x = 0: the handle hung off the left cap of its own scale with the first tick stranded on bare sheet between the two, and the top of the scale did it mirrored. Widening the handle cannot fix it, because the gap grows by exactly what the handle grows by. `trackInsideCornerSize` does the separating instead — it rounds both halves toward the handle whether or not a gap is set, so the track pinches AT the handle, and a pinch cannot fall off the end of a track.
 2. `MotionScheme.expressive()` cannot be named. Call `MaterialExpressiveTheme(colorScheme = …, shapes = …, typography = …, content = …)` and OMIT the `motionScheme` argument; its default is the expressive scheme, and `MaterialTheme.motionScheme` reads it back publicly.
-3. No `LoadingIndicator`. Promote Seeker's existing braille spinner (OrchBits.kt:303) into `ui/components/SeekerSpinner.kt` — it already has the right cadence and a reduce-motion branch.
-4. No `MaterialShapes`, `ButtonGroup`, `SplitButton`, `ToggleButton`, `FloatingToolbar`, `WavyProgressIndicator`, `AppBarRow`. Nothing in this spec uses them. The config chip row is a `LazyRow` of `SeekerChip`, not a `ButtonGroup`.
+3. No `LoadingIndicator`. Promote Seeker's existing braille spinner (OrchBits.kt:303) into `ui/components/ThraggSpinner.kt` — it already has the right cadence and a reduce-motion branch.
+4. No `MaterialShapes`, `ButtonGroup`, `SplitButton`, `ToggleButton`, `FloatingToolbar`, `WavyProgressIndicator`, `AppBarRow`. Nothing in this spec uses them. The config chip row is a `LazyRow` of `ThraggChip`, not a `ButtonGroup`.
 5. `TopAppBar(title, subtitle, …)` IS public in 1.4.0 (`TopAppBar-cJHQLPU`), behind `@OptIn(ExperimentalMaterial3ExpressiveApi::class)`. Use it; do not hand-roll the 48dp `AgentBar`.
 6. `HapticFeedbackType.SegmentTick` is present in compose-ui 1.10.4. Use it, not `SegmentFrequentTick`.
 
@@ -263,7 +263,7 @@ STOCK-M3 SUBSTITUTIONS (things 1.4.0 cannot do, and what to build instead):
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Add a mint_nft instruction                     ⌄   ＋   ⋮   │ 56  TopAppBar
-│  Spettro · seeker-ide                                        │     subtitle 12sp
+│  Spettro · thragg-ide                                        │     subtitle 12sp
 ├──────────────────────────────────────────────────────────────┤ 1dp outlineVariant
 │ ◐ 1m04s · 12.3k     ☑ 2/4 ▬▬▭▭      210k tok   37%           │ 36  AgentStatusStrip
 ├──────────────────────────────────────────────────────────────┤ 1dp
@@ -302,7 +302,7 @@ STOCK-M3 SUBSTITUTIONS (things 1.4.0 cannot do, and what to build instead):
 
 **Behaviour.** Scaffold(containerColor = colorScheme.background). Exactly THREE fixed bands survive: TopAppBar, AgentStatusStrip, composer.
 
-THE BAR NAMES THE THREAD, not the project: `barTitle(threadTitle, projectName)` is the thread's own name, falling back to the project when the thread has none and to "No project" last. The project the title gave up moves into the subtitle — `barSubtitle(agentName, projectName, threadTitle)` → `Spettro · seeker-ide` — and is dropped there when the title is already showing it, so no word is printed twice. THE MODE IS NOT IN THE BAR. It is said by the ModeChip in the strip (which carries the mode's identity colour and sits with the run readouts) and by ConfigSummaryRow (which *is* the control that changes it, one tap from the composer); a subtitle is a caption on a title that is not about the mode, and it never changes with the run.
+THE BAR NAMES THE THREAD, not the project: `barTitle(threadTitle, projectName)` is the thread's own name, falling back to the project when the thread has none and to "No project" last. The project the title gave up moves into the subtitle — `barSubtitle(agentName, projectName, threadTitle)` → `Spettro · thragg-ide` — and is dropped there when the title is already showing it, so no word is printed twice. THE MODE IS NOT IN THE BAR. It is said by the ModeChip in the strip (which carries the mode's identity colour and sits with the run readouts) and by ConfigSummaryRow (which *is* the control that changes it, one tap from the composer); a subtitle is a caption on a title that is not about the mode, and it never changes with the run.
 
 THE STRIP DRAWS ONLY WHEN THERE IS RUN STATE — `stripReports(busy, hasPlan, hasUsage)`. The mode alone does not hold it open: a band standing from the first frame of every thread with one pill in it costs the transcript 37dp for a fact the composer states permanently 20dp above the keyboard. Empty → gone; present → carrying everything the snapshot has. AttentionBar is a fourth that exists only while session.needsUser > 0 and is a link, not a form. Transcript is the only scrolling region: LazyColumn, contentPadding 16dp all round, verticalArrangement spacedBy(8.dp), items keyed by row.id, wrapped in Modifier.imePadding().consumeWindowInsets(padding). Keep every existing behaviour: the LATCHED follow-the-tail (followsTail(previous, dragging, atTail) — turned off only by the reader's own drag ending away from the tail, back on the moment they return), the retap-scrolls-to-newest contract, the `expanded` map held OUTSIDE the LazyColumn so a card the user opened is not forgotten when it scrolls off, `showsSecondaryBands(imeVisible)`, and the nav bar hiding under the IME. AgentStatusStrip is Modifier.animateSize() so it grows into the plan list without a jump. Ordering of the strip, left to right: RunTicker (busy) or ModeChip (idle) · PlanProgress · Spacer(weight 1f) · UsageReadout. Tapping PlanProgress unfolds the plan inline in the strip; tapping UsageReadout opens the context-gauge sheet.
 
@@ -365,7 +365,7 @@ SLASH PALETTE (was 5 inline rows; now a sheet)
 │                                                              │
 │  ⌸ MODEL                                                     │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Claude Sonnet 4.6                                  ›  │  │ drill entry, SeekerCard
+│  │  Claude Sonnet 4.6                                  ›  │  │ drill entry, ThraggCard
 │  └────────────────────────────────────────────────────────┘  │
 │   Anthropic · balanced for long coding turns                 │
 │                                                              │
@@ -448,7 +448,7 @@ EXPANDED (raised fill fades in)
 │      … 12 more lines                          View full diff │
 ```
 
-**Behaviour.** Row: 16dp kind glyph in onSurfaceVariant · verb at labelLarge onSurface · human-readable detail (NEVER raw JSON) at MonoSmall onSurfaceVariant maxLines 1 ellipsis weight(1f) · DiffStatLabel when non-zero · status glyph · 14dp chevron rotated 0→90 on `animateFloatAsState(seekerSpring())`. The whole row is `Modifier.animateSize()` and is clickable ONLY when it has detail. Background is `surfaceContainer.copy(alpha = 0f)` collapsed and `surfaceContainer` expanded, so it fades in rather than swapping. Expanded body: padding start 24 / end 8 / bottom 8, diffs first, then output, both as `ZedCodeBlock`. A sub-agent call promotes to a tinted card: 12dp radius, `agentAccent.copy(alpha = if (isDark) 0.07f else 0.05f)` fill, `agentAccent@25%` border, a 16dp bot glyph, the agent name at labelLarge SemiBold in agentInk, an "AGENT" capsule at 9sp on agentAccent@18%, and the launch task at bodySmall maxLines 2. KEEP Seeker's status vocabulary and its argument: completed is a muted 8dp dot, not a green check, because a transcript of green checks reads as a list of achievements; only FAILED (1dp error border, 8dp radius round the row) and WAITING (1dp primary border, "Waiting for you — tap to answer") get framing. Ten reads stay ten unframed quiet rows.
+**Behaviour.** Row: 16dp kind glyph in onSurfaceVariant · verb at labelLarge onSurface · human-readable detail (NEVER raw JSON) at MonoSmall onSurfaceVariant maxLines 1 ellipsis weight(1f) · DiffStatLabel when non-zero · status glyph · 14dp chevron rotated 0→90 on `animateFloatAsState(thraggSpring())`. The whole row is `Modifier.animateSize()` and is clickable ONLY when it has detail. Background is `surfaceContainer.copy(alpha = 0f)` collapsed and `surfaceContainer` expanded, so it fades in rather than swapping. Expanded body: padding start 24 / end 8 / bottom 8, diffs first, then output, both as `ZedCodeBlock`. A sub-agent call promotes to a tinted card: 12dp radius, `agentAccent.copy(alpha = if (isDark) 0.07f else 0.05f)` fill, `agentAccent@25%` border, a 16dp bot glyph, the agent name at labelLarge SemiBold in agentInk, an "AGENT" capsule at 9sp on agentAccent@18%, and the launch task at bodySmall maxLines 2. KEEP Seeker's status vocabulary and its argument: completed is a muted 8dp dot, not a green check, because a transcript of green checks reads as a list of achievements; only FAILED (1dp error border, 8dp radius round the row) and WAITING (1dp primary border, "Waiting for you — tap to answer") get framing. Ten reads stay ten unframed quiet rows.
 
 **Why this is better.** Three changes, each earning its place. (1) COLOUR SEMANTICS ARRIVE. The diff stat today is plain muted text ("+24 −6" at labelSmall in text.muted); at 12sp on a 400dp column that is the difference between scannable and not. It becomes DiffStatLabel — addedInk/removedInk, Medium weight, tabular figures so the numbers do not shimmy as they tick. Same for diff line grounds: InlineDiff currently draws each line as coloured INK on a flat editor.background box; painting the row ground at tint@10% with full-strength ink is what makes a diff readable at a glance. (2) THE COLLAPSED ROW GOES FULLY TRANSPARENT. A long run of tool calls should be visually quiet until one is opened; today each carries its own fill and a wall of them dominates the transcript. (3) THE SNIPPET BECOMES A REAL ZED ISLAND. Today the expanded body draws in `FontFamily.Monospace` — the system mono, not the user's Lilex — so the same file looks like two different files two taps apart. `ZedCodeBlock` fixes the face, the background and the syntax spans in one component, and puts an `outlineVariant` border round it so the island's edge belongs to the Material sheet. What I am NOT changing: the muted completed dot survives, against spettro-android's green check, because Seeker's argument for it is better than spettro's reason for the check.
 
@@ -480,7 +480,7 @@ EXPANDED, and a failed run opens expanded
 
 **Behaviour.** clip(12dp), fill `wash.copy(alpha = if (isDark) 0.06f else 0.045f)`, border 1dp `wash@25%`, `Modifier.animateSize()`. INK AND WASH ARE SEPARATE VALUES — ink = accentInk/dangerInk/agentInk by status, wash = the raw primary/removed/agentAccent by status; darkening a wash to clear a text ratio only makes the card muddy. Opens COLLAPSED on a phone (a desktop has a column beside the transcript; a phone's transcript IS the screen) with one exception: a FAILED run opens EXPANDED, because a failure folded behind a chevron is a failure the card hid. The cell strip lives in the HEADER, not the body, so closing the card never hides what broke; running cells use the ACCENT and not the member's mode tint, because half the mode palette is a green and a swarm of `code` agents drew running-green beside done-green. Any failure forces the meter's failed segment to at least 6% width so one failure among fifty does not round to zero pixels. A settled run drops successful DETAIL but never STRUCTURE: successes fold into one "N done" row that expands; a failed member keeps its row AND gains its reason. Cap phase rows at 6 before hiding. Seeker already has all of this logic in WorkflowCard.kt / SwarmCard.kt / OrchBits.kt.
 
-**Why this is better.** This is the one part of the Agent destination that is already structurally right; the change is almost entirely token substitution, and that is the point of writing it down — an implementation agent must not rebuild it. What actually changes: the wash and border stop being raw `theme.color(...)` reads and become `LocalSeekerColors` values, so the card is legible on Ayu Light where today `warning` sits at 1.64:1 and `created` at 2.11:1 against the panel; the elapsed and ratio readouts gain `TabularNums`; the expand/collapse joins the one shared `seekerSpring()` instead of an ad-hoc tween; `MonoSheet`'s `FontFamily.Monospace` becomes `ZedCodeBlock`; and the hard-coded One-Dark ANSI fallback table at OrchBits.kt:150-157 is deleted in favour of the live theme's own `terminal.ansi.*` keys, which is a correctness fix, not a visual one — today that table paints One Dark under Gruvbox.
+**Why this is better.** This is the one part of the Agent destination that is already structurally right; the change is almost entirely token substitution, and that is the point of writing it down — an implementation agent must not rebuild it. What actually changes: the wash and border stop being raw `theme.color(...)` reads and become `LocalThraggColors` values, so the card is legible on Ayu Light where today `warning` sits at 1.64:1 and `created` at 2.11:1 against the panel; the elapsed and ratio readouts gain `TabularNums`; the expand/collapse joins the one shared `thraggSpring()` instead of an ad-hoc tween; `MonoSheet`'s `FontFamily.Monospace` becomes `ZedCodeBlock`; and the hard-coded One-Dark ANSI fallback table at OrchBits.kt:150-157 is deleted in favour of the live theme's own `terminal.ansi.*` keys, which is a correctness fix, not a visual one — today that table paints One Dark under Gruvbox.
 
 ### Agent — the question sheet (ask-user form)
 
@@ -562,12 +562,12 @@ THE SHEET (tap the percentage)
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Build                                              ▶   ⋮    │ TopAppBar 56
-│  seeker-program · devnet                                     │ subtitle
+│  thragg-program · devnet                                     │ subtitle
 ├──────────────────────────────────────────────────────────────┤
 │ ◐ anchor build          2m 08s          3 warnings           │ 36 BuildStatusStrip
 ├──────────────────────────────────────────────────────────────┤
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │ ⚠  unused variable: `bump`                             │  │ SeekerCard per
+│  │ ⚠  unused variable: `bump`                             │  │ ThraggCard per
 │  │    programs/src/lib.rs:88:13                     ›     │  │ diagnostic; warnInk
 │  └────────────────────────────────────────────────────────┘  │ glyph, tap → Diff
 │  ┌────────────────────────────────────────────────────────┐  │
@@ -576,14 +576,14 @@ THE SHEET (tap the percentage)
 │  └────────────────────────────────────────────────────────┘  │
 │  ──────────────────────────────────────────────────────────  │ HairlineDivider
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Compiling seeker-program v0.1.0                       │  │ ZedCodeBlock,
+│  │  Compiling thragg-program v0.1.0                       │  │ ZedCodeBlock,
 │  │  error[E0433]: failed to resolve                       │  │ buffer face, ANSI
 │  │     --> programs/src/lib.rs:104:31                     │  │ from the live theme
 │  └────────────────────────────────────────────────────────┘  │ softWrap=false
 └──────────────────────────────────────────────────────────────┘
 ```
 
-BuildScreen.kt (18 colour reads) + BuildLogView.kt (14). The log becomes a `ZedCodeBlock` — that is the one surface on this screen that is legitimately a Zed island, because it is compiler output in the user's buffer face with ANSI colour, and today it draws in `FontFamily.Monospace` at six sites with Material ink. Everything around it becomes Material: a real TopAppBar with the target as subtitle, a 36dp status strip carrying `RunTicker` + elapsed + a counts summary (the same component the Agent uses), and diagnostics as `SeekerCard`s with `warnInk`/`removedInk` glyphs rather than raw `theme.color("warning")` — which measures 1.64:1 on Ayu Light today. The run/stop control is a filled `IconButton` in the app bar that swaps glyph, not label; a build IS a cancel-not-steer situation, unlike the agent composer, so the swap is correct here. Failures use the three-tier error model: a failed build is an inline `NoticeCard` at the top of the log with a "Retry" action, never a toast.
+BuildScreen.kt (18 colour reads) + BuildLogView.kt (14). The log becomes a `ZedCodeBlock` — that is the one surface on this screen that is legitimately a Zed island, because it is compiler output in the user's buffer face with ANSI colour, and today it draws in `FontFamily.Monospace` at six sites with Material ink. Everything around it becomes Material: a real TopAppBar with the target as subtitle, a 36dp status strip carrying `RunTicker` + elapsed + a counts summary (the same component the Agent uses), and diagnostics as `ThraggCard`s with `warnInk`/`removedInk` glyphs rather than raw `theme.color("warning")` — which measures 1.64:1 on Ayu Light today. The run/stop control is a filled `IconButton` in the app bar that swaps glyph, not label; a build IS a cancel-not-steer situation, unlike the agent composer, so the swap is correct here. Failures use the three-tier error model: a failed build is an inline `NoticeCard` at the top of the log with a "Retry" action, never a toast.
 
 ### Setup (Spettro install / provider gate)
 
@@ -593,13 +593,13 @@ BuildScreen.kt (18 colour reads) + BuildLogView.kt (14). The log becomes a `ZedC
 │                            ◈                                 │ IconSize.Hero 40dp,
 │                                                              │ static, no morph
 │                    Set up Spettro                            │ headlineSmall 24/30
-│         Seeker bundles the agent. It needs one thing         │ bodyMedium, @70%,
+│         Thragg bundles the agent. It needs one thing         │ bodyMedium, @70%,
 │              before it can run: a provider.                  │ centred, 2 lines max
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │ ✓  Runtime installed                     spettro 0.9.4 │  │ SeekerCard, successMark
+│  │ ✓  Runtime installed                     spettro 0.9.4 │  │ ThraggCard, successMark
 │  ├────────────────────────────────────────────────────────┤  │
-│  │ ◐  Fetching provider list                              │  │ SeekerSpinner 14dp
+│  │ ◐  Fetching provider list                              │  │ ThraggSpinner 14dp
 │  ├────────────────────────────────────────────────────────┤  │
 │  │ ○  Sign in to a provider                          ›    │  │ pending, @50%
 │  └────────────────────────────────────────────────────────┘  │
@@ -611,7 +611,7 @@ BuildScreen.kt (18 colour reads) + BuildLogView.kt (14). The log becomes a `ZedC
 └──────────────────────────────────────────────────────────────┘
 ```
 
-ui/shell/setup/SetupScreen.kt (14 reads) and ui/agent/spettro/SetupScreen.kt (16) + SetupSheets.kt (38 — the largest single file in the agent package by colour reads). One shared `StepList` of `SeekerCard` rows replaces the several bespoke `SetupCard`/`FrameworkCard`/`UnsupportedCard` composables. The mark is Seeker's own 40dp icon, drawn STATIC — this is the slot spettro-chat-android fills with LiquidMorph, and the slot is worth having while the blob is not. The whole screen is a `Scaffold` with a 16dp gutter and one filled primary action pinned at the bottom above the nav bar. Auth flows (device-code, API key) keep their SheetScaffold with the field pinned above the IME; the code itself renders in a `ZedCodeBlock` with a `CopyChip` that flips to "Copied" for 1600ms — replacing the toast.
+ui/shell/setup/SetupScreen.kt (14 reads) and ui/agent/spettro/SetupScreen.kt (16) + SetupSheets.kt (38 — the largest single file in the agent package by colour reads). One shared `StepList` of `ThraggCard` rows replaces the several bespoke `SetupCard`/`FrameworkCard`/`UnsupportedCard` composables. The mark is Seeker's own 40dp icon, drawn STATIC — this is the slot spettro-chat-android fills with LiquidMorph, and the slot is worth having while the blob is not. The whole screen is a `Scaffold` with a 16dp gutter and one filled primary action pinned at the bottom above the nav bar. Auth flows (device-code, API key) keep their SheetScaffold with the field pinned above the IME; the code itself renders in a `ZedCodeBlock` with a `CopyChip` that flips to "Copied" for 1600ms — replacing the toast.
 
 ### Projects (sheet)
 
@@ -624,7 +624,7 @@ ui/shell/setup/SetupScreen.kt (14 reads) and ui/agent/spettro/SetupScreen.kt (16
 │  ╰────────────────────────────────────────────────────────╯  │
 │  RECENT                                                      │ SectionHeader
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │ ⬢ seeker-program            main ● 3          2h ago   │  │ 56dp row, branch +
+│  │ ⬢ thragg-program            main ● 3          2h ago   │  │ 56dp row, branch +
 │  ├────────────────────────────────────────────────────────┤  │ dirty dot + relative
 │  │ ⬢ nft-mint                  main             yesterday │  │ time, tabular
 │  └────────────────────────────────────────────────────────┘  │
@@ -635,7 +635,7 @@ ui/shell/setup/SetupScreen.kt (14 reads) and ui/agent/spettro/SetupScreen.kt (16
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
-ProjectsSheet.kt (26 reads). Rows become `ListItem`-shaped `SeekerCard` groups with a `HairlineDivider` between, replacing per-row hand-drawn fills; the dirty count uses `warnInk`, the branch name `MonoSmall`; the filter field is the SAME pill as the composer and the model drill, which is the point of having one. The two actions move into SheetScaffold's pinned `actions` slot so they cannot be pushed off the bottom by a long list. Press feedback returns here for free with the ripple — a 56dp project row that does not respond to a press is the clearest instance of the "not a real Android app" tell.
+ProjectsSheet.kt (26 reads). Rows become `ListItem`-shaped `ThraggCard` groups with a `HairlineDivider` between, replacing per-row hand-drawn fills; the dirty count uses `warnInk`, the branch name `MonoSmall`; the filter field is the SAME pill as the composer and the model drill, which is the point of having one. The two actions move into SheetScaffold's pinned `actions` slot so they cannot be pushed off the bottom by a long list. Press feedback returns here for free with the ripple — a 56dp project row that does not respond to a press is the clearest instance of the "not a real Android app" tell.
 
 ### New program / Clone
 
@@ -657,7 +657,7 @@ ProjectsSheet.kt (26 reads). Rows become `ListItem`-shaped `SeekerCard` groups w
 │                                                              │
 │  LOCATION                                                    │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │ /storage/emulated/0/Seeker/mint-nft              ›     │  │ SeekerCard drill row
+│  │ /storage/emulated/0/Seeker/mint-nft              ›     │  │ ThraggCard drill row
 │  └────────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────────┤
 │  ┌────────────────────────────────────────────────────────┐  │
@@ -725,7 +725,7 @@ ChangesScreen.kt, CommitSheet.kt, BranchSheet.kt (37 reads together). Material c
 
 ### Diff
 
-NO VISUAL CHANGE, and that is the decision. `ui/shell/changes/DiffScreen.kt` is wrapped in `ZedSurface` and keeps every one of its Zed colour reads, its rem metrics, its no-ripple rule and its LTR pin, because the gutters, hunk fills, blame rows (`theme.playerColor(index)`) and syntax spans must agree with the same file open in the editor two taps away. The only edits: its top bar becomes the shared `SeekerTopBar` (which lives OUTSIDE the ZedSurface wrapper, above it), and `HunkControls`' stage/revert buttons gain `touchTarget()` if they lack it. A Material-styled diff would be the single most damaging change this project could make, because it would put two different renderings of the same hunk on two screens of one app.
+NO VISUAL CHANGE, and that is the decision. `ui/shell/changes/DiffScreen.kt` is wrapped in `ZedSurface` and keeps every one of its Zed colour reads, its rem metrics, its no-ripple rule and its LTR pin, because the gutters, hunk fills, blame rows (`theme.playerColor(index)`) and syntax spans must agree with the same file open in the editor two taps away. The only edits: its top bar becomes the shared `ThraggTopBar` (which lives OUTSIDE the ZedSurface wrapper, above it), and `HunkControls`' stage/revert buttons gain `touchTarget()` if they lack it. A Material-styled diff would be the single most damaging change this project could make, because it would put two different renderings of the same hunk on two screens of one app.
 
 ### Problems
 
@@ -745,17 +745,17 @@ NO VISUAL CHANGE, and that is the decision. `ui/shell/changes/DiffScreen.kt` is 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-ProblemsScreen.kt. Its hand-rolled filter chip is replaced by stock `FilterChip` — the one place in the app that already tried to be a Material chip and had to draw it itself. Severity glyphs move to `LocalSeekerColors` inks. `InlineDiagnosticCard` folds into `SeekerCard`. The counts get `TabularNums`.
+ProblemsScreen.kt. Its hand-rolled filter chip is replaced by stock `FilterChip` — the one place in the app that already tried to be a Material chip and had to draw it itself. Severity glyphs move to `LocalThraggColors` inks. `InlineDiagnosticCard` folds into `ThraggCard`. The counts get `TabularNums`.
 
 ### Licences
 
-LicencesScreen.kt (20) + LicenceDetailScreen.kt. Purely mechanical: a `SeekerTopBar`, `SectionHeader` per licence family, `SeekerCard` groups of rows with `HairlineDivider`, and the licence text itself in `bodySmall` Material prose — NOT a code block, because it is prose and rendering it in Lilex at 13sp would be both harder to read and a category error about what an island is. `BuildConfig.SOURCE_URL`/`VERSION_NAME`/`ZED_COMMIT` render in `MonoSmall`. NOTE FOR THE PLAY DELETION: this screen reads `BuildConfig` but not `FLAVOR`, so it is unaffected; `core/SystemSpecs.kt:83-84` reads `BuildConfig.FLAVOR` and `USERLAND` and is the file that needs attention.
+LicencesScreen.kt (20) + LicenceDetailScreen.kt. Purely mechanical: a `ThraggTopBar`, `SectionHeader` per licence family, `ThraggCard` groups of rows with `HairlineDivider`, and the licence text itself in `bodySmall` Material prose — NOT a code block, because it is prose and rendering it in Lilex at 13sp would be both harder to read and a category error about what an island is. `BuildConfig.SOURCE_URL`/`VERSION_NAME`/`ZED_COMMIT` render in `MonoSmall`. NOTE FOR THE PLAY DELETION: this screen reads `BuildConfig` but not `FLAVOR`, so it is unaffected; `core/SystemSpecs.kt:83-84` reads `BuildConfig.FLAVOR` and `USERLAND` and is the file that needs attention.
 
 ### Code destination — chrome only
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  lib.rs                                          ⌕   ⊞   ⋮   │ 56 SeekerTopBar
+│  lib.rs                                          ⌕   ⊞   ⋮   │ 56 ThraggTopBar
 │  programs/src · main ● 3                                     │ subtitle, MonoSmall
 ├──────────────────────────────────────────────────────────────┤ ← MATERIAL ABOVE
 │ ⟨ lib.rs ● ⟩ ⟨ mint.rs ⟩ ⟨ Anchor.toml ⟩                     │ 36 FileBar, Material
@@ -763,7 +763,7 @@ LicencesScreen.kt (20) + LicenceDetailScreen.kt. Purely mechanical: a `SeekerTop
 │  1  use anchor_lang::prelude::*;                             │
 │  2                                                           │ the drawing surface:
 │  3  #[program]                                               │ NOT TOUCHED
-│  4  pub mod seeker_program {                                 │
+│  4  pub mod thragg_program {                                 │
 │  5      use super::*;                                        │
 │ ⋮                                                            │
 ├──────────────────────────────────────────────────────────────┤
@@ -777,10 +777,10 @@ CodeScreen.kt (10 reads) SPLITS. The top bar, the tab/file bar, the status line,
 
 ## The component library
 
-### SeekerCard
+### ThraggCard
 
 ```kotlin
-@Composable fun SeekerCard(modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(MD.radiusMd), fill: Color = MaterialTheme.colorScheme.surfaceContainer, border: Color = MaterialTheme.colorScheme.outlineVariant, filled: Boolean = true, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit)
+@Composable fun ThraggCard(modifier: Modifier = Modifier, shape: Shape = RoundedCornerShape(MD.radiusMd), fill: Color = MaterialTheme.colorScheme.surfaceContainer, border: Color = MaterialTheme.colorScheme.outlineVariant, filled: Boolean = true, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit)
 ```
 
 *Used by:* Agent config sheet, Agent transcript (notice, sub-agent, reasoning body), Question sheet, Permission sheet, Build diagnostics, Setup step list, Projects sheet, Settings groups, Changes, Problems, Licences, Session picker
@@ -811,10 +811,10 @@ MATERIAL'S DEFAULT IS THE WRONG ROLE UNDER THIS SCHEME, and it is the one place 
 
 *Used by:* Agent config sheet, Question sheet, Settings, New program, Changes, Problems, Licences, Projects
 
-### SeekerTopBar
+### ThraggTopBar
 
 ```kotlin
-@Composable fun SeekerTopBar(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}, scrollBehavior: TopAppBarScrollBehavior? = null)
+@Composable fun ThraggTopBar(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}, scrollBehavior: TopAppBarScrollBehavior? = null)
 ```
 
 *Used by:* Agent, Build, Setup, New program, Clone, Settings, Changes, Diff, Problems, Licences, Code
@@ -827,10 +827,10 @@ unchanged: @Composable fun SheetScaffold(state: ShellState, title: String?, onDi
 
 *Used by:* every modal in the app — agent config, model drill, commands, permission, question, sessions, mention, context gauge, projects, commit, branch, files, code overflow, wallet, deploy
 
-### SeekerSpinner
+### ThraggSpinner
 
 ```kotlin
-@Composable fun SeekerSpinner(modifier: Modifier = Modifier, size: Dp = 16.dp, color: Color = MaterialTheme.colorScheme.primary)
+@Composable fun ThraggSpinner(modifier: Modifier = Modifier, size: Dp = 16.dp, color: Color = MaterialTheme.colorScheme.primary)
 ```
 
 *Used by:* tool rows, workflow/swarm member rows, RunTicker, Setup steps, Build strip, live run strip
@@ -867,18 +867,18 @@ unchanged: @Composable fun SheetScaffold(state: ShellState, title: String?, onDi
 
 *Used by:* Agent status strip (idle), session picker rows, workflow member rows, config summary row
 
-### SeekerChip
+### ThraggChip
 
 ```kotlin
-@Composable fun SeekerChip(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, leading: (@DrawableRes Int)? = null, trailing: (@DrawableRes Int)? = null, tint: Color? = null, enabled: Boolean = true)
+@Composable fun ThraggChip(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, leading: (@DrawableRes Int)? = null, trailing: (@DrawableRes Int)? = null, tint: Color? = null, enabled: Boolean = true)
 ```
 
 *Used by:* composer mention/attachment strip, question sheet tab strip, Problems filter row, Changes branch chip, Code file bar tabs
 
-### SeekerSearchField
+### ThraggSearchField
 
 ```kotlin
-@Composable fun SeekerSearchField(value: String, onValueChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, focusRequester: FocusRequester? = null)
+@Composable fun ThraggSearchField(value: String, onValueChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, focusRequester: FocusRequester? = null)
 ```
 
 *Used by:* model drill page, command palette, mention sheet, projects sheet, session picker, files sheet, theme list, licences
@@ -945,7 +945,7 @@ unchanged: @Composable fun SheetScaffold(state: ShellState, title: String?, onDi
 @Composable fun EmptyState(headline: String, body: String, modifier: Modifier = Modifier, icon: (@DrawableRes Int)? = R.drawable.ic_launcher_monochrome, action: (@Composable () -> Unit)? = null)
 ```
 
-The mark sits on a 72dp `surfaceContainer` disc with the house hairline, in `onSurfaceVariant` at full strength — the same fill step and 1dp edge every card is made of, so an empty screen is built from the vocabulary of the full ones. Bare at 45% on the canvas it read as a watermark: the only element on an 890dp column, and the faintest. NOTHING ANIMATES IN: a staggered rise was tried and removed on the device, because a destination is switched to tens of times a session and contents that arrive a piece at a time after every tap make the user wait for what they asked for. Every tab shows what it has on the frame it is shown. The Agent's empty thread puts three `SeekerChip`s in the action slot (`starterPrompts(projectName)`: "Explain what escrow does" / "Look for bugs before I deploy" / "Write tests for the instructions"), each of which seeds the composer through `AgentSeams.offer` — so a tap lands the user at the end of a sentence they can send or finish, never in a sent message.
+The mark sits on a 72dp `surfaceContainer` disc with the house hairline, in `onSurfaceVariant` at full strength — the same fill step and 1dp edge every card is made of, so an empty screen is built from the vocabulary of the full ones. Bare at 45% on the canvas it read as a watermark: the only element on an 890dp column, and the faintest. NOTHING ANIMATES IN: a staggered rise was tried and removed on the device, because a destination is switched to tens of times a session and contents that arrive a piece at a time after every tap make the user wait for what they asked for. Every tab shows what it has on the frame it is shown. The Agent's empty thread puts three `ThraggChip`s in the action slot (`starterPrompts(projectName)`: "Explain what escrow does" / "Look for bugs before I deploy" / "Write tests for the instructions"), each of which seeds the composer through `AgentSeams.offer` — so a tap lands the user at the end of a sentence they can send or finish, never in a sent message.
 
 *Used by:* Agent (no thread), Changes (clean tree), Problems (none), Projects (none), Files sheet (no matches), search results, session picker
 
@@ -968,9 +968,9 @@ The pinned bar, and the seam that stops it eating the row above it. Three parts,
 const val PRESS_SCALE = 0.97f
 ```
 
-Press feedback for anything drawn as an OBJECT: the control shrinks to 97% the frame it is pressed and springs back on release, critically damped at stiffness 1600 (settles in ~100ms, no wobble). It reads the same `MutableInteractionSource` the caller hands its `clickable`/`Surface`, and that is what makes it scroll-safe — `clickable` inside a scrolling container delays its press until the gesture has proven not to be a scroll, so a list of cards does not twitch on every flick; a pointer listener of its own would. Reduce-motion snaps between the two sizes rather than removing the change, because the pressed size is a state the finger is holding. WHERE: `SeekerCard` with an `onClick`, `SelectableCard`, `SeekerChip`, the composer's circles, the Build run square. NOT: rows in a list (a row is a region of a surface and a region does not shrink) and the nav bar (touched a hundred times a day, the frequency at which every animation is a delay).
+Press feedback for anything drawn as an OBJECT: the control shrinks to 97% the frame it is pressed and springs back on release, critically damped at stiffness 1600 (settles in ~100ms, no wobble). It reads the same `MutableInteractionSource` the caller hands its `clickable`/`Surface`, and that is what makes it scroll-safe — `clickable` inside a scrolling container delays its press until the gesture has proven not to be a scroll, so a list of cards does not twitch on every flick; a pointer listener of its own would. Reduce-motion snaps between the two sizes rather than removing the change, because the pressed size is a state the finger is holding. WHERE: `ThraggCard` with an `onClick`, `SelectableCard`, `ThraggChip`, the composer's circles, the Build run square. NOT: rows in a list (a row is a region of a surface and a region does not shrink) and the nav bar (touched a hundred times a day, the frequency at which every animation is a delay).
 
-*Used by:* SeekerCard, SelectableCard, SeekerChip, AgentComposer (ComposerCircle), BuildScreen (RunControl)
+*Used by:* ThraggCard, SelectableCard, ThraggChip, AgentComposer (ComposerCircle), BuildScreen (RunControl)
 
 ### MonoText helpers (not a composable — two TextStyles and a constant, in Type.kt)
 
@@ -987,19 +987,19 @@ that suits a chat app suits a developer tool.
 
 - The brand palette. #526FFF / #6073CC accent, #F9F9F7 / #0E0E0E canvas, #FFFFFF / #1C1C1C raised, the 8% hairline wash. These are Spettro's identity and they would fight whatever Zed theme is loaded — an accent that appears nowhere in the editor is precisely the clash decision 1 exists to prevent. Seeker's accent is text.accent, its canvas is editor.background, its hairline is border.variant, and all three change eleven ways at runtime. The ONLY defensible literal is the agent purple #AD7BF9 for `tertiary`, and only because sub-agents are a vocabulary shared with the TUI and desktop client.
 - Material You / dynamic wallpaper colour. spettro-android defaults `dynamicColor = true`; Theme.kt already refuses it in writing ("we deliberately skip Material dynamic color so the editor looks like Zed everywhere") and decision 1 says M3 is seeded from Zed's accent. Keep the mechanism shape — a boolean that swaps the scheme, with LocalInspectionMode excluded so previews render — and default it off. Do not offer it as a setting either: a wallpaper primary beside tree-sitter output is a bug the user would have to diagnose.
-- FontFamily.Default for the UI face. spettro-android's Roboto is part of why it reads native, but Seeker bundles IBM Plex Sans on purpose, because that is what Zed draws its chrome in, and a Roboto Agent panel two taps from a Plex editor is a visible seam on one 400dp screen. Take the SLOT DISCIPLINE (fixed sp, six body/label roles tuned, the rest stock) and keep the face.
+- FontFamily.Default for the UI face. spettro-android's Roboto is part of why it reads native, but Thragg bundles IBM Plex Sans on purpose, because that is what Zed draws its chrome in, and a Roboto Agent panel two taps from a Plex editor is a visible seam on one 400dp screen. Take the SLOT DISCIPLINE (fixed sp, six body/label roles tuned, the rest stock) and keep the face.
 - spettro-chat-android's LiquidMorph.kt, in any form. The 7000ms oscillating border-radius blob and the three-layer blurred thinking mark. Four reasons, in order: it is a consumer chat mascot and would sit directly beside a tree-sitter buffer; it creates four independent infinite transitions and reallocates a Shape every frame, forcing an Outline recompute plus two RenderEffect blurs per frame; it reads no reduce-motion signal at all, which violates the contract Motion.kt documents (vestibular disorders are why that setting exists); and the reference itself uses it at exactly two call sites and never during streaming. Take the SLOT — a quiet identity mark on the Agent empty state and the Setup masthead — and fill it with Seeker's own 40dp icon, static.
 - PlanBadge's animated six-colour rainbow MAX tier. A subscription flourish. An IDE does not advertise a plan tier with a scrolling shader.
 - GlareText's shimmer sweep, anywhere in scrollback. Even the reference restricts it to the single active orchestrator and the streaming "Thinking…" label, for the reason written at ActivationHighlight.kt:51-55: a gradient crossing a phrase re-shades each word independently, so one half of a matched phrase is always brighter than the other, which reads as a rendering fault — and in scrollback it never stops moving. Take the `isActive: Boolean` parameter pattern (toggle liveness without swapping composables, so layout is never lost) and skip the effect. Seeker's existing WorkflowActivation.kt ramps stay: they are a live composer affordance, not scrollback, and they already have both a dark and a separately-authored light ramp.
 - android.widget.Toast as an error channel. spettro-chat-android uses it at five call sites for export/import outcomes, TTS failures, dictation failures and unusable attachments. A toast is untappable, uncopyable and gone in four seconds — the wrong medium for a build error, a failed tool call or a bad path. Use NoticeCard's three tiers: a dismissible card in place for transient failures, an in-transcript pill for a recoverable wait, and a composer-replacing panel for a hard stop.
 - Emoji anywhere in the UI. spettro-chat-android badges its `+` menu with skill emoji. Seeker's own `app/src/test/java/to/eyed/thragg/NoEmojiInUiTest.kt` would fail the build for it, and correctly.
 - The consumer copy voice. "Where should we begin?", "Ask anything. Think out loud.", "Spettro has a question" as a headline. Seeker's existing register is right: "No thread open. Start one to talk to Spettro." — it names the way out, because unlike a chat app the composer is not always available.
-- material-icons-extended, and any Material Symbols glyph. Seeker imports Lucide via tools/import-lucide-icons.py at an intrinsic 16dp on a 24 viewport, exposed through SeekerIcon/IconSize. A Material Symbols glyph beside a Lucide glyph in the same row is instantly visible. Extend the import script; do not add the dependency.
+- material-icons-extended, and any Material Symbols glyph. Thragg imports Lucide via tools/import-lucide-icons.py at an intrinsic 16dp on a 24 viewport, exposed through ThraggIcon/IconSize. A Material Symbols glyph beside a Lucide glyph in the same row is instantly visible. Extend the import script; do not add the dependency.
 - The 820dp ReadableColumn cap. Seeker is portrait-first at 400dp; the cap can never engage, and it costs two extra Box layers on every transcript row plus a comment about desktop measure that will confuse the next reader.
 - AppIconImage — rendering the launcher drawable at runtime for empty states. That is a workaround for an iOS bundle constraint that does not exist here. IconSize.Hero already covers it.
 - Replacing SheetScaffold with plain ModalBottomSheets. Seeker's scaffold pins the text field at the BOTTOM so the IME lands under it and results scroll ABOVE — the opposite of the desktop habit, better than either reference, and the reason the question sheet and commit sheet work on a phone. It also registers every sheet with the ordered back handler and gives one shape to all of them. Restyle its chrome (a real titleMedium header instead of a 12sp muted line, surfaceContainer, 24dp top corners); do not replace it.
 - The send button that becomes a stop button mid-turn. AgentComposer.kt:425 already argues this and is right: steering and stopping are opposite acts, and a Send that turns into a Stop makes a steer look like a cancel. Keep Send/Steer/Queue plus a separate stop control and the long-press SendOptionsSheet; restyle both as circles.
-- A green check on every completed tool call. Seeker deliberately uses a muted 8dp dot, arguing that a transcript of green checks reads as a list of achievements. That is the better position; keep it. The colour semantics arrive on the diff stat and on the failure/waiting framing, where they carry information.
+- A green check on every completed tool call. Thragg deliberately uses a muted 8dp dot, arguing that a transcript of green checks reads as a list of achievements. That is the better position; keep it. The colour semantics arrive on the diff stat and on the failure/waiting framing, where they carry information.
 - Dropping the activation glow from the sent user bubble. spettro-android's argument is specific to white ink on a saturated accent fill having no headroom; Seeker's bubble is a neutral secondaryContainer with normal ink, so the glow is legible, and removing it would read as the mode having been declined between the box and the wire. Keep ActivationSurface.BUBBLE.
 - Pinning material3 1.5.0-alpha25 as a prerequisite. Measured: both candidate BOMs resolve 1.4.0, and MaterialExpressiveTheme, MaterialTheme.motionScheme, the expressive Slider track and the title+subtitle TopAppBar are all public there, with HapticFeedbackType.SegmentTick already in compose-ui 1.10.4. An alpha on a shipping app's critical path buys `trackCornerSize`, `MotionScheme.expressive()` by name, LoadingIndicator, ButtonGroup and MaterialShapes — none of which this spec needs. Revisit it as a reversible enhancement after the redesign lands, never as its foundation.
 - expressiveLightColorScheme() as the scheme base. It is public in 1.4.0, and it has no dark twin in any version, so using it would make Seeker's two appearances structurally different. Use lightColorScheme()/darkColorScheme() keyed on theme.isDark.
@@ -1021,7 +1021,7 @@ Remove `flavorDimensions += "distribution"` and both `productFlavors` blocks. Pr
 
 *Depends on:* nothing
 
-Write Contrast.kt exactly as specified (contrastRatio, readable with 12-step bisection, pickInk, TEXT_RATIO 4.5f, MARK_RATIO 3f) and MaterialBridge.kt (`fun ZedTheme.palette(): SeekerPalette`, `SeekerColors`, `LocalSeekerColors`, the ladder de-dupe, `surfaceTint = Color.Transparent`, the full mode-colour table). Both are PURE — no Compose runtime, no Context — so both are host-testable, which is the whole reason they are their own files. Add `"success" to "created"` and `"info" to "text.accent"` to ZedTheme.DERIVED. The tests are not optional: ContrastTest parses all three bundled family JSONs (org.json is already a test dependency at libs.versions.toml `json = "20250107"` for exactly this) and asserts, over all 11 themes × both appearances, that every M3 on-role clears 4.5:1 against its pairing role and every SeekerColors *Mark clears 3.0:1. The measured baseline this must fix: Ayu Light text.muted 2.79:1, accent-on-editor 2.84:1, created 2.11:1, warning 1.64:1; One Light accent 3.84:1, created 2.64:1. MaterialBridgeTest asserts the five surfaceContainer rungs are pairwise distinct in every theme after de-dupe, and that the ladder is monotone away from the canvas in both appearances. Nothing else in the app compiles against these yet, so this chunk cannot break a build.
+Write Contrast.kt exactly as specified (contrastRatio, readable with 12-step bisection, pickInk, TEXT_RATIO 4.5f, MARK_RATIO 3f) and MaterialBridge.kt (`fun ZedTheme.palette(): ThraggPalette`, `ThraggColors`, `LocalThraggColors`, the ladder de-dupe, `surfaceTint = Color.Transparent`, the full mode-colour table). Both are PURE — no Compose runtime, no Context — so both are host-testable, which is the whole reason they are their own files. Add `"success" to "created"` and `"info" to "text.accent"` to ZedTheme.DERIVED. The tests are not optional: ContrastTest parses all three bundled family JSONs (org.json is already a test dependency at libs.versions.toml `json = "20250107"` for exactly this) and asserts, over all 11 themes × both appearances, that every M3 on-role clears 4.5:1 against its pairing role and every ThraggColors *Mark clears 3.0:1. The measured baseline this must fix: Ayu Light text.muted 2.79:1, accent-on-editor 2.84:1, created 2.11:1, warning 1.64:1; One Light accent 3.84:1, created 2.64:1. MaterialBridgeTest asserts the five surfaceContainer rungs are pairwise distinct in every theme after de-dupe, and that the ladder is monotone away from the canvas in both appearances. Nothing else in the app compiles against these yet, so this chunk cannot break a build.
 
 ### P2 — Token foundation: type, shape, motion, and the theme root rewire
 
@@ -1029,15 +1029,15 @@ Write Contrast.kt exactly as specified (contrastRatio, readable with 12-step bis
 
 *Depends on:* P1
 
-Add `materialTypography(family)` with all fifteen roles filled (the six headline/display roles currently leak Roboto metrics), plus MonoBody/MonoSmall reading LocalBufferFontFamily and `const val TabularNums`. Leave `zedTypography` byte-identical. Write Shape.kt (`object MD`, `SeekerShapes`). Add seekerSpring/effectSpec/spatialSpec/Modifier.animateSize to Motion.kt, each branching on LocalReduceMotion. Move `NoIndication` out of Theme.kt into Surfaces.kt and write `ZedSurface`. Rewire Theme.kt: `val palette = remember(theme) { theme.palette() }`, provide `LocalSeekerColors`, STOP providing `LocalIndication` and `LocalLayoutDirection` at the root, and call `MaterialExpressiveTheme(colorScheme = palette.scheme, shapes = SeekerShapes, typography = materialTypography(uiFontFamily))` with the motionScheme argument OMITTED (the expressive default cannot be named on 1.4.0, and omitting it takes it). Redefine Icons.kt's `mutedIcon`/`accentIcon` to read the M3 scheme, and add a `LocalIconTint` that ZedSurface overrides back to the Zed reads. THIS CHUNK MAKES THE WHOLE APP LOOK WRONG AT ONCE and that is expected — every screen is temporarily half-migrated. Land it behind nothing; the following chunks converge it. Wrap the Zed-half packages in `ZedSurface` in this chunk too (one call site each in EditorPane's host, TerminalPane, DiffPane/GitGraphPane's hosts, MarkdownPreview, the search/diagnostics/media/tasks roots and DiffScreen) so the editor is never wrong for more than one commit. Grep the Material half for `drawBehind`/`drawWithContent` before dropping the LTR pin.
+Add `materialTypography(family)` with all fifteen roles filled (the six headline/display roles currently leak Roboto metrics), plus MonoBody/MonoSmall reading LocalBufferFontFamily and `const val TabularNums`. Leave `zedTypography` byte-identical. Write Shape.kt (`object MD`, `ThraggShapes`). Add thraggSpring/effectSpec/spatialSpec/Modifier.animateSize to Motion.kt, each branching on LocalReduceMotion. Move `NoIndication` out of Theme.kt into Surfaces.kt and write `ZedSurface`. Rewire Theme.kt: `val palette = remember(theme) { theme.palette() }`, provide `LocalThraggColors`, STOP providing `LocalIndication` and `LocalLayoutDirection` at the root, and call `MaterialExpressiveTheme(colorScheme = palette.scheme, shapes = ThraggShapes, typography = materialTypography(uiFontFamily))` with the motionScheme argument OMITTED (the expressive default cannot be named on 1.4.0, and omitting it takes it). Redefine Icons.kt's `mutedIcon`/`accentIcon` to read the M3 scheme, and add a `LocalIconTint` that ZedSurface overrides back to the Zed reads. THIS CHUNK MAKES THE WHOLE APP LOOK WRONG AT ONCE and that is expected — every screen is temporarily half-migrated. Land it behind nothing; the following chunks converge it. Wrap the Zed-half packages in `ZedSurface` in this chunk too (one call site each in EditorPane's host, TerminalPane, DiffPane/GitGraphPane's hosts, MarkdownPreview, the search/diagnostics/media/tasks roots and DiffScreen) so the editor is never wrong for more than one commit. Grep the Material half for `drawBehind`/`drawWithContent` before dropping the LTR pin.
 
 ### P3 — The component library
 
-*Owns:* `app/src/main/java/to/eyed/thragg/ui/components/SeekerCard.kt`, `app/src/main/java/to/eyed/thragg/ui/components/HairlineDivider.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SectionHeader.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerTopBar.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerSpinner.kt`, `app/src/main/java/to/eyed/thragg/ui/components/StatusDot.kt`, `app/src/main/java/to/eyed/thragg/ui/components/RunTicker.kt`, `app/src/main/java/to/eyed/thragg/ui/components/DiffStatLabel.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ModeChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SeekerSearchField.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SelectRow.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SegmentedSelect.kt`, `app/src/main/java/to/eyed/thragg/ui/components/LevelSlider.kt`, `app/src/main/java/to/eyed/thragg/ui/components/DrillPage.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ZedCodeBlock.kt`, `app/src/main/java/to/eyed/thragg/ui/components/CopyChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/NoticeCard.kt`, `app/src/main/java/to/eyed/thragg/ui/components/EmptyState.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ComponentPreviews.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/components/ThraggCard.kt`, `app/src/main/java/to/eyed/thragg/ui/components/HairlineDivider.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SectionHeader.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ThraggTopBar.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ThraggSpinner.kt`, `app/src/main/java/to/eyed/thragg/ui/components/StatusDot.kt`, `app/src/main/java/to/eyed/thragg/ui/components/RunTicker.kt`, `app/src/main/java/to/eyed/thragg/ui/components/DiffStatLabel.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ModeChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ThraggChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ThraggSearchField.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SelectRow.kt`, `app/src/main/java/to/eyed/thragg/ui/components/SegmentedSelect.kt`, `app/src/main/java/to/eyed/thragg/ui/components/LevelSlider.kt`, `app/src/main/java/to/eyed/thragg/ui/components/DrillPage.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ZedCodeBlock.kt`, `app/src/main/java/to/eyed/thragg/ui/components/CopyChip.kt`, `app/src/main/java/to/eyed/thragg/ui/components/NoticeCard.kt`, `app/src/main/java/to/eyed/thragg/ui/components/EmptyState.kt`, `app/src/main/java/to/eyed/thragg/ui/components/ComponentPreviews.kt`
 
 *Depends on:* P2
 
-Twenty small files, one component each, every one taking `modifier: Modifier = Modifier` and carrying a @Preview PAIR — dark on One Dark and light on Ayu Light, because Ayu Light is the theme that breaks things. This is the highest-value chunk in the plan and the one most worth doing before any screen work: the polish in the reference is not in any one screen, it is that the same twenty pieces appear on every screen. LevelSlider is the exemplar and carries the most detail (saturated() HSV ramp with S scaled to 0.08 + 0.92f, tick colour from the FILL's luminance at the 0.45 threshold, SegmentTick haptics guarded by tickedIndex, Track's thumbTrackGapSize 8dp / trackInsideCornerSize 6dp / drawTick as a 2.5dp circle / drawStopIndicator = null, the 5→3dp × 40→52dp handle morph on spatialSpec, the direction-of-travel level pill, scale-end labels, stateDescription semantics, commit-on-release-only-if-changed). SeekerSpinner is a MOVE, not a rewrite: lift the existing implementation out of OrchBits.kt:303, which already has the right 8-frame/50ms cadence and a reduce-motion branch. ZedCodeBlock is the only component that reads LocalZedTheme, and it must be the only one — that is the seam contract, and a reviewer should be able to check it with one grep.
+Twenty small files, one component each, every one taking `modifier: Modifier = Modifier` and carrying a @Preview PAIR — dark on One Dark and light on Ayu Light, because Ayu Light is the theme that breaks things. This is the highest-value chunk in the plan and the one most worth doing before any screen work: the polish in the reference is not in any one screen, it is that the same twenty pieces appear on every screen. LevelSlider is the exemplar and carries the most detail (saturated() HSV ramp with S scaled to 0.08 + 0.92f, tick colour from the FILL's luminance at the 0.45 threshold, SegmentTick haptics guarded by tickedIndex, Track's thumbTrackGapSize 8dp / trackInsideCornerSize 6dp / drawTick as a 2.5dp circle / drawStopIndicator = null, the 5→3dp × 40→52dp handle morph on spatialSpec, the direction-of-travel level pill, scale-end labels, stateDescription semantics, commit-on-release-only-if-changed). ThraggSpinner is a MOVE, not a rewrite: lift the existing implementation out of OrchBits.kt:303, which already has the right 8-frame/50ms cadence and a reduce-motion branch. ZedCodeBlock is the only component that reads LocalZedTheme, and it must be the only one — that is the seam contract, and a reviewer should be able to check it with one grep.
 
 ### P4 — Delete the dead half
 
@@ -1045,7 +1045,7 @@ Twenty small files, one component each, every one taking `modifier: Modifier = M
 
 *Depends on:* nothing
 
-Runs fully in parallel with P0-P3 and MUST land before any screen migration, or roughly 440 of the ~1200 edits downstream are wasted. `ui/workspace/WorkspaceScreen.kt` is 6042 lines and unreachable — MainActivity.kt:137 hosts `SeekerShell`, not it. `ui/agent/AgentPanel.kt` is 3658 lines carrying 171 colour reads with no live caller; `grep 'AgentPanel('` finds only `opensAgentPanel` and a Keymap enum. ui/workspace/ holds 270 colour reads total, of which only AboutDialog, NotificationHost/Notifications, ContextMenu, GitStatusColours, GoToLine, OutlinePicker, ProjectPanel, AutosaveTracker and OpenFiles are imported by the shell — move those nine into the packages that use them (ui/shell/, ui/editor/, ui/git/) and delete the rest of the directory. Verify by a clean `assembleFullDebug` plus the existing instrumentation suite; the risk here is a reflective or resource-name reference, so also grep XML and keep rules for the deleted class names.
+Runs fully in parallel with P0-P3 and MUST land before any screen migration, or roughly 440 of the ~1200 edits downstream are wasted. `ui/workspace/WorkspaceScreen.kt` is 6042 lines and unreachable — MainActivity.kt:137 hosts `ThraggShell`, not it. `ui/agent/AgentPanel.kt` is 3658 lines carrying 171 colour reads with no live caller; `grep 'AgentPanel('` finds only `opensAgentPanel` and a Keymap enum. ui/workspace/ holds 270 colour reads total, of which only AboutDialog, NotificationHost/Notifications, ContextMenu, GitStatusColours, GoToLine, OutlinePicker, ProjectPanel, AutosaveTracker and OpenFiles are imported by the shell — move those nine into the packages that use them (ui/shell/, ui/editor/, ui/git/) and delete the rest of the directory. Verify by a clean `assembleFullDebug` plus the existing instrumentation suite; the risk here is a reflective or resource-name reference, so also grep XML and keep rules for the deleted class names.
 
 ### P5 — Agent config surface
 
@@ -1053,7 +1053,7 @@ Runs fully in parallel with P0-P3 and MUST land before any screen migration, or 
 
 *Depends on:* P3
 
-THE ANSWER TO THE OWNER'S VERDICT — do this one first among the screen chunks and demo it. Replace the 288 lines of identical 56dp ConfigRow with one LazyColumn page driven by `selectStyle(option, kind)`, dispatching to LevelSlider / SegmentedSelect / DrillPage / SelectRow / Switch. Keep `chipOrder` and `chipIcon` as the section rank and glyph. Add the `pending: Map<String, ConfigValue>?` optimistic overlay so a tap moves the control before session/set_config_option lands. Kill the sheet-over-sheet: the model list drills INSIDE the sheet via AnimatedContent with a directional ±width/3 slide, and the drill id is rememberSaveable. Keep the scroll-to-current-value behaviour from ConfigSheets.kt (via revealItem, so it respects reduce-motion) and add the drill search with provider-name matching. ConfigChips.kt shrinks to the one-line ConfigSummaryRow plus the Ultra state model — preserve Ultra's four-state amber gating verbatim, it is protocol behaviour, and move its literals (UltraAmberFallback #F5A524, UltraArmedLabel #1A1205) into SeekerColors. Delete `modeTintArgb` in favour of `LocalSeekerColors.modeColor`, keeping the `category != "mode" -> null` guard.
+THE ANSWER TO THE OWNER'S VERDICT — do this one first among the screen chunks and demo it. Replace the 288 lines of identical 56dp ConfigRow with one LazyColumn page driven by `selectStyle(option, kind)`, dispatching to LevelSlider / SegmentedSelect / DrillPage / SelectRow / Switch. Keep `chipOrder` and `chipIcon` as the section rank and glyph. Add the `pending: Map<String, ConfigValue>?` optimistic overlay so a tap moves the control before session/set_config_option lands. Kill the sheet-over-sheet: the model list drills INSIDE the sheet via AnimatedContent with a directional ±width/3 slide, and the drill id is rememberSaveable. Keep the scroll-to-current-value behaviour from ConfigSheets.kt (via revealItem, so it respects reduce-motion) and add the drill search with provider-name matching. ConfigChips.kt shrinks to the one-line ConfigSummaryRow plus the Ultra state model — preserve Ultra's four-state amber gating verbatim, it is protocol behaviour, and move its literals (UltraAmberFallback #F5A524, UltraArmedLabel #1A1205) into ThraggColors. Delete `modeTintArgb` in favour of `LocalThraggColors.modeColor`, keeping the `category != "mode" -> null` guard.
 
 ### P6 — Agent shell and status strip
 
@@ -1061,7 +1061,7 @@ THE ANSWER TO THE OWNER'S VERDICT — do this one first among the screen chunks 
 
 *Depends on:* P3
 
-Collapse seven pinned bands to three. Build `AgentStatusStrip` (36dp: RunTicker-or-ModeChip · PlanProgress · Spacer · UsageReadout, animateSize, HairlineDivider under). Replace the hand-rolled 48dp AgentBar with `SeekerTopBar(title = projectName, subtitle = "Spettro · coding")`. PlanStrip folds into the strip's PlanProgress and its unfoldable list; ContextGauge's ring moves into the strip as a tabular percentage plus a sheet, and gains the tier-3 composer-replacing NoticeCard at ≥90%; LiveRunPeek becomes the 180ms-in/240ms-out live strip with the 4000ms settled-run hold. ReviewBar becomes a badged overflow action; the setup banner becomes a card in the empty state; both ConfigNotices become in-transcript NoticeCards. PRESERVE, without touching the logic: followsTail/transcriptAtTail/the latched follow, the retap-to-newest contract, the `expanded` map held outside the LazyColumn, showsSecondaryBands, the AgentNotifier and panelVisible lifecycle, the leavingBlocked badge effect, and every one of the pure functions AgentScreen.kt:120-236 exposes for host tests. Every one of those has a test or a written argument behind it; this chunk is a re-layout, not a rewrite.
+Collapse seven pinned bands to three. Build `AgentStatusStrip` (36dp: RunTicker-or-ModeChip · PlanProgress · Spacer · UsageReadout, animateSize, HairlineDivider under). Replace the hand-rolled 48dp AgentBar with `ThraggTopBar(title = projectName, subtitle = "Spettro · coding")`. PlanStrip folds into the strip's PlanProgress and its unfoldable list; ContextGauge's ring moves into the strip as a tabular percentage plus a sheet, and gains the tier-3 composer-replacing NoticeCard at ≥90%; LiveRunPeek becomes the 180ms-in/240ms-out live strip with the 4000ms settled-run hold. ReviewBar becomes a badged overflow action; the setup banner becomes a card in the empty state; both ConfigNotices become in-transcript NoticeCards. PRESERVE, without touching the logic: followsTail/transcriptAtTail/the latched follow, the retap-to-newest contract, the `expanded` map held outside the LazyColumn, showsSecondaryBands, the AgentNotifier and panelVisible lifecycle, the leavingBlocked badge effect, and every one of the pure functions AgentScreen.kt:120-236 exposes for host tests. Every one of those has a test or a written argument behind it; this chunk is a re-layout, not a rewrite.
 
 ### P7 — Agent composer
 
@@ -1069,7 +1069,7 @@ Collapse seven pinned bands to three. Build `AgentStatusStrip` (36dp: RunTicker-
 
 *Depends on:* P3
 
-The pill field (20dp radius, surfaceContainerHigh, hairline animating to primary@50% on focus, primary cursorBrush, bodyLarge 15/22, maxLines 6, heightIn(min=40dp), padding 12×9), the 40dp filled circular send, the separate stop circle in `error`, the horizontally-scrolling 32dp mention/attachment strip with real thumbnails, and ConfigSummaryRow. Move the inline slash palette into a SheetScaffold with a SeekerSearchField. KEEP EVERY BEHAVIOUR: SendMode.Send/Steer/Queue and their three labels, the separate stop, the long-press SendOptionsSheet, the steer note, ComposerHint's states, the key handling, and the ActivationSurface.BUBBLE glow. WorkflowActivation.kt keeps all three of its 6-stop ramps unchanged — DARK_RAMP, LIGHT_RAMP (which is deliberately not the dark one darkened) and BUBBLE_RAMP, at 7000ms / 140 steps matching the CLI's 50ms tick — because that is identity, not chrome, and it already handles both appearances correctly.
+The pill field (20dp radius, surfaceContainerHigh, hairline animating to primary@50% on focus, primary cursorBrush, bodyLarge 15/22, maxLines 6, heightIn(min=40dp), padding 12×9), the 40dp filled circular send, the separate stop circle in `error`, the horizontally-scrolling 32dp mention/attachment strip with real thumbnails, and ConfigSummaryRow. Move the inline slash palette into a SheetScaffold with a ThraggSearchField. KEEP EVERY BEHAVIOUR: SendMode.Send/Steer/Queue and their three labels, the separate stop, the long-press SendOptionsSheet, the steer note, ComposerHint's states, the key handling, and the ActivationSurface.BUBBLE glow. WorkflowActivation.kt keeps all three of its 6-stop ramps unchanged — DARK_RAMP, LIGHT_RAMP (which is deliberately not the dark one darkened) and BUBBLE_RAMP, at 7000ms / 140 steps matching the CLI's 50ms tick — because that is identity, not chrome, and it already handles both appearances correctly.
 
 ### P8 — Agent transcript and orchestration cards
 
@@ -1077,7 +1077,7 @@ The pill field (20dp radius, surfaceContainerHigh, hairline animating to primary
 
 *Depends on:* P3
 
-Row-by-row token substitution, plus four real changes: tool rows go transparent when collapsed and fade in their raised fill when expanded; DiffStatLabel and tinted diff line grounds at 10% replace muted stat text and flat grounds; every mono site becomes ZedCodeBlock (this is where the eleven FontFamily.Monospace bugs die, including WorkflowCard.kt's MonoSheet); and every expand/collapse joins the single seekerSpring. Two correctness fixes ship here: delete OrchBits.kt:150-157's baked One-Dark ANSI fallback table in favour of the live theme's `terminal.ansi.*` keys, and delete PlanSurface.kt:314's `Color.Gray`. KEEP: the muted completed dot and its argument, the failure and waiting framing, the system pills (steering/goal/compaction detected by prefix with the glyph swapped for a drawable), the user bubble's checkpoint affordance, the 120ms assistant block fade and its draft-reset reason, and MarkdownText's MARKDOWN_REPARSE_MS = 180 throttle. ADD ONE THING from spettro-chat-android: a fence-aware, list-run-aware block chunker in front of that throttle, so a 6KB reply re-parses only its growing tail. The two mechanisms are orthogonal — chunking bounds parse SIZE, the throttle bounds parse FREQUENCY — and together they are the best streaming-markdown story in any of the four codebases.
+Row-by-row token substitution, plus four real changes: tool rows go transparent when collapsed and fade in their raised fill when expanded; DiffStatLabel and tinted diff line grounds at 10% replace muted stat text and flat grounds; every mono site becomes ZedCodeBlock (this is where the eleven FontFamily.Monospace bugs die, including WorkflowCard.kt's MonoSheet); and every expand/collapse joins the single thraggSpring. Two correctness fixes ship here: delete OrchBits.kt:150-157's baked One-Dark ANSI fallback table in favour of the live theme's `terminal.ansi.*` keys, and delete PlanSurface.kt:314's `Color.Gray`. KEEP: the muted completed dot and its argument, the failure and waiting framing, the system pills (steering/goal/compaction detected by prefix with the glyph swapped for a drawable), the user bubble's checkpoint affordance, the 120ms assistant block fade and its draft-reset reason, and MarkdownText's MARKDOWN_REPARSE_MS = 180 throttle. ADD ONE THING from spettro-chat-android: a fence-aware, list-run-aware block chunker in front of that throttle, so a 6KB reply re-parses only its growing tail. The two mechanisms are orthogonal — chunking bounds parse SIZE, the throttle bounds parse FREQUENCY — and together they are the best streaming-markdown story in any of the four codebases.
 
 ### P9 — Agent sheets
 
@@ -1093,7 +1093,7 @@ SheetScaffold keeps all three of its behaviours (bottom-pinned field above the I
 
 *Depends on:* P3
 
-SeekerTopBar with the target as subtitle; a 36dp BuildStatusStrip reusing RunTicker; diagnostics as SeekerCards with warnInk/removedInk; the log as a ZedCodeBlock reading the live theme's ANSI keys (six FontFamily.Monospace sites die here); failures as NoticeCards with a Retry action rather than banners or toasts. Setup becomes the shared StepList of SeekerCards with a static 40dp Hero mark, one filled bottom action, and CopyChip on any auth code.
+ThraggTopBar with the target as subtitle; a 36dp BuildStatusStrip reusing RunTicker; diagnostics as ThraggCards with warnInk/removedInk; the log as a ZedCodeBlock reading the live theme's ANSI keys (six FontFamily.Monospace sites die here); failures as NoticeCards with a Retry action rather than banners or toasts. Setup becomes the shared StepList of ThraggCards with a static 40dp Hero mark, one filled bottom action, and CopyChip on any auth code.
 
 ### P11 — Projects, New program, Clone
 
@@ -1101,7 +1101,7 @@ SeekerTopBar with the target as subtitle; a 36dp BuildStatusStrip reusing RunTic
 
 *Depends on:* P3
 
-Projects: SeekerSearchField, SeekerCard row groups with HairlineDivider, ModeChip-shaped branch chips, StatusDot dirty markers, the two actions in SheetScaffold's pinned slot. New program: SegmentedSelect for the framework (its first non-agent use, which is the argument for it being a shared component), stock OutlinedTextField with validation in `supportingText` and `isError`, a drill row for the location, one disabled-until-valid filled Create. Clone: the same field treatment plus a NoticeCard for a failed fetch.
+Projects: ThraggSearchField, ThraggCard row groups with HairlineDivider, ModeChip-shaped branch chips, StatusDot dirty markers, the two actions in SheetScaffold's pinned slot. New program: SegmentedSelect for the framework (its first non-agent use, which is the argument for it being a shared component), stock OutlinedTextField with validation in `supportingText` and `isError`, a drill row for the location, one disabled-until-valid filled Create. Clone: the same field treatment plus a NoticeCard for a failed fetch.
 
 ### P12 — Settings, theme list, licences
 
@@ -1109,11 +1109,11 @@ Projects: SeekerSearchField, SeekerCard row groups with HairlineDivider, ModeChi
 
 *Depends on:* P3
 
-SeekerCard groups, the shared SectionHeader (deleting the private duplicate at SettingsScreen.kt:276), stock Switch for booleans, SliderRow keeping its write-on-release rule and losing its three colour overrides. ThemeList keeps its live-preview-on-scroll and gains a three-swatch strip per theme drawn from that theme's own accent/canvas/raised — two lines, and the best advert the bridge could have. Licences is mechanical; note it reads BuildConfig but not FLAVOR, so P0 does not touch it.
+ThraggCard groups, the shared SectionHeader (deleting the private duplicate at SettingsScreen.kt:276), stock Switch for booleans, SliderRow keeping its write-on-release rule and losing its three colour overrides. ThemeList keeps its live-preview-on-scroll and gains a three-swatch strip per theme drawn from that theme's own accent/canvas/raised — two lines, and the best advert the bridge could have. Licences is mechanical; note it reads BuildConfig but not FLAVOR, so P0 does not touch it.
 
 ### P13 — Changes, Problems, Code chrome, nav bar, and the boundary audit
 
-*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/changes/ChangesScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/CommitSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/BranchSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/ProblemsScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/DiffScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FileBar.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FilesSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeOverflowSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellNavBar.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/SeekerShell.kt`, `app/src/main/java/to/eyed/thragg/ui/common/BinaryPlaceholder.kt`, `app/src/main/java/to/eyed/thragg/ui/common/UnsavedChangesDialog.kt`
+*Owns:* `app/src/main/java/to/eyed/thragg/ui/shell/changes/ChangesScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/CommitSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/BranchSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/ProblemsScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/changes/DiffScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeScreen.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FileBar.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/FilesSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/code/CodeOverflowSheet.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/ShellNavBar.kt`, `app/src/main/java/to/eyed/thragg/ui/shell/ThraggShell.kt`, `app/src/main/java/to/eyed/thragg/ui/common/BinaryPlaceholder.kt`, `app/src/main/java/to/eyed/thragg/ui/common/UnsavedChangesDialog.kt`
 
 *Depends on:* P3
 

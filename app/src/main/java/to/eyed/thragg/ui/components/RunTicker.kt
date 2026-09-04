@@ -72,7 +72,7 @@ fun RunTicker(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
     ) {
-        SeekerSpinner(size = 12.dp, color = tint)
+        ThraggSpinner(size = 12.dp, color = tint)
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = TabularNums),

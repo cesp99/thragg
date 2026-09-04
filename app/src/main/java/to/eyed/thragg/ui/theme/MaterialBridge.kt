@@ -37,7 +37,7 @@ import kotlin.math.abs
  *    container would be a colour no Zed theme contains. material-kolor is not
  *    the answer either: a third-party dependency plus a THIRD_PARTY.md entry
  *    plus a LicenceCatalog.kt row, to produce neutrals that fight Zed's.
- *  - **Band C is [SeekerColors]**, produced by the same call so it cannot
+ *  - **Band C is [ThraggColors]**, produced by the same call so it cannot
  *    drift, for the things M3 has no role for at all — a diff stat, a mode
  *    tint, the hairline.
  *
@@ -80,7 +80,7 @@ private const val CARD_WASH = 0.08f
 
 /** The theme's two halves, derived together. */
 @Immutable
-class SeekerPalette(val scheme: ColorScheme, val seeker: SeekerColors)
+class ThraggPalette(val scheme: ColorScheme, val thragg: ThraggColors)
 
 /**
  * The tokens Material has no role for.
@@ -91,7 +91,7 @@ class SeekerPalette(val scheme: ColorScheme, val seeker: SeekerColors)
  * derivation, exposed for the meanings M3's fourteen roles do not name.
  */
 @Immutable
-class SeekerColors(
+class ThraggColors(
     val isDark: Boolean,
     /** Zed's own hairline (`border.variant`), not an 8% wash of the ink. */
     val hairline: Color,
@@ -159,8 +159,8 @@ class SeekerColors(
 }
 
 /** The Material half's colours, for the composables that are not the editor. */
-val LocalSeekerColors = staticCompositionLocalOf<SeekerColors> {
-    error("SeekerColors not provided — wrap content in ThraggTheme")
+val LocalThraggColors = staticCompositionLocalOf<ThraggColors> {
+    error("ThraggColors not provided — wrap content in ThraggTheme")
 }
 
 /**
@@ -170,7 +170,7 @@ val LocalSeekerColors = staticCompositionLocalOf<SeekerColors> {
  * change — the same order of magnitude as the palette parse `ZedThemes.warm()`
  * already pre-pays for the picker's preview walk.
  */
-fun ZedTheme.palette(): SeekerPalette {
+fun ZedTheme.palette(): ThraggPalette {
     val editorBackground = color("editor.background")
     val panel = color("panel.background")
     val chrome = color("background")
@@ -285,7 +285,7 @@ fun ZedTheme.palette(): SeekerPalette {
     val deleted = color("deleted", error)
     val warning = color("warning", UltraAmber)
     val ground = cardGround(container, listOf(primary, AgentAccent, deleted), isDark)
-    val seeker = SeekerColors(
+    val thragg = ThraggColors(
         isDark = isDark,
         hairline = color("border.variant"),
         cardGround = ground,
@@ -301,7 +301,7 @@ fun ZedTheme.palette(): SeekerPalette {
         agentInk = readable(AgentAccent, on = ground),
         ultraAmber = warning,
     )
-    return SeekerPalette(scheme, seeker)
+    return ThraggPalette(scheme, thragg)
 }
 
 /**

@@ -396,7 +396,7 @@ data class ToolchainComponent(
      * Guest argv lines run after the payload is in place, in order.
      *
      * This is how platform-tools registers itself with rustup — `rustup
-     * toolchain link seeker …` then `rustup default seeker` — rather than that
+     * toolchain link thragg …` then `rustup default thragg` — rather than that
      * pair being two lines of Kotlin nobody would find when the path changes.
      */
     val postInstall: List<List<String>>,

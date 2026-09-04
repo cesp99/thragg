@@ -13,7 +13,7 @@ default = []
 test-support = ["gpui/test-support"]
 bundled-themes = ["dep:serde", "dep:serde_json"]
 
-# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# THRAGG PATCH: inline tests are off — they need the dev-dependencies
 # stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
 [lib]
 test = false

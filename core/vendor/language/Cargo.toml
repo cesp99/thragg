@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later"
 [lints]
 workspace = true
 
-# SEEKER PATCH: inline tests are off — they need the dev-dependencies
+# THRAGG PATCH: inline tests are off — they need the dev-dependencies
 # stripped when vendoring (see VENDOR.md). Tier-0 crates keep theirs.
 [lib]
 test = false
@@ -75,7 +75,7 @@ tree-sitter-md = { workspace = true, optional = true }
 tree-sitter-python = { workspace = true, optional = true }
 tree-sitter-rust = { workspace = true, optional = true }
 tree-sitter-typescript = { workspace = true, optional = true }
-# SEEKER PATCH: the "wasm" feature is dropped — it pulls the whole
+# THRAGG PATCH: the "wasm" feature is dropped — it pulls the whole
 # Cranelift/Wasmtime stack into the .so for a .wasm-grammar path this app
 # never takes (all grammars are statically linked via `grammars`). The
 # wasm-loading code in language.rs/language_registry.rs is patched out to match.

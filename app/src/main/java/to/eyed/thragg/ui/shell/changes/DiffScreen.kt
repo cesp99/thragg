@@ -36,11 +36,11 @@ import to.eyed.thragg.ui.git.GitOps
 import to.eyed.thragg.ui.shell.Route
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerTopBar
+import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.shell.build.CodeJump
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ZedSurface
 import to.eyed.thragg.ui.workspace.Notifications
 
@@ -114,7 +114,7 @@ fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifi
     Column(modifier = modifier.fillMaxSize()) {
         // OUTSIDE the wrapper, above it: the bar belongs to the app half even
         // on the one screen whose body does not (docs/VISUAL.md, "Diff").
-        SeekerTopBar(
+        ThraggTopBar(
             title = route.path.substringAfterLast('/'),
             subtitle = route.path.substringBeforeLast('/', "").takeIf { it.isNotEmpty() },
             onBack = { state.pop() },
@@ -234,7 +234,7 @@ fun DiffScreen(state: ShellState, route: Route.Diff, modifier: Modifier = Modifi
  */
 @Composable
 private fun ButtonMark(icon: Int) {
-    SeekerIcon(
+    ThraggIcon(
         icon = icon,
         contentDescription = null,
         tint = LocalContentColor.current,

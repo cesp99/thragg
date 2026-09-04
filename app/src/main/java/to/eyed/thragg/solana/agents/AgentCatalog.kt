@@ -56,7 +56,7 @@ data class InstallableAgent(
      * `agent_servers` entry is, and what the toolchain manifest's `marker`
      * for this component has to agree with.
      *
-     * Absolute rather than a bare name on the `PATH`: `/opt/seeker/agents` is
+     * Absolute rather than a bare name on the `PATH`: `/opt/thragg/agents` is
      * not on anybody's `PATH`, and resolving through one would make the entry
      * depend on a login shell we do not control.
      */
@@ -74,7 +74,7 @@ data class InstallableAgent(
          * installed by Setup and one installed from here are the same file in
          * the same place.
          */
-        const val GUEST_INSTALL_ROOT = "/opt/seeker/agents"
+        const val GUEST_INSTALL_ROOT = "/opt/thragg/agents"
     }
 }
 

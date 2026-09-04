@@ -41,7 +41,7 @@ class KeysTest {
     @Test
     fun `sign and verify over a real message`() {
         val keypair = Keypair.generate()
-        val message = "hello, seeker".toByteArray()
+        val message = "hello, thragg".toByteArray()
         val signature = keypair.sign(message)
         assertTrue(Ed25519.verify(keypair.publicKey, message, signature))
         assertFalse(Ed25519.verify(keypair.publicKey, message + byteArrayOf(0), signature))

@@ -116,7 +116,7 @@ already vendors a lot. If your patch contains code you did not write:
    attribution comments — all of it travels with the code. Dropping the
    original notices is the single most common GPL violation there is,
    and it is not one this project intends to commit.
-3. **Mark your changes.** Vendored files carry `// SEEKER PATCH:` on
+3. **Mark your changes.** Vendored files carry `// THRAGG PATCH:` on
    every hunk we added, and the change is listed in the relevant
    `VENDOR.md`. Follow that convention; it is what GPLv3 s5(a) asks for
    and it is how the next person knows what is ours.

@@ -20,7 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.pressScale
 
@@ -55,7 +55,7 @@ import to.eyed.thragg.ui.theme.pressScale
  * is a sticker and one that is a button.
  */
 @Composable
-fun SeekerChip(
+fun ThraggChip(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -68,7 +68,7 @@ fun SeekerChip(
     val alpha = if (enabled) 1f else 0.38f
     // A tinted chip is a wash plus full-strength ink; a neutral one is a rung
     // of the container ladder plus the hairline. [tint] is expected to be an
-    // ink that is already legible — `LocalSeekerColors`' *Ink roles are solved
+    // ink that is already legible — `LocalThraggColors`' *Ink roles are solved
     // against a card's ground, and a raw theme hue passed here is exactly the
     // 2.11:1 label the solver exists to prevent.
     val fill = if (tint != null) {
@@ -102,7 +102,7 @@ fun SeekerChip(
             horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
         ) {
             if (leading != null) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = leading,
                     contentDescription = null,
                     tint = if (tint == null) mutedIcon.copy(alpha = alpha) else ink,
@@ -117,7 +117,7 @@ fun SeekerChip(
                 overflow = TextOverflow.Ellipsis,
             )
             if (trailing != null) {
-                SeekerIcon(
+                ThraggIcon(
                     icon = trailing,
                     contentDescription = null,
                     tint = if (tint == null) mutedIcon.copy(alpha = alpha) else ink,

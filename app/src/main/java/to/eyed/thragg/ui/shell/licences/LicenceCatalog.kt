@@ -12,7 +12,7 @@ import org.json.JSONObject
  * Nothing here is a constant. The whole catalogue is read from
  * `assets/licenses/components.json`, which is **generated** by
  * `tools/gen-licenses.py` from the real dependency graphs: the
- * aarch64-linux-android link closure of `libseekercore.so` (471 crates), the
+ * aarch64-linux-android link closure of `libthraggcore.so` (471 crates), the
  * release runtime classpath (110 Maven modules), and the checked-in manifest
  * for what neither graph can see — Termux, proot, talloc, the fonts, the
  * icons, the grammars' query files, Eyed's own entry. docs/LICENSING.md §4

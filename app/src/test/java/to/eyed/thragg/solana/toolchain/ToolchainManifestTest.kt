@@ -110,8 +110,8 @@ class ToolchainManifestTest {
         val ids = manifest.components.map { it.id }
         assertTrue(ids.indexOf("rustup") < ids.indexOf("platform-tools"))
         val links = manifest.component("platform-tools")!!.postInstall
-        assertTrue(links.any { it.contains("link") && it.contains("seeker") })
-        assertTrue(links.any { it.contains("default") && it.contains("seeker") })
+        assertTrue(links.any { it.contains("link") && it.contains("thragg") })
+        assertTrue(links.any { it.contains("default") && it.contains("thragg") })
     }
 
     /**
@@ -180,7 +180,7 @@ class ToolchainManifestTest {
 
     /**
      * The two drivers wait for apt and platform-tools: both link libssl,
-     * which apt brings, and cargo-build-sbf execs rustup's `seeker`
+     * which apt brings, and cargo-build-sbf execs rustup's `thragg`
      * toolchain, which platform-tools' postInstall links. Their verify runs
      * the binary, so it must not run before either is in. apt still carries
      * build-essential, because a *user's* program needs a C linker.

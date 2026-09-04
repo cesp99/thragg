@@ -55,7 +55,7 @@ import java.util.concurrent.TimeUnit
  */
 object GitClone {
 
-    private const val TAG = "seeker-clone"
+    private const val TAG = "thragg-clone"
 
     /** Keep the tail of git's own words for the error message. */
     private const val TRANSCRIPT_LINES = 12
@@ -448,7 +448,7 @@ object GitClone {
  */
 internal object GuestProcess {
 
-    private const val TAG = "seeker-guest"
+    private const val TAG = "thragg-guest"
 
     /** How long to give proot to take its tracees down after SIGQUIT. */
     private const val QUIT_GRACE_MS = 3_000L

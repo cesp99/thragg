@@ -30,8 +30,8 @@ import androidx.compose.ui.unit.dp
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.effectSpec
 import to.eyed.thragg.ui.theme.mutedIcon
 
@@ -61,7 +61,7 @@ import to.eyed.thragg.ui.theme.mutedIcon
  * before it can be typed into is a picker that is faster to scroll.
  */
 @Composable
-fun SeekerSearchField(
+fun ThraggSearchField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
@@ -87,7 +87,7 @@ fun SeekerSearchField(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_magnifying_glass,
             contentDescription = null,
             tint = mutedIcon,
@@ -122,7 +122,7 @@ fun SeekerSearchField(
             )
         }
         if (value.isNotEmpty()) {
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_close,
                 description = "Clear search",
                 onClick = { onValueChange("") },

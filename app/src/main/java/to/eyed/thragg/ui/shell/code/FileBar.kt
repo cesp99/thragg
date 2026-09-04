@@ -37,8 +37,8 @@ import to.eyed.thragg.R
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
-import to.eyed.thragg.ui.theme.SeekerIcon
-import to.eyed.thragg.ui.theme.SeekerIconButton
+import to.eyed.thragg.ui.theme.ThraggIcon
+import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.workspace.OpenFilesState
 
@@ -159,7 +159,7 @@ fun FileBar(
             // Files sheet carries the names/in-files switch at its foot, one
             // tap from either — so the pair was two doors into one room, and
             // the second door cost the file chips 44dp of the row.
-            SeekerIconButton(
+            ThraggIconButton(
                 icon = R.drawable.ic_ui_file_tree,
                 description = "Files",
                 onClick = onFiles,
@@ -220,7 +220,7 @@ private fun FileChip(
             // The dot, not a close button: closing is the long press, and a
             // tiny ✕ next to a tiny label on a 400dp row is two targets inside
             // one thumb.
-            SeekerIcon(
+            ThraggIcon(
                 icon = R.drawable.ic_ui_dot,
                 contentDescription = "unsaved",
                 tint = MaterialTheme.colorScheme.primary,

@@ -205,7 +205,7 @@ Write path is already correct in the engine (acp.rs:2950-2980 builds both union 
 app/src/main/java/to/eyed/thragg/solana/agents/AgentCatalog.kt: delete `CLAUDE_CODE` and `CODEX`; `ALL = listOf(SPETTRO)`. The `AgentInstallMethod.Npm` branch and its Node-from-apt install become dead code — delete it too.
 
 app/src/main/java/to/eyed/thragg/core/Agents.kt: the spec crossing JNI is `{"name":"Spettro","argv":[...],"env":{...}}`. argv MUST be:
-`["/opt/seeker/agents/spettro/spettro", "--acp", "--cwd", "<absolute project root>"]`
+`["/opt/thragg/agents/spettro/spettro", "--acp", "--cwd", "<absolute project root>"]`
 Go's flag package accepts `-acp` and `--acp` identically; keep `--acp`. `cwd` must be absolute or `session/new` answers `-32602`.
 
 ENV is load-bearing: `HOME` must point at a writable directory the guest user owns, because the CLI resolves `~/.spettro/config.json`, `~/.spettro/keys.enc`, `~/.spettro/master.key` and `~/.spettro/sessions/` from it. With `HOME` unset or read-only the handshake succeeds and then every config write, provider connect and session save silently fails. Verify the guest login environment supplies it; set it explicitly in the spec env map if not.
@@ -587,7 +587,7 @@ Patterns (all case-insensitive): `\bultracode\b`; `\b(?:use|using|run|write|auth
 
 ```
 ┌──────────────────────────────────────────────┐
-│ ←  seeker-ide                  ◕ 41%     ⋮   │ 48
+│ ←  thragg-ide                  ◕ 41%     ⋮   │ 48
 ├──────────────────────────────────────────────┤
 │                                              │
 │                                              │
@@ -603,7 +603,7 @@ Patterns (all case-insensitive): `\bultracode\b`; `\b(?:use|using|run|write|auth
 │ ⚡Ultra │ ⌁Coding │ ⬢Sonnet 4.5 │ ✻Off │ ⛨A… │ 36  chips ⇄
 ├──────────────────────────────────────────────┤
 │ ┌──────────────────────────────────────────┐ │
-│ │ Message Spettro — working in seeker-ide  │ │ 56–120
+│ │ Message Spettro — working in thragg-ide  │ │ 56–120
 │ └──────────────────────────────────────────┘ │
 │  ＋   /                            ▶ Send    │
 └──────────────────────────────────────────────┘
@@ -1036,9 +1036,9 @@ Do not put this in the app bar. It must be reachable one-handed from the bottom.
 ├──────────────────────────────────────────────┤
 │  TODAY                                       │
 │  ●  add a jupiter swap route          14:02 ›│  ● = live
-│     seeker-ide                               │
+│     thragg-ide                               │
 │  ○  fix the anchor build              09:41 ›│
-│     seeker-ide                               │
+│     thragg-ide                               │
 │  YESTERDAY                                   │
 │  ○  why does the IDL fail to parse    18:20 ›│
 │     solana-pay-demo                          │
@@ -1075,7 +1075,7 @@ Inside the Debian guest userland, under the guest user's `$HOME`:
 
 ### Step 0 — install (existing machinery, unchanged)
 
-`AgentCatalog.SPETTRO` already describes it: GitHub release tarball from `aploide/spettro`, asset suffix `_linux_arm64.tar.gz`, extracted to `/opt/seeker/agents/spettro/spettro`. Verified to run natively on the Seeker. Show the existing install progress UI. On failure, offer retry and a "download manually" path; do not fall through to a provider screen.
+`AgentCatalog.SPETTRO` already describes it: GitHub release tarball from `aploide/spettro`, asset suffix `_linux_arm64.tar.gz`, extracted to `/opt/thragg/agents/spettro/spettro`. Verified to run natively on the Seeker. Show the existing install progress UI. On failure, offer retry and a "download manually" path; do not fall through to a provider screen.
 
 ### Step 1 — first trust
 
@@ -1083,7 +1083,7 @@ Spettro requires explicit trust confirmation the first time it runs in a folder 
 
 ### Step 2 — connect, handshake, probe
 
-Spawn `/opt/seeker/agents/spettro/spettro --acp --cwd <project root>`, run `initialize` with the extension mirror (W-01), then IMMEDIATELY — before creating a session, and off the UI thread — call `_spettro/providers/list` with `{}` via `acpCallExtension`.
+Spawn `/opt/thragg/agents/spettro/spettro --acp --cwd <project root>`, run `initialize` with the extension mirror (W-01), then IMMEDIATELY — before creating a session, and off the UI thread — call `_spettro/providers/list` with `{}` via `acpCallExtension`.
 
 Compute the gate:
 ```
@@ -1319,7 +1319,7 @@ Discipline: `AgentEntry.parse` must never return null and never throw — parse 
 
 *Depends on:* K0 · CoreBridge externs
 
-- W-14: collapse the catalog to Spettro; delete `CLAUDE_CODE`, `CODEX` and the now-dead `AgentInstallMethod.Npm` branch. argv = `["/opt/seeker/agents/spettro/spettro","--acp","--cwd",<abs root>]`. Set `HOME` explicitly in the env map and verify it is writable — this is the difference between a working install and one where every config write silently fails.
+- W-14: collapse the catalog to Spettro; delete `CLAUDE_CODE`, `CODEX` and the now-dead `AgentInstallMethod.Npm` branch. argv = `["/opt/thragg/agents/spettro/spettro","--acp","--cwd",<abs root>]`. Set `HOME` explicitly in the env map and verify it is writable — this is the difference between a working install and one where every config write silently fails.
 - `AgentSessions.steer(...)` beside `prompt(...)`, plus the answer encoder `answerQuestion(id, answers | null)` producing the exact `{"answers":[…]}` / `{"kind":"declined"}` shapes.
 - `respondPermission(..., answerMeta)` and the question-over-permission reply path.
 - `callExtension(method, paramsJson)` on `Dispatchers.IO` returning a sealed `ExtResult { Ok(JSONObject) | Rpc(code, message) | Unsupported | Offline }` — `-32601` maps to `Unsupported` so the UI can say "update Spettro" rather than "failed".

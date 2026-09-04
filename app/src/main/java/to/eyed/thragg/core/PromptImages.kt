@@ -48,7 +48,7 @@ data class PromptAttachment(
  */
 object PromptImages {
 
-    private const val TAG = "seeker-agent"
+    private const val TAG = "thragg-agent"
 
     /**
      * The longest edge an attachment keeps.

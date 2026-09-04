@@ -115,7 +115,7 @@ enum class ToolchainPhase {
  */
 object SolanaToolchain {
 
-    private const val TAG = "seeker-toolchain"
+    private const val TAG = "thragg-toolchain"
 
     /**
      * The guest `PATH` entries the toolchain contributes, ahead of Debian's own.
@@ -153,7 +153,7 @@ object SolanaToolchain {
     /**
      * Where the guest's filesystem is on this side.
      *
-     * The same literal SeekerShell.kt hands the engine in
+     * The same literal ThraggShell.kt hands the engine in
      * `syncUserlandWithEngine` — DebianUserland keeps its own copy private, and
      * this is the third caller that needs to look *at* the rootfs rather than
      * run something inside it.

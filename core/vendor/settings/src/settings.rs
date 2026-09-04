@@ -117,7 +117,7 @@ impl fmt::Display for WorktreeId {
     }
 }
 
-// SEEKER PATCH: upstream reads Zed's repo-root `assets/`; ours live in
+// THRAGG PATCH: upstream reads Zed's repo-root `assets/`; ours live in
 // core/vendor/assets. Only `settings/` is vendored — Zed's desktop keymaps are
 // 340 KB of bindings for a UI we don't have, so `keymaps/*` matches nothing and
 // `default_keymap()`/`vim_keymap()` would panic if ever called.

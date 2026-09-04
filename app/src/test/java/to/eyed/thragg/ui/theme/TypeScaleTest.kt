@@ -269,7 +269,7 @@ class TypeScaleTest {
     }
 
     /**
-     * The radii, and the fact that [SeekerShapes] is made of them.
+     * The radii, and the fact that [ThraggShapes] is made of them.
      *
      * The scale is by ROLE — 8dp code blocks and tool rows, 12dp cards, 16dp
      * bubbles and a sheet's inner cards, 20dp pills, 24dp a sheet's own top
@@ -286,11 +286,11 @@ class TypeScaleTest {
         assertEquals(20.dp, MD.pill)
         assertEquals(1.dp, MD.hairline)
 
-        assertEquals(RoundedCornerShape(MD.radiusXs), SeekerShapes.extraSmall)
-        assertEquals(RoundedCornerShape(MD.radiusSm), SeekerShapes.small)
-        assertEquals(RoundedCornerShape(MD.radiusMd), SeekerShapes.medium)
-        assertEquals(RoundedCornerShape(MD.radiusLg), SeekerShapes.large)
-        assertEquals(RoundedCornerShape(MD.radiusXl), SeekerShapes.extraLarge)
+        assertEquals(RoundedCornerShape(MD.radiusXs), ThraggShapes.extraSmall)
+        assertEquals(RoundedCornerShape(MD.radiusSm), ThraggShapes.small)
+        assertEquals(RoundedCornerShape(MD.radiusMd), ThraggShapes.medium)
+        assertEquals(RoundedCornerShape(MD.radiusLg), ThraggShapes.large)
+        assertEquals(RoundedCornerShape(MD.radiusXl), ThraggShapes.extraLarge)
     }
 
     /**

@@ -56,7 +56,7 @@ command-fds = "0.3.1"
 libc.workspace = true
 nix = { workspace = true, features = ["user"] }
 
-# SEEKER PATCH: dropped macOS/Windows target dependency sections (mach2,
+# THRAGG PATCH: dropped macOS/Windows target dependency sections (mach2,
 # tendril, windows) — Seeker builds only for Linux hosts and Android.
 
 [dev-dependencies]

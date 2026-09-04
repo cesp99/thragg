@@ -141,7 +141,7 @@ class ChainRecordsTest {
 
     @Test
     fun `what render writes to a file, parse reads back`() {
-        val dir = Files.createTempDirectory("seeker-chain").toFile()
+        val dir = Files.createTempDirectory("thragg-chain").toFile()
         try {
             val file = File(dir, "chain/deployed-programs.json")
             file.parentFile.mkdirs()

@@ -951,7 +951,7 @@ impl VsCodeSettings {
     fn project_terminal_settings_content(&self) -> ProjectTerminalSettingsContent {
         #[cfg(target_os = "windows")]
         let platform = "windows";
-        // SEEKER PATCH: android behaves as linux here.
+        // THRAGG PATCH: android behaves as linux here.
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let platform = "linux";
         #[cfg(target_os = "macos")]

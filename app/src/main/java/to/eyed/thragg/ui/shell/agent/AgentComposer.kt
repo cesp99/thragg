@@ -88,13 +88,13 @@ import to.eyed.thragg.ui.agent.mentionTokensIn
 import to.eyed.thragg.ui.agent.spettro.ActivationSurface
 import to.eyed.thragg.ui.agent.spettro.rememberActivationTransformation
 import to.eyed.thragg.ui.components.HairlineDivider
-import to.eyed.thragg.ui.components.SeekerSearchField
+import to.eyed.thragg.ui.components.ThraggSearchField
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoBody
-import to.eyed.thragg.ui.theme.SeekerIcon
+import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.effectSpec
 import to.eyed.thragg.ui.theme.mutedIcon
@@ -799,7 +799,7 @@ private fun ComposerCircle(
                 .background(ground),
             contentAlignment = Alignment.Center,
         ) {
-            SeekerIcon(
+            ThraggIcon(
                 icon = icon,
                 contentDescription = description,
                 tint = glyph,
@@ -814,7 +814,7 @@ private fun ComposerCircle(
  *
  * THE WHOLE CHIP IS THE REMOVE CONTROL, and the `⨯` on it is decoration. The
  * alternative — a separate icon button — is the correct shape for the
- * affordance and the wrong one for the constraint: `SeekerIconButton` carries
+ * affordance and the wrong one for the constraint: `ThraggIconButton` carries
  * `minimumInteractiveComponentSize()`, which reports 48dp of *layout* and
  * would make this strip 48dp tall rather than the 32dp it is specified at.
  * With the row itself clickable the target is 32dp × its full width, which
@@ -854,7 +854,7 @@ private fun DraftChip(
                 modifier = Modifier.size(ThumbSize).clip(RoundedCornerShape(MD.radiusXs)),
             )
         } else {
-            SeekerIcon(
+            ThraggIcon(
                 icon = icon,
                 contentDescription = null,
                 tint = mutedIcon,
@@ -873,7 +873,7 @@ private fun DraftChip(
             // width is an invisible chip.
             modifier = Modifier.widthIn(max = ChipLabelMax),
         )
-        SeekerIcon(
+        ThraggIcon(
             icon = R.drawable.ic_ui_close,
             contentDescription = null,
             tint = mutedIcon,
@@ -993,7 +993,7 @@ private fun CommandPaletteSheet(
         onDismiss = onDismiss,
         title = "Commands",
         field = {
-            SeekerSearchField(
+            ThraggSearchField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = "Find a command",
@@ -1123,7 +1123,7 @@ private fun SheetAction(
         horizontalArrangement = Arrangement.spacedBy(MD.space3),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SeekerIcon(
+        ThraggIcon(
             icon = icon,
             contentDescription = null,
             tint = tint ?: mutedIcon,
