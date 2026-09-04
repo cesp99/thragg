@@ -681,11 +681,23 @@ class EditorState private constructor(
         /** Rows of the file read to decide whether it indents with tabs. */
         const val INDENT_SAMPLE_ROWS = 200
 
-        /** Zed's `gutter.min_line_number_digits`. */
-        const val MIN_GUTTER_DIGITS = 4
+        /**
+         * The number column is a fixed three characters wide, whatever the
+         * file's length: a phone column has no width to give a fourth digit,
+         * so a number that needs more is trimmed to two and an ellipsis
+         * ([gutterLabel]) rather than pushing the text to the right.
+         */
+        const val GUTTER_DIGITS = 3
 
-        /** Zed's gutter margins: 3 character widths left, 4 right. */
-        const val GUTTER_PADDING_CHARS = 7
+        /**
+         * The gutter's margins in character widths: two before the digits
+         * (git's strip and the run button) and three after (the fold column,
+         * [gutterFoldColumnPx]). Zed's are 3 and 4; a 400dp column cannot
+         * afford them.
+         */
+        const val GUTTER_LEFT_CHARS = 2
+        const val GUTTER_FOLD_CHARS = 3
+        const val GUTTER_PADDING_CHARS = GUTTER_LEFT_CHARS + GUTTER_FOLD_CHARS
 
         /**
          * The blame column: a 7-character sha, the author (Zed's 20-character
@@ -706,24 +718,33 @@ class EditorState private constructor(
     }
 
     /**
-     * Zed's rule, not a dp guess: `max(digits, 4)` characters wide, with the
-     * padding measured in character widths too — three before the number and
-     * four after (crates/editor/src/editor.rs:11712-11770, and the `min 4`
-     * comes from `gutter.min_line_number_digits` in default.json:697). Padding
-     * in dp would drift away from the numbers as the buffer font changed.
+     * Measured in character widths, as Zed does
+     * (crates/editor/src/editor.rs:11712-11770), so the padding never drifts
+     * away from the digits as the buffer font changes — but a fixed
+     * [GUTTER_DIGITS] wide rather than Zed's `max(digits, 4)`: the column
+     * does not grow with the file, the numbers are trimmed instead.
      */
     val gutterWidthPx: Float
-        get() = (lineCount.toString().length.coerceAtLeast(MIN_GUTTER_DIGITS) +
-            GUTTER_PADDING_CHARS) * charWidthPx + blameColumnPx
+        get() = (GUTTER_DIGITS + GUTTER_PADDING_CHARS) * charWidthPx + blameColumnPx
 
     /**
-     * The gutter's fold column: Zed's `right_padding` is `em_width * 4` when
-     * folds and line numbers are both on (editor.rs:11758-11760) — the line
-     * numbers end where it begins, and the fold chevron lives in it. It is
-     * the right-hand share of the [GUTTER_PADDING_CHARS] the gutter already
-     * reserves, not extra width.
+     * The gutter's fold column: the line numbers end where it begins, and the
+     * fold chevron and the diagnostic marks live in it. Zed's `right_padding`
+     * is `em_width * 4` with folds on (editor.rs:11758-11760); ours is
+     * [GUTTER_FOLD_CHARS], the right-hand share of the [GUTTER_PADDING_CHARS]
+     * the gutter already reserves, not extra width.
      */
-    val gutterFoldColumnPx: Float get() = 4 * charWidthPx
+    val gutterFoldColumnPx: Float get() = GUTTER_FOLD_CHARS * charWidthPx
+
+    /**
+     * The gutter's left margin, before the digits: git's strip and the run
+     * button share it, and a tap anywhere in it is a tap on whichever of
+     * them the row has.
+     */
+    val gutterLeftColumnPx: Float get() = GUTTER_LEFT_CHARS * charWidthPx
+
+    /** How many characters the number column holds — see [gutterLabel]. */
+    val gutterDigits: Int get() = GUTTER_DIGITS
 
     /** Zed's `px(2.)` for the cursor, in device pixels. Set from composition. */
     var cursorWidthPx: Float = 2f

@@ -281,3 +281,15 @@ fun whitespaceColumns(
  */
 fun gutterLineNumber(row: Int, cursorRow: Int, relative: Boolean): Int =
     if (!relative || row == cursorRow) row + 1 else kotlin.math.abs(row - cursorRow)
+
+/**
+ * The text the gutter draws for [number] in a column [digits] characters
+ * wide: the number itself when it fits, and otherwise its leading digits with
+ * an ellipsis in the last place — `TextOverflow.Ellipsis` for a number, so
+ * the column stays [digits] wide however long the file gets.
+ */
+fun gutterLabel(number: Int, digits: Int): String {
+    val text = number.toString()
+    if (text.length <= digits) return text
+    return text.take((digits - 1).coerceAtLeast(0)) + "\u2026"
+}

@@ -510,21 +510,22 @@ fun EditorPane(
     val handleRadiusPx = with(density) { 6.dp.toPx() }
     val handleTouchRadiusPx = with(density) { 24.dp.toPx() }
     // The diagnostic marks are a 2dp strip; the slop around them is what makes
-    // them tappable without reaching the fold chevron, whose right edge sits
-    // half the fold column minus its arm away — two characters, never less
-    // than 10dp at any font size the settings allow.
+    // them tappable without reaching the fold chevron, which is centred in the
+    // fold column — so the slop is capped at the column's outer half, whatever
+    // the font size.
     //
     // 14dp rather than the 48 the spec asks of every other target, and the
-    // reason is arithmetic rather than taste: the whole gutter is about 40dp
+    // reason is arithmetic rather than taste: the whole gutter is about 35dp
     // wide at `buffer_font_size` 15, and a 48dp strip inside it would swallow
     // the fold chevron, the hunk strip and the run button whole. The row is
     // ~24dp tall, so the target is ~14 x 24 — small, and said so here rather
     // than claimed to be 48. The card it opens is the large target.
-    val diagnosticMarkTouchPx = with(density) { 14.dp.toPx() }
-    // The play button lives in the gutter's left padding — the three
-    // characters before the digits (editor.rs:11712-11770) — and a tap
-    // anywhere in that column on a runnable row is a tap on the button.
-    val runButtonColumnPx = 3 * state.charWidthPx
+    val diagnosticMarkTouchPx =
+        min(with(density) { 14.dp.toPx() }, state.gutterFoldColumnPx / 2f)
+    // The play button lives in the gutter's left padding — the characters
+    // before the digits (Zed's three, editor.rs:11712-11770; our two) — and a
+    // tap anywhere in that column on a runnable row is a tap on the button.
+    val runButtonColumnPx = state.gutterLeftColumnPx
     // The gutter's two switches, the editor's override laid over the setting
     // — Zed's `editor::ToggleLineNumbers` / `ToggleRelativeLineNumbers`.
     val showLineNumbers = state.showsWith(state.lineNumbersOverride, settings.lineNumbers)
@@ -644,8 +645,8 @@ fun EditorPane(
     var diagnosticCard by remember(state) { mutableStateOf<Diagnostic?>(null) }
     // A finger on the gutter's diff strip: the strip itself is a few pixels
     // wide, so the tap target is the strip's share of the gutter's left
-    // margin — Zed's own 3 em there, wide enough for a thumb.
-    val hunkStripTouchPx = state.charWidthPx * 3f
+    // margin — the whole of it, the two characters before the digits.
+    val hunkStripTouchPx = state.gutterLeftColumnPx
 
     val actions = remember(state, clipboard, toolbar) {
         EditorActions(state, clipboard, toolbar) { paneCoordinates }
@@ -1089,9 +1090,8 @@ fun EditorPane(
                             }
                             // Only the fold column folds; the rest of the
                             // gutter keeps its caret-placing tap. The column
-                            // is 4 characters wide — comfortably past the
-                            // density decision's floor without inflating
-                            // anything.
+                            // is 3 characters wide — past the density
+                            // decision's floor without inflating anything.
                             if (position.x < state.gutterWidthPx - state.gutterFoldColumnPx) {
                                 return@awaitEachGesture
                             }
@@ -2245,15 +2245,19 @@ fun EditorPane(
                 if (!window.isFirstSegment(i)) continue
                 val row = window.bufferRow(i)
                 val layout = layoutCache.layoutFor(
-                    gutterLineNumber(row, state.cursorRow, relativeLineNumbers).toString()
+                    gutterLabel(
+                        gutterLineNumber(row, state.cursorRow, relativeLineNumbers),
+                        state.gutterDigits,
+                    )
                 )
                 drawText(
                     textLayoutResult = layout,
                     color = if (row == state.cursorRow) activeLineNumber else lineNumber,
                     // The numbers end where the fold column begins — Zed's
-                    // `right_padding` of `em_width * 4` with folds on
-                    // (editor.rs:11758-11760), which is what keeps the
-                    // chevrons off the digits.
+                    // `right_padding` (editor.rs:11758-11760), which is what
+                    // keeps the chevrons off the digits. Right-aligned, so a
+                    // trimmed number's ellipsis sits where the last digit
+                    // would.
                     topLeft = Offset(
                         gutterWidth - state.gutterFoldColumnPx - layout.size.width,
                         topOf(i) + (lineHeight - layout.size.height) / 2f,

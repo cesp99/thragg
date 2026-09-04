@@ -62,6 +62,16 @@ class EditorDisplayTest {
     }
 
     @Test
+    fun numbersWiderThanTheColumnKeepTheirLeadingDigitsAndAnEllipsis() {
+        assertEquals("7", gutterLabel(7, digits = 3))
+        assertEquals("999", gutterLabel(999, digits = 3))
+        assertEquals("10\u2026", gutterLabel(1000, digits = 3))
+        assertEquals("12\u2026", gutterLabel(123456, digits = 3))
+        // Never wider than the column, whatever it is asked to fit.
+        assertEquals("\u2026", gutterLabel(42, digits = 1))
+    }
+
+    @Test
     fun theScrollbarDiagnosticsFloorIsASeverityNotAFlag() {
         assertFalse(ScrollbarDiagnostics.None.marks(DiagnosticSeverity.Error))
         assertTrue(ScrollbarDiagnostics.Error.marks(DiagnosticSeverity.Error))
