@@ -65,8 +65,10 @@ mostly unattended.
 
 ## What not to touch live
 
-- **Seahorse** — the card exists, the compiler is not shipped; `seahorse
-  build` dies command-not-found.
+- **Seahorse** — the compiler is an optional Setup row (a two-minute
+  on-device compile, after Anchor). Unless it was installed and a Seahorse
+  build was verified the day before, leave the card alone: the Build tab
+  will say "Seahorse is not installed", which is honest and not a demo.
 - **Deploy** — P6 is unbuilt; there is no wallet or cluster wiring yet. The
   overflow item errors honestly, but a demo is not the place to prove that.
 - **Anchor Test** — needs Node, which the manifest doesn't ship; the fallback

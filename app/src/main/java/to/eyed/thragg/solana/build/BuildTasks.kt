@@ -121,6 +121,8 @@ data class ProjectLayout(
 data class GuestTools(
     val cargoBuildSbf: Boolean = false,
     val anchor: Boolean = false,
+    /** The Python-to-Anchor compiler — Setup's one on-device compile, and optional. */
+    val seahorse: Boolean = false,
     /** platform-tools' own host cargo, which is what builds everything else. */
     val platformCargo: Boolean = false,
     /** The Agave CLI — `solana program deploy`, `solana balance`. */
@@ -407,7 +409,7 @@ object BuildTasks {
      */
     fun probe(context: Context): GuestTools {
         val script = buildString {
-            append("for t in cargo-build-sbf anchor solana; do ")
+            append("for t in cargo-build-sbf anchor seahorse solana; do ")
             append("command -v \$t >/dev/null 2>&1 && echo have:\$t; ")
             append("done; ")
             append("[ -x $PLATFORM_CARGO ] && echo have:platform-cargo")
@@ -432,6 +434,7 @@ object BuildTasks {
         return GuestTools(
             cargoBuildSbf = "cargo-build-sbf" in found,
             anchor = "anchor" in found,
+            seahorse = "seahorse" in found,
             platformCargo = "platform-cargo" in found,
             solanaCli = "solana" in found,
         )
@@ -636,6 +639,33 @@ object BuildTasks {
      * `node_modules/` and dot-directories, which is the difference between a
      * few hundred stats and a few hundred thousand.
      */
+    /**
+     * Whether a non-zero exit from `seahorse build` is Seahorse being wrong
+     * about a build that succeeded.
+     *
+     * Seahorse 0.2.0 (src/bin/cli/build.rs) fails the build when `anchor
+     * build`'s stderr *contains the word "error"* — and cargo's own
+     * "Compiling solana-program-error v2.2.1" contains it. So the first build
+     * of every Seahorse project, the one that compiles the dependencies,
+     * exits 1 over a program that was compiled, written and given an IDL;
+     * the cached rebuild a minute later exits 0. Measured on the Seeker
+     * 2026-09-08. The artifact is the truth: when it was written during this
+     * run and the parser saw no error, the build succeeded and the exit code
+     * did not.
+     */
+    fun seahorseExitIsFalseFailure(
+        framework: ProjectFramework,
+        exit: Int,
+        errors: Int,
+        artifactModifiedAt: Long,
+        startedAt: Long,
+    ): Boolean =
+        framework == ProjectFramework.Seahorse &&
+            exit != 0 &&
+            errors == 0 &&
+            artifactModifiedAt > 0L &&
+            artifactModifiedAt >= startedAt
+
     fun freshness(root: File, program: ProgramTarget?): ArtifactFreshness {
         program ?: return ArtifactFreshness.Missing
         val artifact = File(root, program.artifactPath)

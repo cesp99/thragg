@@ -110,6 +110,52 @@ object ProgramIds {
         File(projectRoot, "target/deploy/${program.moduleName}-keypair.json")
 
     /**
+     * `<root>/programs_py/<module>.py` — a Seahorse program's source, and the
+     * `declare_id('…')` the generated `lib.rs` copies its address from.
+     */
+    fun seahorseSourceFile(projectRoot: String, program: ProgramTarget): File =
+        File(projectRoot, "programs_py/${program.moduleName}.py")
+
+    /**
+     * [text] with its first `declare_id('…')` naming [id], or null when there
+     * is no `declare_id` to change or it already does. Seahorse accepts either
+     * quote; whichever the file used is kept.
+     */
+    fun withSeahorseDeclaredId(text: String, id: String): String? {
+        val match = SEAHORSE_DECLARE_ID.find(text) ?: return null
+        if (match.groupValues[2] == id) return null
+        val quote = match.groupValues[1]
+        return text.replaceRange(match.range, "declare_id($quote$id$quote)")
+    }
+
+    /**
+     * Point every Seahorse program's `declare_id(...)` at its keypair's
+     * address, and say which files changed (project-relative). Blocking.
+     *
+     * `anchor keys sync` fixes `declare_id!` in `lib.rs` and the Anchor.toml
+     * table, and for an Anchor project that is the end of it. A Seahorse
+     * `lib.rs` is *generated* from the Python on every build, so a sync that
+     * stops there is undone by the build that follows it, and the program
+     * ships with the placeholder id again: DeclaredProgramIdMismatch on the
+     * first call. The Python is the source; this is the sync for it. A
+     * program with no keypair yet is left alone — the first build makes one.
+     */
+    fun syncSeahorseIds(layout: ProjectLayout): List<String> {
+        if (layout.framework != ProjectFramework.Seahorse) return emptyList()
+        val changed = ArrayList<String>()
+        for (program in layout.programs) {
+            val keypairId = Keypair.read(keypairFile(layout.root, program))?.publicKey?.base58
+                ?: continue
+            val source = seahorseSourceFile(layout.root, program)
+            val text = runCatching { source.readText() }.getOrNull() ?: continue
+            val rewritten = withSeahorseDeclaredId(text, keypairId) ?: continue
+            source.writeText(rewritten)
+            changed.add("programs_py/${program.moduleName}.py")
+        }
+        return changed
+    }
+
+    /**
      * The program keypair, generated and written if there is none yet.
      * Blocking; call it off the main thread.
      *
@@ -181,4 +227,8 @@ object ProgramIds {
     }
 
     private val DECLARE_ID = Regex("""declare_id!\s*\(\s*"([1-9A-HJ-NP-Za-km-z]{32,44})"\s*\)""")
+
+    /** Seahorse's `declare_id('…')`: a Python call, either quote, no `!`. */
+    private val SEAHORSE_DECLARE_ID =
+        Regex("""declare_id\s*\(\s*(['"])([1-9A-HJ-NP-Za-km-z]{32,44})\1\s*\)""")
 }

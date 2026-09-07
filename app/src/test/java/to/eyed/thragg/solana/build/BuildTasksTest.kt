@@ -334,4 +334,26 @@ class BuildTasksTest {
         assertEquals("1:11", BuildRunner.clock(71_000))
         assertEquals("0:00", BuildRunner.clock(-5))
     }
+
+    /**
+     * Seahorse 0.2.0 exits 1 when cargo's stderr merely contains the word
+     * "error" — `Compiling solana-program-error` does — so a first build that
+     * wrote the program reads as failed. The artifact decides; nothing else
+     * is forgiven.
+     */
+    @Test
+    fun `a Seahorse exit code is overruled only by an artifact written during the run with no errors`() {
+        val started = 1_000L
+        assertTrue(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Seahorse, 1, 0, started + 5, started))
+        assertTrue(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Seahorse, 1, 0, started, started))
+        // An artifact from before the run is last time's build.
+        assertFalse(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Seahorse, 1, 0, started - 1, started))
+        assertFalse(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Seahorse, 1, 0, 0L, started))
+        // A real error, or a clean exit, is what it says.
+        assertFalse(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Seahorse, 1, 2, started + 5, started))
+        assertFalse(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Seahorse, 0, 0, started + 5, started))
+        // Anchor and Native exit codes are trusted.
+        assertFalse(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Anchor, 1, 0, started + 5, started))
+        assertFalse(BuildTasks.seahorseExitIsFalseFailure(ProjectFramework.Native, 1, 0, started + 5, started))
+    }
 }

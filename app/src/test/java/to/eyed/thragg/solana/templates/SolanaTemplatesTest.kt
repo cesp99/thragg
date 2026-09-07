@@ -146,12 +146,29 @@ class SolanaTemplatesTest {
         assertTrue(SolanaProgram.DEFAULT_CLUSTER in SolanaProgram.CLUSTERS)
     }
 
-    /** Seahorse scaffolds no Rust: `seahorse build` generates it. */
+    /**
+     * Seahorse writes the program's `src/` itself and nothing else, so the
+     * scaffold ships the Python, the crate manifest Seahorse never writes,
+     * and a placeholder `lib.rs` that gives cargo a target until the first
+     * build replaces it. The directory is the *module* name: Seahorse names
+     * it after the `.py` file's stem, and `anchor build -p` gets that name.
+     */
     @Test
-    fun seahorseScaffoldsPythonAndNoRust() {
-        val paths = SolanaFramework.Seahorse.files(program).map { it.path }
+    fun seahorseScaffoldsPythonAndTheCrateAroundIt() {
+        val files = SolanaFramework.Seahorse.files(program)
+        val paths = files.map { it.path }
         assertTrue("programs_py/my_project.py" in paths)
-        assertTrue(paths.none { it.startsWith("programs/") })
+        assertTrue("programs/my_project/Cargo.toml" in paths)
+        assertTrue("programs/my_project/src/lib.rs" in paths)
+        assertTrue(paths.none { it.startsWith("programs/my-project/") })
+
+        val manifest = files.first { it.path == "programs/my_project/Cargo.toml" }.contents
+        assertTrue(manifest.contains("name = \"my_project\""))
+        assertTrue(manifest.contains("anchor-spl"))
+        assertTrue(manifest.contains("idl-build"))
+        val lib = files.first { it.path == "programs/my_project/src/lib.rs" }.contents
+        assertTrue(lib.contains("declare_id!(\"${SolanaProgram.PLACEHOLDER_ID}\")"))
+        assertTrue(lib.contains("Replaced by `seahorse build`"))
     }
 
     /** Interpolating a user-supplied name into a path must not escape the project. */

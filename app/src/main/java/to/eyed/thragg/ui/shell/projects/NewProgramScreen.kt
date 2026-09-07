@@ -179,10 +179,13 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
             if (framework == SolanaFramework.Seahorse) {
                 // Seahorse honesty, in as many words: a framework you can
                 // create but cannot build is worse than one never offered
-                // (docs/UI.md, "New program").
+                // (docs/UI.md, "New program"). The compiler is an optional
+                // Setup row that builds on the phone; the Build tab asks for
+                // it by name when the project needs it.
                 Text(
-                    text = "Seahorse compiles to Rust and builds through anchor build. " +
-                        "It needs Python in the Linux guest — Build installs it the first time.",
+                    text = "Seahorse turns the Python into an Anchor program and builds it " +
+                        "with anchor build. The compiler is an optional part of Setup — " +
+                        "about two minutes on this phone — and Build asks for it if it is missing.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = MD.space2),

@@ -230,6 +230,13 @@ internal fun BuildLogView(
                     LogLine(text = row.text, color = ink.copy(alpha = 0.85f))
                 }
 
+                // The line being redrawn in place — one row that keeps
+                // changing, not a row per frame (BuildLog.progress). Muted:
+                // it is a spinner or a counter, not something to read.
+                is BuildLogRow.Progress -> SelectableLine(state, row.text) {
+                    LogLine(text = row.text, color = ink.copy(alpha = 0.6f))
+                }
+
                 is BuildLogRow.Issue -> IssueRow(state, row.issue, projectRoot, ink)
                 is BuildLogRow.Summary -> SummaryRow(row)
             }
@@ -289,8 +296,15 @@ private fun NoteRow(text: String) {
  */
 @Composable
 private fun LogLine(text: String, color: Color) {
+    // Through the same ANSI pass a rendered diagnostic gets: `anchor build`
+    // and Seahorse print bold and colour into an ordinary line too, and an
+    // escape drawn as text is a `[1m` in front of every crate name.
+    val theme = LocalZedTheme.current
+    val body = remember(text, color, theme) {
+        ansiAnnotate(text, color) { name -> theme.color("terminal.ansi.$name", color) }
+    }
     Text(
-        text = text,
+        text = body,
         style = MonoSmall.copy(color = color),
         modifier = Modifier.fillMaxWidth().padding(horizontal = MD.space2, vertical = 1.dp),
     )

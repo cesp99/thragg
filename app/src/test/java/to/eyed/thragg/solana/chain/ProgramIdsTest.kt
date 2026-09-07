@@ -69,6 +69,37 @@ class ProgramIdsTest {
 
     private fun layout(framework: ProjectFramework) = ProjectLayout(root.path, framework, listOf(program))
 
+    // --- Seahorse's declare_id('…') ---------------------------------------------
+
+    @Test
+    fun `a Seahorse declare_id is rewritten keeping its quote, and left alone when it already agrees`() {
+        val single = "from seahorse.prelude import *\n\ndeclare_id('$idA')\n"
+        assertEquals(
+            "from seahorse.prelude import *\n\ndeclare_id('$idB')\n",
+            ProgramIds.withSeahorseDeclaredId(single, idB),
+        )
+        // Double quotes are kept too; the whitespace inside the call is not.
+        assertEquals("declare_id(\"$idB\")", ProgramIds.withSeahorseDeclaredId("declare_id( \"$idA\" )", idB))
+        assertNull(ProgramIds.withSeahorseDeclaredId(single, idA))
+        assertNull(ProgramIds.withSeahorseDeclaredId("# no id here\ndeclare_id('...')\n", idB))
+    }
+
+    @Test
+    fun `syncSeahorseIds writes the Python once a keypair exists, and only for Seahorse`() {
+        write("programs_py/my_program.py", "declare_id('$idA')\n\nclass Counter(Account):\n    count: u64\n")
+        // No keypair yet: the first build makes one, nothing to sync to.
+        assertEquals(emptyList<String>(), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Seahorse)))
+        val keypair = writeKeypair()
+        // An Anchor layout has no Python to sync.
+        assertEquals(emptyList<String>(), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Anchor)))
+        assertEquals(listOf("programs_py/my_program.py"), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Seahorse)))
+        val text = File(root, "programs_py/my_program.py").readText()
+        assertTrue(text.startsWith("declare_id('${keypair.publicKey.base58}')\n"))
+        assertTrue(text.contains("class Counter(Account)"))
+        // Idempotent: the second pass finds nothing to change.
+        assertEquals(emptyList<String>(), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Seahorse)))
+    }
+
     // --- declare_id! ----------------------------------------------------------
 
     @Test

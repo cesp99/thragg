@@ -14,7 +14,9 @@ import to.eyed.thragg.solana.build.ProjectLayout
  * it: [Deployers.current], which is what turns the Deploy button from "not
  * set up yet" into a deploy, and [BuildRunner.idsDisagree], the full
  * three-way program-id comparison that decides whether an Anchor build runs
- * `anchor keys sync` first. Both are plain properties on the build side so
+ * `anchor keys sync` first — with [BuildRunner.seahorseIdsSync] beside it,
+ * the same sync carried into a Seahorse program's Python, which is where its
+ * `declare_id` actually lives. All are plain properties on the build side so
  * that solana/build never imports solana/chain — the build layer compiles
  * and tests without a wallet, an RPC client or an Ed25519 library on its
  * classpath, and this file is the one place the dependency points the other
@@ -23,13 +25,14 @@ import to.eyed.thragg.solana.build.ProjectLayout
  * Called once from `MainActivity.onCreate`, next to `AgentSeams.install()`,
  * for the same reason that one is: the button asks whether anyone is
  * registered *before* the user reaches a screen that would have registered
- * it. Idempotent; a second call re-registers the same two objects.
+ * it. Idempotent; a second call re-registers the same objects.
  */
 object ChainSeams {
 
     fun install() {
         Deployers.current = FlushingDeployer
         BuildRunner.idsDisagree = ProgramIds::disagree
+        BuildRunner.seahorseIdsSync = ProgramIds::syncSeahorseIds
     }
 }
 

@@ -837,6 +837,26 @@ internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavai
         setup = true,
     )
 
+    // The two optional rows, asked for only by the project that needs them.
+    // Said here, before the run, rather than as `anchor: command not found`
+    // three lines into a log: both are one tap away in Setup, and a Seahorse
+    // project is the one case where "the toolchain is installed" and "this
+    // project can build" differ.
+    layout.framework == ProjectFramework.Anchor && !BuildRunner.tools.anchor -> Unavailable(
+        "Anchor is not installed",
+        "This is an Anchor project, and `anchor build` is what compiles it. Anchor is " +
+            "an optional part of Setup — install the rest of the toolchain and come back.",
+        setup = true,
+    )
+
+    layout.framework == ProjectFramework.Seahorse && !BuildRunner.tools.seahorse -> Unavailable(
+        "Seahorse is not installed",
+        "Seahorse turns this project's Python into an Anchor program before Anchor " +
+            "builds it. It is an optional part of Setup and compiles on this phone in " +
+            "about two minutes — install the rest of the toolchain and come back.",
+        setup = true,
+    )
+
     else -> null
 }
 
@@ -948,7 +968,8 @@ internal fun askAgent(state: ShellState, context: Context, text: String) {
 private fun logText(): String = BuildRunner.log.rows.joinToString("\n") { row ->
     when (row) {
         is to.eyed.thragg.solana.build.BuildLogRow.Command -> "$ ${row.text}"
-        is to.eyed.thragg.solana.build.BuildLogRow.Text -> row.text
+        is to.eyed.thragg.solana.build.BuildLogRow.Text -> stripAnsi(row.text)
+        is to.eyed.thragg.solana.build.BuildLogRow.Progress -> stripAnsi(row.text)
         is to.eyed.thragg.solana.build.BuildLogRow.Note -> "# ${row.text}"
         is to.eyed.thragg.solana.build.BuildLogRow.Summary -> "-- ${row.text}"
         is to.eyed.thragg.solana.build.BuildLogRow.Issue ->

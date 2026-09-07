@@ -10,6 +10,8 @@
     "debian:stable-slim this manifest installs, with a signed provenance",
     "attestation per archive. Compiling them on the phone instead is still a",
     "manifest edit away (method 'cargo-install'); it costs nine minutes.",
+    "Seahorse is the one row that does compile here: a two-minute build of a",
+    "crate nobody publishes for arm64, optional, and last in the graph.",
     "",
     "Order is the order the Setup screen lists, and the order the guest lane",
     "prefers when more than one row is ready. It is NOT the install order any",
@@ -36,7 +38,7 @@
     "component's revision: change the hash and that one row re-installs, while",
     "every other row stays where it is."
   ],
-  "released": "2026-09-02",
+  "released": "2026-09-07",
   "releasedNote": [
     "Bump this date with every edit. The Update button fetches this same file",
     "from github.com/cesp99/solana-tools-arm64 (main branch, manifest.json) and",
@@ -345,6 +347,53 @@
       "required": false,
       "needs": ["platform-tools", "apt-build-tools"],
       "estimatedSeconds": 3
+    },
+    {
+      "id": "seahorse",
+      "name": "Seahorse",
+      "summary": "The Python-to-Anchor compiler. Nobody ships it for arm64, so it compiles here.",
+      "method": "cargo-install",
+      "note": [
+        "seahorse-dev is the maintained fork of Seahorse (solana-developers/",
+        "seahorse); the original seahorse-lang stopped at 0.2.7 in 2023. It is",
+        "a Rust program that parses Python and writes an Anchor program under",
+        "programs/<name>/src, then runs `anchor build` — which is why it needs",
+        "the anchor row. Measured on the Seeker 2026-09-07: 127 crates, ~27 MB",
+        "fetched, 1 min 42 s compiling at the installer's opt-level 0, a 26 MB",
+        "binary. Compiling a few hundred lines of Python is not where an",
+        "opt-level shows.",
+        "",
+        "It formats what it writes with rustfmt, and dies without one. The SBF",
+        "toolchain ships none (platform-tools' rust/bin is cargo, rustc and",
+        "rustdoc), and rustup cannot add components to a linked toolchain, so",
+        "postInstall adds rustfmt to the *editor's* Rust — the one real rustup",
+        "toolchain on the phone — and installs the binary under its own root",
+        "with a two-line wrapper in /opt/solana/cli/bin that puts a rustfmt",
+        "shim first on PATH for the seahorse process alone. Nothing else on the",
+        "phone sees that PATH; `anchor build`, spawned by seahorse, never calls",
+        "rustfmt. The toolchain named in the first postInstall line must be",
+        "rust-editor's version (ToolchainManifestTest keeps them in step).",
+        "",
+        "Optional, like Anchor: a Native or Anchor program builds without it,",
+        "and the Build tab asks for it only for a project with programs_py/."
+      ],
+      "crate": "seahorse-dev",
+      "version": "0.2.0",
+      "root": "/opt/solana/seahorse",
+      "downloadBytes": 27000000,
+      "installBytes": 45000000,
+      "approximate": true,
+      "installPath": "/opt/solana/seahorse",
+      "marker": "/opt/solana/seahorse/bin/seahorse",
+      "postInstall": [
+        ["/root/.cargo/bin/rustup", "component", "add", "rustfmt", "--toolchain", "1.98.1-aarch64-unknown-linux-gnu"],
+        ["/bin/sh", "-c", "mkdir -p /opt/solana/seahorse/fmt && printf '#!/bin/sh\nexec /root/.cargo/bin/rustfmt +thragg-editor \"$@\"\n' > /opt/solana/seahorse/fmt/rustfmt && chmod 755 /opt/solana/seahorse/fmt/rustfmt"],
+        ["/bin/sh", "-c", "printf '#!/bin/sh\n# Thragg: seahorse formats its output with rustfmt, which only the editor toolchain has.\nexport PATH=/opt/solana/seahorse/fmt:$PATH\nexec /opt/solana/seahorse/bin/seahorse \"$@\"\n' > /opt/solana/cli/bin/seahorse && chmod 755 /opt/solana/cli/bin/seahorse"]
+      ],
+      "verify": ["/opt/solana/cli/bin/seahorse", "--version"],
+      "required": false,
+      "needs": ["anchor", "rust-editor"],
+      "estimatedSeconds": 135
     }
   ],
   "cargoScratch": "/opt/solana/build"

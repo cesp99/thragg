@@ -39,17 +39,48 @@ class ToolchainManifestTest {
     }
 
     /**
-     * Eight rows, every one of them a sized download, which is what the Setup
-     * screen promises in words (docs/UI.md, "First run"). The two build
-     * drivers used to compile on the phone; since 2026-09-02 they come
-     * prebuilt from cesp99/solana-tools-arm64, and a row going back to
-     * `cargo-install` without the screen's copy changing would be a silent
-     * nine-minute lie.
+     * Nine rows, and exactly one of them compiles on the device: Seahorse.
+     * The two build drivers used to compile on the phone; since 2026-09-02
+     * they come prebuilt from cesp99/solana-tools-arm64, and a driver going
+     * back to `cargo-install` without the Setup screen's copy changing would
+     * be a silent nine-minute lie. Seahorse is the exception on purpose — no
+     * one publishes it for arm64 and it is a two-minute build — and it is
+     * optional, so the gate never waits on it.
      */
     @Test
-    fun `lists eight components, none of them compiled on the device`() {
-        assertEquals(8, manifest.components.size)
-        assertEquals(0, manifest.components.count { it.isCompiled })
+    fun `lists nine components, and only Seahorse is compiled on the device`() {
+        assertEquals(9, manifest.components.size)
+        assertEquals(listOf("seahorse"), manifest.components.filter { it.isCompiled }.map { it.id })
+        assertFalse(manifest.component("seahorse")!!.required)
+    }
+
+    /**
+     * Seahorse formats what it generates with rustfmt, and the SBF toolchain
+     * ships none — so its install adds rustfmt to the editor's Rust, which
+     * must be the very toolchain rust-editor pins, and hides that behind a
+     * wrapper on the guest PATH. It runs `anchor build` itself, so it waits
+     * for Anchor. Each of these was a failed `seahorse build` on the phone
+     * before it was a line here (2026-09-07).
+     */
+    @Test
+    fun `seahorse builds from crates io, waits for anchor, and brings the rustfmt it needs`() {
+        val seahorse = manifest.component("seahorse")!!
+        assertEquals(InstallMethod.CargoInstall, seahorse.method)
+        assertEquals("seahorse-dev", seahorse.crate)
+        assertEquals(setOf("anchor", "rust-editor"), seahorse.needs.toSet())
+        assertEquals("/opt/solana/seahorse", seahorse.cargoRoot)
+        assertTrue(seahorse.marker.startsWith("/opt/solana/seahorse/"))
+
+        val editor = manifest.component("rust-editor")!!
+        val rustfmt = seahorse.postInstall.first { "rustfmt" in it && "component" in it }
+        val toolchain = rustfmt[rustfmt.indexOf("--toolchain") + 1]
+        assertTrue("$toolchain does not name rust-editor's ${editor.version}", toolchain.startsWith(editor.version!!))
+        assertTrue(editor.installPath.endsWith(toolchain))
+
+        val wrapper = seahorse.postInstall.flatten().joinToString("\n")
+        assertTrue(wrapper.contains("> /opt/solana/cli/bin/seahorse"))
+        assertTrue(wrapper.contains("rustfmt +thragg-editor"))
+        assertEquals(listOf("/opt/solana/cli/bin/seahorse", "--version"), seahorse.verify)
     }
 
     /**
@@ -363,7 +394,7 @@ class ToolchainManifestTest {
             assertTrue("${component.id} has no estimatedSeconds", component.estimatedSeconds > 0L)
         }
         val lane = manifest.components.filter { it.onGuestLane }.map { it.id }.toSet()
-        assertEquals(setOf("debian", "rust-editor", "apt-build-tools"), lane)
+        assertEquals(setOf("debian", "rust-editor", "apt-build-tools", "seahorse"), lane)
         assertTrue(manifest.estimatedWallSeconds < manifest.totalEstimatedSeconds)
         assertEquals(
             manifest.components.filter { it.id in lane }.sumOf { it.estimatedSeconds },

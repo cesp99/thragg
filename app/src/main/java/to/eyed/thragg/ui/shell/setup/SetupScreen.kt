@@ -118,12 +118,14 @@ import to.eyed.thragg.ui.theme.touchTarget
  *     this one, and is called an estimate.
  *  2. **Two kinds of row.** A sized download counts bytes and a rate; an
  *     on-device compile counts *seconds*. `cargo-build-sbf` and `anchor` have
- *     no arm64 binary anywhere upstream and are built here, and a MB bar on a
- *     four-minute compile would be an invention.
- *  3. **The gate opens on the required rows.** Anchor is optional in the
- *     manifest and is the longest compile; when everything Build needs is in
- *     and Anchor is still going, the button says so and lets the user through
- *     while it finishes in the background.
+ *     no arm64 binary anywhere upstream and used to be built here; today they
+ *     come prebuilt from our own workflow and Seahorse is the one row that
+ *     still compiles on the phone. A MB bar on a two-minute compile would be
+ *     an invention.
+ *  3. **The gate opens on the required rows.** Anchor and Seahorse are
+ *     optional in the manifest and last in the graph; when everything Build
+ *     needs is in and they are still going, the button says so and lets the
+ *     user through while they finish in the background.
  *
  * Leaving the screen does not stop the install — [ToolchainInstaller] lives
  * outside the composition and holds the terminal's foreground notification

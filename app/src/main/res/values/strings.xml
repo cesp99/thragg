@@ -272,7 +272,7 @@
     <string name="solana_framework_native_blurb">One entrypoint and nothing else. Every byte is yours to parse.</string>
     <string name="solana_framework_seahorse">Seahorse</string>
     <string name="solana_framework_seahorse_language">Python</string>
-    <string name="solana_framework_seahorse_blurb">Python that compiles to an Anchor program. Builds through anchor build and needs Python in the guest.</string>
+    <string name="solana_framework_seahorse_blurb">Python that compiles to an Anchor program. Builds through anchor build; the compiler is an optional part of Setup.</string>
     <!-- agent: every sentence that names the agent the panel is *connected to*.
          The name is a placeholder and never a literal, because ACP is a
          standard and the bundled agent is one entry in agent_servers like any

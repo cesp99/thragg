@@ -382,6 +382,7 @@ Programs are compiled by `cargo-build-sbf`, which drives the platform-tools
 
 ```
 Build   →  anchor build            (Anchor)
+           seahorse build          (Seahorse: Python → Rust, then anchor build)
            cargo build-sbf         (Native)
 Test    →  anchor test / cargo test
 Deploy  →  solana program deploy target/deploy/<name>.so
@@ -401,7 +402,17 @@ The new-project dialog mirrors Solana Playground's: a name and a framework.
 |---|---|
 | **Anchor (Rust)** | `Anchor.toml`, `programs/<name>/src/lib.rs`, `tests/` |
 | **Native (Rust)** | `Cargo.toml` against `solana-program`, `src/lib.rs` |
-| **Seahorse (Python)** | a Seahorse program that compiles down to Anchor |
+| **Seahorse (Python)** | `programs_py/<name>.py`, the crate manifest and a placeholder `lib.rs` under `programs/<name>/` that `seahorse build` regenerates, and the same `Anchor.toml` — Seahorse *is* an Anchor project |
+
+Seahorse's compiler is the one component that compiles on the phone: nobody
+publishes `seahorse-dev` for arm64, and at two minutes it is not worth a
+workflow. It formats the Rust it writes with `rustfmt`, which platform-tools
+does not ship, so its install adds `rustfmt` to the editor's Rust toolchain
+and puts a shim first on `PATH` for the `seahorse` process alone (see the
+manifest's own note). Its `declare_id('…')` lives in the Python — the
+generated `lib.rs` is overwritten on every build — so Build's program-id sync
+rewrites the `.py` after `anchor keys sync`, or the next build would put the
+placeholder back.
 
 ## Wallet and cluster
 

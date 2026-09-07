@@ -140,6 +140,16 @@ object BuildRunner {
      */
     var idsDisagree: ((ProjectLayout) -> Boolean)? = null
 
+    /**
+     * Point a Seahorse program's `declare_id('…')` — in its Python source — at
+     * the program keypair, returning the project-relative files rewritten.
+     * Registered with [idsDisagree] by the chain layer, which owns the keypair
+     * reading. It exists because `anchor keys sync` stops at `lib.rs`, and a
+     * Seahorse `lib.rs` is regenerated from the Python by the very build that
+     * follows the sync (see `ProgramIds.syncSeahorseIds`).
+     */
+    var seahorseIdsSync: ((ProjectLayout) -> List<String>)? = null
+
     // --- state -----------------------------------------------------------------
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -355,18 +365,36 @@ object BuildRunner {
             }
             if (generation != generationAtStart) return RunResult(-1, emptyList(), null)
         }
+        // 2b. For Seahorse the sync has to reach the Python, or the build
+        // that follows regenerates lib.rs with the placeholder back in it.
+        if (action == BuildAction.Build && project.framework == ProjectFramework.Seahorse) {
+            for (path in seahorseIdsSync?.invoke(project).orEmpty()) {
+                log.append(
+                    BuildLogRow.Note(
+                        "declare_id in $path now names the program keypair — " +
+                            "seahorse build regenerates lib.rs from it"
+                    )
+                )
+            }
+        }
 
         // 3-5. Spawn, stream, parse.
         val parser = CargoDiagnostics(command.jsonDiagnostics)
         val issues = ArrayList<BuildIssue>()
-        fun consume(events: List<BuildLogEvent>) {
+        // [redraw] is true for a record the program ended with `\r` — a line it
+        // is drawing in place — which the log shows as one live row rather
+        // than as a row per frame. A diagnostic found in one is still a
+        // diagnostic.
+        fun consume(events: List<BuildLogEvent>, redraw: Boolean = false) {
             for (event in events) {
                 when (event) {
                     is BuildLogEvent.Issue -> {
                         issues.add(event.issue)
                         log.append(BuildLogRow.Issue(event.issue))
                     }
-                    is BuildLogEvent.Text -> log.append(BuildLogRow.Text(event.line))
+                    is BuildLogEvent.Text ->
+                        if (redraw) log.progress(BuildLogRow.Progress(event.line))
+                        else log.append(BuildLogRow.Text(event.line))
                 }
             }
         }
@@ -384,15 +412,15 @@ object BuildRunner {
             command.line,
             onProgress = { line ->
                 throttle.progress(line, System.currentTimeMillis())
-                    ?.let { consume(parser.feed(it)) }
+                    ?.let { consume(parser.feed(it), redraw = true) }
             },
         ) { line ->
             // Order matters: the redraw the throttle is holding happened
             // before this line did.
-            throttle.drain()?.let { consume(parser.feed(it)) }
+            throttle.drain()?.let { consume(parser.feed(it), redraw = true) }
             consume(parser.feed(line))
         }
-        throttle.drain()?.let { consume(parser.feed(it)) }
+        throttle.drain()?.let { consume(parser.feed(it), redraw = true) }
         consume(parser.flush())
         return RunResult(exit, issues, null)
     }
@@ -449,7 +477,23 @@ object BuildRunner {
         val elapsed = System.currentTimeMillis() - startedAt
         val errors = result.issues.count { it.severity == DiagnosticSeverity.Error }
         val warnings = result.issues.count { it.severity == DiagnosticSeverity.Warning }
-        val failed = result.exit != 0
+        // Seahorse's exit code lies on a first build (BuildTasks.seahorseExitIsFalseFailure).
+        val artifactModifiedAt = project.primary
+            ?.let { File(project.root, it.artifactPath).lastModified() } ?: 0L
+        val falseFailure = action == BuildAction.Build &&
+            BuildTasks.seahorseExitIsFalseFailure(
+                project.framework, result.exit, errors, artifactModifiedAt, startedAt,
+            )
+        if (falseFailure) {
+            log.append(
+                BuildLogRow.Note(
+                    "seahorse build exited ${result.exit}, but anchor build wrote the program: " +
+                        "Seahorse reads any \"error\" in cargo's output — a crate named " +
+                        "solana-program-error is enough — as a failure. Trusting the artifact."
+                )
+            )
+        }
+        val failed = result.exit != 0 && !falseFailure
 
         lastIssues = result.issues
         BuildDiagnostics.publish(project.root, producerTag(command), result.issues)

@@ -856,8 +856,10 @@ object ToolchainInstaller {
             add("--target-dir")
             add(component.targetDir ?: manifest.cargoScratch)
         }
-        // Both of these crates are *drivers*: they spawn the platform-tools
-        // compiler and shuffle files, and their own runtime is process-spawn
+        // Every crate this path has built is a *driver* or a small compiler:
+        // cargo-build-sbf and anchor spawn the platform-tools compiler and
+        // shuffle files, and Seahorse turns a few hundred lines of Python into
+        // Rust before doing the same. Their own runtime is process-spawn
         // noise. cargo's release profile — opt 3, one codegen unit's worth of
         // waiting per big crate — buys nothing here and costs real minutes.
         // Measured on the Seeker, 2026-09-02, cargo-build-sbf with a warm

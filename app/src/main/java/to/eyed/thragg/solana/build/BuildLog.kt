@@ -50,6 +50,29 @@ class BuildLog {
         lastFlush = 0L
     }
 
+    /**
+     * A redraw of the line the program is drawing in place — a spinner, a
+     * byte counter. It *replaces* the previous [BuildLogRow.Progress] when
+     * that is the newest row, and is appended otherwise, so a spinner that
+     * redraws for six minutes is one live row and not seven hundred
+     * (docs/UI.md, "Build — the payoff loop": "the log never scrolls itself
+     * for a progress bar").
+     */
+    fun progress(row: BuildLogRow.Progress) {
+        synchronized(queued) {
+            when {
+                queued.lastOrNull() is BuildLogRow.Progress -> queued[queued.lastIndex] = row
+                queued.isEmpty() && entries.lastOrNull() is BuildLogRow.Progress ->
+                    entries[entries.lastIndex] = row
+                else -> queued.add(row)
+            }
+            val now = System.nanoTime()
+            if (now - lastFlush < FLUSH_INTERVAL_NS) return
+            lastFlush = now
+            drain()
+        }
+    }
+
     /** Append a row, visible on the next flush or within ~100 ms. */
     fun append(row: BuildLogRow) {
         synchronized(queued) {
@@ -97,7 +120,7 @@ class BuildLog {
     }
 }
 
-/** One row of the log. The four kinds the screen draws differently. */
+/** One row of the log. The kinds the screen draws differently. */
 sealed interface BuildLogRow {
 
     /** `14:22  anchor build` — the head of a run, with its wall-clock time. */
@@ -105,6 +128,14 @@ sealed interface BuildLogRow {
 
     /** Anything the build printed that is not a problem. Monospace, verbatim. */
     data class Text(val text: String) : BuildLogRow
+
+    /**
+     * The line a program is redrawing in place — terminated by `\r`, not
+     * `\n`: Seahorse's spinner, cargo-build-sbf's download counter. Drawn
+     * like [Text], but the next redraw replaces it rather than following it
+     * ([BuildLog.progress]).
+     */
+    data class Progress(val text: String) : BuildLogRow
 
     /**
      * A problem, tappable when it has a location. This is the row the whole
