@@ -34,7 +34,10 @@ import to.eyed.thragg.ui.theme.ThraggTheme
 import to.eyed.thragg.ui.theme.ThemeStore
 import to.eyed.thragg.terminal.TerminalService
 import to.eyed.thragg.terminal.Userland
+import to.eyed.thragg.ui.shell.SessionRestore
+import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.ThraggShell
+import to.eyed.thragg.ui.shell.code.CodeState
 
 class MainActivity : ComponentActivity() {
 
@@ -202,6 +205,10 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         AgentSessions.appInForeground = false
+        // Where you were, written on the way out — Android kills a stopped
+        // process holding a 1.4 GB toolchain within a minute, and this is the
+        // last main-thread moment that still has every buffer and caret.
+        SessionRestore.save(ShellState.current, CodeState.current)
     }
 
     override fun onResume() {

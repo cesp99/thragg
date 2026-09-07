@@ -112,6 +112,9 @@ object ProjectsRoot {
         // Guard against a name that somehow escapes the root.
         if (dir.parentFile != directory(context)) return false
         if (lastOpened(context) == name) setLastOpened(context, null)
+        // Its saved place goes with it, or a project created later under the
+        // same name would open yesterday's files (engine/src/session.rs).
+        runCatching { CoreBridge.sessionClear(dir.absolutePath) }
         // Symlink-safe: a project may contain links (a clone with a
         // node_modules symlink, say) and deleting one must not chase it out of
         // the project. See SafeDelete.

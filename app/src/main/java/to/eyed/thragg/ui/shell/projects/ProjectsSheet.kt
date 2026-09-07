@@ -70,9 +70,11 @@ import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.components.fadeUnderBottomActions
 import to.eyed.thragg.ui.components.outlinedButtonEdge
 import to.eyed.thragg.ui.shell.Route
+import to.eyed.thragg.ui.shell.SessionRestore
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.build.ShellModes
+import to.eyed.thragg.ui.shell.code.CodeState
 import to.eyed.thragg.ui.shell.settings.WalletSheet
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
@@ -508,6 +510,9 @@ internal suspend fun openProjectInShell(
 ): ProjectSession? {
     val previous = state.project
     if (previous?.rootPath == path) return previous
+    // The old project's place is written before anything of it is torn down:
+    // the buffers, the carets and the destination are all still here.
+    if (switching) SessionRestore.save(state, CodeState.current)
     // Everything pushed over a destination named the old project's files.
     if (switching) state.reset()
     // …and so did every running shell. WorkspaceScreen.kt:1197 dropped the
@@ -538,6 +543,10 @@ internal suspend fun openProjectInShell(
         return null
     }
     state.project = opened
+    // …and the new one's place comes back: its files into Code's queue, its
+    // Shell mode, and — on the launch-time restore only — the destination it
+    // was on. A switch lands on Code, as `reset()` decided a line ago.
+    SessionRestore.restore(state, CodeState.current, opened, applyDestination = !switching)
     return opened
 }
 

@@ -55,6 +55,7 @@ import to.eyed.thragg.core.LOCAL_SETTINGS_PATH
 import to.eyed.thragg.core.LanguageSettings
 import to.eyed.thragg.core.ProjectSession
 import to.eyed.thragg.core.ResumedEffect
+import to.eyed.thragg.core.SessionItem
 import to.eyed.thragg.core.ShareOut
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.common.BinaryPlaceholder
@@ -81,6 +82,7 @@ import to.eyed.thragg.ui.shell.BuildState
 import to.eyed.thragg.ui.shell.Destination
 import to.eyed.thragg.ui.shell.Route
 import to.eyed.thragg.ui.shell.ShellState
+import to.eyed.thragg.ui.shell.restoreIn
 import to.eyed.thragg.ui.shell.agent.AgentSeams
 import to.eyed.thragg.ui.shell.agent.agentFixPrompt
 import to.eyed.thragg.ui.shell.build.CodeJump
@@ -438,6 +440,12 @@ fun CodeScreen(
         while (code.pendingOpens.isNotEmpty()) {
             val pending = code.pendingOpens.removeAt(0)
             openFile(relativeTo(open, pending.path)) { file ->
+                // A restored place carries its own caret and scroll
+                // (ui/shell/SessionRestore.kt) and is put back whole.
+                pending.restore?.let { saved ->
+                    saved.restoreIn(file)
+                    return@openFile
+                }
                 // 1-based from the compiler and from the terminal, 0-based in
                 // the buffer; 0 means "no position was known", and then the
                 // caret is left exactly where this file was last read.
@@ -675,7 +683,6 @@ fun CodeScreen(
                         modifier = Modifier.fillMaxSize(),
                         fileName = active.name,
                         languageSettings = active.languageSettings.wrappedForAPhone(),
-                        showInlineBlame = active.languageSettings.inlineBlame,
                         onOpenDefinition = { target ->
                             // The server answers in absolute paths and the project
                             // opens by its own relative spelling; a target outside
@@ -1117,7 +1124,16 @@ class CodeState {
  * a plain [ShellState.openPath] hands over, and is answered by leaving the
  * caret where the file was last left rather than by jumping to line 1.
  */
-data class PendingOpen(val path: String, val row: Int = 0, val column: Int = 0)
+data class PendingOpen(
+    val path: String,
+    val row: Int = 0,
+    val column: Int = 0,
+    /**
+     * A saved place to put back whole — caret and scroll — instead of a line
+     * to jump to. Set only by the session restore (ui/shell/SessionRestore.kt).
+     */
+    val restore: SessionItem? = null,
+)
 
 object CodeBuildSeam {
     /** Run a build of [project]. Set once, at startup, by P4. */
