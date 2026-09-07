@@ -13,8 +13,9 @@ package to.eyed.thragg.ui.editor
  *
  * Every one of them is multi-caret by construction. Where Zed's own
  * behaviour is not obvious the comment says which of its actions was
- * followed; the bindings are in `EditorPane.handleEditorKey` and the
- * user-facing list is `docs/SHORTCUTS.md`.
+ * followed; the few hardware-keyboard bindings that remain are in
+ * `EditorPane.handleEditorKey`, and every command has a touch target on the
+ * editor's action row (docs/UI.md, "Code with the soft keyboard up").
  */
 
 /** Rows read per bridge call while searching for occurrences. */

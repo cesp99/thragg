@@ -699,14 +699,6 @@ class EditorState private constructor(
         const val GUTTER_FOLD_CHARS = 3
         const val GUTTER_PADDING_CHARS = GUTTER_LEFT_CHARS + GUTTER_FOLD_CHARS
 
-        /**
-         * The blame column: a 7-character sha, the author (Zed's 20-character
-         * cap, `BLAME_MAX_AUTHOR_CHARS`), a relative date of up to 14
-         * characters ("14 minutes ago"), and a gap between each — Zed's
-         * `blame_entry_non_text_width` plus the longest text it lays out
-         * (editor.rs:11975-11985).
-         */
-        const val BLAME_COLUMN_CHARS = 7 + 1 + 20 + 1 + 14 + 2
 
         /**
          * How many times [ensureCursorVisible] will re-measure before it
@@ -725,7 +717,7 @@ class EditorState private constructor(
      * does not grow with the file, the numbers are trimmed instead.
      */
     val gutterWidthPx: Float
-        get() = (GUTTER_DIGITS + GUTTER_PADDING_CHARS) * charWidthPx + blameColumnPx
+        get() = (GUTTER_DIGITS + GUTTER_PADDING_CHARS) * charWidthPx
 
     /**
      * The gutter's fold column: the line numbers end where it begins, and the
@@ -1265,16 +1257,6 @@ class EditorState private constructor(
      */
     internal var onImeNewline: (() -> Boolean)? = null
 
-    /**
-     * The vim layer over this editor while the `vim_mode` setting is on, or
-     * null — Zed's `VimAddon` on an `Editor` (vim.rs `Vim::activate`). Held
-     * here rather than in the pane because the input connection, the draw
-     * pass and the status bar all need the same one, and it must outlive a
-     * recomposition: a mode is state the user is in.
-     */
-    var vim: to.eyed.thragg.ui.editor.vim.VimState? by mutableStateOf(null)
-        internal set
-
     /** Adopt a fresh read from `bufferDiagnostics`. */
     fun showDiagnostics(fresh: BufferDiagnostics) {
         diagnostics = fresh
@@ -1457,7 +1439,7 @@ class EditorState private constructor(
         return true
     }
 
-    // ---- Git hunks and blame ---------------------------------------------
+    // ---- Git hunks ------------------------------------------------------
 
     /**
      * The gutter's hunks, mirrored from the annotations poll so the commands
@@ -1510,26 +1492,6 @@ class EditorState private constructor(
 
     /** What the last hunk command said when it failed — shown over the pane. */
     internal var hunkError: String? by mutableStateOf(null)
-
-    /**
-     * Zed's `git::Blame` toggle: the blame column left of the gutter. Per
-     * editor, as Zed's `GitBlame` lives on the editor
-     * (editor.rs `toggle_git_blame`).
-     */
-    var showBlameGutter: Boolean by mutableStateOf(false)
-        private set
-
-    /**
-     * How wide the blame column is, in pixels: Zed's `GIT_BLAME_MAX_AUTHOR_CHARS_DISPLAYED`
-     * (20) plus a short sha, a relative date and the gaps between them.
-     */
-    val blameColumnPx: Float
-        get() = if (showBlameGutter) BLAME_COLUMN_CHARS * charWidthPx else 0f
-
-    fun toggleBlameGutter() {
-        showBlameGutter = !showBlameGutter
-        bumpRevision()
-    }
 
     /**
      * The display switches Zed keeps *on the editor* rather than in the file

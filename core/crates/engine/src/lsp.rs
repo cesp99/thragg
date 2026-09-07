@@ -350,7 +350,6 @@ pub(crate) fn server_binary(
     server: &Server,
     root: &Path,
     binary: Option<&crate::config::BinarySettings>,
-    toolchain: &crate::ToolchainEnv,
 ) -> LanguageServerBinary {
     let argv = server_argv(server, binary);
     // `workdir` both binds the project and starts the server inside it: unlike
@@ -358,14 +357,11 @@ pub(crate) fn server_binary(
     // looking around the directory it was started in.
     let mut command = GuestCommand::new(server.name.to_owned(), argv).workdir(root);
     // The server's own needs first ([`EDITOR_TOOLCHAIN`] for rust-analyzer),
-    // then the active toolchain, then the user's `lsp.<server>.binary.env`
-    // over both: a server started outside the project's virtualenv cannot
-    // resolve a single one of its imports, and a `binary.env` written by
-    // hand is the most specific instruction of the three.
+    // then the user's `lsp.<server>.binary.env` over them: a `binary.env`
+    // written by hand is the more specific instruction of the two. The
+    // Solana toolchain's `PATH` comes with the guest environment itself
+    // (ShellEnvironment.kt); there is no per-project toolchain picker.
     for (key, value) in server.env {
-        command = command.env(key, value);
-    }
-    for (key, value) in toolchain.iter() {
         command = command.env(key, value);
     }
     if let Some(env) = binary.and_then(|binary| binary.env.as_ref()) {
@@ -2920,14 +2916,7 @@ impl crate::Engine {
         // `lsp.<server>` entry with the project's on top. Changing it means
         // restarting the server, as it does in Zed.
         let lsp_settings = self.lsp_settings(Some(project), server.name);
-        let toolchain = self.toolchain_env(project);
-        let binary = server_binary(
-            &userland,
-            &server,
-            &root,
-            lsp_settings.binary.as_ref(),
-            &toolchain,
-        );
+        let binary = server_binary(&userland, &server, &root, lsp_settings.binary.as_ref());
         log::info!(
             "lsp: starting {} for project {project} in {}",
             server.name,
@@ -5439,7 +5428,7 @@ mod tests {
 
         let (server, language_id) = server_for("rust").expect("rust has a server");
         assert_eq!(language_id, "rust");
-        let binary = server_binary(&userland, &server, &root, None, &Default::default());
+        let binary = server_binary(&userland, &server, &root, None);
 
         assert_eq!(binary.path, dir.path().join("libproot_exec.so"));
         let args: Vec<String> = binary
@@ -5548,7 +5537,7 @@ mod tests {
             ..Default::default()
         };
         let (rust, _) = server_for("rust").unwrap();
-        let binary = server_binary(&userland, &rust, &root, Some(&with_env), &Default::default());
+        let binary = server_binary(&userland, &rust, &root, Some(&with_env));
         let args: Vec<String> = binary
             .arguments
             .iter()

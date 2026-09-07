@@ -2,7 +2,7 @@
 
 Thanks for your interest! Thragg is an open-source (GPL-3.0)
 attempt to bring a Zed-class IDE to Android. Contributions of all kinds
-are welcome: code, docs, testing on real foldables/tablets, theme and
+are welcome: code, docs, testing on a real Solana Seeker, theme and
 grammar work.
 
 ## Ground rules
@@ -152,7 +152,7 @@ provenance reasons is worse for everyone than a question.
 ## Workflow
 
 1. Fork, branch from `master`.
-2. `./gradlew assembleStandardDebug` must pass (see `docs/BUILDING.md`).
+2. `./gradlew assembleDebug` must pass (see `docs/BUILDING.md`).
 3. `cd core && cargo test && cargo clippy` must pass.
 4. Every commit is signed off (`git commit -s`) — CI checks it.
 5. Open a PR with a clear description of what and why.

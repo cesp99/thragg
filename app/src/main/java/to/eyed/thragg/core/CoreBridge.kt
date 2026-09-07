@@ -606,25 +606,11 @@ object CoreBridge {
     external fun gitBranchPatch(projectId: Long, base: String): String
 
     /**
-     * A page of commit history, newest first, as JSON — `{"commits":[…]}` or
-     * `{"error":…}`. [allRefs] walks every branch, remote and tag in
-     * `--date-order` — the graph's view; false is the plain HEAD walk the
-     * History tab shows. **Blocking** — it runs git.
-     */
-    external fun gitLog(projectId: Long, limit: Long, skip: Long, allRefs: Boolean): String
-
-    /**
      * What one commit changed against its first parent, in [gitPatch]'s JSON
      * shape. An empty [path] is the whole commit; a path narrows it to one
      * file. **Blocking** — it runs git.
      */
     external fun gitCommitPatch(projectId: Long, sha: String, path: String): String
-
-    /**
-     * One commit in full: its fields, its whole message and the paths it
-     * touched. **Blocking** — it runs git.
-     */
-    external fun gitCommitDetails(projectId: Long, sha: String): String
 
     /**
      * Who commits are recorded as, as JSON `{"name":…,"email":…}`. Both empty
@@ -693,17 +679,6 @@ object CoreBridge {
     ): Long
 
     /**
-     * Who last touched each run of rows, as JSON — see [BlameLine].
-     *
-     * The rows are the rows of the file **on disk**. git blames what it can
-     * read, and a buffer with unsaved edits has drifted from that.
-     *
-     * **Blocking and uncached**: it runs git every time. Ask when the user asks
-     * for blame, off the main thread — never on a poll loop.
-     */
-    external fun gitBlame(bufferId: Long): String
-
-    /**
      * The rows HEAD had where a hunk now is — the deleted lines an expanded
      * hunk draws — as a JSON array of strings, or null while the base text
      * is still on its way. A cache read: never runs git.
@@ -756,26 +731,9 @@ object CoreBridge {
      */
     external fun gitPathHunkRestore(projectId: Long, path: String, startRow: Long, endRow: Long): String?
 
-    /**
-     * `git stash list` as JSON — see [StashEntry]. Newest first. **Blocking**.
-     */
-    external fun gitStashList(projectId: Long): String
-
-    /**
-     * `git stash push`: [kind] is [StashKind]'s ordinal; an empty message
-     * means none. Null when it worked. **Blocking**.
-     */
-    external fun gitStashPush(projectId: Long, kind: Int, message: String): String?
-
     /** `git stash pop [stash@{N}]`; a negative [index] pops the latest. **Blocking**. */
-    external fun gitStashPop(projectId: Long, index: Long): String?
-
     /** `git stash apply [stash@{N}]`. **Blocking**. */
-    external fun gitStashApply(projectId: Long, index: Long): String?
-
     /** `git stash drop [stash@{N}]`. **Blocking**. */
-    external fun gitStashDrop(projectId: Long, index: Long): String?
-
     // -----------------------------------------------------------------------
     // Settings. The file is JSONC and hand-editable; writes are surgical, so
     // comments survive. All of these touch the filesystem — call them off the
@@ -819,29 +777,6 @@ object CoreBridge {
      * settings as JSON, or null on failure.
      */
     external fun removeAgentServer(name: String): String?
-
-    // -----------------------------------------------------------------------
-    // Keymap. Zed's keymap.json, next to settings.json. The engine parses
-    // and layers it; the app decides what the names mean. Both touch the
-    // filesystem — call them off the main thread.
-    // -----------------------------------------------------------------------
-
-    /**
-     * The keymap file's raw JSONC, created with a commented starter on first
-     * use — so opening it as a tab always finds a file.
-     */
-    external fun keymapText(): String
-
-    /**
-     * The resolved keymap as JSON: `{"bindings": [{context, keystrokes,
-     * action, args, source}…], "errors": [sentence…]}`. [defaultKeymapJson]
-     * is the app's own table in keymap-file form (`DefaultKeymap.json()`),
-     * whose action names are what the engine treats as existing; the base
-     * keymap `settings.json` names and then the user's file are layered on
-     * top, later bindings outranking earlier ones at the same context depth.
-     * Never null.
-     */
-    external fun loadKeymap(defaultKeymapJson: String): String
 
     /**
      * The built-in default settings as documented JSONC text — what Zed's
@@ -2083,31 +2018,6 @@ object CoreBridge {
     external fun taskResolve(projectId: Long, contextJson: String, templateJson: String): String?
 
     /**
-     * Every toolchain the project could use, as a JSON array of
-     * `{name, path, language, source}` — Zed's `toolchain::Select` list:
-     * the virtualenvs under the project, poetry's environment, rustup's
-     * toolchains, and whatever `python3`/`cargo` are on the guest's PATH.
-     *
-     * **Blocking** — stats the project and runs a few short programs inside
-     * the Debian userland. Call it off the main thread.
-     */
-    external fun toolchains(projectId: Long): String
-
-    /**
-     * The toolchains in force for the project, one per language, in the same
-     * shape as [toolchains]. Reads a small file; never touches the userland.
-     */
-    external fun activeToolchains(projectId: Long): String
-
-    /**
-     * Choose a toolchain for [language] in the project, or clear it when
-     * [toolchainJson] is null. Restarts the project's language servers, which
-     * is what makes the interpreter take effect. **Blocking** — writes a
-     * small file.
-     */
-    external fun setToolchain(projectId: Long, language: String, toolchainJson: String?): Boolean
-
-    /**
      * The rows the grammar's `runnables.scm` marks — the play buttons — as a
      * JSON array of `{row, col_utf16, tags, captures, run_text, end_row}` in
      * row order. Empty for a language without runnables; null for an unknown
@@ -2116,74 +2026,9 @@ object CoreBridge {
      */
     external fun bufferRunnables(bufferId: Long): String?
 
-    // ---- multibuffers --------------------------------------------------
-    //
-    // Zed's signature surface (crates/multi_buffer): excerpts of several files
-    // in one editable document. The engine composes them into a *mirror*
-    // buffer whose id comes back in [multibufferInfo]; render that with the
-    // ordinary editor and the ordinary [applyEdit]/[undoBuffer] calls on it
-    // are routed to the underlying files, so undo, `didChange` and the dirty
-    // flag all happen per file.
-
-    /**
-     * Opens a multibuffer over [excerptsJson]: a JSON array of
-     * `{"path", "abs", "row", "endRow"}` with 0-based rows, `abs` defaulting
-     * to `root/path` and `endRow` to `row`. The engine adds two rows of
-     * context around each and merges the excerpts that then touch.
-     *
-     * Returns its id, or -1 when not one of the files could be read.
-     * **Blocking** (it opens every file it excerpts) — call it off the main
-     * thread.
-     */
-    external fun multibufferCreate(
-        title: String,
-        kind: String,
-        root: String,
-        excerptsJson: String,
-    ): Long
-
-    /**
-     * The mirror buffer to render, the headers to draw over it and how many of
-     * its files are dirty, as JSON — see [MultiBufferInfo]. Null once the
-     * engine has forgotten the id.
-     */
-    external fun multibufferInfo(multibufferId: Long): String?
-
-    /**
-     * Which file, and which row of it, a display row of the mirror shows:
-     * `{"path", "absPath", "row", "header"}`. Null for a row outside every
-     * excerpt.
-     */
-    external fun multibufferLocate(multibufferId: Long, row: Long): String?
-
-    /**
-     * Recomposes the mirror if a file behind it moved — because its own tab
-     * was edited, or it was reloaded from disk. Returns the mirror's content
-     * version, so the pane can poll this and only redraw when it changes; -1
-     * for an unknown id.
-     */
-    external fun multibufferSync(multibufferId: Long): Long
-
-    /**
-     * Writes every dirty file in the multibuffer — Zed's SaveAll, which is
-     * what Ctrl+S does over one. Returns
-     * `{"saved": [path], "failed": ["path: reason"]}`, or null for an unknown
-     * id. **Blocking** — call it off the main thread.
-     */
-    external fun multibufferSaveAll(multibufferId: Long): String?
-
-    /**
-     * Closes a multibuffer and releases the files it opened on demand.
-     *
-     * [keepBufferIds] names the buffers the caller still has tabs on, which
-     * the engine cannot know; those, and any file left with unsaved edits, are
-     * kept open.
-     */
-    external fun multibufferClose(multibufferId: Long, keepBufferIds: LongArray): Boolean
-
     // -----------------------------------------------------------------------
-    // Workspace sessions — one JSON document per project (the pane tree, the
-    // tabs with their carets and scroll, the docks, the terminal tabs) and
+    // Workspace sessions — one JSON document per project (the open files
+    // with their carets and scroll, the destination, the Shell mode) and
     // the recent-projects list. The engine owns the format and every rule
     // about putting one back; see engine/src/session.rs and
     // [WorkspaceSession]. All of these touch the filesystem: **blocking**,

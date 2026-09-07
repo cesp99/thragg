@@ -76,17 +76,7 @@ fun UnsavedChangesDialog(files: OpenFilesState) {
                 onClick = {
                     saving = true
                     scope.launch {
-                        // A multibuffer saves every file in it — Zed's
-                        // SaveAll — and the composed buffer has no file of its
-                        // own to write to.
-                        val multibuffer = file.multibuffer
-                        val saved = withContext(Dispatchers.IO) {
-                            if (multibuffer != null) {
-                                multibuffer.saveAll().failed.isEmpty()
-                            } else {
-                                file.session?.save() == true
-                            }
-                        }
+                        val saved = withContext(Dispatchers.IO) { file.session?.save() == true }
                         file.refreshStatus()
                         saving = false
                         // A failed write is the one case where closing anyway

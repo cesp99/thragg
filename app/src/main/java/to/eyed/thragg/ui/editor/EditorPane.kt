@@ -35,11 +35,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,7 +95,6 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -114,21 +111,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import to.eyed.thragg.R
 import to.eyed.thragg.core.CoreBridge
 import to.eyed.thragg.core.Runnable
-import to.eyed.thragg.ui.git.BlameHost
-import to.eyed.thragg.ui.git.BlamePopover
 import to.eyed.thragg.ui.git.HunkErrorBanner
 import to.eyed.thragg.ui.git.HunkHeaderAction
 import to.eyed.thragg.ui.git.HunkHeaderHits
-import to.eyed.thragg.ui.git.blameAuthor
 import to.eyed.thragg.ui.git.orBoundary
-import to.eyed.thragg.ui.git.relativeTime
-import to.eyed.thragg.ui.git.shaIndex
-import to.eyed.thragg.ui.editor.vim.PaneVimHost
-import to.eyed.thragg.ui.editor.vim.VimCursorShape
-import to.eyed.thragg.ui.editor.vim.VimGlobals
-import to.eyed.thragg.ui.editor.vim.VimMode
-import to.eyed.thragg.ui.editor.vim.VimState
-import to.eyed.thragg.ui.editor.vim.vimKeystrokeOf
 import to.eyed.thragg.ui.theme.LocalAppSettings
 import to.eyed.thragg.ui.theme.BufferFontFamily
 import to.eyed.thragg.ui.theme.LocalBufferFontFeatures
@@ -140,7 +126,6 @@ import to.eyed.thragg.core.LanguageSettings
 import to.eyed.thragg.core.GitHunkKind
 import to.eyed.thragg.core.ResumedEffect
 import to.eyed.thragg.core.pollVersion
-import to.eyed.thragg.ui.git.blameText
 import to.eyed.thragg.ui.git.rememberGitAnnotations
 import to.eyed.thragg.ui.workspace.GitStatusColours
 import kotlin.math.floor
@@ -149,6 +134,9 @@ import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.ZedTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontFamily
 
 private const val HIGHLIGHT_POLL_MILLIS = 100L
 private const val CURSOR_BLINK_MILLIS = 530L
@@ -356,12 +344,6 @@ fun EditorPane(
      */
     languageSettings: LanguageSettings = LanguageSettings(),
     /**
-     * Whether to show who last touched the caret's line — Zed's
-     * `git.inline_blame`, whose default is on. Off here by default so the
-     * host tests and any caller with no setting get a pane that runs no git.
-     */
-    showInlineBlame: Boolean = false,
-    /**
      * Where a definition in *another* file goes. This pane has one buffer and
      * no way to make a second, so opening one is the workspace's job; null
      * leaves go-to-definition working inside the open file and silent about
@@ -382,28 +364,12 @@ fun EditorPane(
      */
     onRenameSymbol: (() -> Unit)? = null,
     /**
-     * Where the blame column's popover reads a commit's message and the
-     * repository's github.com remote from — the project, which this pane
-     * does not otherwise know. Null shows the popover with what the blame
-     * line itself carries.
-     */
-    blameHost: BlameHost? = null,
-    /**
      * A tap on the gutter's play button — Zed's runnable indicator. The
      * workspace resolves the row's tasks and runs or offers them; null
      * leaves the buttons undrawn, which is the host tests' state and the
      * state of an editor with no project to run anything in.
      */
     onRunnableTapped: ((Runnable) -> Unit)? = null,
-    /**
-     * The workspace's answers to vim's `:q`, `:wq`, `:e` and `ctrl-o`. Null
-     * where there is no workspace, which leaves those commands saying so.
-     */
-    onSaveFile: (() -> Boolean)? = null,
-    onCloseTab: ((force: Boolean) -> Boolean)? = null,
-    onSaveAndClose: (() -> Boolean)? = null,
-    onOpenPath: ((String) -> Boolean)? = null,
-    onNavigate: ((back: Boolean) -> Unit)? = null,
     /**
      * Every answer to `FindAllReferences` at once, as a multibuffer — Zed's
      * own surface for them, which only the workspace can open. Null leaves the
@@ -413,9 +379,8 @@ fun EditorPane(
     /**
      * The action row's `save` key — the shell's save, with `format_on_save`
      * and the whitespace rules in front of it, because the pane knows nothing
-     * about files. Distinct from [onSaveFile], which is vim's `:w` and answers
-     * with whether it worked. Null leaves the key undrawn rather than drawing
-     * one that does nothing.
+     * about files. Null leaves the key undrawn rather than drawing one that
+     * does nothing.
      */
     onSaveBuffer: (() -> Unit)? = null,
     /**
@@ -500,10 +465,9 @@ fun EditorPane(
             cursorWidth = 2.dp.toPx(),
         )
     }
-    // git, for the gutter and the end of the caret's line. Cheap when there is
-    // no repository: the engine answers with no hunks and blame is not asked
-    // for at all unless it is switched on.
-    val git = rememberGitAnnotations(state, showInlineBlame)
+    // git, for the gutter. Cheap when there is no repository: the engine
+    // answers with no hunks.
+    val git = rememberGitAnnotations(state)
     val gitColours = remember(theme) {
         GitStatusColours.from(theme, theme.color("editor.foreground"))
     }
@@ -627,12 +591,10 @@ fun EditorPane(
     var hoveredChipRow by remember { mutableStateOf(-1) }
 
     // The git side: the hunk commands run git off the main thread in this
-    // scope; the expanded blocks' header buttons are hit-tested against the
-    // rectangles the last draw pass recorded; and the blame column's popover
-    // is anchored on the row that was tapped, -1 for none.
+    // scope, and the expanded blocks' header buttons are hit-tested against
+    // the rectangles the last draw pass recorded.
     val scope = rememberCoroutineScope()
     val headerHits = remember(state) { HunkHeaderHits() }
-    var blamePopoverRow by remember(state) { mutableStateOf(-1) }
     /**
      * The diagnostic whose card is open, or null.
      *
@@ -695,33 +657,6 @@ fun EditorPane(
         onDispose { state.onTextTyped = null }
     }
 
-    // The vim layer, for as long as the setting is on. Its host's callbacks
-    // are refreshed every composition; the layer itself lives on the state,
-    // because a mode is something the user is in and must survive the pane
-    // recomposing around it.
-    val vimHost = remember(state) { PaneVimHost(state) }
-    vimHost.onSave = onSaveFile
-    vimHost.onCloseTab = onCloseTab
-    vimHost.onSaveAndClose = onSaveAndClose
-    vimHost.onOpenPath = onOpenPath
-    vimHost.onGoToDefinition = { definition.goToCaret() }
-    vimHost.onNavigate = onNavigate
-    vimHost.clipboard = clipboard
-    VimGlobals.policy = settings.vim.useSystemClipboard
-    LaunchedEffect(state, settings.vimMode, settings.vim.defaultMode) {
-        if (settings.vimMode) {
-            if (state.vim == null) {
-                state.vim = VimState(
-                    state,
-                    vimHost,
-                    startMode = VimMode.fromSettingsKey(settings.vim.defaultMode),
-                )
-            }
-        } else {
-            state.vim?.detach()
-            state.vim = null
-        }
-    }
     // The soft keyboard's Enter never reaches a key handler — it is a newline
     // committed through the InputConnection — so the open menu claims it
     // here. Registered per composition against this pane's own menu, and
@@ -775,8 +710,7 @@ fun EditorPane(
         )
         state.keyInterceptor = { event ->
             interceptCompletionKey(menu, event) ||
-                interceptReferencesKey(references, event) ||
-                interceptVimKey(state, hover, references, codeActions, event)
+                interceptReferencesKey(references, event)
         }
         onDispose {
             state.actionHandlers = emptyMap()
@@ -985,7 +919,6 @@ fun EditorPane(
                             val display = ((position.y + state.scrollY) / state.lineHeightPx).toInt()
                             if (display >= 0 && state.displayMap.isBlockDisplayRow(display)) {
                                 down.consume()
-                                blamePopoverRow = -1
                                 headerHits.hitAt(position)?.let { hit ->
                                     when (hit.action) {
                                         HunkHeaderAction.Stage -> GitHunkActions.stage(
@@ -1008,32 +941,20 @@ fun EditorPane(
                             val display =
                                 ((position.y + state.scrollY) / state.lineHeightPx).toInt()
                             val tappedRow = if (display >= 0) state.displayMap.bufferRowOf(display) else -1
-                            // The blame column, when it is showing: a tap on
-                            // a row's entry opens its popover — Zed's
-                            // `hoverable_tooltip` on the entry
-                            // (blame_ui.rs:260-275), which touch reaches by
-                            // tapping. Tapping the open one closes it.
-                            if (state.showBlameGutter && position.x < state.blameColumnPx) {
-                                down.consume()
-                                blamePopoverRow = if (blamePopoverRow == tappedRow) -1 else tappedRow
-                                return@awaitEachGesture
-                            }
                             // The play button, in the gutter's left padding
                             // before the digits — Zed's run indicator sits
-                            // left of the line numbers too, and past the
-                            // blame column when that is showing. It shares
-                            // that column with git's diff strip and is drawn
-                            // over it, so it is asked first: a runnable row
-                            // runs, and a row without one falls through to
-                            // the strip below.
+                            // left of the line numbers too. It shares that
+                            // column with git's diff strip and is drawn over
+                            // it, so it is asked first: a runnable row runs,
+                            // and a row without one falls through to the
+                            // strip below.
                             if (onRunnableTapped != null &&
                                 tappedRow >= 0 &&
-                                position.x - state.blameColumnPx < runButtonColumnPx
+                                position.x < runButtonColumnPx
                             ) {
                                 val runnable = state.runnables[tappedRow]
                                 if (runnable != null) {
                                     down.consume()
-                                    blamePopoverRow = -1
                                     onRunnableTapped(runnable)
                                     return@awaitEachGesture
                                 }
@@ -1041,13 +962,10 @@ fun EditorPane(
                             // The diff strip: Zed expands the hunk on a click
                             // of its gutter bar (editor.rs `toggle_hovered_hunk`);
                             // a finger gets the whole left margin as its target.
-                            if (tappedRow >= 0 &&
-                                position.x - state.blameColumnPx < hunkStripTouchPx
-                            ) {
+                            if (tappedRow >= 0 && position.x < hunkStripTouchPx) {
                                 val hunk = state.hunkAtRow(tappedRow)
                                 if (hunk != null) {
                                     down.consume()
-                                    blamePopoverRow = -1
                                     state.toggleHunk(hunk.startRow)
                                     focusRequester.requestFocus()
                                     return@awaitEachGesture
@@ -1079,8 +997,7 @@ fun EditorPane(
                                 val marked = state.diagnostics.onRow(markRow)
                                 if (marked != null && state.goToDiagnosticOnRow(markRow)) {
                                     down.consume()
-                                    // Tapping the open one closes it, the way
-                                    // the blame popover above works: with no
+                                    // Tapping the open one closes it: with no
                                     // pointer to move away there has to be a
                                     // gesture that means "done".
                                     diagnosticCard = if (diagnosticCard == marked) null else marked
@@ -1611,7 +1528,7 @@ fun EditorPane(
                 fun paintCaret(
                     row: Int,
                     col: Int,
-                    shape: VimCursorShape = VimCursorShape.Bar,
+                    shape: EditorCursorShape = EditorCursorShape.Bar,
                     /** Zed's `hollow`: the block's outline rather than its fill. */
                     hollow: Boolean = false,
                 ) {
@@ -1622,7 +1539,7 @@ fun EditorPane(
                     if (i < 0) return
                     val caretX = leftOf(i) + xOf(i, at)
                     if (caretX < gutterWidth - 1f) return
-                    if (shape == VimCursorShape.Bar) {
+                    if (shape == EditorCursorShape.Bar) {
                         drawRect(
                             color = theme.cursor,
                             topLeft = Offset(caretX, topOf(i)),
@@ -1632,10 +1549,10 @@ fun EditorPane(
                         )
                         return
                     }
-                    // Vim's block and underline: as wide as the character
-                    // under the cursor, a cell wide on the newline. Zed
-                    // paints the block in the cursor colour and the glyph
-                    // over it in the background (element.rs `CursorShape::Block`).
+                    // Block and underline: as wide as the character under the
+                    // cursor, a cell wide on the newline. Zed paints the block
+                    // in the cursor colour and the glyph over it in the
+                    // background (element.rs `CursorShape::Block`).
                     val glyphEnd = if (at < line.length) line.offsetByCodePoints(at, 1) else at
                     val width = if (at < line.length && glyphEnd <= window.endCol(i)) {
                         // Through [xOf], not the raw layout: an inlay hint
@@ -1646,7 +1563,7 @@ fun EditorPane(
                     } else {
                         state.charWidthPx
                     }
-                    if (shape == VimCursorShape.Underline) {
+                    if (shape == EditorCursorShape.Underline) {
                         drawRect(
                             color = theme.cursor,
                             topLeft = Offset(caretX, topOf(i) + lineHeight - state.cursorWidthPx),
@@ -2024,28 +1941,18 @@ fun EditorPane(
                 // next keystroke lands. Read here, in the draw pass, on purpose:
                 // a draw-scope read invalidates the draw alone, so the blink
                 // never recomposes the pane.
-                // With the vim layer on, the primary caret is Vim's cursor —
-                // which in a visual mode is the character the selection's
-                // moving end covers — in the shape the mode dictates. The
-                // extra carets keep the bar: they are the editor's, a column
-                // of insertion points.
-                val vim = state.vim
                 // Zed's `cursor_shape` (default.json:270) drives the primary
-                // caret when vim is not; `hollow` is the block drawn as an
-                // outline, which is what makes it a box around the character.
+                // caret; `hollow` is the block drawn as an outline, which is
+                // what makes it a box around the character. The extra carets
+                // keep the bar: a column of insertion points.
                 val shape = settings.cursorShape
                 if (cursorVisible.value) {
-                    if (vim == null) {
-                        paintCaret(
-                            state.cursorRow,
-                            state.cursorCol,
-                            shape.toVim(),
-                            hollow = shape == EditorCursorShape.Hollow,
-                        )
-                    } else {
-                        val at = vim.cursor()
-                        paintCaret(at.row, at.col, vim.cursorShape)
-                    }
+                    paintCaret(
+                        state.cursorRow,
+                        state.cursorCol,
+                        shape,
+                        hollow = shape == EditorCursorShape.Hollow,
+                    )
                 }
                 for (caret in extras) paintCaret(caret.headRow, caret.headCol)
 
@@ -2063,10 +1970,7 @@ fun EditorPane(
             // Gutter: git's own strip down the left of the gutter — Zed's, at Zed's
             // width: floor(0.275 × line height) (element.rs:5322-5327), with
             // the colours the project panel already uses for the same states.
-            // The strip sits past the blame column when that is showing —
-            // Zed lays the blame entries out in the gutter's left margin and
-            // widens the gutter for them (editor.rs:11975-11985).
-            val stripLeft = state.blameColumnPx
+            val stripLeft = 0f
             if (git.hunks.isNotEmpty()) {
                 val strip = floor(0.275f * lineHeight)
                 for (i in 0 until window.size) {
@@ -2110,60 +2014,6 @@ fun EditorPane(
                         size = Size(pill * 2f, lineHeight),
                         cornerRadius = CornerRadius(lineHeight),
                     )
-                }
-            }
-
-            // The blame column — Zed's `git::Blame` gutter (git_ui/src/
-            // blame_ui.rs `render_blame_entry`): the short sha in the
-            // commit's player colour, the author truncated to 20 characters,
-            // the relative date at the right, all in `hint`. Drawn once per
-            // run of rows the same commit explains, on its first row.
-            if (state.showBlameGutter && git.blame != null) {
-                val hint = theme.color("hint", theme.color("text.muted"))
-                val columnRight = state.blameColumnPx - state.charWidthPx
-                var lastSha: String? = null
-                var lastColor: Color? = null
-                for (i in 0 until window.size) {
-                    if (!window.isFirstSegment(i)) continue
-                    val row = window.bufferRow(i)
-                    val entry = git.blameAt(row) ?: continue
-                    val runStart = entry.startRow == row ||
-                        (i == 0 || window.bufferRow(i - 1) != row - 1)
-                    if (!runStart) continue
-                    // Zed's colour: the player for the sha's index, and the
-                    // next one when two different commits in a row would
-                    // otherwise share (element.rs:7019-7028).
-                    var color = theme.playerColor(shaIndex(entry.sha))
-                    if (lastSha != null && lastSha != entry.sha && lastColor == color) {
-                        color = theme.playerColor(shaIndex(entry.sha) + 1)
-                    }
-                    lastSha = entry.sha
-                    lastColor = color
-                    val top = topOf(i)
-                    val shaLayout = layoutCache.layoutFor(if (entry.isCommitted) entry.shortSha else "0000000")
-                    val y = top + (lineHeight - shaLayout.size.height) / 2f
-                    drawText(
-                        textLayoutResult = shaLayout,
-                        color = if (entry.isCommitted) color else hint,
-                        topLeft = Offset(state.charWidthPx, y),
-                    )
-                    val author = blameAuthor(entry)
-                    val authorLayout = layoutCache.layoutFor(author)
-                    drawText(
-                        textLayoutResult = authorLayout,
-                        color = hint,
-                        topLeft = Offset(state.charWidthPx * 9f, y),
-                    )
-                    if (entry.isCommitted) {
-                        val date = layoutCache.layoutFor(
-                            relativeTime(entry.authorTime, System.currentTimeMillis() / 1000L),
-                        )
-                        drawText(
-                            textLayoutResult = date,
-                            color = hint,
-                            topLeft = Offset(columnRight - date.size.width, y),
-                        )
-                    }
                 }
             }
 
@@ -2213,12 +2063,11 @@ fun EditorPane(
             // line numbers (editor/src/element.rs `layout_run_indicators`,
             // editor.rs `render_run_indicator`). A filled triangle on the
             // canvas, centred in the padding before the digits and clear of
-            // git's strip on the far left — which itself starts past the
-            // blame column when that is showing, so the button moves with it.
+            // git's strip on the far left.
             if (onRunnableTapped != null && state.runnables.isNotEmpty()) {
                 val ink = theme.color("text.muted")
                 val half = (lineHeight * 0.18f).coerceAtLeast(3f)
-                val cx = state.blameColumnPx + runButtonColumnPx / 2f +
+                val cx = runButtonColumnPx / 2f +
                     floor(0.275f * lineHeight) / 2f
                 for (i in 0 until window.size) {
                     if (!window.isFirstSegment(i)) continue
@@ -2327,35 +2176,6 @@ fun EditorPane(
                             strokeWidth = stroke,
                             cap = StrokeCap.Round,
                         )
-                    }
-                }
-            }
-
-            // Who last touched the caret's line, after the end of it — Zed's
-            // inline blame (git_ui/src/blame_ui.rs:280-300). Only on the
-            // caret's own line, only when the buffer is clean, and never
-            // covering text: it starts a couple of characters past the end of
-            // the line, and it is the first thing the clip drops when the
-            // pane is too narrow for it.
-            if (showInlineBlame) {
-                git.blameAt(state.cursorRow)?.let { line ->
-                    val at = firstSegmentOf(window, state.cursorRow)
-                    if (at != null) {
-                        val text = blameText(line, System.currentTimeMillis() / 1000L)
-                        val layout = layoutCache.layoutFor(text)
-                        val lineEnd = layoutCache
-                            .layoutFor(lineAt(state.cursorRow))
-                            .size.width.toFloat()
-                        clipRect(left = gutterWidth) {
-                            drawText(
-                                textLayoutResult = layout,
-                                color = theme.color("hint", theme.color("text.muted")),
-                                topLeft = Offset(
-                                    textLeft + lineEnd + state.charWidthPx * 3f,
-                                    topOf(at) + (lineHeight - layout.size.height) / 2f,
-                                ),
-                            )
-                        }
                     }
                 }
             }
@@ -2533,30 +2353,10 @@ fun EditorPane(
             )
         }
 
-        // The blame column's popover for the tapped row: the full message,
-        // and the commit's page on github.com when the remote is there.
-        if (blamePopoverRow >= 0) {
-            val entry = git.blameAt(blamePopoverRow)
-            if (entry == null) {
-                blamePopoverRow = -1
-            } else {
-                BlamePopover(
-                    line = entry,
-                    host = blameHost,
-                    anchorY = with(density) {
-                        ((state.displayRowOf(blamePopoverRow, 0) + 1) * state.lineHeightPx -
-                            state.scrollY).toDp()
-                    },
-                    onDismiss = { blamePopoverRow = -1 },
-                )
-            }
-        }
-
         // The tapped diagnostic's card: the message, its code, and the two
         // things you can do about it. Anchored under the row it belongs to,
-        // like the blame popover above, and — like it — every read of
-        // `scrollY` happens inside this branch, so a pane with no card open
-        // is not recomposed on every frame of a scroll.
+        // and every read of `scrollY` happens inside this branch, so a pane
+        // with no card open is not recomposed on every frame of a scroll.
         diagnosticCard?.let { diagnostic ->
             if (state.diagnostics.onRow(diagnostic.row) != diagnostic) {
                 // The publish that landed under it no longer says this. A
@@ -2584,14 +2384,6 @@ fun EditorPane(
                 )
             }
         }
-
-        // Vim's command line and message line, under the text and over the
-        // action row, where Vim puts them.
-        VimStatusLine(
-            state = state,
-            paneCoordinates = paneCoordinates,
-            modifier = Modifier.align(Alignment.BottomStart),
-        )
 
         if (showActionRow) {
             EditorActionRow(
@@ -2910,47 +2702,6 @@ private fun imeOverlapPx(paneCoordinates: LayoutCoordinates?): Float {
 }
 
 /**
- * Vim's command line and message line: the `:` / `/` / `?` being typed, or
- * the last thing Vim said (`E486: Pattern not found`), on one row at the
- * bottom of the pane — where Vim draws them — lifted over the soft keyboard
- * and the action row when they are up. Nothing when there is nothing to say,
- * so the pane loses no rows to an idle layer.
- *
- * Its own composable so the reads of the layer's state invalidate this row
- * alone: read in [EditorPane]'s body they would recompose the canvas and its
- * pointer handlers on every keystroke of a command.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun VimStatusLine(
-    state: EditorState,
-    paneCoordinates: LayoutCoordinates?,
-    modifier: Modifier = Modifier,
-) {
-    val vim = state.vim ?: return
-    val line = vim.commandLine
-    val message = vim.message
-    if (line == null && message == null) return
-    val density = LocalDensity.current
-    val lift = imeOverlapPx(paneCoordinates) +
-        if (WindowInsets.isImeVisible) with(density) { ACTION_ROW_HEIGHT.toPx() } else 0f
-    val theme = LocalZedTheme.current
-    Text(
-        // The typed line carries a bar caret of its own, since the editor's
-        // stays on the text; a message is printed as Vim prints it.
-        text = if (line != null) "${line.prefix}${line.text}▏" else message.orEmpty(),
-        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = BufferFontFamily),
-        color = if (line == null && message?.startsWith("E") == true) theme.color("error") else theme.color("text"),
-        maxLines = 1,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(bottom = with(density) { lift.toDp() })
-            .background(theme.color("status_bar.background"))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    )
-}
-
-/**
  * The commands a soft keyboard can't reach, on a strip that appears with the
  * IME and sits just above it.
  *
@@ -3053,11 +2804,6 @@ private fun EditorActionRow(
                 ActionKey("fold", act { state.foldAtCarets() })
                 ActionKey("//", act { state.toggleComment() })
                 // ---- and the rest of the inherited row, unchanged ----------
-                if (state.vim != null) {
-                    // `:` is on every soft keyboard, but two taps away on
-                    // most; one here opens the command line the same way.
-                    ActionKey(":", act { state.vim?.handleKey(":") })
-                }
                 ActionKey("unfold", act { state.unfoldAtCarets() })
                 ActionKey("outdent", act { state.outdent() })
                 ActionKey("del", act { state.delete() })
@@ -3095,11 +2841,9 @@ private fun EditorActionRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Escape means the newest thing on screen, as it does on a
-            // keyboard: the completion menu first, then — with the vim layer
-            // on — the mode, which is the one key a soft keyboard has no way
-            // to say and the only way out of insert mode without it. Then the
-            // carets and the selection.
-            FixedKey("esc", act { if (!menu.dismiss()) state.vim?.handleKey("escape") ?: state.cancel() })
+            // keyboard: the completion menu first, then the carets and the
+            // selection.
+            FixedKey("esc", act { if (!menu.dismiss()) state.cancel() })
             // Zed's `editor::Tab`, for a keyboard that has no Tab at all.
             FixedKey("Tab", act { state.tab() }, icon = R.drawable.ic_ui_tab)
             // The arrow cluster a soft keyboard does not have. One column at a
@@ -3109,7 +2853,7 @@ private fun EditorActionRow(
             FixedKey("Right", act { state.moveCursorHorizontally(1) }, icon = R.drawable.ic_ui_arrow_right)
             FixedKey("Undo", act { state.undo() }, icon = R.drawable.ic_ui_undo)
             FixedKey("Redo", act { state.redo() }, icon = R.drawable.ic_ui_redo)
-            // The shell's save, not vim's: `format_on_save`, the whitespace
+            // The shell's save: `format_on_save`, the whitespace
             // rules and the write, in that order.
             FixedKey("save", act { onSaveBuffer?.invoke() }, enabled = onSaveBuffer != null)
             // Build — the whole point of the fixed head. A running build shows
@@ -3553,38 +3297,6 @@ private fun interceptCompletionKey(menu: CompletionMenuState, event: KeyEvent): 
 }
 
 /**
- * The vim layer's turn at a hardware key, ahead of the keymap. Zed's vim
- * bindings live in contexts deeper than `Editor` — `vim_mode == normal`,
- * `VimControl` (assets/keymaps/vim.json) — so they outrank the editor's own
- * for the same keys, and asking the layer before the workspace's
- * `dispatchKey` resolves the chord is what gives them that rank here.
- * Outside insert mode every key the layer has a name for is a command and
- * never reaches the keymap or the buffer; in insert mode only Escape (and
- * its `ctrl-[` / `ctrl-c` spellings) is its, and the popups give way to it
- * first, as they do to `editor::Cancel`. A chord the layer does not know
- * comes back unhandled, so the workspace's `ctrl-s` and `ctrl-shift-p` and
- * the editor's `ctrl-z` keep working in every mode.
- */
-private fun interceptVimKey(
-    state: EditorState,
-    hover: HoverCardState,
-    references: ReferencesState,
-    codeActions: CodeActionsState,
-    event: KeyEvent,
-): Boolean {
-    if (event.type != KeyEventType.KeyDown) return false
-    val vim = state.vim ?: return false
-    val keystroke = vimKeystrokeOf(event) ?: return false
-    val isEscape = keystroke == "escape" || keystroke == "ctrl-[" || keystroke == "ctrl-c"
-    if (isEscape && vim.commandLine == null) {
-        val hadReferences = references.isShowing
-        references.clear()
-        if (hadReferences || codeActions.dismiss() || hover.clear()) return true
-    }
-    return (vim.wantsRawInput || isEscape) && vim.handleKey(keystroke)
-}
-
-/**
  * The pane's `editor::` actions, by Zed's names — what a keystroke turns
  * into once the keymap has resolved it. Every handler returns whether it
  * took the key; false lets the key fall through to whatever else wanted it.
@@ -3616,7 +3328,7 @@ private fun editorActionHandlers(
     return mapOf(
         // Git in the editor — Zed's hunk motions (`alt-.` / `alt-,`), the
         // hunk blocks (`ctrl-'` / `ctrl-"`), and the per-hunk stage, restore
-        // and blame commands its Editor context binds. Each returns false
+        // commands its Editor context binds. Each returns false
         // where there is no hunk to act on, leaving the key its platform
         // meaning in a file with no changes.
         EditorAction.GoToHunk to { state.goToHunk(forward = true) },
@@ -3627,7 +3339,6 @@ private fun editorActionHandlers(
         EditorAction.StageAndNext to { GitHunkActions.stageAndNext(state, scope, stage = true) },
         EditorAction.UnstageAndNext to { GitHunkActions.stageAndNext(state, scope, stage = false) },
         EditorAction.Restore to { GitHunkActions.restoreAtCaret(state, scope) },
-        EditorAction.Blame to does { state.toggleBlameGutter() },
         // Zed's `editor::ShowCompletions`: it asks even where the menu just
         // answered "nothing here" — the user pressing it is a question a
         // cached no must not answer.

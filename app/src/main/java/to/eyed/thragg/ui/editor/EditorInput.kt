@@ -72,21 +72,9 @@ internal class EditorTextInputNode(
                 state.onCursorChangedExternally = { restartInput() }
                 try {
                     startInputMethod { outAttributes ->
-                        // In a vim mode that is not insert, every character
-                        // typed is a command: no autocorrect, no suggestion
-                        // strip composing words out of `d` and `w`. The
-                        // password variation is the documented way to make
-                        // a soft keyboard commit one character at a time.
-                        val raw = state.vim?.wantsRawInput == true
-                        outAttributes.inputType = if (raw) {
-                            EditorInfo.TYPE_CLASS_TEXT or
-                                EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
-                                EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                        } else {
-                            EditorInfo.TYPE_CLASS_TEXT or
-                                EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or
-                                EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT
-                        }
+                        outAttributes.inputType = EditorInfo.TYPE_CLASS_TEXT or
+                            EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or
+                            EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT
                         outAttributes.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or
                             EditorInfo.IME_FLAG_NO_ENTER_ACTION
                         val lineLength = state.currentLine().length
@@ -203,35 +191,8 @@ private class EditorInputConnection(
         return batchDepth > 0
     }
 
-    /**
-     * What a soft keyboard has composed so far while the vim layer is in
-     * command, so a keyboard that composes rather than commits still hands
-     * the layer one character at a time.
-     */
-    private var rawComposing = ""
-
-    /**
-     * In every vim mode but insert the typed text is keystrokes for the
-     * layer, not text for the buffer — the shadow never sees it. True when
-     * the layer took it.
-     */
-    private fun offerToVim(text: CharSequence?): Boolean {
-        val vim = state.vim ?: return false
-        if (!vim.wantsRawInput) return false
-        if (text != null && text.isNotEmpty()) vim.handleTyped(text.toString())
-        return true
-    }
-
     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
         if (closed) return false
-        if (state.vim?.wantsRawInput == true) {
-            val fresh = text?.toString().orEmpty().let {
-                if (rawComposing.isNotEmpty() && it.startsWith(rawComposing)) it.substring(rawComposing.length) else it
-            }
-            rawComposing = ""
-            offerToVim(fresh)
-            return true
-        }
         // A soft keyboard's Enter arrives here, not as a key event, so a
         // popup that confirms on Enter has to be offered it here or it never
         // sees one — the completion menu was inserting line breaks on a
@@ -247,13 +208,6 @@ private class EditorInputConnection(
 
     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
         if (closed) return false
-        if (state.vim?.wantsRawInput == true) {
-            val whole = text?.toString().orEmpty()
-            val fresh = if (whole.startsWith(rawComposing)) whole.substring(rawComposing.length) else whole
-            rawComposing = whole
-            offerToVim(fresh)
-            return true
-        }
         prepareForEdit()
         return super.setComposingText(text, newCursorPosition).also { maybeSync() }
     }
@@ -265,10 +219,6 @@ private class EditorInputConnection(
 
     override fun finishComposingText(): Boolean {
         if (closed) return false
-        if (state.vim?.wantsRawInput == true) {
-            rawComposing = ""
-            return true
-        }
         return super.finishComposingText().also { maybeSync() }
     }
 
@@ -279,15 +229,6 @@ private class EditorInputConnection(
 
     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
         if (closed) return false
-        state.vim?.let { vim ->
-            if (vim.wantsRawInput) {
-                // The soft keyboard's Backspace, which in normal mode is the
-                // `h`-like motion Zed binds it to (vim.json:10) and on the
-                // command line erases a character.
-                repeat(beforeLength.coerceAtLeast(1)) { vim.handleKey("backspace") }
-                return true
-            }
-        }
         prepareForEdit()
         val selStart = Selection.getSelectionStart(shadow)
         if (beforeLength > 0 && selStart == 0 && Selection.getSelectionEnd(shadow) == 0) {

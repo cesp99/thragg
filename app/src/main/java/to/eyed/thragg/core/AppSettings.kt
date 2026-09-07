@@ -481,23 +481,6 @@ data class InlayHintSettings(
 }
 
 /**
- * How Vim's unnamed register and the system clipboard relate — Zed's
- * `vim.use_system_clipboard` (docs/src/vim.md), with Zed's default.
- */
-enum class VimClipboard(val key: String, val label: String) {
-    /** Every yank and delete lands on the clipboard, and a paste reads it. */
-    Always("always", "Always"),
-    /** Only the `"+` and `"*` registers touch the clipboard. */
-    Never("never", "Never"),
-    /** Yanks go to the clipboard; deletes stay in Vim's registers. */
-    OnYank("on_yank", "On yank");
-
-    companion object {
-        fun fromKey(key: String?): VimClipboard = entries.firstOrNull { it.key == key } ?: Always
-    }
-}
-
-/**
  * Zed's `markdown_preview` object, as the engine resolves it.
  *
  * Zed makes a preview that tracks its editor a *separate item*
@@ -508,13 +491,6 @@ enum class VimClipboard(val key: String, val label: String) {
 data class MarkdownPreviewSettings(
     /** Whether the preview follows the editor's scroll, and taps jump back. */
     val scrollSync: Boolean = true,
-)
-
-/** Zed's `vim` object: the two keys the editor reads. */
-data class VimSettings(
-    /** Zed's `vim.default_mode`, as the engine spells it (`"normal"`, `"visual_line"`…). */
-    val defaultMode: String = "normal",
-    val useSystemClipboard: VimClipboard = VimClipboard.Always,
 )
 
 data class AppSettings(
@@ -580,10 +556,6 @@ data class AppSettings(
     val inlineBlame: Boolean = true,
     /** Zed's `inlay_hints`, off by default as in Zed. */
     val inlayHints: InlayHintSettings = InlayHintSettings(),
-    /** Zed's `vim_mode`: modal editing in every buffer. Off by default, as in Zed. */
-    val vimMode: Boolean = false,
-    /** Zed's `vim` object, read only while [vimMode] is on. */
-    val vim: VimSettings = VimSettings(),
     /**
      * Where each panel docks and how wide it opens — Zed's `dock` and
      * `default_width`, per panel.
@@ -699,9 +671,6 @@ data class AppSettings(
         const val KEY_INLAY_TYPE_HINTS = "inlay_hints.show_type_hints"
         const val KEY_INLAY_PARAMETER_HINTS = "inlay_hints.show_parameter_hints"
         const val KEY_INLAY_OTHER_HINTS = "inlay_hints.show_other_hints"
-        const val KEY_VIM_MODE = "vim_mode"
-        const val KEY_VIM_DEFAULT_MODE = "vim.default_mode"
-        const val KEY_VIM_CLIPBOARD = "vim.use_system_clipboard"
         const val KEY_MARKDOWN_SCROLL_SYNC = "markdown_preview.scroll_sync"
         const val KEY_REDUCE_MOTION = "reduce_motion"
 
@@ -795,15 +764,6 @@ data class AppSettings(
                     ?.optJSONObject("inline_blame")
                     ?.optBoolean("enabled", true) ?: true,
                 inlayHints = InlayHintSettings.parse(root.optJSONObject("inlay_hints")),
-                vimMode = root.optBoolean("vim_mode", false),
-                vim = root.optJSONObject("vim").let { vim ->
-                    VimSettings(
-                        defaultMode = vim?.optString("default_mode", "normal") ?: "normal",
-                        useSystemClipboard = VimClipboard.fromKey(
-                            vim?.optString("use_system_clipboard", "always")
-                        ),
-                    )
-                },
                 panels = DEFAULT_PANELS.mapValues { (key, fallback) ->
                     val panel = root.optJSONObject(key) ?: return@mapValues fallback
                     PanelPlacement(

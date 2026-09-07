@@ -1,7 +1,6 @@
 package to.eyed.thragg.ui.editor
 
 import org.json.JSONObject
-import to.eyed.thragg.ui.editor.vim.VimCursorShape
 
 /**
  * The display settings Zed keeps outside the language layer — how the gutter
@@ -69,27 +68,13 @@ enum class CurrentLineHighlight(val key: String) {
     }
 }
 
-/**
- * Zed's `cursor_shape` (default.json:259-270). The vim layer has shapes of
- * its own ([VimCursorShape]); this is what the caret looks like when vim is
- * not driving it, and [toVim] is how the two meet.
- */
+/** Zed's `cursor_shape` (default.json:259-270): what the caret looks like. */
 enum class EditorCursorShape(val key: String) {
     Bar("bar"),
     Block("block"),
     Underline("underline"),
     /** A box drawn around the following character. */
     Hollow("hollow");
-
-    /**
-     * The pane draws carets through vim's shapes, which have the same four
-     * cases; `hollow` is drawn as a block outline by the pane itself.
-     */
-    fun toVim(): VimCursorShape = when (this) {
-        Bar -> VimCursorShape.Bar
-        Block, Hollow -> VimCursorShape.Block
-        Underline -> VimCursorShape.Underline
-    }
 
     companion object {
         fun fromKey(key: String?): EditorCursorShape =

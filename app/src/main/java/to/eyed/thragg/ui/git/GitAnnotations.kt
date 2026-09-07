@@ -2,63 +2,45 @@ package to.eyed.thragg.ui.git
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import to.eyed.thragg.core.BlameLine
-import to.eyed.thragg.core.FileBlame
 import to.eyed.thragg.core.GitDiff
 import to.eyed.thragg.core.GitHunk
 import to.eyed.thragg.core.ResumedEffect
 import to.eyed.thragg.ui.editor.EditorState
 import to.eyed.thragg.ui.editor.HunkBlock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /** How often the engine's hunk counter is re-read. */
 private const val HUNK_POLL_MS = 250L
 
 /**
  * What git has to say about the open file, as the editor draws it: the
- * gutter's hunks, and who last touched the line the caret is on.
+ * gutter's hunks.
  *
- * Two very different costs behind one holder, which is why it is one holder.
  * Hunks are a cache in the engine — reading the counter is what schedules the
- * diff, and reading the hunks never runs git — so they are polled. Blame
- * **runs git**, inside proot, over the whole file: that is hundreds of
- * milliseconds, and it happens when the file is opened and when it is saved,
- * never on a keystroke and never on a caret move.
+ * diff, and reading the hunks never runs git — so they are polled. Blame,
+ * which ran git inside proot over the whole file, went with the blame column
+ * and the inline blame (docs/UI.md, "What is removed").
  */
 class GitAnnotations(
     val hunks: List<GitHunk>,
-    /** Null when blame is off, still loading, or git had nothing to say. */
-    val blame: FileBlame?,
 ) {
-    fun blameAt(row: Int): BlameLine? = blame?.at(row)
-
     companion object {
-        val NONE = GitAnnotations(emptyList(), null)
+        val NONE = GitAnnotations(emptyList())
     }
 }
 
-/**
- * @param showBlame whether to run blame at all — the editor's own setting,
- *   or the blame column being switched on ([EditorState.showBlameGutter]).
- *   Blame is only shown while the buffer is **clean**: it describes the file
- *   on disk, and once there are unsaved edits its row numbers describe a file
- *   that no longer exists. Zed can blame the buffer itself; this engine
- *   blames the file, so the honest thing is to say nothing rather than to
- *   attribute somebody else's line to a commit.
- */
 @Composable
-fun rememberGitAnnotations(editor: EditorState, showBlame: Boolean): GitAnnotations {
+fun rememberGitAnnotations(editor: EditorState): GitAnnotations {
     val session = editor.sessionOrNull
     var hunks by remember(session) { mutableStateOf(emptyList<GitHunk>()) }
-    var blame by remember(session) { mutableStateOf<FileBlame?>(null) }
     // Bumped every time the buffer becomes clean — which is every save, and is
-    // the only moment blame can have changed.
+    // the moment a hunk's staged bit can have changed.
     var savedToken by remember(session) { mutableStateOf(0) }
     var isDirty by remember(session) { mutableStateOf(false) }
 
@@ -134,17 +116,5 @@ fun rememberGitAnnotations(editor: EditorState, showBlame: Boolean): GitAnnotati
         }
     }
 
-    val wantBlame = showBlame || editor.showBlameGutter
-    LaunchedEffect(session, wantBlame, savedToken) {
-        if (session == null || !wantBlame) {
-            blame = null
-            return@LaunchedEffect
-        }
-        // git, through proot: IO, and never on the poll loop above.
-        blame = withContext(Dispatchers.IO) { GitDiff.blame(session.id) }
-    }
-
-    return remember(hunks, blame, isDirty) {
-        GitAnnotations(hunks, blame.takeIf { !isDirty })
-    }
+    return remember(hunks) { GitAnnotations(hunks) }
 }

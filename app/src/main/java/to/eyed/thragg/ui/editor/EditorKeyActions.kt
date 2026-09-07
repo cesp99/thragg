@@ -146,5 +146,4 @@ object EditorAction {
     const val StageAndNext = "git::StageAndNext"
     const val UnstageAndNext = "git::UnstageAndNext"
     const val Restore = "git::Restore"
-    const val Blame = "git::Blame"
 }

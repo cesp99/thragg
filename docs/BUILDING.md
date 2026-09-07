@@ -41,7 +41,7 @@ That split is gone. A build with no Debian cannot install `platform-tools`,
 cannot run `cargo-build-sbf`, cannot run `rust-analyzer` and cannot run any
 ACP agent — it cannot do the one thing this product exists to do, so it was
 not an edition of this app so much as a different, smaller one. Removing it
-forecloses Google Play distribution, deliberately; F-Droid and direct APK
+forecloses Google Play distribution, deliberately; the Solana dApp Store and a direct APK
 download are where this ships.
 
 The code the userland needs:

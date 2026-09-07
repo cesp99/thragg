@@ -14,7 +14,7 @@
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JLongArray, JString};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jint, jintArray, jlong, jlongArray, jstring};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jintArray, jlong, jlongArray, jstring};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1422,33 +1422,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPatch(
     to_jstring(&env, json)
 }
 
-/// A page of commit history, newest first, as a JSON array of
-/// `{sha, parents, author, author_email, author_time, subject, refs}`.
-/// `all_refs` walks every branch, remote and tag in `--date-order` — the
-/// graph's view; false is the plain HEAD walk the History tab shows.
-/// `[]` for a repository with no commits; the error text when git failed.
-/// **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitLog(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    limit: jlong,
-    skip: jlong,
-    all_refs: jboolean,
-) -> jstring {
-    let json = match engine().git_log(
-        project_id as u64,
-        limit as u32,
-        skip.max(0) as u32,
-        all_refs != 0,
-    ) {
-        Ok(commits) => serde_json::json!({ "commits": commits }).to_string(),
-        Err(error) => serde_json::json!({ "error": error }).to_string(),
-    };
-    to_jstring(&env, json)
-}
-
 /// The branch's changes since it left `base` — the merge-base diff behind the
 /// panel's "View Branch Diff", in `gitPatch`'s JSON shape: `{"files":[…]}` or
 /// `{"error":…}`. **Blocking**.
@@ -1483,25 +1456,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCommitPatch(
     let path = Some(path.as_str()).filter(|path| !path.is_empty());
     let json = match engine().git_commit_patch(project_id as u64, &sha, path) {
         Ok(files) => serde_json::json!({ "files": files }).to_string(),
-        Err(error) => serde_json::json!({ "error": error }).to_string(),
-    };
-    to_jstring(&env, json)
-}
-
-/// One commit in full: the fields above plus `message` and `files`, each
-/// `{status, path, original}`. `{"error":…}` when git could not read it.
-/// **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitCommitDetails(
-    mut env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    sha: JString,
-) -> jstring {
-    let sha = get_string(&mut env, &sha);
-    let json = match engine().git_commit_details(project_id as u64, &sha) {
-        Ok(details) => serde_json::to_string(&details)
-            .unwrap_or_else(|_| "{\"error\":\"could not encode that commit\"}".to_owned()),
         Err(error) => serde_json::json!({ "error": error }).to_string(),
     };
     to_jstring(&env, json)
@@ -1751,75 +1705,9 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitPathHunkRestore(
     )
 }
 
-/// `git stash list` as JSON: `{"entries": [{index, sha, message, branch,
-/// timestamp}]}`, newest first, or `{"error": …}`. **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashList(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-) -> jstring {
-    let json = match engine().git_stash_list(project_id as u64) {
-        Ok(entries) => serde_json::json!({ "entries": entries }).to_string(),
-        Err(error) => serde_json::json!({ "error": error }).to_string(),
-    };
-    to_jstring(&env, json)
-}
-
-/// `git stash push`: `kind` is 0 all (untracked included), 1 tracked, 2
-/// staged; an empty message means none. Null when it worked. **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashPush(
-    mut env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    kind: jint,
-    message: JString,
-) -> jstring {
-    let message = get_string(&mut env, &message);
-    let message = Some(message.as_str()).filter(|message| !message.trim().is_empty());
-    command_result(
-        &env,
-        engine().git_stash_push(project_id as u64, engine::StashKind::from_code(kind), message),
-    )
-}
-
 /// The `stash@{N}` a negative index means: none, which is git's "the latest".
 fn stash_index(index: jlong) -> Option<usize> {
     usize::try_from(index).ok()
-}
-
-/// `git stash pop [stash@{N}]`; `index` < 0 pops the latest. **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashPop(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    index: jlong,
-) -> jstring {
-    command_result(&env, engine().git_stash_pop(project_id as u64, stash_index(index)))
-}
-
-/// `git stash apply [stash@{N}]`. **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashApply(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    index: jlong,
-) -> jstring {
-    command_result(&env, engine().git_stash_apply(project_id as u64, stash_index(index)))
-}
-
-/// `git stash drop [stash@{N}]`. **Blocking**.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitStashDrop(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    index: jlong,
-) -> jstring {
-    command_result(&env, engine().git_stash_drop(project_id as u64, stash_index(index)))
 }
 
 /// The merge-conflict regions in a buffer, as a JSON array of
@@ -1880,27 +1768,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_resolveConflict(
             -1
         }
     }
-}
-
-/// Who last touched each run of rows, as JSON: `{"entries": [{sha, start_row,
-/// row_count, author, author_time, summary}]}`, or `{"error": "…"}`.
-///
-/// Rows are the rows of the file **on disk**, not of the buffer: git blames
-/// what it can read, and a buffer with unsaved edits has drifted from it.
-///
-/// **Blocking**, and uncached — it runs git every time. Call it when the user
-/// asks for blame, off the main thread, not on a poll loop.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_gitBlame(
-    env: JNIEnv,
-    _class: JClass,
-    buffer_id: jlong,
-) -> jstring {
-    let json = match engine().git_blame(buffer_id as u64) {
-        Ok(entries) => serde_json::json!({ "entries": entries }),
-        Err(message) => serde_json::json!({ "error": message }),
-    };
-    to_jstring(&env, json.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -2226,43 +2093,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_formatBufferExternall
     let json = serde_json::to_string(&outcome).unwrap_or_else(|err| {
         log::warn!("formatBufferExternally failed to serialize: {err}");
         "{}".to_owned()
-    });
-    to_jstring(&env, json)
-}
-
-// ---------------------------------------------------------------------------
-// Keymap. Zed's keymap.json, next to settings.json. The engine parses and
-// layers it; the app decides what the names mean. Both touch the filesystem
-// — call them off the main thread.
-// ---------------------------------------------------------------------------
-
-/// The keymap file's raw JSONC text, created with a commented starter on
-/// first use — so "open keymap" always has a file to open.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_keymapText(
-    env: JNIEnv,
-    _class: JClass,
-) -> jstring {
-    to_jstring(&env, engine().keymap_text())
-}
-
-/// The resolved keymap: the app's defaults (`default_keymap_json`, in
-/// keymap-file form — the `WorkspaceCommand` table is the source of truth
-/// for the action names), then the base keymap `settings.json` names, then
-/// the user's file. Returns `{"bindings": [{context, keystrokes, action,
-/// args, source}…], "errors": [sentence…]}`; later bindings outrank earlier
-/// ones at the same context depth. Never null.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_loadKeymap(
-    mut env: JNIEnv,
-    _class: JClass,
-    default_keymap_json: JString,
-) -> jstring {
-    let defaults = get_string(&mut env, &default_keymap_json);
-    let load = engine().load_keymap(&defaults);
-    let json = serde_json::to_string(&load).unwrap_or_else(|err| {
-        log::warn!("loadKeymap failed to serialize: {err}");
-        "{\"bindings\":[],\"errors\":[]}".to_owned()
     });
     to_jstring(&env, json)
 }
@@ -4323,77 +4153,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_taskResolve(
     }
 }
 
-/// Every toolchain this project could use, as a JSON array of
-/// `{name, path, language, source}` — what the toolchain picker lists
-/// (Zed's `toolchain::Select`). **Blocking**: stats the project and runs a
-/// few short programs in the userland.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_toolchains(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-) -> jstring {
-    let toolchains = engine().toolchains(project_id as u64).unwrap_or_else(|err| {
-        log::warn!("toolchains failed: {err}");
-        Vec::new()
-    });
-    let json = serde_json::to_string(&toolchains).unwrap_or_else(|err| {
-        log::warn!("toolchains failed to serialize: {err}");
-        "[]".to_owned()
-    });
-    to_jstring(&env, json)
-}
-
-/// The toolchains in force for this project, one per language, in the same
-/// shape — what the status bar shows. Never blocks on the userland.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_activeToolchains(
-    env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-) -> jstring {
-    let toolchains = engine().active_toolchains(project_id as u64);
-    let json = serde_json::to_string(&toolchains).unwrap_or_else(|err| {
-        log::warn!("activeToolchains failed to serialize: {err}");
-        "[]".to_owned()
-    });
-    to_jstring(&env, json)
-}
-
-/// Choose a toolchain for `language` in this project, or clear it when
-/// `toolchain_json` is null. Restarts the project's language servers, which
-/// is what makes the new interpreter take effect. **Blocking**: writes a
-/// small file.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_setToolchain(
-    mut env: JNIEnv,
-    _class: JClass,
-    project_id: jlong,
-    language: JString,
-    toolchain_json: JString,
-) -> jboolean {
-    let language = get_string(&mut env, &language);
-    let toolchain = if toolchain_json.is_null() {
-        None
-    } else {
-        let json = get_string(&mut env, &toolchain_json);
-        match serde_json::from_str::<engine::Toolchain>(&json) {
-            Ok(toolchain) => Some(toolchain),
-            Err(err) => {
-                log::warn!("setToolchain: {json:?} is not a toolchain: {err}");
-                return JNI_FALSE;
-            }
-        }
-    };
-    match engine().set_toolchain(project_id as u64, &language, toolchain) {
-        Ok(()) => JNI_TRUE,
-        Err(err) => {
-            log::warn!("setToolchain failed: {err}");
-            JNI_FALSE
-        }
-    }
-}
-
 fn task_context(env: &mut JNIEnv, context_json: &JString) -> engine::TaskEditorContext {
     let json = get_string(env, context_json);
     serde_json::from_str(&json).unwrap_or_else(|err| {
@@ -4428,151 +4187,9 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_bufferRunnables(
     }
 }
 
-// ---- multibuffers ------------------------------------------------------
-//
-// The engine composes the excerpts into a *mirror* buffer whose id comes back
-// in `multibufferInfo`; the Kotlin side renders that with the ordinary editor
-// pane, and the ordinary `applyEdit`/`undoBuffer` calls on it are routed to
-// the underlying files by the engine. Only the calls the UI cannot infer live
-// here — see engine/src/multibuffer.rs.
-
-/// Open a multibuffer over `excerpts_json`: an array of `{"path", "abs",
-/// "row", "endRow"}` with 0-based rows, `abs` defaulting to `root/path` and
-/// `endRow` to `row`. Returns its id, or -1 when not one file could be read.
-///
-/// **Blocking** (it opens every file it excerpts): call it off the main thread.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferCreate(
-    mut env: JNIEnv,
-    _class: JClass,
-    title: JString,
-    kind: JString,
-    root: JString,
-    excerpts_json: JString,
-) -> jlong {
-    let title = get_string(&mut env, &title);
-    let kind = get_string(&mut env, &kind);
-    let root = get_string(&mut env, &root);
-    let excerpts_json = get_string(&mut env, &excerpts_json);
-    let root = (!root.is_empty()).then(|| std::path::PathBuf::from(root));
-    let specs = engine::parse_excerpt_specs(&excerpts_json, root.as_deref());
-    match engine().create_multibuffer(&title, &kind, &specs) {
-        Ok(id) => id as jlong,
-        Err(err) => {
-            log::warn!("multibufferCreate failed: {err}");
-            -1
-        }
-    }
-}
-
-/// The mirror buffer, the headers and the dirty count, as JSON. Null for an id
-/// the engine no longer knows.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferInfo(
-    env: JNIEnv,
-    _class: JClass,
-    multibuffer_id: jlong,
-) -> jstring {
-    match engine().multibuffer_info(multibuffer_id as u64) {
-        Some(info) => match serde_json::to_string(&info) {
-            Ok(json) => to_jstring(&env, json),
-            Err(err) => {
-                log::warn!("multibufferInfo failed to serialize: {err}");
-                std::ptr::null_mut()
-            }
-        },
-        None => std::ptr::null_mut(),
-    }
-}
-
-/// Which file and row a display row of the mirror shows, as `{"path",
-/// "absPath", "row", "header"}`. Null for a row outside every excerpt.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferLocate(
-    env: JNIEnv,
-    _class: JClass,
-    multibuffer_id: jlong,
-    row: jlong,
-) -> jstring {
-    let row = row.max(0) as u32;
-    match engine().multibuffer_locate(multibuffer_id as u64, row) {
-        Some(at) => match serde_json::to_string(&at) {
-            Ok(json) => to_jstring(&env, json),
-            Err(err) => {
-                log::warn!("multibufferLocate failed to serialize: {err}");
-                std::ptr::null_mut()
-            }
-        },
-        None => std::ptr::null_mut(),
-    }
-}
-
-/// Recompose the mirror if a file behind it moved — because its own tab was
-/// edited, or it was reloaded from disk. Returns the mirror's content version,
-/// which the pane polls, or -1 for an unknown id.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferSync(
-    _env: JNIEnv,
-    _class: JClass,
-    multibuffer_id: jlong,
-) -> jlong {
-    engine()
-        .multibuffer_sync(multibuffer_id as u64)
-        .map(|version| version as jlong)
-        .unwrap_or(-1)
-}
-
-/// Write every dirty file in the multibuffer — Zed's SaveAll. Returns
-/// `{"saved": [path], "failed": ["path: reason"]}`, or null for an unknown id.
-///
-/// **Blocking**: call it off the main thread.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferSaveAll(
-    env: JNIEnv,
-    _class: JClass,
-    multibuffer_id: jlong,
-) -> jstring {
-    match engine().multibuffer_save_all(multibuffer_id as u64) {
-        Some(report) => match serde_json::to_string(&report) {
-            Ok(json) => to_jstring(&env, json),
-            Err(err) => {
-                log::warn!("multibufferSaveAll failed to serialize: {err}");
-                std::ptr::null_mut()
-            }
-        },
-        None => std::ptr::null_mut(),
-    }
-}
-
-/// Close a multibuffer. `keep` names the buffers the caller still has tabs on,
-/// which the engine cannot know: a file this multibuffer opened on demand and
-/// nobody else holds is released with it.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_multibufferClose<'local>(
-    env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    multibuffer_id: jlong,
-    keep: JLongArray<'local>,
-) -> jboolean {
-    let count = env.get_array_length(&keep).unwrap_or(0).max(0) as usize;
-    let mut raw = vec![0 as jlong; count];
-    if count > 0 && env.get_long_array_region(&keep, 0, &mut raw).is_err() {
-        // Keeping nothing would close buffers the caller is still drawing, so
-        // a read that failed refuses the whole close instead.
-        log::warn!("multibufferClose: could not read the buffers to keep");
-        return JNI_FALSE;
-    }
-    let keep: Vec<u64> = raw.iter().map(|&id| id.max(0) as u64).collect();
-    if engine().close_multibuffer(multibuffer_id as u64, &keep) {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Workspace sessions. One JSON document per project — the pane tree, the tabs
-// with their carets and scroll, the docks, the terminal tabs — plus the list
+// Workspace sessions. One JSON document per project — the open files with
+// their carets and scroll, the destination, the Shell mode — plus the list
 // of recently opened projects. The engine owns the format and every rule
 // about restoring it (see engine/src/session.rs); the app builds the document
 // from its view state and applies what it gets back. All of these touch the

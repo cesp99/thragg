@@ -5,8 +5,8 @@ Thragg is a two-language project with one strict boundary.
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  app/  — Kotlin + Jetpack Compose                       │
-│  workspace shell · editor surface · terminal view       │
-│  fold/tablet adaptive layouts · IME · SAF storage       │
+│  portrait shell · editor surface · terminal view        │
+│  Solana toolchain, build runner, chain client · IME     │
 ├────────────────── JNI (CoreBridge) ─────────────────────┤
 │  core/ — Rust (cargo workspace, built via cargo-ndk)    │
 │  crates/jni-bridge  → libthraggcore.so (cdylib)       │
@@ -25,9 +25,9 @@ already exist as battle-tested Rust crates in
 [Zed](https://github.com/zed-industries/zed), and this project reuses
 them rather than re-deriving years of correctness work.
 
-Kotlin/Compose does what it is genuinely best at: rendering, input,
-window size classes and fold postures, the soft keyboard, and Android
-storage — things no Rust crate does well on Android.
+Kotlin/Compose does what it is genuinely best at: rendering, input, the
+soft keyboard, Android storage, Seed Vault and the foreground services a
+build and a deploy need — things no Rust crate does well on Android.
 
 ## The JNI boundary
 

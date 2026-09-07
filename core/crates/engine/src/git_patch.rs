@@ -167,7 +167,7 @@ impl crate::Engine {
         sha: &str,
         path: Option<&str>,
     ) -> Result<Vec<FileDiff>, String> {
-        let sha = crate::git_history::checked_sha(sha)?;
+        let sha = checked_sha(sha)?;
         let repo = self.repo_for(id)?;
         let mut args: Vec<OsString> = vec![
             OsString::from("show"),
@@ -835,4 +835,18 @@ Binary files a/logo.png and b/logo.png differ\n",
         assert_eq!(files[0].path, "feature.txt");
         assert_eq!(files[0].hunks[0].lines[0].kind, '+');
     }
+}
+
+/// A revision this will hand to git.
+///
+/// Deliberately narrow: hex, and nothing else. The UI only ever passes back a
+/// hash it was given, but "it came from us a moment ago" is not something this
+/// function can check, and `--` would not save an argument that git reads as a
+/// path or an option.
+pub(crate) fn checked_sha(sha: &str) -> Result<String, String> {
+    let trimmed = sha.trim();
+    if trimmed.len() < 4 || trimmed.len() > 64 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("{sha:?} is not a commit hash"));
+    }
+    Ok(trimmed.to_owned())
 }

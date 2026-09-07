@@ -161,12 +161,9 @@ class BufferSession private constructor(val id: Long) {
 
     companion object {
         /**
-         * A handle on a buffer the engine already holds — the composed buffer
-         * behind a multibuffer, which is created by
-         * [CoreBridge.multibufferCreate] rather than here.
-         *
-         * Closing it is the multibuffer's job, not this handle's: see
-         * [MultiBufferSession.close].
+         * A handle on a buffer the engine already holds, opened by another
+         * path than [openFile]. Closing it is that path's job, not this
+         * handle's.
          */
         fun adopt(id: Long): BufferSession = BufferSession(id)
 

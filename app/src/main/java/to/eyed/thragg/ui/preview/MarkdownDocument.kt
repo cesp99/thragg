@@ -33,8 +33,7 @@ enum class InlineStyle {
      * shipping one is a megabyte of dex for a `\frac`. What the style buys is
      * that the source survives — `$a_i * b_j$` is no longer read as emphasis
      * and an underscore, which is the state this file was in — and that the
-     * renderer can set it apart from prose. See `docs/SHORTCUTS.md` for what
-     * is and is not supported.
+     * renderer can set it apart from prose.
      */
     Math,
 }

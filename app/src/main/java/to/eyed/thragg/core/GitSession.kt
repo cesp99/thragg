@@ -105,23 +105,6 @@ class GitSession(private val project: ProjectSession) {
     }
 
     /**
-     * A page of history, newest first. Empty for a repository with no commits.
-     * [allRefs] is the graph's walk — every branch, remote and tag in
-     * `--date-order`, Zed's `LogSource::All`; the default is the plain HEAD
-     * walk the panel's History tab shows.
-     *
-     * **Blocking** — call it from [kotlinx.coroutines.Dispatchers.IO].
-     */
-    fun log(limit: Int = 100, skip: Int = 0, allRefs: Boolean = false): CommitPage {
-        val root = JSONObject(CoreBridge.gitLog(project.id, limit.toLong(), skip.toLong(), allRefs))
-        if (!root.isNull("error")) return CommitPage(error = root.getString("error"))
-        val array = root.optJSONArray("commits") ?: JSONArray()
-        return CommitPage(
-            commits = List(array.length()) { index -> Commit.parse(array.getJSONObject(index)) },
-        )
-    }
-
-    /**
      * The branch's changes since it left [base] — Zed's Branch Diff, a
      * `git diff <base>...` merge-base diff with worktree contents included,
      * which is what the clean tree's "View Branch Diff" opens. **Blocking** —
@@ -148,28 +131,6 @@ class GitSession(private val project: ProjectSession) {
         val files = root.optJSONArray("files") ?: JSONArray()
         return PatchResult(
             files = List(files.length()) { index -> FileDiff.parse(files.getJSONObject(index)) },
-        )
-    }
-
-    /** One commit in full. Null when git could not read it. **Blocking**. */
-    fun commitDetails(sha: String): CommitDetails? {
-        val root = JSONObject(CoreBridge.gitCommitDetails(project.id, sha))
-        if (!root.isNull("error")) return null
-        val files = root.optJSONArray("files") ?: JSONArray()
-        return CommitDetails(
-            commit = Commit.parse(root),
-            message = root.optString("message"),
-            files = List(files.length()) { index ->
-                val file = files.getJSONObject(index)
-                CommitFile(
-                    status = file.optString("status").firstOrNull() ?: '?',
-                    path = file.optString("path"),
-                    // `optString` on a JSON null hands back the *string*
-                    // "null", which is how every renamed-from field in the
-                    // history read `null → .gitignore`.
-                    original = if (file.isNull("original")) null else file.getString("original"),
-                )
-            },
         )
     }
 
@@ -322,26 +283,6 @@ class GitSession(private val project: ProjectSession) {
      */
     fun restoreHunk(path: String, rows: IntRange): String? =
         CoreBridge.gitPathHunkRestore(project.id, path, rows.first.toLong(), (rows.last + 1).toLong())
-
-    /** `git stash list`, newest first. **Blocking** — it runs git. */
-    fun stashList(): StashList = StashList.parse(CoreBridge.gitStashList(project.id))
-
-    /**
-     * `git stash push` of the given [kind] — Zed's Stash All / Tracked /
-     * Staged — with an optional [message]. Null when it worked. **Blocking**.
-     */
-    fun stashPush(kind: StashKind, message: String = ""): String? =
-        CoreBridge.gitStashPush(project.id, kind.ordinal, message)
-
-    /** `git stash pop`; null [index] pops the newest. **Blocking**. */
-    fun stashPop(index: Int? = null): String? = CoreBridge.gitStashPop(project.id, (index ?: -1).toLong())
-
-    /** `git stash apply`; null [index] applies the newest. **Blocking**. */
-    fun stashApply(index: Int? = null): String? =
-        CoreBridge.gitStashApply(project.id, (index ?: -1).toLong())
-
-    /** `git stash drop`; null [index] drops the newest. **Blocking**. */
-    fun stashDrop(index: Int? = null): String? = CoreBridge.gitStashDrop(project.id, (index ?: -1).toLong())
 
     internal companion object {
         /** The bridge's `{"remotes":[…]}`; an error object is an empty list. */
@@ -734,55 +675,6 @@ data class PatchResult(
     val error: String? = null,
 )
 
-/** One commit, as the History tab draws it. */
-data class Commit(
-    val sha: String,
-    /** More than one means a merge. */
-    val parents: List<String>,
-    val author: String,
-    val authorEmail: String,
-    /** Seconds since the Unix epoch. */
-    val authorTime: Long,
-    val subject: String,
-    /** `HEAD -> main`, `origin/main`, `tag: v1` — git's own `%D`, split. */
-    val refs: List<String>,
-) {
-    val shortSha: String get() = sha.take(7)
-    val isMerge: Boolean get() = parents.size > 1
-
-    internal companion object {
-        fun parse(json: JSONObject): Commit {
-            val parents = json.optJSONArray("parents") ?: JSONArray()
-            val refs = json.optJSONArray("refs") ?: JSONArray()
-            return Commit(
-                sha = json.optString("sha"),
-                parents = List(parents.length()) { parents.getString(it) },
-                author = json.optString("author"),
-                authorEmail = json.optString("author_email"),
-                authorTime = json.optLong("author_time"),
-                subject = json.optString("subject"),
-                refs = List(refs.length()) { refs.getString(it) },
-            )
-        }
-    }
-}
-
-/** A page of history, or why there is none. */
-data class CommitPage(
-    val commits: List<Commit> = emptyList(),
-    val error: String? = null,
-)
-
-/** A path a commit touched. */
-data class CommitFile(val status: Char, val path: String, val original: String?)
-
-/** One commit in full: the row's fields, the whole message, and its files. */
-data class CommitDetails(
-    val commit: Commit,
-    val message: String,
-    val files: List<CommitFile>,
-)
-
 /** What happened to a run of rows, as the gutter paints it. */
 enum class GitHunkKind { Added, Modified, Deleted }
 
@@ -854,86 +746,8 @@ data class HunkStates(val hunks: List<GitHunk> = emptyList(), val error: String?
     }
 }
 
-/** One `stash@{N}` — Zed's `StashEntry` (crates/git/src/stash.rs). */
-data class StashEntry(
-    /** `N`: 0 is the newest. */
-    val index: Int,
-    val sha: String,
-    /** The message, minus git's `WIP on branch:` prefix. */
-    val message: String,
-    /** The branch the stash was taken on, when git's prefix named one. */
-    val branch: String?,
-    /** Seconds since the Unix epoch. */
-    val timestamp: Long,
-) {
-    companion object {
-        fun parse(json: JSONObject): StashEntry = StashEntry(
-            index = json.getInt("index"),
-            sha = json.getString("sha"),
-            message = json.optString("message"),
-            branch = json.optString("branch").takeIf { !json.isNull("branch") && it.isNotEmpty() },
-            timestamp = json.optLong("timestamp"),
-        )
-    }
-}
-
-/** The stash listing, or why there is none. */
-data class StashList(val entries: List<StashEntry> = emptyList(), val error: String? = null) {
-    companion object {
-        fun parse(json: String): StashList {
-            val root = JSONObject(json)
-            if (!root.isNull("error")) return StashList(error = root.getString("error"))
-            val entries = root.optJSONArray("entries") ?: JSONArray()
-            return StashList(List(entries.length()) { StashEntry.parse(entries.getJSONObject(it)) })
-        }
-    }
-}
-
 /**
- * What a stash push takes — Zed's `StashKind` (git_panel.rs:205-227), in the
- * order the engine numbers it.
- */
-enum class StashKind(val label: String) {
-    /** Everything, untracked files included: `--include-untracked`. */
-    All("Stash All"),
-    /** Tracked changes only, the plain `git stash push`. */
-    Tracked("Stash Tracked"),
-    /** The index only: `--staged`. */
-    Staged("Stash Staged"),
-}
-
-/** One run of rows and the commit that last touched it. */
-data class BlameLine(
-    /** Full commit hash; all zeroes for lines that are not committed yet. */
-    val sha: String,
-    /** First row of the run, 0-based, in the file **on disk**. */
-    val startRow: Int,
-    val rowCount: Int,
-    val author: String,
-    /** Seconds since the Unix epoch, or 0 for an uncommitted line. */
-    val authorTime: Long,
-    /** The commit's subject line. */
-    val summary: String,
-) {
-    /** What git itself abbreviates a hash to. */
-    val shortSha: String get() = sha.take(7)
-
-    val isCommitted: Boolean get() = sha.any { it != '0' }
-}
-
-/** Blame for a whole file, or why there is none. */
-data class FileBlame(
-    val lines: List<BlameLine> = emptyList(),
-    /** git's own message: not a repository, no such path in HEAD, no userland. */
-    val error: String? = null,
-) {
-    /** The run covering [row], or null past the end of what git blamed. */
-    fun at(row: Int): BlameLine? =
-        lines.lastOrNull { row >= it.startRow && row < it.startRow + it.rowCount }
-}
-
-/**
- * The git view of one open buffer: the gutter's hunks, and blame.
+ * The git view of one open buffer: the gutter's hunks.
  *
  * Keyed by buffer rather than by project because that is what it is about — the
  * file you are looking at — and because the engine already knows which project
@@ -1005,30 +819,6 @@ object GitDiff {
      */
     fun restoreHunk(bufferId: Long, rows: IntRange): String? =
         CoreBridge.gitHunkRestore(bufferId, rows.first.toLong(), (rows.last + 1).toLong())
-
-    /**
-     * Who last touched each run of rows. **Blocking and uncached** — it runs
-     * git every time — so call it when the user asks for blame, from
-     * [kotlinx.coroutines.Dispatchers.IO], and never on a poll loop.
-     */
-    fun blame(bufferId: Long): FileBlame {
-        val root = JSONObject(CoreBridge.gitBlame(bufferId))
-        if (!root.isNull("error")) return FileBlame(error = root.getString("error"))
-        val entries = root.optJSONArray("entries") ?: JSONArray()
-        return FileBlame(
-            lines = List(entries.length()) { index ->
-                val entry = entries.getJSONObject(index)
-                BlameLine(
-                    sha = entry.getString("sha"),
-                    startRow = entry.getInt("start_row"),
-                    rowCount = entry.getInt("row_count"),
-                    author = entry.optString("author"),
-                    authorTime = entry.optLong("author_time"),
-                    summary = entry.optString("summary"),
-                )
-            }
-        )
-    }
 
     /** Index order matches the engine's, which is what the ints mean. */
     private val KINDS = GitHunkKind.entries.toTypedArray()

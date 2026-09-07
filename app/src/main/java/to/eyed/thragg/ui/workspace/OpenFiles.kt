@@ -13,7 +13,6 @@ import to.eyed.thragg.core.LineEnding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.core.LanguageSettings
-import to.eyed.thragg.core.MultiBufferSession
 import to.eyed.thragg.ui.editor.EditorState
 import to.eyed.thragg.ui.git.DiffTarget
 import to.eyed.thragg.ui.media.MediaKind
@@ -224,16 +223,6 @@ class OpenFile(
      * of a file.
      */
     val lspLogs: String? = null,
-    /**
-     * A multibuffer, when the tab is one — Zed's project search, references
-     * and diagnostics all open as one (see core/MultiBufferSession.kt).
-     *
-     * It still has an [editor]: the engine composes the excerpts into one
-     * ordinary buffer, so the pane that draws it is the ordinary pane and the
-     * edits it makes are routed back to the files inside the engine. What the
-     * handle adds is the headers, the row map and the save-all.
-     */
-    val multibuffer: MultiBufferSession? = null,
     /** The file on disk, for a tab the engine never opened. */
     val absolutePath: String? = null,
 ) {
@@ -276,16 +265,13 @@ class OpenFile(
      * file.
      */
     val isReopenable: Boolean get() = diff == null && !graph && !diagnostics &&
-        !agentReview && lspLogs == null && multibuffer == null
+        !agentReview && lspLogs == null
 
     val name: String = when {
         graph -> "Git graph"
         diagnostics -> "Diagnostics"
         agentReview -> "Review changes"
         lspLogs != null -> "LSP logs: $lspLogs"
-        // "Search: needle", "References to foo", "Project diagnostics" — the
-        // title Zed gives the multibuffer it opens.
-        multibuffer != null -> multibuffer.title
         diff != null -> diff.title
         else -> path.substringAfterLast('/')
     }
@@ -358,14 +344,6 @@ class OpenFile(
 
     /** Whether anything changed, so callers can skip needless work. */
     fun refreshStatus(): Boolean {
-        // A multibuffer's composed buffer has no file of its own; what is
-        // dirty is the files behind it, which the engine counts.
-        multibuffer?.let { open ->
-            val dirty = open.isDirty
-            if (dirty == isDirty) return false
-            isDirty = dirty
-            return true
-        }
         val open = session ?: return refreshMediaStatus()
         val dirty = open.isDirty
         val disk = open.hasDiskChange
@@ -498,11 +476,7 @@ class OpenFilesState {
      */
     internal var isSharedElsewhere: (OpenFile) -> Boolean = { false }
 
-    /**
-     * Every tab the workspace still has, across panes — what a multibuffer's
-     * close is told to keep, and what says a buffer is still excerpted
-     * somewhere. This pane's own tabs until the pane group says otherwise.
-     */
+    /** Every tab the workspace still has. This pane's own tabs. */
     internal var heldTabs: () -> List<OpenFile> = { _tabs }
 
     /**
@@ -701,20 +675,7 @@ class OpenFilesState {
      */
     fun close(index: Int) {
         val file = detach(index) ?: return
-        // A multibuffer owns its composed buffer *and* the files it opened on
-        // demand; the engine releases both, minus the ones the tabs that are
-        // left still hold — it has no way to know those. "Left" is every
-        // pane's, not this one's: a file this multibuffer opened may be the
-        // tab a split is showing.
-        val multibuffer = file.multibuffer
-        when {
-            multibuffer != null ->
-                multibuffer.close(heldTabs().mapNotNull { it.session?.id }.toLongArray())
-            // A file another tab's multibuffer excerpts stays open for it, as
-            // one open in another pane does.
-            isHeldByAMultibuffer(file) -> Unit
-            else -> onRelease(file)
-        }
+        onRelease(file)
         if (file.isReopenable) rememberClosed(file.path)
         if (_tabs.isEmpty()) onEmptied?.invoke()
     }
@@ -817,21 +778,6 @@ class OpenFilesState {
         // at the wrong end of both.
         activate(at)
         closedPaths.remove(file.path)
-    }
-
-    /**
-     * Whether an open multibuffer is still showing this file's buffer.
-     *
-     * The engine keys buffers by path and counts no references, so closing a
-     * tab on a file a multibuffer excerpts would pull the text out from under
-     * it — and the excerpt would silently vanish on its next recomposition.
-     * The tab goes; the buffer stays until the multibuffer lets it go too.
-     */
-    private fun isHeldByAMultibuffer(file: OpenFile): Boolean {
-        val id = file.session?.id ?: return false
-        return heldTabs().any { tab ->
-            tab.multibuffer?.info?.excerpts?.any { it.bufferId == id } == true
-        }
     }
 
     /** Pin or unpin a tab, moving it across the pinned/unpinned boundary. */

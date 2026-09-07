@@ -62,18 +62,14 @@ mod git;
 mod git_branches;
 mod git_conflict;
 mod git_diff;
-mod git_history;
 mod git_hunks;
 mod git_patch;
 mod git_remotes;
-mod git_stash;
 mod guest;
 mod highlight;
 mod highlight_worker;
-mod keymap;
 mod language_config;
 mod lsp;
-mod multibuffer;
 mod platform;
 mod project;
 mod project_search;
@@ -81,7 +77,6 @@ mod runtime;
 mod search;
 mod session;
 mod tasks;
-mod toolchain;
 
 pub use encoding::{LineEnding, available_encodings, encoding_named};
 pub use appearance::{
@@ -95,7 +90,6 @@ pub use config::{
     Settings, SoftWrap,
 };
 pub use format::FormatOutcome;
-pub use keymap::{KeybindSource, KeymapContext, KeymapLoad, Keystroke, ResolvedBinding};
 pub use project::LOCAL_SETTINGS_PATH;
 pub use tasks::{
     RunnableContext, RunnableRow, TaskEditorContext, TaskSource, TaskSpec, parse_tasks_json,
@@ -109,7 +103,6 @@ pub use git_branches::{BranchEntry, BranchList};
 pub use git_conflict::{ConflictRegion, Keep as ConflictKeep};
 pub use git_diff::{BlameEntry, Hunk, HunkKind};
 pub use git_hunks::HunkState;
-pub use git_stash::{StashEntry, StashKind};
 pub use highlight::{
     HighlightSpan, LanguageInfo, OutlineItem, STYLE_NAMES, TextRange, available_languages,
     language_for_path, warm_languages,
@@ -121,17 +114,12 @@ pub use crate::lsp::{
     BufferDiagnostics, Counts, DiagnosticRow, ProjectDiagnostics, RequestKind, RequestResult,
     RequestState, ServerState, ServerStatus, Severity,
 };
-pub use multibuffer::{
-    ExcerptInfo, ExcerptSpec, MultiBufferId, MultiBufferInfo, MultiBufferLocation, SaveAllReport,
-    parse_specs as parse_excerpt_specs,
-};
 pub use project::{ProjectId, TrashedEntry, TreeEntry};
 pub use project_search::{
     FileMatches, LineMatch, ProjectReplaceSummary, SearchId, SearchResults, SearchState,
 };
 pub use search::{BufferMatch, BufferSearch, ReplaceOutcome, SearchOptions};
 pub use session::{RecentProject, SESSION_VERSION, SessionDocument};
-pub use toolchain::{Toolchain, ToolchainEnv};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -176,9 +164,7 @@ pub fn initialize(files_dir: &Path) {
     }
     trash::set_root(files_dir.join(".trash"));
     config::set_directory(files_dir.to_path_buf());
-    keymap::set_directory(files_dir.to_path_buf());
     session::set_directory(files_dir.to_path_buf());
-    toolchain::set_directory(files_dir.to_path_buf());
 }
 
 pub type BufferId = u64;
@@ -241,9 +227,6 @@ pub struct Engine {
     /// tab. What lets a cache keyed on "the settings as they were" notice
     /// they are not any more; see `lsp::project_tree_servers`.
     settings_generation: AtomicU64,
-    /// Open multibuffers, and the index the edit path consults to route an
-    /// edit made in one to the file it belongs to — see multibuffer.rs.
-    multibuffers: multibuffer::MultiBuffers,
 }
 
 pub(crate) struct BufferState {
@@ -381,12 +364,6 @@ impl Engine {
     /// Replace the byte range `start..end` with `text`, returning the new
     /// buffer version. Offsets are in bytes and must lie on UTF-8 character
     /// boundaries.
-    ///
-    /// An edit on a multibuffer's composed buffer is *routed* to the file the
-    /// offset belongs to and replayed into the composition, so every caller —
-    /// typing, paste, a code action — edits a multibuffer without knowing it
-    /// is one (see multibuffer.rs). With no multibuffer open the check is one
-    /// relaxed atomic load.
     pub fn edit(
         &self,
         id: BufferId,
@@ -394,10 +371,7 @@ impl Engine {
         end: usize,
         text: &str,
     ) -> Result<u64, EngineError> {
-        match self.multibuffer_for_mirror(id) {
-            Some(multibuffer) => self.multibuffer_edit(multibuffer, start, end, text),
-            None => self.edit_buffer(id, start, end, text),
-        }
+        self.edit_buffer(id, start, end, text)
     }
 
     /// The edit itself, against one buffer and nothing else.
@@ -474,14 +448,8 @@ impl Engine {
 
     /// Undo the most recent transaction. Returns the new version, or `None`
     /// if there was nothing to undo.
-    ///
-    /// On a multibuffer this undoes in the file the last edit went to, which
-    /// is what Zed's multibuffer undo does.
     pub fn undo(&self, id: BufferId) -> Result<Option<u64>, EngineError> {
-        match self.multibuffer_for_mirror(id) {
-            Some(multibuffer) => self.multibuffer_undo(multibuffer),
-            None => self.undo_buffer(id),
-        }
+        self.undo_buffer(id)
     }
 
     pub(crate) fn undo_buffer(&self, id: BufferId) -> Result<Option<u64>, EngineError> {
@@ -536,10 +504,7 @@ impl Engine {
     /// Redo the most recently undone transaction. Returns the new version,
     /// or `None` if there was nothing to redo.
     pub fn redo(&self, id: BufferId) -> Result<Option<u64>, EngineError> {
-        match self.multibuffer_for_mirror(id) {
-            Some(multibuffer) => self.multibuffer_redo(multibuffer),
-            None => self.redo_buffer(id),
-        }
+        self.redo_buffer(id)
     }
 
     pub(crate) fn redo_buffer(&self, id: BufferId) -> Result<Option<u64>, EngineError> {
@@ -872,13 +837,6 @@ pub enum EngineError {
     /// The operation needs a file behind the buffer, and there isn't one.
     NoFile(BufferId),
     UnknownProject(ProjectId),
-    UnknownMultiBuffer(MultiBufferId),
-    /// Every file a multibuffer was asked for was unreadable, so there is
-    /// nothing to show.
-    EmptyMultiBuffer,
-    /// An edit in a multibuffer that lands on a header row, or spans two
-    /// excerpts: there is no single file it could go to.
-    NotInAnExcerpt,
     /// A search query that does not compile; carries the regex engine's
     /// complaint, which is worth showing the user verbatim.
     InvalidQuery(String),
@@ -901,11 +859,6 @@ impl std::fmt::Display for EngineError {
             }
             EngineError::NoFile(id) => write!(f, "buffer {id} is not backed by a file"),
             EngineError::UnknownProject(id) => write!(f, "unknown project {id}"),
-            EngineError::UnknownMultiBuffer(id) => write!(f, "unknown multibuffer {id}"),
-            EngineError::EmptyMultiBuffer => write!(f, "no readable file to excerpt"),
-            EngineError::NotInAnExcerpt => {
-                write!(f, "that position is not inside a single excerpt")
-            }
             EngineError::InvalidQuery(message) => write!(f, "invalid search query: {message}"),
             EngineError::NoSettingsFile => write!(f, "no settings directory configured"),
             EngineError::InvalidSettings(message) => write!(f, "invalid settings: {message}"),

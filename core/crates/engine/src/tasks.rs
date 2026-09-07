@@ -1227,15 +1227,10 @@ impl Engine {
         let context = TaskContext {
             cwd: Some(root),
             task_variables: variables,
-            // Zed's own slot for the environment a project runs in, which is
-            // where the active toolchain lands: `VIRTUAL_ENV` and a `PATH`
-            // prefix, so `python -m pytest` is the project's Python and not
-            // the userland's.
-            project_env: self
-                .toolchain_env(project_id)
-                .iter()
-                .map(|(key, value)| (key.to_owned(), value.to_owned()))
-                .collect(),
+            // Zed's own slot for the environment a project runs in. Empty:
+            // there is no per-project toolchain picker on this device, and the
+            // Solana toolchain's `PATH` comes with the guest environment.
+            project_env: Default::default(),
         };
         Ok((
             context,
