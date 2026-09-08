@@ -5,21 +5,23 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The icon-theme lookup: Zed's rule
- * (`file_icons/src/file_icons.rs`), and what a *user* icon theme does to it.
+ * The icon-theme lookup: Zed's rule (`file_icons/src/file_icons.rs`), and
+ * how a *partial* theme falls through to the bundled one.
  *
  * The bundled tables are generated from Zed's `icon_theme.rs`, so what is
  * worth pinning here is not which icon Rust gets — that is `FileIconsTest` —
  * but the arbitration: whole name before suffix, longest suffix before
- * shortest, and a user theme answering only for the keys it names while
- * everything else falls through to the set in the APK.
+ * shortest, and a theme answering only for the keys it names while
+ * everything else falls through to the set in the APK. The app no longer
+ * loads user icon themes (docs/UI.md, "What is removed"); the hand-built
+ * `custom` theme below exists to exercise the fallback, not to stand for a
+ * feature.
  */
 class IconThemeTest {
 
-    /** A theme that renames two types and ships art for one of them. */
+    /** A partial theme that renames two types and names art for one of them. */
     private val custom = IconTheme(
         name = "Pastel",
-        isBundled = false,
         fileStems = mapOf("Makefile" to "build"),
         fileSuffixes = mapOf("rs" to "ferris", "module.js" to "module"),
         icons = mapOf("ferris" to "/data/icon_themes/pastel/ferris.png"),
@@ -46,7 +48,7 @@ class IconThemeTest {
     }
 
     @Test
-    fun a_user_theme_answers_for_what_it_names() {
+    fun a_partial_theme_answers_for_what_it_names() {
         assertEquals("ferris", custom.iconKey("main.rs"))
         assertEquals("build", custom.iconKey("Makefile"))
         assertEquals(
@@ -56,7 +58,7 @@ class IconThemeTest {
     }
 
     @Test
-    fun what_a_user_theme_does_not_name_falls_through_to_the_bundled_set() {
+    fun what_a_partial_theme_does_not_name_falls_through_to_the_bundled_set() {
         // Python is in neither of the custom theme's tables, so both the key
         // and the art come from the set in the APK — which is what makes
         // overriding six file types cost only six.
@@ -65,7 +67,7 @@ class IconThemeTest {
     }
 
     @Test
-    fun a_key_a_user_theme_renames_but_ships_no_art_for_borrows_it() {
+    fun a_key_a_partial_theme_renames_but_names_no_art_for_borrows_it() {
         // `module.js` maps to a key the theme has no image for, and the
         // bundled set has never heard of `module` either: the fallback's own
         // default sheet is the answer, not a blank row.

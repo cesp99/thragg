@@ -55,7 +55,7 @@ class SignatureHelpTest {
     @Test
     fun theTriggerCharactersComeFromTheServer() {
         val triggers = BufferTriggers.parse(
-            """{"completion":[".","::"],"signature_help":["(",","],"signature_help_retrigger":[")"],"folding_ranges":true,"inlay_hints":true}"""
+            """{"completion":[".","::"],"signature_help":["(",","],"signature_help_retrigger":[")"],"folding_ranges":true}"""
         )
         assertTrue(triggers.opensSignatureHelp("("))
         assertTrue(triggers.opensSignatureHelp(","))
@@ -65,7 +65,6 @@ class SignatureHelpTest {
         // A two-character trigger never matches one keystroke (completions.rs:1513-1539).
         assertTrue(!triggers.opensCompletions(":"))
         assertTrue(triggers.foldingRanges)
-        assertTrue(triggers.inlayHints)
         // No server: nothing opens signature help, completions keep their defaults.
         assertTrue(!BufferTriggers.NONE.opensSignatureHelp("("))
         assertTrue(BufferTriggers.NONE.opensCompletions("."))

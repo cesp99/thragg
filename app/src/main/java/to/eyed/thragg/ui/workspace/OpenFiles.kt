@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import to.eyed.thragg.core.ActivateOnClose
 import to.eyed.thragg.core.BufferEncoding
 import to.eyed.thragg.core.BufferSession
 import to.eyed.thragg.core.LineEnding
@@ -429,20 +428,12 @@ class OpenFilesState {
     /**
      * Activation history: paths, oldest first, the most recent one last.
      *
-     * This is what the Ctrl+Tab switcher walks and what
-     * [ActivateOnClose.History] falls back to. Zed keeps the same list per
+     * This is what the Ctrl+Tab switcher walks and what [activeAfterClose]
+     * falls back on. Zed keeps the same list per
      * pane (`Pane::activation_history`, workspace/src/pane.rs) and the tab
      * switcher reads it in reverse (tab_switcher/src/tab_switcher.rs).
      */
     private val activationHistory = mutableStateListOf<String>()
-
-    /**
-     * Zed's `tabs.activate_on_close`, and `max_tabs`. Plain vars rather than
-     * constructor arguments: the state outlives any one settings value, and
-     * the workspace re-points them whenever settings.json changes.
-     */
-    var activateOnClose: ActivateOnClose = ActivateOnClose.History
-    var maxTabs: Int? = null
 
     /** How many tabs at the head of the strip are pinned. */
     val pinnedCount: Int get() = _tabs.count { it.isPinned }
@@ -552,7 +543,6 @@ class OpenFilesState {
             activate(_tabs.lastIndex)
         }
         closedPaths.remove(file.path)
-        enforceMaxTabs()
     }
 
     /**
@@ -656,7 +646,7 @@ class OpenFilesState {
     /**
      * Make [index] active and record it as the most recent — the one write
      * that must always happen together, since [activationHistory] is what both
-     * the Ctrl+Tab switcher and `activate_on_close` read.
+     * the Ctrl+Tab switcher and [activeAfterClose] read.
      */
     private fun activate(index: Int) {
         activeIndex = index
@@ -667,7 +657,7 @@ class OpenFilesState {
 
     /**
      * Close a tab and release its engine buffer. Which tab takes over is
-     * `tabs.activate_on_close`'s to say — see [activeAfterClose].
+     * [activeAfterClose]'s to say.
      *
      * Unconditional: unsaved edits go with it. Only callers that have already
      * asked — [requestClose] and friends — or that are tearing the workspace
@@ -709,50 +699,19 @@ class OpenFilesState {
     }
 
     /**
-     * Which tab takes over — Zed's `tabs.activate_on_close`
-     * (assets/settings/default.json): the one you were on before, the right
-     * neighbour, or the left one. History falls back to the left neighbour
-     * when there is no history left, which is where every editor lands.
+     * Which tab takes over: the one you were on before, falling back to the
+     * left neighbour when there is no history left, which is where every
+     * editor lands. This is Zed's default for `tabs.activate_on_close`
+     * (assets/settings/default.json, `"history"`), and it is fixed here: the
+     * right- and left-neighbour strategies went with the strip's `tabs`
+     * settings block in the 2026-09 demolition, since nothing could set
+     * them any more.
      */
-    private fun activeAfterClose(closedIndex: Int): Int = when (activateOnClose) {
-        ActivateOnClose.History ->
-            activationHistory.lastOrNull()
-                ?.let(::indexOfPath)
-                ?.takeIf { it >= 0 }
-                ?: (closedIndex - 1).coerceIn(0, _tabs.lastIndex)
-
-        ActivateOnClose.Neighbour -> closedIndex.coerceIn(0, _tabs.lastIndex)
-        ActivateOnClose.LeftNeighbour -> (closedIndex - 1).coerceIn(0, _tabs.lastIndex)
-    }
-
-    /**
-     * Zed's `max_tabs`: once the pane holds more than the cap, the tab gone
-     * longest without being looked at is closed (workspace/src/pane.rs, where
-     * `max_tabs` walks `activation_history` from the oldest end).
-     *
-     * Pinned tabs are never the victim — pinning is how you say "not this
-     * one" — and neither is a tab with unsaved edits: a cap is a tidiness
-     * setting, and losing work to one would be indefensible. When everything
-     * left is pinned or dirty the pane simply runs over the cap, and the next
-     * save brings it back down.
-     */
-    private fun enforceMaxTabs() {
-        val cap = maxTabs ?: return
-        while (_tabs.size > cap) {
-            val victim = mruOrder(_tabs.map { it.path }, activationHistory)
-                .asReversed()
-                .asSequence()
-                .mapNotNull { path -> _tabs.firstOrNull { it.path == path } }
-                .firstOrNull { candidate ->
-                    if (candidate.isPinned || candidate === active) return@firstOrNull false
-                    // The poll loop is up to a quarter of a second behind, and
-                    // this decision throws a buffer away: ask the engine now.
-                    candidate.refreshStatus()
-                    !candidate.isDirty
-                } ?: return
-            close(indexOfPath(victim.path))
-        }
-    }
+    private fun activeAfterClose(closedIndex: Int): Int =
+        activationHistory.lastOrNull()
+            ?.let(::indexOfPath)
+            ?.takeIf { it >= 0 }
+            ?: (closedIndex - 1).coerceIn(0, _tabs.lastIndex)
 
     /**
      * Take in a tab another pane [detach]ed, and make it active. A tab on
@@ -773,7 +732,7 @@ class OpenFilesState {
         val at = if (file.isPinned) _tabs.count { it.isPinned } else _tabs.size
         _tabs.add(at, file)
         // Through [activate], so the tab this pane just took in is the most
-        // recent one *here* — the Ctrl+Tab switcher and `activate_on_close`
+        // recent one *here* — the Ctrl+Tab switcher and [activeAfterClose]
         // both read that list, and a tab nobody had ever activated would sit
         // at the wrong end of both.
         activate(at)

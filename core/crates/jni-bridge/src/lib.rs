@@ -3137,25 +3137,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestDeclaration
     engine().lsp_request_declaration(buffer_id as u64, row, col) as jlong
 }
 
-/// Inlay hints for rows `firstRow..=lastRow` — the visible range. Same
-/// polling contract as `lspRequestCompletion`; the payload is `{hints:
-/// [{row, col_utf16, label, kind, padding_left, padding_right}]}`, `kind`
-/// being `type`, `parameter` or null. `row` echoes `firstRow` and
-/// `buffer_version` the version asked at: drop an answer whose version is
-/// not the buffer's current one, its columns describe text that moved.
-/// Supersedes the previous hint request, so a scroll may ask freely.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestInlayHints(
-    _env: JNIEnv,
-    _class: JClass,
-    buffer_id: jlong,
-    first_row: jlong,
-    last_row: jlong,
-) -> jlong {
-    let (first, last) = caret(first_row, last_row);
-    engine().lsp_request_inlay_hints(buffer_id as u64, first, last) as jlong
-}
-
 /// The signature of the call the caret sits in — Zed's
 /// `editor::ShowSignatureHelp`. Same polling contract as
 /// `lspRequestCompletion`; the payload is `{signatures: [{label,
@@ -3222,7 +3203,7 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestWorkspaceSy
 
 /// The characters a buffer's server opens its menus on, from its declared
 /// capabilities: `{completion: [...], signature_help: [...],
-/// signature_help_retrigger: [...], folding_ranges, inlay_hints}`. Every list
+/// signature_help_retrigger: [...], folding_ranges}`. Every list
 /// is empty for a buffer with no running server — keep the defaults then.
 /// Reads a cache; never blocks.
 #[unsafe(no_mangle)]
@@ -3353,7 +3334,7 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestVersion(
 ///
 /// `kind` is `completion`, `hover`, `definition`, `references`,
 /// `code_action`, `code_action_apply`, `rename`, `formatting`,
-/// `type_definition`, `implementation`, `declaration`, `inlay_hint`,
+/// `type_definition`, `implementation`, `declaration`,
 /// `signature_help`, `workspace_symbol`, `folding_range` or
 /// `completion_resolve`. `state` is
 /// `pending`,
@@ -3386,7 +3367,6 @@ pub extern "system" fn Java_to_eyed_thragg_core_CoreBridge_lspRequestVersion(
 ///   a server command and changed nothing answers `{files: 0, edits: 0,
 ///   resource_ops: false, ran: <title>}`.
 /// * `type_definition`, `implementation`, `declaration` — definition's shape.
-/// * `inlay_hint` — see `lspRequestInlayHints`.
 /// * `signature_help` — see `lspRequestSignatureHelp`.
 /// * `workspace_symbol` — see `lspRequestWorkspaceSymbols`.
 /// * `folding_range` — `{ranges: [{start_row, end_row}]}`.

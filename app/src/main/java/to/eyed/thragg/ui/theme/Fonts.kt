@@ -33,9 +33,6 @@ object BundledFonts {
     const val UI = "IBM Plex Sans"
     const val BUFFER = "Lilex"
 
-    /** What the font picker lists first. */
-    val NAMES = listOf(BUFFER, UI)
-
     val ui: FontFamily = FontFamily(
         Font(R.font.ibm_plex_sans_regular, FontWeight.Normal),
         // Zed's UI has no bold; SemiBold is what it reaches for, and Compose

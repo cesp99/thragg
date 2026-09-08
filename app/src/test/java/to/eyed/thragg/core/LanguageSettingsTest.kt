@@ -23,7 +23,7 @@ class LanguageSettingsTest {
               "preferred_line_length": 100, "wrap_guides": [80, 120],
               "format_on_save": "on", "formatter": "language_server",
               "code_actions_on_format": {"source.organizeImports": true, "source.fixAll": false},
-              "enable_language_server": false, "inline_blame": false
+              "enable_language_server": false
             }
             """.trimIndent()
         )
@@ -37,7 +37,6 @@ class LanguageSettingsTest {
         // Only the kinds set to true, in a stable order.
         assertEquals(listOf("source.organizeImports"), parsed.codeActionsOnFormat)
         assertFalse(parsed.enableLanguageServer)
-        assertFalse(parsed.inlineBlame)
     }
 
     @Test

@@ -542,32 +542,6 @@ pub struct GitSettings {
     pub inline_blame: InlineBlameSettings,
 }
 
-/// Zed's `inlay_hints` (assets/settings/default.json:793-821), the keys and
-/// the defaults: off as a whole, every kind on once it is switched on. The
-/// debounce and background keys Zed also has are not here — the debounce is
-/// the editor's own constant and the background is not drawn — and a file
-/// that carries them parses all the same.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct InlayHintSettings {
-    pub enabled: bool,
-    pub show_type_hints: bool,
-    pub show_parameter_hints: bool,
-    /// Hints with no LSP kind — rust-analyzer's chaining and lifetime hints.
-    pub show_other_hints: bool,
-}
-
-impl Default for InlayHintSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            show_type_hints: true,
-            show_parameter_hints: true,
-            show_other_hints: true,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProjectPanelSettings {
@@ -1447,8 +1421,6 @@ pub struct Settings {
     /// Zed's `vim` object; read only while `vim_mode` is on.
     pub vim: VimSettings,
     pub git: GitSettings,
-    /// Zed's `inlay_hints` — see [`InlayHintSettings`].
-    pub inlay_hints: InlayHintSettings,
     /// The editor's tab strip — Zed's `tabs`.
     pub tabs: TabSettings,
     /// Provisional tabs — Zed's `preview_tabs`.
@@ -1642,7 +1614,6 @@ impl Default for Settings {
             vim_mode: false,
             vim: VimSettings::default(),
             git: GitSettings::default(),
-            inlay_hints: InlayHintSettings::default(),
             tabs: TabSettings::default(),
             preview_tabs: PreviewTabsSettings::default(),
             max_tabs: None,
@@ -1833,8 +1804,9 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
   // choosing between them. "system" follows the device's light/dark
   // setting; "light" and "dark" pin it.
   //
-  // Themes are the eleven families bundled with the app plus any *.json
-  // theme file you drop into the "themes" folder beside this one.
+  // Only the eleven bundled themes ship — One, Ayu and Gruvbox, light and
+  // dark; there is no themes folder to add to (docs/UI.md, "What is
+  // removed").
   "theme": {
     "mode": "system",
     "light": "One Light",
@@ -1850,8 +1822,9 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
   //   }
   "theme_overrides": {},
 
-  // Which icon theme the file tree and the tabs draw from: the bundled
-  // "Zed (Default)", or a theme file in the "icon_themes" folder.
+  // Which icon theme the file tree draws from. Only the bundled
+  // "Zed (Default)" ships; there is no icon_themes folder to add to
+  // (docs/UI.md, "What is removed").
   "icon_theme": "Zed (Default)",
 
   // Whose shortcuts to start from: "VSCode" (Zed's own default), "JetBrains",
@@ -1863,8 +1836,8 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
   "buffer_font_size": 14,
 
   // The editor and terminal face. null is the bundled Lilex — Zed's own
-  // monospace. Any font installed on the device, or dropped into the
-  // "fonts" folder beside this file, can be named here.
+  // monospace. Only the bundled faces can be named here ("Lilex",
+  // "IBM Plex Sans"); any other name draws with the bundled one.
   "buffer_font_family": null,
 
   // Families to try for glyphs the buffer font has not got, in order.
@@ -1928,21 +1901,6 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
   // that long. Delayed saves do not run the formatter, as in Zed.
   "autosave": "off",
 
-  // How much of the last session comes back when the app is launched again.
-  // Zed's three values name how many *windows* return; this app has one, so
-  // they name how much of it does:
-  //   "last_session"   — the project and everything in it: the pane layout,
-  //                      the tabs with their carets and scroll, the docks,
-  //                      the terminal tabs (reopened as fresh shells in the
-  //                      same directories — a shell dies with the app)
-  //   "last_workspace" — the project alone, with a fresh workspace
-  //   "none"           — nothing; the app starts on the project picker
-  "restore_on_startup": "last_session",
-
-  // Close a tab whose file is deleted on disk. A tab with unsaved edits is
-  // never closed this way.
-  "close_on_file_delete": false,
-
   // Any of the editor keys above, per language, keyed by the language's
   // name as Zed spells it — "Rust", "C++", "TypeScript", "TSX", "Go",
   // "Python", "Markdown". Set "enable_language_server": false to keep a
@@ -1987,25 +1945,6 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
     "use_system_clipboard": "always"
   },
 
-  "git": {
-    // Who last touched the line the caret is on, shown after the end of it.
-    // Only while the file has no unsaved edits — blame describes the file on
-    // disk, and once it is edited the line numbers describe a file that is
-    // not there any more.
-    "inline_blame": { "enabled": true }
-  },
-
-  // Inlay hints: the types and parameter names a language server can show
-  // inline, dimmed, without changing the file. Off by default, as in Zed;
-  // "editor: toggle inlay hints" in the palette flips "enabled". The three
-  // "show_*" keys pick which kinds appear once they are on.
-  "inlay_hints": {
-    "enabled": false,
-    "show_type_hints": true,
-    "show_parameter_hints": true,
-    "show_other_hints": true
-  },
-
   // Which side each panel docks on, and how wide it opens. "left" or
   // "right"; the terminal has the bottom to itself. Two panels on the same
   // side take turns — opening one closes the other — and the two sides are
@@ -2037,22 +1976,6 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
     "default_width": 300
   },
 
-  // The editor's tabs.
-  "tabs": {
-    // Which end of the tab the close button sits on: "right" or "left".
-    "close_position": "right",
-    // Show the file's icon in its tab.
-    "file_icons": false,
-    // Tint a tab's title with the file's git status.
-    "git_status": false,
-    // Mark tabs whose file has diagnostics: "off", "errors" or "all".
-    "show_diagnostics": "off",
-    // Which tab takes over when the active one closes: "history" (the one
-    // you were on before), "neighbour" (the one to the right), or
-    // "left_neighbour".
-    "activate_on_close": "history"
-  },
-
   // A tab opened with a single click is a preview tab: its title is in
   // italics and the next single click reuses it, so browsing a project does
   // not leave thirty tabs behind. Editing it, or double-clicking, makes it
@@ -2063,10 +1986,6 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
     "enable_preview_from_file_finder": false,
     "enable_preview_from_code_navigation": true
   },
-
-  // Most tabs to keep open at once; opening one past this closes the tab you
-  // have gone longest without looking at. null is unlimited.
-  "max_tabs": null,
 
   // The tab strip. "show": false hides it entirely — the tabs are still
   // there, reachable from Ctrl+Tab, the palette and the project panel.
@@ -2105,15 +2024,6 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
   // Accessibility > Remove animations setting.
   "reduce_motion": "auto",
 
-  // Strings you can type into the command palette instead of an action name.
-  // The whole query has to match a key, and it is replaced by the action:
-  //
-  //   "command_aliases": {
-  //     "W": "workspace::Save",
-  //     "term": "terminal_panel::Toggle"
-  //   }
-  "command_aliases": {},
-
   "git_panel": {
     "dock": "right",
     "default_width": 360
@@ -2127,14 +2037,6 @@ const DEFAULT_FILE: &str = r##"// Thragg settings.
   "preview": {
     "dock": "right",
     "default_width": 400
-  },
-
-  "markdown_preview": {
-    // Follow the editor: the preview scrolls to whatever the top of the
-    // editor's window is showing, and tapping a block in the preview puts
-    // the caret on the line it came from. The toolbar's ⇅ toggles it for
-    // the session without touching this.
-    "scroll_sync": true
   },
 
   "agent_panel": {

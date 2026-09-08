@@ -1330,17 +1330,6 @@ object CoreBridge {
     external fun lspRequestDeclaration(bufferId: Long, row: Long, colUtf16: Long): Long
 
     /**
-     * Inlay hints for rows `firstRow..=lastRow` — the visible range. Same
-     * polling contract as [lspRequestCompletion]; the payload is `{hints:
-     * [{row, col_utf16, label, kind, padding_left, padding_right}]}`, `kind`
-     * being `type`, `parameter` or null. `buffer_version` echoes the version
-     * asked at: drop an answer whose version is not the buffer's current
-     * one, its columns describe text that moved. Supersedes the previous
-     * hint request, so a scroll may ask freely.
-     */
-    external fun lspRequestInlayHints(bufferId: Long, firstRow: Long, lastRow: Long): Long
-
-    /**
      * The signature of the call the caret sits in — Zed's
      * `editor::ShowSignatureHelp`. Same polling contract as
      * [lspRequestCompletion]; the payload is `{signatures: [{label,
@@ -1383,7 +1372,7 @@ object CoreBridge {
     /**
      * The characters a buffer's server opens its menus on, from its declared
      * capabilities: `{completion: [...], signature_help: [...],
-     * signature_help_retrigger: [...], folding_ranges, inlay_hints}`. Every
+     * signature_help_retrigger: [...], folding_ranges}`. Every
      * list is empty for a buffer with no running server — keep the defaults
      * then. Reads a cache; never blocks.
      */

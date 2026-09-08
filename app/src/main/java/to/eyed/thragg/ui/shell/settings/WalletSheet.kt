@@ -103,6 +103,8 @@ internal fun WalletSheet(
     state: ShellState,
     cluster: Cluster,
     onDismiss: () -> Unit,
+    /** Put the deploy key's card above Seed Vault's — for a caller who came to fund it. */
+    deployKeyFirst: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -411,108 +413,124 @@ internal fun WalletSheet(
                 .padding(bottom = MD.space4),
             verticalArrangement = Arrangement.spacedBy(MD.space2),
         ) {
-            SectionHeader("Seed Vault")
-            ThraggCard(modifier = Modifier.fillMaxWidth()) {
-                if (wallet != null) {
-                    FactRow(label = "Address", value = wallet, trailing = { CopyChip(text = wallet) })
-                    if (walletLabel != null) {
+            // The two accounts, in the order the caller came for. From Build
+            // (the overflow, the Deploy sheet) it is the deploy key — the one
+            // that spends and mines — so it opens above the fold there; from
+            // Projects and Settings the wallet itself comes first, as before.
+            val seedVault: @Composable (first: Boolean) -> Unit = { first ->
+                SectionHeader("Seed Vault", modifier = if (first) Modifier else Modifier.padding(top = MD.space2))
+                ThraggCard(modifier = Modifier.fillMaxWidth()) {
+                    if (wallet != null) {
+                        FactRow(label = "Address", value = wallet, trailing = { CopyChip(text = wallet) })
+                        if (walletLabel != null) {
+                            HairlineDivider()
+                            FactRow(label = "Account", value = walletLabel)
+                        }
                         HairlineDivider()
-                        FactRow(label = "Account", value = walletLabel)
+                        BalanceRow(
+                            lamports = walletBalance,
+                            loading = walletLoading,
+                            failed = walletBalanceFailed,
+                            cluster = cluster,
+                            onRefresh = { refresh++ },
+                        )
+                    } else {
+                        FactRow(
+                            label = "Not connected",
+                            value = "Connect to hold the upgrade authority of what you deploy, " +
+                                "and to fund deploys on mainnet-beta.",
+                        )
                     }
                     HairlineDivider()
+                    ActionRow(busy = walletBusy, busyLabel = "Asking Seed Vault…") {
+                        if (wallet == null) {
+                            Button(onClick = { connect() }, modifier = Modifier.weight(1f)) {
+                                Text("Connect Seed Vault", style = MaterialTheme.typography.labelLarge)
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { disconnect() },
+                                border = outlinedButtonEdge(),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("Disconnect", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                }
+
+            }
+            val deployKeyCard: @Composable (first: Boolean) -> Unit = { first ->
+                SectionHeader("Deploy key", modifier = if (first) Modifier else Modifier.padding(top = MD.space2))
+                ThraggCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Signs buffer writes so the wallet is asked once, not two hundred times. " +
+                            "Funded by mining devnet's proof-of-work faucet, by the faucet on testnet, and by Seed Vault on mainnet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = MD.space3, vertical = MD.space2),
+                    )
+                    HairlineDivider()
+                    val copyKey: (@Composable () -> Unit)? = if (deployKeyAddress != null) {
+                        { CopyChip(text = deployKeyAddress) }
+                    } else {
+                        null
+                    }
+                    FactRow(
+                        label = "Address",
+                        value = deployKeyAddress ?: if (keyMissing) "could not create the deploy key" else "generating…",
+                        trailing = copyKey,
+                    )
+                    HairlineDivider()
                     BalanceRow(
-                        lamports = walletBalance,
-                        loading = walletLoading,
-                        failed = walletBalanceFailed,
+                        lamports = keyBalance,
+                        loading = keyLoading,
+                        failed = keyBalanceFailed,
                         cluster = cluster,
                         onRefresh = { refresh++ },
                     )
-                } else {
-                    FactRow(
-                        label = "Not connected",
-                        value = "Connect to hold the upgrade authority of what you deploy, " +
-                            "and to fund deploys on mainnet-beta.",
-                    )
-                }
-                HairlineDivider()
-                ActionRow(busy = walletBusy, busyLabel = "Asking Seed Vault…") {
-                    if (wallet == null) {
-                        Button(onClick = { connect() }, modifier = Modifier.weight(1f)) {
-                            Text("Connect Seed Vault", style = MaterialTheme.typography.labelLarge)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = { disconnect() },
-                            border = outlinedButtonEdge(),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Disconnect", style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                }
-            }
-
-            SectionHeader("Deploy key", modifier = Modifier.padding(top = MD.space2))
-            ThraggCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Signs buffer writes so the wallet is asked once, not two hundred times. " +
-                        "Funded by mining devnet's proof-of-work faucet, by the faucet on testnet, and by Seed Vault on mainnet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = MD.space3, vertical = MD.space2),
-                )
-                HairlineDivider()
-                val copyKey: (@Composable () -> Unit)? = if (deployKeyAddress != null) {
-                    { CopyChip(text = deployKeyAddress) }
-                } else {
-                    null
-                }
-                FactRow(
-                    label = "Address",
-                    value = deployKeyAddress ?: if (keyMissing) "could not create the deploy key" else "generating…",
-                    trailing = copyKey,
-                )
-                HairlineDivider()
-                BalanceRow(
-                    lamports = keyBalance,
-                    loading = keyLoading,
-                    failed = keyBalanceFailed,
-                    cluster = cluster,
-                    onRefresh = { refresh++ },
-                )
-                HairlineDivider()
-                val canReturn = wallet != null && deployKey != null && (keyBalance ?: 0L) > RETURN_THRESHOLD
-                ActionRow(
-                    busy = keyBusy,
-                    busyLabel = keyBusyLabel.ifEmpty { "Working on ${cluster.display}…" },
-                    onStop = miningJob?.let { job -> { job.cancel() } },
-                ) {
-                    if (cluster.hasFaucet) {
-                        OutlinedButton(
-                            onClick = { airdrop() },
-                            enabled = deployKey != null,
-                            border = outlinedButtonEdge(deployKey != null),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(airdropLabel(cluster), style = MaterialTheme.typography.labelLarge)
-                        }
-                    } else {
-                        Text(
-                            text = "No faucet on mainnet-beta",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { returnToWallet() },
-                        enabled = canReturn,
-                        border = outlinedButtonEdge(canReturn),
-                        modifier = Modifier.weight(1f),
+                    HairlineDivider()
+                    val canReturn = wallet != null && deployKey != null && (keyBalance ?: 0L) > RETURN_THRESHOLD
+                    ActionRow(
+                        busy = keyBusy,
+                        busyLabel = keyBusyLabel.ifEmpty { "Working on ${cluster.display}…" },
+                        onStop = miningJob?.let { job -> { job.cancel() } },
                     ) {
-                        Text("Return SOL to wallet", style = MaterialTheme.typography.labelLarge)
+                        if (cluster.hasFaucet) {
+                            OutlinedButton(
+                                onClick = { airdrop() },
+                                enabled = deployKey != null,
+                                border = outlinedButtonEdge(deployKey != null),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(airdropLabel(cluster), style = MaterialTheme.typography.labelLarge)
+                            }
+                        } else {
+                            Text(
+                                text = "No faucet on mainnet-beta",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { returnToWallet() },
+                            enabled = canReturn,
+                            border = outlinedButtonEdge(canReturn),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Return SOL to wallet", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
+
+            }
+            if (deployKeyFirst) {
+                deployKeyCard(true)
+                seedVault(false)
+            } else {
+                seedVault(true)
+                deployKeyCard(false)
             }
 
             if (buffers.isNotEmpty()) {

@@ -91,8 +91,6 @@ data class LanguageSettings(
     /** Code-action kinds to run before formatting, only the enabled ones. */
     val codeActionsOnFormat: List<String> = emptyList(),
     val enableLanguageServer: Boolean = true,
-    /** `git.inline_blame.enabled`, which a project may override. */
-    val inlineBlame: Boolean = true,
     /** Which whitespace gets a visible glyph — Zed's `show_whitespaces`. */
     val showWhitespaces: ShowWhitespaces = ShowWhitespaces.Selection,
     /** Whether [wrapGuides] are drawn — Zed's `show_wrap_guides`. */
@@ -141,7 +139,6 @@ data class LanguageSettings(
                     ?.toList()
                     .orEmpty(),
                 enableLanguageServer = root.optBoolean("enable_language_server", true),
-                inlineBlame = root.optBoolean("inline_blame", true),
                 showWhitespaces = ShowWhitespaces.fromKey(
                     root.optString("show_whitespaces", "selection")
                 ),

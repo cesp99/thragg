@@ -62,7 +62,7 @@ private fun ui(
  * The scale at a given `ui_font_size`, in a given face.
  *
  * The face is a parameter rather than a constant because `ui_font_family` can
- * name any font on the device (see `FontCatalog`); it defaults to the bundled
+ * name either bundled family (see `FontCatalog`); it defaults to the bundled
  * IBM Plex Sans, which is what Zed draws its chrome in.
  */
 fun zedTypography(

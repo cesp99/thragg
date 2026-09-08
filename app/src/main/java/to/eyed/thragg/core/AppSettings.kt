@@ -23,21 +23,11 @@ enum class GitignoredFiles(val key: String) {
     }
 }
 
-/** Where the close affordance sits on a tab — Zed's `tabs.close_position`. */
-enum class ClosePosition(val key: String) {
-    Left("left"),
-    Right("right");
-
-    companion object {
-        fun fromKey(key: String?): ClosePosition =
-            entries.firstOrNull { it.key == key } ?: Right
-    }
-}
-
 /**
- * Which files a surface marks as having diagnostics — Zed's
- * `ShowDiagnostics`, shared by `tabs.show_diagnostics` (default `off`) and
- * `project_panel.show_diagnostics` (default `all`).
+ * Which files the project tree marks as having diagnostics — Zed's
+ * `ShowDiagnostics`, read for `project_panel.show_diagnostics` (default
+ * `all`). Zed shares the enum with `tabs.show_diagnostics`; the tab strip
+ * left this build in the 2026-09 demolition, so the panel is its one reader.
  */
 enum class ShowDiagnostics(val key: String) {
     Off("off"),
@@ -56,30 +46,6 @@ enum class ShowDiagnostics(val key: String) {
             entries.firstOrNull { it.key == key } ?: fallback
     }
 }
-
-/** Which tab takes over when the active one closes — Zed's `activate_on_close`. */
-enum class ActivateOnClose(val key: String) {
-    /** The tab that was open before this one. Zed's default. */
-    History("history"),
-    /** The neighbour on the right, if there is one. */
-    Neighbour("neighbour"),
-    /** The neighbour on the left, if there is one. */
-    LeftNeighbour("left_neighbour");
-
-    companion object {
-        fun fromKey(key: String?): ActivateOnClose =
-            entries.firstOrNull { it.key == key } ?: History
-    }
-}
-
-/** The editor's tab strip — Zed's `tabs` block, with Zed's own defaults. */
-data class TabSettings(
-    val closePosition: ClosePosition = ClosePosition.Right,
-    val fileIcons: Boolean = false,
-    val gitStatus: Boolean = false,
-    val showDiagnostics: ShowDiagnostics = ShowDiagnostics.Off,
-    val activateOnClose: ActivateOnClose = ActivateOnClose.History,
-)
 
 /**
  * Zed's `reduce_motion`, plus the answer this platform needs.
@@ -178,38 +144,6 @@ sealed class Autosave {
     }
 }
 
-/**
- * Zed's `restore_on_startup` (assets/settings/default.json:156-164): how much
- * of the last session comes back at launch.
- *
- * Zed's three values say how many *windows* return — every workspace of the
- * last session, only the most recent one, or none. This app has one window
- * and one project open at a time, so they say how much of that window
- * returns, which is the same question with a single window. The names are
- * Zed's so a line copied from a Zed settings file reads as it did there.
- */
-enum class RestoreOnStartup(val key: String, val label: String, val description: String) {
-    /** The project and everything in it: panes, tabs, carets, docks, terminals. */
-    LastSession("last_session", "Last session", "Panes, tabs, carets, docks and terminals"),
-
-    /** The project alone, with a fresh workspace. */
-    LastWorkspace("last_workspace", "Last project", "The project alone, with no tabs"),
-
-    /** Nothing: the app starts on the project picker. */
-    None("none", "Nothing", "Start on the project picker");
-
-    /** Whether the last project is reopened at all. */
-    val reopensProject: Boolean get() = this != None
-
-    /** Whether the saved tabs, panes, docks and terminals are put back. */
-    val restoresWorkspace: Boolean get() = this == LastSession
-
-    companion object {
-        fun fromKey(key: String?): RestoreOnStartup =
-            entries.firstOrNull { it.key == key } ?: LastSession
-    }
-}
-
 /** Where a new shell starts — Zed's `terminal.working_directory`, the engine's `TerminalWorkingDirectory`. */
 enum class TerminalWorkingDirectory(val key: String) {
     CurrentProjectDirectory("current_project_directory"),
@@ -299,19 +233,6 @@ enum class NotifyWhenAgentWaiting(val key: String) {
 }
 
 /**
- * Zed's `markdown_preview` object, as the engine resolves it.
- *
- * Zed makes a preview that tracks its editor a *separate item*
- * (`markdown::OpenFollowingPreview`); this app has one preview panel, so
- * following is a setting and a toolbar toggle. See the engine's
- * `MarkdownPreviewSettings`.
- */
-data class MarkdownPreviewSettings(
-    /** Whether the preview follows the editor's scroll, and taps jump back. */
-    val scrollSync: Boolean = true,
-)
-
-/**
  * The app's resolved settings, mirroring `engine::Settings`.
  *
  * The engine owns the file — it is JSONC, hand-editable, and keeps its
@@ -319,10 +240,16 @@ data class MarkdownPreviewSettings(
  * This is just the read model; every field is wired to something visible.
  * The keys for surfaces the phone build removed — vim, `base_keymap`, the
  * docks, `tab_bar` / `toolbar` / `status_bar`, `minimap`, `scrollbar`,
- * `inlay_hints`, `preview_tabs`, `icon_theme`, the project panel's sort,
- * fold and spacing — are not modelled at all (docs/UI.md, P8): the engine
- * still parses them off a Zed settings file, and this side has nothing to
- * hand them to.
+ * `preview_tabs`, `icon_theme`, the project panel's sort, fold and spacing —
+ * are not modelled at all (docs/UI.md, P8): the engine still parses them off
+ * a Zed settings file, and this side has nothing to hand them to.
+ * `inlay_hints` went further on 2026-09-08: the engine no longer has the key
+ * either, so it is ignored like any unknown one. The 2026-09 demolition added to that list: the tab strip's
+ * `tabs` block and `max_tabs`, `close_on_file_delete`, the command palette's
+ * `command_aliases`, `markdown_preview.scroll_sync`, `git.inline_blame.enabled`
+ * and `restore_on_startup` — the last because session restore here is
+ * unconditional (`ui/shell/SessionRestore.kt` never read it, so a row for it
+ * would have been a lie).
  */
 data class AppSettings(
     /** Which theme, in Zed's two shapes — see [ThemeSelection]. */
@@ -371,25 +298,8 @@ data class AppSettings(
      * is the last moment before that can happen.
      */
     val autosave: Autosave = Autosave.OnFocusChange,
-    /** How much of the last session comes back at launch — Zed's `restore_on_startup`. */
-    val restoreOnStartup: RestoreOnStartup = RestoreOnStartup.LastSession,
-    /**
-     * Zed's `close_on_file_delete`: a tab whose file is deleted on disk
-     * closes itself. Off by default, as in Zed, and never applied to a tab
-     * with unsaved edits — Zed checks `!item.is_dirty` too.
-     */
-    val closeOnFileDelete: Boolean = false,
-    /** Zed's `git.inline_blame.enabled`, whose default is on. */
-    val inlineBlame: Boolean = true,
     /** How gitignored entries appear in the project tree. */
     val gitignoredFiles: GitignoredFiles = GitignoredFiles.Dimmed,
-    /** Zed's `tabs`: what a tab shows and how the strip behaves. */
-    val tabs: TabSettings = TabSettings(),
-    /**
-     * Zed's `max_tabs`: opening one past this closes the tab gone longest
-     * without being looked at. Null is unlimited, which is Zed's default.
-     */
-    val maxTabs: Int? = null,
     /** The rest of Zed's `project_panel` block. */
     val projectPanel: ProjectPanelSettings = ProjectPanelSettings(),
     /**
@@ -405,16 +315,8 @@ data class AppSettings(
     val contextServers: List<ContextServerDefinition> = emptyList(),
     /** Zed's `agent.notify_when_agent_waiting`. */
     val notifyWhenAgentWaiting: NotifyWhenAgentWaiting = NotifyWhenAgentWaiting.PrimaryScreen,
-    /** Zed's `markdown_preview` — see [MarkdownPreviewSettings]. */
-    val markdownPreview: MarkdownPreviewSettings = MarkdownPreviewSettings(),
     /** Zed's `reduce_motion`, plus this platform's `auto` — see [ReduceMotion]. */
     val reduceMotion: ReduceMotion = ReduceMotion.Auto,
-    /**
-     * Zed's `command_aliases`: a string typed into the command palette and
-     * the action name it stands for. Sorted by key, for the reason
-     * [parseAgents] gives — a list that reshuffles cannot be learned.
-     */
-    val commandAliases: Map<String, String> = emptyMap(),
     /**
      * The top-level `show_whitespaces`, `remove_trailing_whitespace_on_save`
      * and `ensure_final_newline_on_save` — the settings screen's rows. The
@@ -460,12 +362,8 @@ data class AppSettings(
         const val KEY_PREFERRED_LINE_LENGTH = "preferred_line_length"
         const val KEY_FORMAT_ON_SAVE = "format_on_save"
         const val KEY_AUTOSAVE = "autosave"
-        const val KEY_RESTORE_ON_STARTUP = "restore_on_startup"
-        const val KEY_CLOSE_ON_FILE_DELETE = "close_on_file_delete"
         const val KEY_SOFT_WRAP = "soft_wrap"
-        const val KEY_INLINE_BLAME = "git.inline_blame.enabled"
         const val KEY_NOTIFY_AGENT = "agent.notify_when_agent_waiting"
-        const val KEY_MARKDOWN_SCROLL_SYNC = "markdown_preview.scroll_sync"
         const val KEY_REDUCE_MOTION = "reduce_motion"
 
         /** The editor's display block, key by key. */
@@ -482,13 +380,6 @@ data class AppSettings(
 
         /** How the tree treats gitignored entries — see [GitignoredFiles]. */
         const val KEY_GITIGNORED = "project_panel.gitignored_files"
-
-        /** Zed's `tabs` block, key by key. */
-        const val KEY_TAB_CLOSE_POSITION = "tabs.close_position"
-        const val KEY_TAB_FILE_ICONS = "tabs.file_icons"
-        const val KEY_TAB_GIT_STATUS = "tabs.git_status"
-        const val KEY_TAB_DIAGNOSTICS = "tabs.show_diagnostics"
-        const val KEY_TAB_ACTIVATE_ON_CLOSE = "tabs.activate_on_close"
 
         /** The rest of Zed's `project_panel` block. */
         const val KEY_PANEL_HIDE_ROOT = "project_panel.hide_root"
@@ -511,20 +402,9 @@ data class AppSettings(
                 preferredLineLength = root.optInt("preferred_line_length", 80),
                 formatOnSave = FormatOnSave.fromKey(root.optString("format_on_save", "off")),
                 autosave = root.opt("autosave")?.let(Autosave::parse) ?: Autosave.OnFocusChange,
-                restoreOnStartup = RestoreOnStartup.fromKey(
-                    root.optString("restore_on_startup", "last_session")
-                ),
-                closeOnFileDelete = root.optBoolean("close_on_file_delete", false),
-                inlineBlame = root.optJSONObject("git")
-                    ?.optJSONObject("inline_blame")
-                    ?.optBoolean("enabled", true) ?: true,
                 gitignoredFiles = GitignoredFiles.fromKey(
                     panel?.optString("gitignored_files", "dimmed") ?: "dimmed"
                 ),
-                tabs = parseTabs(root.optJSONObject("tabs")),
-                // `optInt` cannot tell 0 from absent, and both mean "no cap"
-                // here — the engine refuses a zero for the same reason.
-                maxTabs = root.optInt("max_tabs", 0).takeIf { it > 0 },
                 projectPanel = parseProjectPanel(panel),
                 agents = parseAgents(root.optJSONObject("agent_servers")),
                 terminal = parseTerminal(root.optJSONObject("terminal")),
@@ -532,12 +412,7 @@ data class AppSettings(
                 notifyWhenAgentWaiting = NotifyWhenAgentWaiting.fromKey(
                     root.optJSONObject("agent")?.optString("notify_when_agent_waiting"),
                 ),
-                markdownPreview = MarkdownPreviewSettings(
-                    scrollSync = root.optJSONObject("markdown_preview")
-                        ?.optBoolean("scroll_sync", true) ?: true,
-                ),
                 reduceMotion = ReduceMotion.fromKey(root.optString("reduce_motion", "auto")),
-                commandAliases = parseCommandAliases(root.optJSONObject("command_aliases")),
                 showWhitespaces = ShowWhitespaces.fromKey(
                     root.optString("show_whitespaces", "selection")
                 ),
@@ -561,39 +436,6 @@ data class AppSettings(
                 ),
             )
         }.getOrDefault(AppSettings())
-
-        /**
-         * `command_aliases` as the palette reads it: a typed string, and the
-         * action name it stands for. An entry whose value is not a string is
-         * dropped rather than sinking the block — settings.json is a file
-         * people edit by hand, and the engine drops it too.
-         */
-        private fun parseCommandAliases(json: JSONObject?): Map<String, String> {
-            if (json == null) return emptyMap()
-            return json.keys().asSequence().mapNotNull { alias ->
-                val target = json.optString(alias).takeIf { it.isNotBlank() }
-                    ?: return@mapNotNull null
-                alias to target
-            }.sortedBy { it.first }.toMap()
-        }
-
-        /** Zed's `tabs` block; anything missing falls back to Zed's default. */
-        private fun parseTabs(json: JSONObject?): TabSettings {
-            val fallback = TabSettings()
-            if (json == null) return fallback
-            return TabSettings(
-                closePosition = ClosePosition.fromKey(json.optString("close_position", null)),
-                fileIcons = json.optBoolean("file_icons", fallback.fileIcons),
-                gitStatus = json.optBoolean("git_status", fallback.gitStatus),
-                showDiagnostics = ShowDiagnostics.fromKey(
-                    json.optString("show_diagnostics", null),
-                    fallback.showDiagnostics,
-                ),
-                activateOnClose = ActivateOnClose.fromKey(
-                    json.optString("activate_on_close", null)
-                ),
-            )
-        }
 
         private fun parseProjectPanel(json: JSONObject?): ProjectPanelSettings {
             val fallback = ProjectPanelSettings()

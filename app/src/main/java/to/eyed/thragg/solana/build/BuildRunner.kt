@@ -368,6 +368,28 @@ object BuildRunner {
         }
         if (generation != generationAtStart) return RunResult(-1, emptyList(), null)
 
+        // 2a. The app's own id sync, BEFORE `anchor keys sync`, because it
+        // is the one that can run when there is no keypair yet: it makes the
+        // keypair (the same file the build would make) and points lib.rs,
+        // Anchor.toml and a Seahorse program's Python at it. Measured on the
+        // Seeker 2026-09-08: a fresh Seahorse scaffold's first build failed
+        // with anchor's "Program ID mismatch" because nothing had synced
+        // before the build generated the key — and it could not have.
+        if (action == BuildAction.Build &&
+            (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
+        ) {
+            val synced = programIdsSync?.invoke(project).orEmpty()
+            val (keypairs, named) = synced.partition { it.endsWith("-keypair.json") }
+            if (keypairs.isNotEmpty()) {
+                log.append(BuildLogRow.Note("Generated ${keypairs.joinToString(" and ")} — the program's id"))
+            }
+            if (named.isNotEmpty()) {
+                val verb = if (named.size == 1) "names" else "name"
+                log.append(
+                    BuildLogRow.Note("${named.joinToString(" and ")} now $verb the program keypair")
+                )
+            }
+        }
         // 2. Reconcile the program id before an Anchor build, never after.
         if (action == BuildAction.Build && needsKeysSync(project)) {
             log.append(
@@ -390,21 +412,6 @@ object BuildRunner {
                 log.append(BuildLogRow.Text(line))
             }
             if (generation != generationAtStart) return RunResult(-1, emptyList(), null)
-        }
-        // 2b. The sync has to reach what `keys sync` does not: the Anchor.toml
-        // table for the configured cluster, or the file lies about the id it
-        // deploys under; and for Seahorse the Python, or the build that
-        // follows regenerates lib.rs with the placeholder back in it.
-        if (action == BuildAction.Build &&
-            (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
-        ) {
-            val synced = programIdsSync?.invoke(project).orEmpty()
-            if (synced.isNotEmpty()) {
-                val verb = if (synced.size == 1) "names" else "name"
-                log.append(
-                    BuildLogRow.Note("${synced.joinToString(" and ")} now $verb the program keypair")
-                )
-            }
         }
 
         // 2c. An Anchor test run has two things a build does not: a Node
@@ -525,7 +532,8 @@ object BuildRunner {
                 if (wallet) {
                     "The wallet Anchor.toml names (~/.config/solana/id.json) is this app's " +
                         "deploy key: the tests pay with the same key Deploy pays with, so it " +
-                        "needs SOL on this cluster — the Deploy sheet is where it gets some."
+                        "needs SOL on this cluster — a Deploy tops it up by itself, and Wallet " +
+                        "(in this tab's menu) has Mine 5 SOL on devnet."
                 } else {
                     "No wallet for the tests — nothing could be written to " +
                         "~/.config/solana/id.json, so the tests will run unsigned and fail on " +

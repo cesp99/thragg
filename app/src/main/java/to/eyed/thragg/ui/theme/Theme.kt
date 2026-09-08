@@ -7,7 +7,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
@@ -36,18 +35,15 @@ fun ThraggTheme(
 ) {
     val context = LocalContext.current
     val preview by ThemeStore.preview.collectAsState()
-    val userThemes by UserThemes.scan.collectAsState()
 
-    // Everything here is a disk read, so the first frame paints with what the
-    // APK ships and swaps once. That is the right trade: an app that blocks
-    // its first frame on disk to avoid one repaint is the worse of the two.
-    // The watchers are what make dropping a theme or a font into the folders
-    // show up without a restart.
+    // A disk read, so the first frame paints with what the APK ships and
+    // swaps once. That is the right trade: an app that blocks its first frame
+    // on disk to avoid one repaint is the worse of the two. Nothing else is
+    // scanned for here: the themes are the APK's own (docs/UI.md, "What is
+    // removed" — no user themes folder), so there is no watcher to start.
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             ThemeStore.load(context)
-            UserThemes.scan(context)
-            UserThemes.watch(context)
         }
     }
 
@@ -56,11 +52,12 @@ fun ThraggTheme(
     // A live preview outranks the setting; otherwise the mode picks the slot.
     val name = preview ?: selection.themeName(systemIsDark)
     val preferDark = selection.isDark(systemIsDark) ?: systemIsDark
-    // Blocking the first time each theme is asked for — one file read and one
-    // JSON parse. The selector warms the cache when it opens, so previewing
-    // down the list never pays it. `userThemes` is a key because a file
-    // appearing in the folder can change what a name resolves to.
-    val base = remember(name, preferDark, userThemes) {
+    // Blocking the first time each theme is asked for — one asset read and
+    // one JSON parse. The selector warms the cache when it opens, so tapping
+    // down the list never pays it. Keyed on the name and the appearance
+    // alone: the bundled files are the only source, so what a name resolves
+    // to cannot change under a running process.
+    val base = remember(name, preferDark) {
         ZedThemes.get(context, name, preferDark)
     }
     val theme = remember(base, settings.themeOverrides) {
@@ -68,27 +65,14 @@ fun ThraggTheme(
     }
 
     val fonts = settings.fonts
-    // Off the main thread: resolving a family name scans two directories and
-    // opens font files. Until it answers, the bundled face draws — which is
-    // also the answer for every name that is not installed.
-    val uiFontFamily by produceState(BundledFonts.ui, fonts.uiFamily) {
-        value = withContext(Dispatchers.IO) {
-            FontCatalog.family(context, fonts.uiFamily, BundledFonts.ui)
-        }
+    // A name-to-bundled-family lookup, nothing more: the two-directory scan
+    // and the font-file opens went with font extensibility (2026-09-08), so
+    // this is a map read on the frame, and an unknown name is the bundled face.
+    val uiFontFamily = remember(fonts.uiFamily) {
+        FontCatalog.family(fonts.uiFamily, BundledFonts.ui)
     }
-    val bufferFontFamily by produceState(
-        BundledFonts.buffer,
-        fonts.bufferFamily,
-        fonts.bufferFallbacks,
-    ) {
-        value = withContext(Dispatchers.IO) {
-            FontCatalog.familyWithFallbacks(
-                context,
-                fonts.bufferFamily,
-                fonts.bufferFallbacks,
-                BundledFonts.buffer,
-            )
-        }
+    val bufferFontFamily = remember(fonts.bufferFamily, fonts.bufferFallbacks) {
+        FontCatalog.familyWithFallbacks(fonts.bufferFamily, fonts.bufferFallbacks, BundledFonts.buffer)
     }
 
     // One icon theme, Zed's own. `icon_theme` went with the icon-theme

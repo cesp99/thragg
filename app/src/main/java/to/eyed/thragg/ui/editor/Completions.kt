@@ -163,7 +163,6 @@ enum class LspRequestKind {
     TypeDefinition,
     Implementation,
     Declaration,
-    InlayHint,
     SignatureHelp,
     WorkspaceSymbol,
     FoldingRange,
@@ -225,7 +224,6 @@ class LspAnswer(
                         "type_definition" -> LspRequestKind.TypeDefinition
                         "implementation" -> LspRequestKind.Implementation
                         "declaration" -> LspRequestKind.Declaration
-                        "inlay_hint" -> LspRequestKind.InlayHint
                         "signature_help" -> LspRequestKind.SignatureHelp
                         "workspace_symbol" -> LspRequestKind.WorkspaceSymbol
                         "folding_range" -> LspRequestKind.FoldingRange
@@ -332,13 +330,10 @@ internal suspend fun requestLsp(
             // them through their own helpers (WorkspaceEditActions.kt,
             // SyntaxFolds.kt, the symbol picker), which hand the id to
             // [pollLspRequest]. -1 is the bridge's own failure convention,
-            // so asking here answers null. `InlayHint` is kept as a kind the
-            // engine can still name in a reply; nothing on this side asks
-            // for one since the inlay hints were removed (docs/UI.md).
+            // so asking here answers null.
             LspRequestKind.CodeActionApply,
             LspRequestKind.Rename,
             LspRequestKind.Formatting,
-            LspRequestKind.InlayHint,
             LspRequestKind.WorkspaceSymbol,
             LspRequestKind.FoldingRange,
             LspRequestKind.CompletionResolve -> -1L
@@ -540,7 +535,6 @@ data class BufferTriggers(
     val signatureHelp: List<String> = emptyList(),
     val signatureHelpRetrigger: List<String> = emptyList(),
     val foldingRanges: Boolean = false,
-    val inlayHints: Boolean = false,
 ) {
     /**
      * Whether [text] — one typed character — opens the completion menu:
@@ -577,7 +571,6 @@ data class BufferTriggers(
                     signatureHelp = strings("signature_help"),
                     signatureHelpRetrigger = strings("signature_help_retrigger"),
                     foldingRanges = root.optBoolean("folding_ranges", false),
-                    inlayHints = root.optBoolean("inlay_hints", false),
                 )
             } catch (_: org.json.JSONException) {
                 NONE

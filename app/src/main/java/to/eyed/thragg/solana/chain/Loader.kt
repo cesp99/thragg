@@ -465,15 +465,24 @@ object Loader {
      * plus the buffer-create, deploy-or-upgrade and set-authority transactions
      * with their second signers: `writes + 5` signatures, which rounds an
      * upgrade up by one and keeps the two paths one line.
+     *
+     * [rent] is [rentExempt]'s formula by default — the sheet's `~` — and
+     * the cluster's own `getMinimumBalanceForRentExemption` when the caller
+     * can ask (`DeploySheet.gather`, the deployer's `fund`). The two differ:
+     * on devnet 2026-09-08 the cluster wanted 1.0207 SOL for a 200 kB
+     * buffer where the formula said 1.3985, so a sheet that compared the
+     * formula with the key's balance called a key with 0.8 SOL to spare
+     * "short by 0.02" — and the deployer, a minute later, disagreed in the
+     * same log. Same figures in, same figures out.
      */
-    fun estimateDeploy(elfBytes: Int, upgrade: Boolean): CostEstimate {
+    fun estimateDeploy(elfBytes: Int, upgrade: Boolean, rent: (Int) -> Long = ::rentExempt): CostEstimate {
         require(elfBytes >= 0) { "elf size must not be negative: $elfBytes" }
         val chunk = writeChunkSize()
         val writes = (elfBytes + chunk - 1) / chunk
         return CostEstimate(
-            bufferRent = rentExempt(BUFFER_HEADER + elfBytes),
-            programDataRent = if (upgrade) 0L else rentExempt((PROGRAMDATA_HEADER + maxDataLen(elfBytes)).toInt()),
-            programRent = if (upgrade) 0L else rentExempt(PROGRAM_SIZE),
+            bufferRent = rent(BUFFER_HEADER + elfBytes),
+            programDataRent = if (upgrade) 0L else rent((PROGRAMDATA_HEADER + maxDataLen(elfBytes)).toInt()),
+            programRent = if (upgrade) 0L else rent(PROGRAM_SIZE),
             fees = LAMPORTS_PER_SIGNATURE * (writes + 5),
         )
     }

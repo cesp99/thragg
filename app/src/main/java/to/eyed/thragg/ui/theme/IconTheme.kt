@@ -16,19 +16,20 @@ package to.eyed.thragg.ui.theme
  * Free of Android types on purpose — this is the part with rules in it.
  *
  * An icon is named by a [String] that is either the name of a drawable in the
- * APK (`ic_file_rust`) or an absolute path to an image file a user theme
- * shipped. The two are told apart by the leading `/`, which a resource name
- * cannot have.
+ * APK (`ic_file_rust`) or an absolute path to an image file. The two are told
+ * apart by the leading `/`, which a resource name cannot have. Since
+ * icon-theme extensibility went (docs/UI.md, "What is removed") only the
+ * bundled set is ever constructed in the app, so every name is a drawable;
+ * the path form and the [iconFor] fallback stay because the lookup is Zed's
+ * rule and the tests pin it against a second, partial theme.
  */
 data class IconTheme(
     val name: String,
-    /** Whether this is the set baked into the APK, which cannot be removed. */
-    val isBundled: Boolean,
     /** Whole file names, e.g. `Dockerfile` → `docker`. */
     val fileStems: Map<String, String>,
     /** Suffixes, e.g. `rs` → `rust`, `eslint.config.js` → `eslint`. */
     val fileSuffixes: Map<String, String>,
-    /** Icon key → drawable name or absolute image path. */
+    /** Icon key → drawable name (or an absolute image path, see above). */
     val icons: Map<String, String>,
     val collapsedDirectory: String,
     val expandedDirectory: String,
@@ -39,12 +40,11 @@ data class IconTheme(
      * The icon for [fileName]: this theme's, falling back to [fallback]'s for
      * a key it names but has no image for, and finally to the plain sheet.
      *
-     * The fallback is what makes a user icon theme worth writing: overriding
-     * the six file types you care about should not cost you the other
-     * seventy-three, which is what a theme replacing the set wholesale would
-     * do. Zed's registry has no such rule — an icon theme there is complete —
-     * but there the alternative is an extension, and here it is a JSON file
-     * someone wrote by hand.
+     * The fallback lets a partial theme override the six file types it cares
+     * about without costing the other seventy-three. Zed's registry has no
+     * such rule — an icon theme there is complete. In the app the only theme
+     * is the bundled one, which is its own fallback; the rule is kept because
+     * it is what the lookup tests exercise.
      */
     fun iconFor(fileName: String, fallback: IconTheme? = null): String {
         val key = iconKey(fileName)

@@ -251,6 +251,17 @@ object BuildTasks {
      * run would hang, not fail. Setup activates yarn 1.22.22 so the prompt
      * never fires; this is for a project whose `packageManager` field pins
      * another.
+     *
+     * `NODE_OPTIONS=--disable-warning=MODULE_TYPELESS_PACKAGE_JSON` is for the
+     * Node 22 that runs `anchor test`'s mocha: the scaffold's `package.json`
+     * has no `"type"` field, so Node prints a `[MODULE_TYPELESS_PACKAGE_JSON]`
+     * warning naming `tests/hello.ts` on every run (seen 2026-09-08), and
+     * that is the first line a user reads under "test" rather than their
+     * test's own output. It is an environment variable and not a flag because
+     * anchor-cli 1.1.2 builds the test process's `NODE_OPTIONS` as `"{existing}
+     * --dns-result-order=ipv4first"`, so what is set here survives; the
+     * `--disable-warning=<code>` form needs Node 21.3, and the manifest's
+     * row is 22.23.2.
      */
     fun guestEnvironment(): List<String> = listOf(
         "PATH=$CARGO_BIN:$CLI_BIN:$LLVM_BIN:$NODE_BIN:" +
@@ -258,6 +269,7 @@ object BuildTasks {
         "CARGO_HOME=$CARGO_HOME",
         "RUSTUP_HOME=$RUSTUP_HOME",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT=0",
+        "NODE_OPTIONS=--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
         // A build driven from a pipe is not a terminal, and cargo's progress
         // bar redrawn with escape codes into a log view is noise. The
         // diagnostics keep their own colour where they are asked for it.

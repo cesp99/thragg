@@ -358,6 +358,20 @@ class BuildTasksTest {
         assertTrue(BuildTasks.guestEnvironment().contains("COREPACK_ENABLE_DOWNLOAD_PROMPT=0"))
     }
 
+    /**
+     * Node 22 warns `[MODULE_TYPELESS_PACKAGE_JSON]` about the scaffold's
+     * `tests/hello.ts` on every `anchor test` (seen 2026-09-08). anchor-cli
+     * 1.1.2 prepends the existing `NODE_OPTIONS` to its own, so the variable
+     * is the one channel that reaches mocha's Node.
+     */
+    @Test
+    fun `node is told not to warn about a typeless package json`() {
+        assertTrue(
+            BuildTasks.guestEnvironment()
+                .contains("NODE_OPTIONS=--disable-warning=MODULE_TYPELESS_PACKAGE_JSON"),
+        )
+    }
+
     // --- the summary line ----------------------------------------------------------------
 
     @Test

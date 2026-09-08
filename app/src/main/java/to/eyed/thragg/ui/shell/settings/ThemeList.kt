@@ -90,9 +90,9 @@ fun ThemeList(
     val context = LocalContext.current
     val selection = settings.themeSelection
 
-    // Listing the installed themes reads the APK's asset directory and the
-    // user's themes folder, and indexes each file's family. Parsing each of
-    // them for its swatch is the same order of work again — both are blocking,
+    // Listing the installed themes reads the APK's asset directory and
+    // indexes each file's family. Parsing each of them for its swatch is the
+    // same order of work again — both are blocking,
     // both happen here, off the main thread, with the sheet drawn before they
     // land. Eleven themes parse in the time the sheet's own open animation
     // takes, and `ZedThemes` caches them for the walk the user is about to do.

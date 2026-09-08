@@ -167,7 +167,7 @@ val LocalThraggColors = staticCompositionLocalOf<ThraggColors> {
  * This theme as the Material half sees it.
  *
  * Cost is about thirty colours and a handful of 12-step bisections per theme
- * change — the same order of magnitude as the palette parse `ZedThemes.warm()`
+ * change — the same order of magnitude as parsing a bundled theme's palette
  * already pre-pays for the picker's preview walk.
  */
 fun ZedTheme.palette(): ThraggPalette {

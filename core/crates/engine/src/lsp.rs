@@ -96,9 +96,8 @@ const CODE_ACTION_TIMEOUT: Duration = Duration::from_secs(8);
 /// on, never raced against typing, so they get the longest deadline.
 const RENAME_TIMEOUT: Duration = Duration::from_secs(15);
 const FORMATTING_TIMEOUT: Duration = Duration::from_secs(15);
-/// Inlay hints and signature help are asked as the user types and scrolls;
-/// an answer that arrives after the next keystroke is discarded anyway.
-const INLAY_HINT_TIMEOUT: Duration = Duration::from_secs(4);
+/// Signature help is asked as the user types; an answer that arrives after
+/// the next keystroke is discarded anyway.
 const SIGNATURE_HELP_TIMEOUT: Duration = Duration::from_secs(4);
 const FOLDING_RANGE_TIMEOUT: Duration = Duration::from_secs(4);
 /// A workspace symbol query walks the whole index, like references.
@@ -599,8 +598,6 @@ pub enum RequestKind {
     TypeDefinition,
     Implementation,
     Declaration,
-    /// `textDocument/inlayHint` over a row range.
-    InlayHint,
     /// `textDocument/signatureHelp` at the caret.
     SignatureHelp,
     /// `workspace/symbol`, fanned out to every running server of a project.
@@ -724,9 +721,6 @@ enum RequestArgs {
     Formatting { tab_size: u32, insert_spaces: bool },
     /// The kinds to ask for, and the end of the document the request spans.
     CodeActionsOnFormat { kinds: Vec<String>, end: Position },
-    /// The last row of the range hints are wanted for; the first is the
-    /// request's own `row`.
-    InlayHints { end_row: u32 },
     /// The item [`Engine::lsp_request_completion_resolve`] picked out of the
     /// list request's [`StoredWork::Completions`].
     CompletionResolve { item: Box<lsp::CompletionItem> },
@@ -1216,8 +1210,6 @@ pub struct BufferTriggers {
     /// The server answers `textDocument/foldingRange`, so a fold request is
     /// worth making; otherwise the syntax tree is the only source.
     pub folding_ranges: bool,
-    /// The server answers `textDocument/inlayHint` at all.
-    pub inlay_hints: bool,
 }
 
 /// Install what one `client/registerCapability` said about watched files.
@@ -2007,24 +1999,6 @@ impl crate::Engine {
     /// definition. Definition's shape.
     pub fn lsp_request_declaration(&self, buffer: BufferId, row: u32, col_utf16: u32) -> u64 {
         self.start_request(RequestKind::Declaration, buffer, row, col_utf16)
-    }
-
-    /// The inlay hints for rows `first_row..=last_row` — the visible range,
-    /// which is what Zed asks for per excerpt (inlay_hint_cache.rs). Settles
-    /// `Done` with `{hints: [{row, col_utf16, label, kind, padding_left,
-    /// padding_right}]}`; `row` and `buffer_version` echo the ask so a late
-    /// answer for text that has moved can be dropped. Supersedes the
-    /// previous hint request, as a scroll should.
-    pub fn lsp_request_inlay_hints(&self, buffer: BufferId, first_row: u32, last_row: u32) -> u64 {
-        self.start_request_with(
-            RequestKind::InlayHint,
-            buffer,
-            first_row,
-            0,
-            RequestArgs::InlayHints {
-                end_row: last_row.max(first_row),
-            },
-        )
     }
 
     /// The signature of the call the caret sits in — Zed's
@@ -3920,21 +3894,6 @@ async fn perform(
                 .await;
             plain(settle(response, definition_json))
         }
-        (RequestKind::InlayHint, RequestArgs::InlayHints { end_row }) => {
-            let response = server
-                .request::<lsp::request::InlayHintRequest>(
-                    lsp::InlayHintParams {
-                        text_document: position.text_document,
-                        // To the start of the row after the last: a hint
-                        // anchored at the end of `end_row` is inside it.
-                        range: Range::new(Position::new(row, 0), Position::new(end_row + 1, 0)),
-                        work_done_progress_params: WorkDoneProgressParams::default(),
-                    },
-                    INLAY_HINT_TIMEOUT,
-                )
-                .await;
-            plain(settle(response, inlay_hints_json))
-        }
         (RequestKind::SignatureHelp, _) => {
             let response = server
                 .request::<lsp::request::SignatureHelpRequest>(
@@ -4421,17 +4380,11 @@ fn triggers_of(capabilities: &lsp::ServerCapabilities) -> BufferTriggers {
         Some(_) => true,
         None => false,
     };
-    let inlay_hints = match &capabilities.inlay_hint_provider {
-        Some(lsp::OneOf::Left(enabled)) => *enabled,
-        Some(lsp::OneOf::Right(_)) => true,
-        None => false,
-    };
     BufferTriggers {
         completion,
         signature_help,
         signature_help_retrigger,
         folding_ranges,
-        inlay_hints,
     }
 }
 
@@ -4763,55 +4716,6 @@ fn references_json(locations: Option<Vec<lsp::Location>>) -> serde_json::Value {
 /// put a sentence where a list or a receipt was hoped for.
 fn error_payload(message: &str) -> serde_json::Value {
     serde_json::json!({ "error": message })
-}
-
-#[derive(serde::Serialize)]
-struct InlayHintsPayload {
-    hints: Vec<InlayHintJson>,
-}
-
-#[derive(serde::Serialize)]
-struct InlayHintJson {
-    /// Where the hint hangs: before the character at this position.
-    row: u32,
-    col_utf16: u32,
-    /// The text to draw, label parts joined — a hint is one run of dimmed
-    /// text in Zed too (`InlayHintLabel::LabelParts` is flattened for
-    /// display, inlay_hint_cache.rs).
-    label: String,
-    /// `type`, `parameter`, or null — Zed's `InlayHintKind`, which is what
-    /// the `show_type_hints` / `show_parameter_hints` / `show_other_hints`
-    /// settings filter on.
-    kind: Option<&'static str>,
-    /// The server asked for a space on this side — Zed honours both
-    /// (`padding_left` / `padding_right`, lsp_command.rs:3953-3962).
-    padding_left: bool,
-    padding_right: bool,
-}
-
-fn inlay_hints_json(response: Option<Vec<lsp::InlayHint>>) -> serde_json::Value {
-    let hints = response
-        .unwrap_or_default()
-        .into_iter()
-        .map(|hint| InlayHintJson {
-            row: hint.position.line,
-            col_utf16: hint.position.character,
-            label: match hint.label {
-                lsp::InlayHintLabel::String(text) => text,
-                lsp::InlayHintLabel::LabelParts(parts) => {
-                    parts.into_iter().map(|part| part.value).collect()
-                }
-            },
-            kind: hint.kind.and_then(|kind| match kind {
-                lsp::InlayHintKind::TYPE => Some("type"),
-                lsp::InlayHintKind::PARAMETER => Some("parameter"),
-                _ => None,
-            }),
-            padding_left: hint.padding_left.unwrap_or(false),
-            padding_right: hint.padding_right.unwrap_or(false),
-        })
-        .collect();
-    serde_json::to_value(InlayHintsPayload { hints }).unwrap_or(serde_json::Value::Null)
 }
 
 #[derive(serde::Serialize)]
@@ -7264,7 +7168,6 @@ mod tests {
                 work_done_progress_options: Default::default(),
             }),
             folding_range_provider: Some(lsp::FoldingRangeProviderCapability::Simple(true)),
-            inlay_hint_provider: Some(lsp::OneOf::Left(false)),
             ..Default::default()
         };
         let triggers = triggers_of(&capabilities);
@@ -7272,7 +7175,6 @@ mod tests {
         assert_eq!(triggers.signature_help, vec!["(", ","]);
         assert_eq!(triggers.signature_help_retrigger, vec![")"]);
         assert!(triggers.folding_ranges);
-        assert!(!triggers.inlay_hints, "declared off is off");
         assert_eq!(triggers_of(&lsp::ServerCapabilities::default()), BufferTriggers::default());
     }
 
@@ -7328,42 +7230,6 @@ mod tests {
         assert_eq!(ranges[0]["start_row"], 0);
         assert_eq!(ranges[0]["end_row"], 1, "sorted by end, the first per row wins");
         assert_eq!(ranges[1]["start_row"], 5);
-    }
-
-    #[test]
-    fn inlay_hints_json_flattens_label_parts_and_names_the_kind() {
-        let hint = |label: lsp::InlayHintLabel, kind: Option<lsp::InlayHintKind>| lsp::InlayHint {
-            position: Position::new(3, 7),
-            label,
-            kind,
-            text_edits: None,
-            tooltip: None,
-            padding_left: Some(true),
-            padding_right: None,
-            data: None,
-        };
-        let json = inlay_hints_json(Some(vec![
-            hint(lsp::InlayHintLabel::String(": i32".to_owned()), Some(lsp::InlayHintKind::TYPE)),
-            hint(
-                lsp::InlayHintLabel::LabelParts(vec![
-                    lsp::InlayHintLabelPart { value: "x".to_owned(), ..Default::default() },
-                    lsp::InlayHintLabelPart { value: ":".to_owned(), ..Default::default() },
-                ]),
-                Some(lsp::InlayHintKind::PARAMETER),
-            ),
-            hint(lsp::InlayHintLabel::String("'a".to_owned()), None),
-        ]));
-        let hints = json["hints"].as_array().unwrap();
-        assert_eq!(hints[0]["label"], ": i32");
-        assert_eq!(hints[0]["kind"], "type");
-        assert_eq!(hints[0]["row"], 3);
-        assert_eq!(hints[0]["col_utf16"], 7);
-        assert_eq!(hints[0]["padding_left"], true);
-        assert_eq!(hints[0]["padding_right"], false);
-        assert_eq!(hints[1]["label"], "x:");
-        assert_eq!(hints[1]["kind"], "parameter");
-        assert!(hints[2]["kind"].is_null());
-        assert_eq!(inlay_hints_json(None)["hints"].as_array().unwrap().len(), 0);
     }
 
     #[test]

@@ -190,36 +190,6 @@ class ZedTheme(
         private const val CURSOR_OVERRIDE = "editor.cursor"
 
         /**
-         * What is wrong with [json] as a theme family file, or null when
-         * there is nothing wrong with it.
-         *
-         * Zed's schema is a family — a `name`, an `author`, and a `themes`
-         * array whose entries each have a `name`, an `appearance` and a
-         * `style` object (theme/src/schema.rs `ThemeFamilyContent`). A file
-         * that fails this is *reported*, in the picker, rather than skipped:
-         * a theme that silently does not appear is indistinguishable from one
-         * the app never noticed, and the difference is the whole reason
-         * someone would look.
-         */
-        fun problemWith(json: String): String? {
-            val family = runCatching { JSONObject(json) }.getOrNull()
-                ?: return "not valid JSON"
-            if (family.optString("name").isEmpty()) return "no \"name\""
-            val themes = family.optJSONArray("themes")
-                ?: return "no \"themes\" array"
-            if (themes.length() == 0) return "\"themes\" is empty"
-            for (index in 0 until themes.length()) {
-                val theme = themes.optJSONObject(index)
-                    ?: return "themes[$index] is not an object"
-                if (theme.optString("name").isEmpty()) return "themes[$index] has no \"name\""
-                val style = theme.optJSONObject("style")
-                    ?: return "themes[$index] has no \"style\" object"
-                if (style.length() == 0) return "themes[$index] has an empty \"style\""
-            }
-            return null
-        }
-
-        /**
          * Mirrors `STYLE_NAMES` in `core/crates/engine/src/highlight.rs` —
          * the engine's highlight style ids index this list. Keep in sync.
          */

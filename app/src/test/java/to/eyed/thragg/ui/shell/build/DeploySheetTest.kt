@@ -2,7 +2,11 @@ package to.eyed.thragg.ui.shell.build
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import to.eyed.thragg.solana.build.ArtifactFreshness
+import to.eyed.thragg.solana.chain.Cluster
+import to.eyed.thragg.solana.chain.Loader
 
 /**
  * The Deploy sheet's rows, held still. Each is a pure function of the facts
@@ -86,5 +90,27 @@ class DeployedCardTest {
         org.junit.Assert.assertEquals("2 h ago", deployedAgo(now - 2 * 3_600_000, now))
         org.junit.Assert.assertEquals("yesterday", deployedAgo(now - 30 * 3_600_000, now))
         org.junit.Assert.assertEquals("just now", deployedAgo(now + 5_000, now))
+    }
+
+    private val estimate = Loader.CostEstimate(bufferRent = 1_000_000_000L, programDataRent = 900_000_000L, programRent = 1_000_000L, fees = 99_000_000L)
+
+    @Test
+    fun `shortfall is silent when the key covers the estimate plus a tenth, or nothing is known`() {
+        // 2.0 SOL estimated, 2.2 required: 2.2 covers, 2.19 does not.
+        assertNull(shortfallDetail(2_200_000_000L, estimate, Cluster.Devnet))
+        assertNull(shortfallDetail(null, estimate, Cluster.Devnet))
+        assertNull(shortfallDetail(2_200_000_000L, null, Cluster.Devnet))
+        assertNull(shortfallDetail(2_200_000_000L, estimate, null))
+    }
+
+    @Test
+    fun `shortfall names the gap and each cluster's own remedy`() {
+        val devnet = shortfallDetail(1_200_000_000L, estimate, Cluster.Devnet)!!
+        assertTrue(devnet, devnet.startsWith("short by about 1 SOL"))
+        assertTrue(devnet, "mines" in devnet && "Mine 5 SOL" in devnet)
+        val testnet = shortfallDetail(1_200_000_000L, estimate, Cluster.Testnet)!!
+        assertTrue(testnet, "testnet faucet" in testnet && "Seed Vault" in testnet)
+        val mainnet = shortfallDetail(1_200_000_000L, estimate, Cluster.MainnetBeta)!!
+        assertTrue(mainnet, "real SOL" in mainnet && "mines" !in mainnet)
     }
 }

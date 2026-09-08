@@ -37,8 +37,9 @@ only on mainnet-beta:
   one point addition per candidate, one field inversion per 256 of them —
   and `PowFaucet.kt` packs six claims to a transaction and keeps a dozen in
   flight through the pacer; the approach is devnet-larper's
-  (github.com/cesp99/devnet-larper). The Airdrop button in Settings is the
-  same miner, five SOL a tap, with a Stop. The one thing it cannot do is
+  (github.com/cesp99/devnet-larper). "Mine 5 SOL" in the Wallet sheet
+  — from the Build overflow, the Deploy sheet's balance row, Projects & tools
+  or Settings — is the same miner, five SOL a tap, with a Stop. The one thing it cannot do is
   start from nothing: the fee is taken before a claim runs, so a key under
   0.002 SOL is offered `requestAirdrop` once, then the wallet for 0.05 SOL,
   then told the address to send a little devnet SOL to by hand. After that

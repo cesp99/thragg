@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,7 +34,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -88,8 +95,13 @@ import java.util.Locale
  *     allowed to lose anything (see CargoDiagnostics).
  *  2. **It follows the tail, until you scroll.** A build prints for a minute
  *     and you watch the end of it; the moment you scroll back to read
- *     something, it stops yanking you away. Re-tapping ▶ on the bar brings you
- *     back to the end (docs/UI.md, "Navigation").
+ *     something, it stops yanking you away, and scrolling back down to the
+ *     end picks it up again. Re-tapping ▶ on the bar brings you back to the
+ *     end (docs/UI.md, "Navigation"). Whether to follow is the user's
+ *     *intent* ([TailFollow]), changed only by a user scroll — never derived
+ *     from the layout at the moment rows arrive, which is what silently
+ *     stopped the log 8 s into a 6-minute `anchor test` on the Seeker
+ *     2026-09-08 (see that class).
  *  3. **An error row goes somewhere.** Tapping one opens Code at the caret.
  *     The *wrapped, unclipped* presentation of a diagnostic has moved up to
  *     the [BuildIssueCard]s above the log, which is where the wireframe puts
@@ -126,24 +138,73 @@ internal fun BuildLogView(
     val theme = LocalZedTheme.current
     val listState = rememberLazyListState()
     val rows = log.rows
+    val follow = remember { TailFollow() }
 
     /**
-     * Whether the tail is on screen. Derived rather than remembered: a
-     * `LaunchedEffect` that scrolled unconditionally would fight the user's
-     * own scroll on every one of the hundreds of lines a build prints.
+     * The user's scrolls, and only theirs. A nested-scroll connection above
+     * the list's own `scrollable` sees every drag, fling and wheel delta the
+     * list consumed — and nothing [LazyListState.scrollToItem] does, which
+     * bypasses nested scrolling — so this is where intent is read. The delta
+     * is in pointer space: a positive `y` is the finger moving down, the
+     * content moving toward its start. `layoutInfo` is already the layout
+     * after the delta here (`LazyListState.onScroll` remeasures
+     * synchronously), so "is the end still on screen" is exact.
      */
-    val atEnd by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf true
-            last >= info.totalItemsCount - 2
+    val userScroll = remember(listState, follow) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                // Nothing moved — a drag past the top or bottom edge — so
+                // nothing about where the end is has changed.
+                if (consumed.y == 0f) return Offset.Zero
+                follow.onUserScroll(
+                    towardStart = consumed.y > 0f,
+                    endInView = listState.layoutInfo.endInView(),
+                )
+                return Offset.Zero
+            }
         }
     }
-    LaunchedEffect(rows.size) {
-        if (atEnd && rows.isNotEmpty()) listState.scrollToItem(rows.lastIndex)
+
+    /**
+     * The island's height, and only that: the "Deployed on devnet" card and
+     * the Problems chip above it appear mid-run and shrink it, pushing the
+     * end below the fold with no rows added. Derived, because `layoutInfo`
+     * itself changes on every measure and this must recompose only when the
+     * number does.
+     */
+    val viewportHeight by remember(listState) {
+        derivedStateOf { listState.layoutInfo.viewportSize.height }
+    }
+
+    // Catch up whenever anything that can move the end has moved, while the
+    // user wants the end: more rows, a different last row (a Progress redraw
+    // replaces it without changing the count, and a longer text wraps to
+    // more pixels), a shorter island — and the end of a user gesture, because
+    // a `scrollToItem` under a finger is cancelled by the drag's priority and
+    // the rows that arrived meanwhile would otherwise wait for the next one.
+    val scrolling = listState.isScrollInProgress
+    // The list index of the newest row: the "dropped" banner, when there is
+    // one, sits in front of the rows and shifts every index by one.
+    val lastItem = rows.lastIndex + if (log.dropped > 0) 1 else 0
+    LaunchedEffect(rows.size, rows.lastOrNull(), viewportHeight, scrolling) {
+        if (follow.following && !scrolling && rows.isNotEmpty()) {
+            listState.scrollToTail(lastItem)
+        }
     }
     LaunchedEffect(state.retapCount) {
-        if (rows.isNotEmpty()) listState.scrollToItem(rows.lastIndex)
+        follow.rejoin()
+        if (rows.isNotEmpty()) listState.scrollToTail(lastItem)
+    }
+    // A new run empties the log (BuildRunner.start clears it): a scroll-up
+    // from the last run's failure must not leave the next run unfollowed —
+    // that was the sticky-false the intent model exists to remove, back
+    // through another door. The empty log is the run boundary.
+    LaunchedEffect(rows.isEmpty()) {
+        if (rows.isEmpty()) follow.rejoin()
     }
 
     if (rows.isEmpty()) {
@@ -211,7 +272,8 @@ internal fun BuildLogView(
             .fillMaxSize()
             .clip(shape)
             .background(theme.color("editor.background"))
-            .border(MD.hairline, MaterialTheme.colorScheme.outlineVariant, shape),
+            .border(MD.hairline, MaterialTheme.colorScheme.outlineVariant, shape)
+            .nestedScroll(userScroll),
         contentPadding = PaddingValues(vertical = MD.space2),
     ) {
         if (log.dropped > 0) {
@@ -242,6 +304,45 @@ internal fun BuildLogView(
             }
         }
     }
+}
+
+/**
+ * Bring the newest row's *bottom* to the bottom of the island.
+ *
+ * `scrollToItem(lastIndex)` alone puts that row's top at the top of the
+ * viewport and lets the measure pull the content down to fill the rest, which
+ * is the end of the log for any row shorter than the island — and the *head*
+ * of the row for one taller than it (a wrapped yarn error, a rendered
+ * diagnostic with a long note), leaving its tail below the fold. So: snap,
+ * read what hangs over, and scroll by that. The second step is clamped by the
+ * list itself, which never scrolls past its content.
+ */
+private suspend fun LazyListState.scrollToTail(lastIndex: Int) {
+    scrollToItem(lastIndex)
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return
+    val overflow = TailFollow.overflow(
+        lastVisibleIndex = last.index,
+        totalItems = info.totalItemsCount,
+        lastVisibleBottom = last.offset + last.size,
+        contentEnd = info.viewportEndOffset - info.afterContentPadding,
+    )
+    if (overflow > 0) scrollBy(overflow.toFloat())
+}
+
+/**
+ * Is the newest row on screen? `viewportEndOffset` includes the
+ * after-padding, so a nudge shorter than [MD.space2] does not count as
+ * leaving the end.
+ */
+private fun LazyListLayoutInfo.endInView(): Boolean {
+    val last = visibleItemsInfo.lastOrNull()
+    return TailFollow.endInView(
+        lastVisibleIndex = last?.index ?: -1,
+        totalItems = totalItemsCount,
+        lastVisibleBottom = last?.let { it.offset + it.size } ?: 0,
+        viewportEnd = viewportEndOffset,
+    )
 }
 
 /**

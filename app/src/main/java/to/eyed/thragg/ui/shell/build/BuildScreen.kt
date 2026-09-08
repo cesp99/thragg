@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
+import to.eyed.thragg.solana.chain.Cluster
+import to.eyed.thragg.solana.chain.ClusterStore
+import to.eyed.thragg.ui.shell.settings.WalletSheet
 import to.eyed.thragg.solana.build.AgentFix
 import to.eyed.thragg.solana.build.ArtifactFreshness
 import to.eyed.thragg.solana.build.BuildAction
@@ -127,6 +131,16 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     // the sheet; it is a String rather than a Boolean because the sheet
     // says which of Node and yarn is missing.
     var testBlockedBy by remember { mutableStateOf<String?>(null) }
+    // The Wallet sheet, from here. Build is where SOL is spent — Deploy and
+    // Test both draw on the deploy key — and until 2026-09-08 the only ways
+    // to the sheet, and to its "Mine 5 SOL", were Projects & tools and
+    // Settings: five taps from this tab, measured by looking for it. The
+    // cluster is Anchor.toml's, read off the main thread as ProjectsSheet
+    // reads it.
+    var walletOpen by remember { mutableStateOf(false) }
+    val walletCluster by produceState(Cluster.DEFAULT, root, ClusterStore.version) {
+        value = withContext(Dispatchers.IO) { ClusterStore.of(context, root) }
+    }
 
     // Detect, probe and stat — all three are blocking, and the probe starts a
     // proot. Keyed on the project and on the toolchain flag, so finishing
@@ -163,6 +177,7 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
                     BuildRunner.start(context, state, BuildAction.Test)
                 }
             },
+            onWallet = { walletOpen = true },
         )
         // The seam under a flat bar. Nothing tints on scroll anywhere in this
         // app, so a hairline is what separates a bar from its content.
@@ -208,7 +223,16 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
             },
         )
     }
-    if (DeployPrompt.open) DeploySheet(state = state, onDismiss = { DeployPrompt.open = false })
+    if (DeployPrompt.open) {
+        DeploySheet(
+            state = state,
+            onDismiss = { DeployPrompt.open = false },
+            onWallet = { walletOpen = true },
+        )
+    }
+    if (walletOpen) {
+        WalletSheet(state = state, cluster = walletCluster, onDismiss = { walletOpen = false }, deployKeyFirst = true)
+    }
 }
 
 /**
@@ -253,6 +277,7 @@ private fun BuildBar(
     layout: ProjectLayout?,
     inShell: Boolean,
     onTest: () -> Unit,
+    onWallet: () -> Unit,
 ) {
     var overflow by remember { mutableStateOf(false) }
     val projectName = state.project?.rootName
@@ -313,6 +338,9 @@ private fun BuildBar(
                         ) {
                             DeployPrompt.open = true
                         },
+                        // Deploy and Test spend from the deploy key; this is
+                        // where it is funded (Mine 5 SOL on devnet) and emptied.
+                        ContextMenuItem("Wallet", onClick = onWallet),
                         ContextMenuItem("Problems") { state.push(Route.Problems) },
                         ContextMenuItem("Copy the log") {
                             copyToClipboard(context, logText())

@@ -3,31 +3,29 @@ package to.eyed.thragg.ui.theme
 import android.content.Context
 import android.util.Log
 import android.util.LruCache
-import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Every theme the app can paint with — the eleven families it ships and the
- * ones the user has dropped into `<filesDir>/themes` — and the cache that
- * keeps switching between them cheap.
+ * Every theme the app can paint with — the eleven themes in the three family
+ * files under `assets/themes/` — and the cache that keeps switching between
+ * them cheap.
  *
  * Zed's own registry is the model: themes are discovered rather than listed in
  * code, they are keyed by full name across families, and a name that no longer
  * exists resolves to the default for its appearance rather than failing
- * (`crates/theme/src/registry.rs`). Ours discovers by listing `assets/themes/`
- * and then the user's folder, so vendoring another family file is the whole
- * change — no Kotlin edit, no enum to extend.
+ * (`crates/theme/src/registry.rs`). Ours discovers by listing `assets/themes/`,
+ * so vendoring another family file is the whole change — no Kotlin edit, no
+ * enum to extend.
  *
- * **A user theme with a bundled theme's name wins**, which is the opposite of
- * the rule between two bundled files. Zed's registry is last-write-wins for
- * the same reason: overriding a shipped theme by putting your own copy of it
- * in your themes folder is the point of having the folder, and a user who
- * names a file after One Dark has said what they meant.
+ * Only the bundled files are read. The watched `<filesDir>/themes` folder and
+ * "Import theme…" went with the rest of theme extensibility (docs/UI.md,
+ * "What is removed"): the APK is the one source, so the index is built once
+ * per process and nothing has to be rescanned.
  *
  * The index is names only: listing eleven themes in the picker must not cost
  * eleven palette parses. Palettes are parsed on first use and kept in a
- * bounded cache ([parsed]) sized so the selector's live preview — which walks
- * the whole list — never evicts what it is about to revisit.
+ * bounded cache ([parsed]) sized so the selector's warm-up — which walks the
+ * whole list — never evicts what it is about to revisit.
  */
 object ZedThemes {
     /** Zed's own defaults (`settings_content/src/theme.rs:353-354`). */
@@ -37,30 +35,23 @@ object ZedThemes {
     private const val TAG = "ZedThemes"
     private const val DIRECTORY = "themes"
 
-    /** Where a theme file comes from: the APK, or the user's folder. */
-    private sealed interface Source {
-        data class Asset(val path: String) : Source
-        data class UserFile(val file: File) : Source
-    }
-
     @Volatile
     private var index: List<ZedTheme.Meta>? = null
 
     /**
-     * Parsed palettes, bounded. Thirty-two because [warm] only works if every
-     * installed theme fits at once — the selector's walk previews each one,
-     * and evicting mid-walk would put the parse back on the frame that paints
-     * it. Eleven ship today and the rest is headroom for a user's folder;
-     * past it the least recently previewed palettes go rather than the process
-     * keeping every theme it has ever painted.
+     * Parsed palettes, bounded. Sixteen because [warm] only works if every
+     * bundled theme fits at once — the selector reads each one for its
+     * swatches, and evicting mid-walk would put the parse back on the frame
+     * that paints it. Eleven ship today; the rest is headroom for another
+     * vendored family before this number has to move.
      */
-    private val parsed = LruCache<String, ZedTheme>(32)
+    private val parsed = LruCache<String, ZedTheme>(16)
 
-    /** Which file each theme name came from, so [get] reads one file. */
-    private val sources = ConcurrentHashMap<String, Source>()
+    /** Which asset each theme name came from, so [get] reads one file. */
+    private val sources = ConcurrentHashMap<String, String>()
 
     /**
-     * Every installed theme, dark first and then by name — Zed's own order
+     * Every bundled theme, dark first and then by name — Zed's own order
      * (`theme_selector.rs:171-176`), which puts the half you are likely to
      * want at the top rather than interleaving the two appearances.
      *
@@ -77,34 +68,16 @@ object ZedThemes {
                 .onFailure { Log.w(TAG, "$asset is not a theme family", it) }
                 .getOrDefault(emptyList())
             for (meta in metas) {
-                // First file wins among the bundled ones, so a broken
-                // duplicate cannot shadow a working theme the user is on.
+                // First file wins, so a broken duplicate cannot shadow a
+                // working theme the user is on.
                 if (found.putIfAbsent(meta.name, meta) == null) {
-                    sources[meta.name] = Source.Asset(asset)
+                    sources[meta.name] = asset
                 }
-            }
-        }
-        for (installed in UserThemes.scan(context).themes) {
-            for (meta in installed.themes) {
-                // The user's folder is last, and last wins.
-                found[meta.name] = meta
-                sources[meta.name] = Source.UserFile(installed.file)
-                parsed.remove(meta.name)
             }
         }
         val sorted = found.values.sortedWith(compareBy({ !it.isDark }, { it.name }))
         index = sorted
         return sorted
-    }
-
-    /**
-     * Forget the index and every parsed palette — after the user's themes
-     * folder changed. The next [installed] rescans.
-     */
-    fun rescan() {
-        index = null
-        sources.clear()
-        parsed.evictAll()
     }
 
     /**
@@ -129,26 +102,11 @@ object ZedThemes {
             ?: error("the bundled $fallback theme is missing from the APK")
     }
 
-    /**
-     * Parse every installed theme.
-     *
-     * The selector calls this when it opens: moving the cursor down the list
-     * applies each theme in turn, and a parse on the frame that paints it is a
-     * stutter the user reads as the app struggling. **Blocking** — it is an
-     * `IO` job, not a main-thread one.
-     */
-    fun warm(context: Context) {
-        for (meta in installed(context)) load(context, meta.name)
-    }
-
     private fun load(context: Context, name: String): ZedTheme? {
-        val source = sources[name] ?: return null
-        val text = runCatching {
-            when (source) {
-                is Source.Asset -> readAsset(context, source.path)
-                is Source.UserFile -> source.file.readText()
-            }
-        }.onFailure { Log.w(TAG, "theme \"$name\" could not be read", it) }.getOrNull()
+        val asset = sources[name] ?: return null
+        val text = runCatching { readAsset(context, asset) }
+            .onFailure { Log.w(TAG, "theme \"$name\" could not be read", it) }
+            .getOrNull()
             ?: return null
         val theme = runCatching { ZedTheme.parse(text, name) }
             .onFailure { Log.w(TAG, "theme \"$name\" failed to parse", it) }

@@ -87,10 +87,8 @@ class ProgramIdsTest {
     @Test
     fun `syncProgramIds writes the Python once a keypair exists, and only for Seahorse`() {
         write("programs_py/my_program.py", "declare_id('$idA')\n\nclass Counter(Account):\n    count: u64\n")
-        // No keypair yet: the first build makes one, nothing to sync to.
-        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
         val keypair = writeKeypair()
-        // An Anchor layout has no Python to sync, and here no Anchor.toml either.
+        // An Anchor layout has no Python to sync, and here no Anchor.toml or lib.rs either.
         assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
         assertEquals(listOf("programs_py/my_program.py"), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
         val text = File(root, "programs_py/my_program.py").readText()
@@ -117,11 +115,17 @@ class ProgramIdsTest {
         write("programs/my-program/src/lib.rs", "declare_id!(\"$idA\");\n")
         val id = writeKeypair().publicKey.base58
 
-        assertEquals(listOf("Anchor.toml"), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+        // lib.rs holds the placeholder too, and since 2026-09-08 the sync is
+        // `anchor keys sync` done early, so it is rewritten in the same pass.
+        assertEquals(
+            listOf("Anchor.toml", "programs/my-program/src/lib.rs"),
+            ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)),
+        )
+        assertEquals("declare_id!(\"$id\");\n", File(root, "programs/my-program/src/lib.rs").readText())
         val text = File(root, "Anchor.toml").readText()
         assertEquals(id, AnchorToml.programId(text, "devnet", "my_program"))
         assertEquals(id, AnchorToml.programId(text, "localnet", "my_program"))
-        // Everything else is byte-for-byte the template's.
+        // Everything else in Anchor.toml is byte-for-byte the template's.
         assertTrue(text.startsWith("[toolchain]\n\n[features]\nresolution = true\nskip-lint = false\n\n"))
         assertTrue(text.contains("[registry]\nurl = \"https://api.apr.dev\"\n\n[provider]\ncluster = \"devnet\"\n"))
         // No Python exists for an Anchor project, and none was invented.
@@ -143,6 +147,38 @@ class ProgramIdsTest {
         val text = File(root, "Anchor.toml").readText()
         assertEquals(idB, AnchorToml.programId(text, "localnet", "my_program"))
         assertEquals(id, AnchorToml.programId(text, "devnet", "my_program"))
+    }
+
+    @Test
+    fun `a fresh scaffold's first sync makes the keypair and points every file at it`() {
+        // tidepool on the Seeker, 2026-09-08: with no keypair before the first
+        // build there was nothing to sync to, seahorse regenerated lib.rs from
+        // a Python holding the placeholder, and anchor refused its own build.
+        write("Anchor.toml", templateToml)
+        write("programs/my-program/src/lib.rs", "use anchor_lang::prelude::*;\n\ndeclare_id!(\"$idA\");\n")
+        write("programs_py/my_program.py", "declare_id('$idA')\n")
+        val changed = ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse))
+        val keypair = Keypair.read(ProgramIds.keypairFile(root.path, program))
+        assertTrue(changed.toString(), keypair != null)
+        val id = keypair!!.publicKey.base58
+        assertEquals(
+            listOf("Anchor.toml", "target/deploy/my_program-keypair.json", "programs/my-program/src/lib.rs", "programs_py/my_program.py"),
+            changed,
+        )
+        assertEquals("use anchor_lang::prelude::*;\n\ndeclare_id!(\"$id\");\n", File(root, "programs/my-program/src/lib.rs").readText())
+        assertEquals("declare_id('$id')\n", File(root, "programs_py/my_program.py").readText())
+        assertEquals(id, AnchorToml.programId(File(root, "Anchor.toml").readText(), "devnet", "my_program"))
+        // The second pass has nothing left to do, and the keypair is the same one.
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
+        assertEquals(id, Keypair.read(ProgramIds.keypairFile(root.path, program))!!.publicKey.base58)
+    }
+
+    @Test
+    fun `withDeclaredId moves only the address`() {
+        assertEquals("declare_id!(\"$idB\"); // keep", ProgramIds.withDeclaredId("declare_id!(\"$idA\"); // keep", idB))
+        assertEquals("declare_id!( \"$idB\" )", ProgramIds.withDeclaredId("declare_id!( \"$idA\" )", idB))
+        assertNull(ProgramIds.withDeclaredId("declare_id!(\"$idA\");", idA))
+        assertNull(ProgramIds.withDeclaredId("pub mod x {}", idB))
     }
 
     @Test

@@ -75,10 +75,12 @@ import to.eyed.thragg.ui.theme.MD
  * the way the deployer will resolve it (ProgramIds.kt), the artifact's size,
  * the deploy key's balance and what the cluster already has at the id —
  * which decides whether this is a fresh deploy or an upgrade, and therefore
- * the estimate. The estimate is [Loader.estimateDeploy]'s formula, marked
- * `~` because the deployer asks the RPC for the real rent figures; what the
- * sheet promises is the shape of the cost, and the second line says how much
- * of it comes back when the buffer is drained.
+ * the estimate. The estimate is [Loader.estimateDeploy] over the rent the
+ * cluster quotes (the same `getMinimumBalanceForRentExemption` the deployer
+ * asks), falling back to the formula when the cluster does not answer; it
+ * keeps its `~` because the fee count is a prediction of how many writes
+ * land first time. The second line says how much comes back when the buffer
+ * is drained.
  *
  * THE BUTTON WAITS FOR THE FACTS. Until the IO pass is back, and whenever the
  * cluster did not answer, Deploy is off: what the cluster has at the id is
@@ -93,6 +95,17 @@ import to.eyed.thragg.ui.theme.MD
  * Confirming dismisses the sheet and calls exactly what the overflow used to
  * call — `BuildRunner.start(context, state, BuildAction.Deploy)` — so the run,
  * the log and the foreground service are unchanged by this sheet's existence.
+ *
+ * THE BALANCE ROW SAYS WHAT HAPPENS WHEN IT IS SHORT. The deployer covers a
+ * shortfall by itself — on devnet it mines the proof-of-work faucet, on
+ * testnet it asks the faucet then the wallet, on mainnet the wallet
+ * (solana/chain/ProgramDeploy.kt, `fund`) — and a sheet that printed
+ * "3.05 SOL" under "needs ~2.6" and nothing else left the user to work out
+ * whether Deploy would refuse. So [shortfallDetail] names the gap and the
+ * way it is closed, and [onWallet] puts the Wallet sheet — where the deploy
+ * key's "Mine 5 SOL" and "Return SOL to wallet" live — one tap away instead
+ * of five (Code, Files, Projects, Wallet, scroll: measured on the Seeker
+ * 2026-09-08, the path it took to find the miner from the Build tab).
  *
  * [DeployPrompt] is the one bit of state BuildScreen needs: its overflow sets
  * `open = true`, and BuildScreen composes this sheet while it is.
@@ -117,7 +130,7 @@ private class DeployFacts(
 )
 
 @Composable
-internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit) {
+internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit, onWallet: (() -> Unit)? = null) {
     val context = LocalContext.current
     // The system's battery dialog returns no result, so the answer is read
     // again every time this activity comes back to the front — which is
@@ -343,7 +356,23 @@ internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit) {
                         failed = facts?.keyBalance?.isFailure == true,
                         cluster = where,
                     ),
+                    trailing = onWallet?.let { open ->
+                        {
+                            TextButton(onClick = { onDismiss(); open() }) {
+                                Text("Wallet", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    },
                 )
+                val shortfall = shortfallDetail(facts?.keyBalance?.getOrNull(), estimate, cluster)
+                if (shortfall != null) {
+                    Text(
+                        text = shortfall,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
+                    )
+                }
             }
         }
     }
@@ -392,7 +421,13 @@ private fun gather(context: Context, root: String, program: ProgramTarget, clust
     val balance = key?.let { runCatching { rpc.getBalance(it) } }
     val status = resolved.id?.let { runCatching { ProgramStatus.inspect(rpc, it) } }
     val upgrade = status?.getOrNull() is OnChainProgram.Deployed
-    val estimate = bytes?.let { Loader.estimateDeploy(it.toInt(), upgrade) }
+    // The cluster's rent, so the cost and the "short by" line under the
+    // balance are the deployer's own numbers (ProgramDeploy.fund asks the
+    // same question); the formula only when the cluster does not answer.
+    val rent: (Int) -> Long = { size ->
+        runCatching { rpc.getMinimumBalanceForRentExemption(size) }.getOrElse { Loader.rentExempt(size) }
+    }
+    val estimate = bytes?.let { Loader.estimateDeploy(it.toInt(), upgrade, rent) }
     return DeployFacts(resolved, bytes, key, balance, status, estimate)
 }
 
@@ -432,6 +467,33 @@ internal fun costDetail(total: Long?): String =
 /** The second line under the cost: the buffer rent, which the deploy drains back. */
 internal fun comesBackDetail(bufferRent: Long): String =
     "of which ${Loader.lamportsToSol(bufferRent)} comes back after deploy"
+
+/**
+ * The line under the balance when it will not cover the deploy, or null when
+ * it will or nothing is known yet. The threshold is the deployer's own —
+ * the estimate plus a tenth (ProgramDeploy.kt, `fund`) — so this
+ * says "short" exactly when the deploy would go and top up first. Each
+ * cluster names its own remedy, because each has a different one: devnet
+ * mines (about a minute per few SOL on the public endpoint, measured
+ * 2026-09-04), testnet asks its faucet and then Seed Vault, mainnet asks
+ * Seed Vault for real SOL.
+ */
+internal fun shortfallDetail(balance: Long?, estimate: Loader.CostEstimate?, cluster: Cluster?): String? {
+    if (balance == null || estimate == null || cluster == null) return null
+    val required = estimate.total + estimate.total / 10
+    if (balance >= required) return null
+    val gap = Loader.lamportsToSol(required - balance)
+    return when {
+        cluster.hasPowFaucet ->
+            "short by about $gap — Deploy mines the difference from the devnet proof-of-work " +
+                "faucet first, a minute or two; Wallet has Mine 5 SOL to do it ahead of time"
+        cluster.hasFaucet ->
+            "short by about $gap — Deploy asks the ${cluster.display} faucet first, " +
+                "then Seed Vault for what the faucet will not give"
+        else ->
+            "short by about $gap — Seed Vault signs one transfer of real SOL to the deploy key when you confirm"
+    }
+}
 
 /** The deploy key's balance line, in the order the facts arrive. */
 internal fun keyBalanceDetail(

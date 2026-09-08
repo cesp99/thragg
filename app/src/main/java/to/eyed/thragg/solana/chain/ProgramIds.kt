@@ -130,9 +130,26 @@ object ProgramIds {
     }
 
     /**
-     * Point every program's other two claims at its keypair's address, and
-     * say which files changed (project-relative). Blocking. Anchor and
-     * Seahorse only; a Native project has no Anchor.toml and no Python.
+     * A `lib.rs` with its first `declare_id!("…")` naming [id], or null when
+     * there is none to change or it already does — what `anchor keys sync`
+     * writes, done here so it can happen before a keypair exists on disk
+     * (see [syncProgramIds]). Only the address moves; the rest of the line
+     * is the file's.
+     */
+    fun withDeclaredId(libRsText: String, id: String): String? {
+        val match = DECLARE_ID.find(libRsText) ?: return null
+        val group = match.groups[1] ?: return null
+        if (group.value == id) return null
+        return libRsText.replaceRange(group.range, id)
+    }
+
+    /**
+     * Make every program's keypair when there is none, and point its other
+     * claims — `declare_id!` in `lib.rs`, the Anchor.toml table, a Seahorse
+     * program's Python — at that keypair's address, saying which files
+     * changed (project-relative, the keypair's path among them). Blocking.
+     * Anchor and Seahorse only; a Native project has no Anchor.toml and no
+     * Python.
      *
      * `anchor keys sync` fixes `declare_id!` in `lib.rs`, and the build that
      * runs after it is what the id is for. But two files it does not reach
@@ -159,8 +176,25 @@ object ProgramIds {
      *    the first call. The Python is the source; [withSeahorseDeclaredId]
      *    is the sync for it.
      *
-     * A program with no keypair yet is left alone — the first build makes
-     * one. Idempotent: a file that already agrees is neither written nor
+     *  - **The keypair itself, and `lib.rs`, before the first build.** Until
+     *    2026-09-08 a program with no keypair was left alone — "the first
+     *    build makes one" — and that was the bug: a fresh Seahorse scaffold's
+     *    first Build on the Seeker (tidepool, 2026-09-08) had `anchor build`
+     *    generate the keypair and then refuse its own output with "Program
+     *    ID mismatch detected … Please run `anchor keys sync`", because
+     *    `seahorse build` had just regenerated `lib.rs` from a Python that
+     *    still held the placeholder, and nothing could have synced it
+     *    earlier with no keypair to sync to. The `.so` was still written,
+     *    carrying the placeholder, and a deploy of it would have failed on
+     *    its first instruction. So this generates the keypair when there is
+     *    none ([ensureKeypair] — the same file `anchor build` would have
+     *    made a minute later, so the state after the build is unchanged;
+     *    only the order is) and writes `declare_id!` in `lib.rs` too
+     *    ([withDeclaredId]), which is `anchor keys sync` done early; the
+     *    real `keys sync` that follows in BuildRunner then finds nothing to
+     *    do, and a fresh project's first build is right the first time.
+     *
+     * Idempotent: a file that already agrees is neither written nor
      * returned, and Anchor.toml is written at most once for all programs.
      */
     fun syncProgramIds(layout: ProjectLayout): List<String> {
@@ -176,9 +210,19 @@ object ProgramIds {
             ?.let { Cluster.fromAnchor(it) }
             ?: Cluster.DEFAULT
         var toml = originalToml
+        val rootDir = File(layout.root)
         for (program in layout.programs) {
-            val keypairId = Keypair.read(keypairFile(layout.root, program))?.publicKey?.base58
-                ?: continue
+            val keypairFile = keypairFile(layout.root, program)
+            val keypairId = Keypair.read(keypairFile)?.publicKey?.base58
+                ?: ensureKeypair(layout.root, program).publicKey.base58.also {
+                    changed.add(keypairFile.relativeTo(rootDir).path)
+                }
+            libRsFile(layout.root, program)?.let { lib ->
+                val text = runCatching { lib.readText() }.getOrNull() ?: return@let
+                val rewritten = withDeclaredId(text, keypairId) ?: return@let
+                lib.writeText(rewritten)
+                changed.add(lib.relativeTo(rootDir).path)
+            }
             toml = toml?.let { withAnchorTomlId(it, cluster, program.moduleName, keypairId, program.crateName) }
             if (layout.framework != ProjectFramework.Seahorse) continue
             val source = seahorseSourceFile(layout.root, program)
