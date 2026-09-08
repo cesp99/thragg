@@ -53,6 +53,7 @@ import to.eyed.thragg.ui.theme.BufferFontFamily
 import to.eyed.thragg.ui.theme.LocalAppSettings
 import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.touchTarget
+import to.eyed.thragg.ui.theme.pressedFill
 
 /** What a diff tab is looking at. */
 data class DiffTarget(
@@ -437,6 +438,9 @@ private fun FileHeader(file: FileDiff, onOpenFile: (String) -> Unit, controls: D
                             Color.Transparent
                         }
                     )
+                    // The press lands on top of the hover wash, the frame
+                    // it happens: the surface draws no ripple.
+                    .pressedFill(openInteraction, theme.color("ghost_element.active"), RoundedCornerShape(4.dp))
                     .pointerHoverIcon(PointerIcon.Hand)
                     .clickable(
                         interactionSource = openInteraction,
@@ -485,6 +489,7 @@ private fun HeaderButton(label: String, enabled: Boolean, onClick: () -> Unit) {
             .then(
                 if (enabled) {
                     Modifier
+                        .pressedFill(interaction, theme.color("ghost_element.active"), RoundedCornerShape(4.dp))
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable(
                             interactionSource = interaction,

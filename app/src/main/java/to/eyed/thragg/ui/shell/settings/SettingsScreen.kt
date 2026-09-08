@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -241,6 +242,14 @@ fun SettingsScreen(
         checking = false
     }
 
+    // Counts the engine's refusals. A toggle flips the moment it is tapped
+    // and only the file's answer can put it back: on success `settings`
+    // changes and the row re-keys on its new value; on a refusal nothing
+    // changes, so this is the key that changes instead, and every row falls
+    // back to what the file says (only the refused one has anything to fall
+    // back from).
+    var refusals by remember { mutableIntStateOf(0) }
+
     /** One key, written off the main thread, with the refusal made visible. */
     fun write(key: String, valueJson: String) {
         scope.launch {
@@ -249,6 +258,7 @@ fun SettingsScreen(
                 // A value the engine refused never reached the file and the
                 // rest of the settings are untouched — but silence here is
                 // what lets a toggle look like it worked.
+                refusals++
                 Notifications.error("The engine refused that setting", key = "settings")
             } else {
                 onSettingsChanged(updated)
@@ -392,6 +402,7 @@ fun SettingsScreen(
             )
             HairlineDivider()
             ToggleRow(
+                refusals = refusals,
                 label = "Wrap long lines",
                 checked = settings.softWrap.wraps,
                 onToggle = { on ->
@@ -404,6 +415,7 @@ fun SettingsScreen(
             )
             HairlineDivider()
             ToggleRow(
+                refusals = refusals,
                 label = "Format on save",
                 checked = settings.formatOnSave != FormatOnSave.Off,
                 onToggle = { on ->
@@ -413,6 +425,7 @@ fun SettingsScreen(
             )
             HairlineDivider()
             ToggleRow(
+                refusals = refusals,
                 label = "Autosave on leaving a file",
                 detail = "A build reads the file on disk. 71 seconds is a long time to spend on a stale one.",
                 checked = settings.autosave != Autosave.Off,
@@ -764,18 +777,29 @@ private fun ToggleRow(
     label: String,
     checked: Boolean,
     onToggle: (Boolean) -> Unit,
+    /** The screen's refusal count; a change puts the switch back to [checked]. */
+    refusals: Int,
     detail: String? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
+    // Optimistic: the switch moves under the finger, not after the JNI
+    // rewrite lands. `checked` is what the file says; `shown` is what the
+    // finger asked for until the file agrees (re-keyed on the new value) or
+    // the engine refuses (re-keyed on the count) — either way it snaps back
+    // to the truth.
+    var shown by remember(checked, refusals) { mutableStateOf(checked) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.space3),
         modifier = Modifier
             .fillMaxWidth()
             .toggleable(
-                value = checked,
+                value = shown,
                 role = Role.Switch,
-                onValueChange = onToggle,
+                onValueChange = { on ->
+                    shown = on
+                    onToggle(on)
+                },
             )
             .heightIn(min = MD.rowMin)
             .padding(horizontal = MD.space3, vertical = MD.space2),
@@ -795,7 +819,7 @@ private fun ToggleRow(
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = null)
+        Switch(checked = shown, onCheckedChange = null)
     }
 }
 

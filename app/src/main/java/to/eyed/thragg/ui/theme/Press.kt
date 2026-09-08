@@ -3,12 +3,23 @@ package to.eyed.thragg.ui.theme
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 /**
  * Press feedback for a control that is a *shape*: it gives under the thumb.
@@ -85,4 +96,74 @@ const val PRESS_SCALE = 0.97f
  * stiffness [effectSpec] uses for a colour, and for the same reason: a press
  * has no momentum to carry and any overshoot reads as a flicker.
  */
-private const val PRESS_STIFFNESS = 1600f
+const val PRESS_STIFFNESS = 1600f
+
+/**
+ * Press feedback for a control that is a *key*: it lights under the thumb.
+ *
+ * The Zed half installs no indication ([ZedSurface] kills the ripple on
+ * purpose), so a key in the editor action row, a terminal extra key or a diff
+ * verb would otherwise show nothing between the finger landing and the
+ * command arriving. This draws [color] behind the content the frame the
+ * press interaction starts and drops it the frame it ends. No scale, no
+ * spring, no haptic: a keystroke is a state, not a motion, so reduce-motion
+ * changes nothing here and the fill is identical under it.
+ *
+ * Same signal as [pressScale] — the caller's interaction source, so a press
+ * that turns out to be a scroll never fires — and the same rule about theme
+ * reads: none. [color] comes from the call site (`ghost_element.active` in
+ * the Zed half), so this helper is visible to neither side of the seam.
+ */
+@Composable
+fun Modifier.pressedFill(
+    interactionSource: InteractionSource,
+    color: Color,
+    shape: Shape = RectangleShape,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    return this.drawBehind {
+        if (pressed) {
+            if (shape === RectangleShape) {
+                drawRect(color)
+            } else {
+                drawOutline(shape.createOutline(Size(size.width, size.height), layoutDirection, this), color)
+            }
+        }
+    }
+}
+
+/**
+ * A long-press that opens a door always vibrates.
+ *
+ * Every long-press in the app is an entry to something the surface does not
+ * advertise — a row menu, a close, a collapse-all — and the one thing that
+ * tells the finger it has found the door is the [HapticFeedbackType.LongPress]
+ * pulse. Wrapping `combinedClickable` here means a site cannot forget it.
+ * The haptic is not motion, so reduce-motion keeps it.
+ *
+ * A site that already owns a `combinedClickable` with its own interaction
+ * source (for a hover fill, say) may keep it and call the haptic inline
+ * instead; pass [interactionSource] here when the source is also read by
+ * [pressedFill] or [pressScale].
+ */
+@Composable
+fun Modifier.longPressDoor(
+    onLongClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
+    interactionSource: MutableInteractionSource? = null,
+): Modifier {
+    val haptics = LocalHapticFeedback.current
+    // The ambient indication, not null: a Material row keeps its ripple, and
+    // a Zed row gets the NoIndication its surface installed.
+    return this.combinedClickable(
+        interactionSource = interactionSource,
+        indication = LocalIndication.current,
+        onLongClickLabel = onLongClickLabel,
+        onLongClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onLongClick()
+        },
+        onClick = onClick ?: {},
+    )
+}

@@ -871,18 +871,14 @@ private fun CodeTopBar(
             else -> listOfNotNull(directory, projectName).joinToString(" · ").ifEmpty { null }
         },
         actions = {
-            if (file?.isDirty == true) {
-                // The unsaved mark sits with the actions rather than beside the
-                // title: a dot inside a `titleLarge` line reads as punctuation,
-                // and this one is a *state*.
-                ThraggIcon(
-                    icon = R.drawable.ic_ui_dot,
-                    contentDescription = "unsaved",
-                    tint = MaterialTheme.colorScheme.primary,
-                    size = DirtyDot,
-                    modifier = Modifier.padding(end = MD.space1),
-                )
-            }
+            // The unsaved mark sits with the actions rather than beside the
+            // title: a dot inside a `titleLarge` line reads as punctuation,
+            // and this one is a *state*. It fades when the awaited save lands.
+            UnsavedDot(
+                dirty = file?.isDirty == true,
+                size = DirtyDot,
+                modifier = Modifier.padding(end = MD.space1),
+            )
             ThraggIconButton(
                 icon = R.drawable.ic_ui_magnifying_glass,
                 // It searches *this buffer* — the file bar's magnifier is the

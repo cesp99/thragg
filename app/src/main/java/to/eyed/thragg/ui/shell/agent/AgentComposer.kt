@@ -6,7 +6,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
@@ -92,6 +101,7 @@ import to.eyed.thragg.ui.components.ThraggSearchField
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.theme.IconSize
+import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoBody
 import to.eyed.thragg.ui.theme.ThraggIcon
@@ -99,6 +109,7 @@ import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.effectSpec
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.pressScale
+import to.eyed.thragg.ui.theme.spatialSpec
 import to.eyed.thragg.ui.theme.touchTarget
 
 // ---------------------------------------------------------------------------
@@ -588,7 +599,29 @@ internal fun AgentComposer(
                 // a Stop mid-turn is what makes a steer look like a cancel. Both
                 // circles are on screen at once for the whole of a running turn,
                 // which is the point spettro-android's composer concedes.
-                if (busy) {
+                //
+                // The disc scales in beside Send and takes its width as it
+                // does, so Send slides over rather than jumping a slot the
+                // frame the turn starts; leaving is the same in reverse.
+                // Under reduce motion it is simply there or not.
+                val reduce = LocalReduceMotion.current
+                AnimatedVisibility(
+                    visible = busy,
+                    enter = if (reduce) {
+                        EnterTransition.None
+                    } else {
+                        expandHorizontally(spatialSpec()) +
+                            scaleIn(spatialSpec(), initialScale = 0.9f) +
+                            fadeIn(effectSpec())
+                    },
+                    exit = if (reduce) {
+                        ExitTransition.None
+                    } else {
+                        shrinkHorizontally(spatialSpec()) +
+                            scaleOut(spatialSpec(), targetScale = 0.9f) +
+                            fadeOut(effectSpec())
+                    },
+                ) {
                     ComposerCircle(
                         // `ic_agent_stop`, not `ic_ui_stop`: identical art, but
                         // the drawables are named for what they stop and this one
@@ -620,7 +653,14 @@ internal fun AgentComposer(
                     // solved against the container the wash sits on.
                     disabledInk = scheme.onSurfaceVariant,
                     longClickLabel = "More ways to send",
-                    onLongClick = { if (busy) longPress = true },
+                    // A door only while a turn is running (the queue and
+                    // the interrupt), so the pulse is gated the same way.
+                    onLongClick = {
+                        if (busy) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            longPress = true
+                        }
+                    },
                     onClick = { send() },
                 )
             }

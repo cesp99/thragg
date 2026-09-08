@@ -6,7 +6,6 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +89,7 @@ import to.eyed.thragg.ui.theme.ThraggColors
 import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.TabularNums
+import to.eyed.thragg.ui.theme.longPressDoor
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.touchTarget
 import to.eyed.thragg.ui.workspace.ContextMenu
@@ -578,7 +578,9 @@ private fun GitRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = RowHeight)
-            .combinedClickable(onLongClick = onLongPress, onClick = onOpen)
+            // The long-press is a door (discard) and a door always vibrates;
+            // the helper keeps the ripple a Material row has.
+            .longPressDoor(onLongClick = onLongPress, onClick = onOpen)
             .padding(end = MD.space3),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.space2),

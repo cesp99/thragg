@@ -1,7 +1,13 @@
 package to.eyed.thragg.ui.shell
 
 import android.content.res.Configuration
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -47,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -67,8 +74,12 @@ import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
+import to.eyed.thragg.ui.theme.PRESS_SCALE
+import to.eyed.thragg.ui.theme.PRESS_STIFFNESS
 import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.effectSpec
+import to.eyed.thragg.ui.theme.spatialSpec
+import to.eyed.thragg.ui.theme.throwSpec
 import to.eyed.thragg.ui.theme.glyphHeight
 
 /**
@@ -148,6 +159,26 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
     // release can hand the spring the exact position and speed the finger let
     // go at.
     val pill = remember { Animatable(state.destination.ordinal.toFloat(), PillThreshold) }
+    val throwSpring = throwSpec(PillThreshold)
+    // THE RE-TAP. Tapping the tab you are on scrolls its screen to the end
+    // (ShellState.retapCount); the bar's own answer is the pill giving way
+    // under the finger — the same 97% every pressed object in the app gives
+    // — and coming back. On the pill only: the slot has no ripple and gets
+    // none, and the capsule is not what was tapped. `seen` starts at the
+    // current count rather than at zero because the bar leaves composition
+    // under the IME and comes back with a count it has already answered.
+    val dip = remember { Animatable(1f) }
+    var seen by remember { mutableIntStateOf(state.retapCount) }
+    LaunchedEffect(state.retapCount) {
+        if (state.retapCount == seen) return@LaunchedEffect
+        seen = state.retapCount
+        if (reduceMotion) {
+            dip.snapTo(1f)
+        } else {
+            dip.animateTo(PRESS_SCALE, DipSpring)
+            dip.animateTo(1f, DipSpring)
+        }
+    }
     var drag by remember { mutableStateOf<Float?>(null) }
     var anchor by remember { mutableFloatStateOf(0f) }
     var travel by remember { mutableFloatStateOf(0f) }
@@ -210,7 +241,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                     if (reduceMotion) {
                         pill.snapTo(target.toFloat())
                     } else {
-                        pill.animateTo(target.toFloat(), ThrowSpring, initialVelocity = velocity)
+                        pill.animateTo(target.toFloat(), throwSpring, initialVelocity = velocity)
                     }
                 },
             ),
@@ -227,6 +258,10 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
             Box(
                 modifier = Modifier
                     .offset { IntOffset((shown * slotPx).roundToInt(), 0) }
+                    .graphicsLayer {
+                        scaleX = dip.value
+                        scaleY = dip.value
+                    }
                     .size(SlotWidth, slotHeight)
                     .background(scheme.primary.copy(alpha = 0.16f), CircleShape),
             )
@@ -246,7 +281,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                     landscape = landscape,
                     lit = lit == Destination.Agent.ordinal,
                     icon = R.drawable.ic_ui_agent,
-                    badge = { if (state.agentAttention) AttentionDot() },
+                    badge = { AttentionDot(visible = state.agentAttention) },
                 )
                 // One glyph per slot: while a run is going the spinner IS the
                 // icon, and for ten seconds after a success the green tick IS
@@ -269,14 +304,14 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                     running = { buildBadge == BuildBadge.Ring },
                     succeeded = { buildBadge == BuildBadge.Tick },
                     badge = {
-                        if (buildBadge == BuildBadge.Failed) {
+                        // Scales in from 90% as the run ends, fades out when
+                        // the next run clears it; the dot itself is the same
+                        // one it always was.
+                        BadgeReveal(visible = buildBadge == BuildBadge.Failed) {
                             StatusDot(
                                 color = MaterialTheme.colorScheme.error,
                                 size = BadgeDot,
                                 contentDescription = "The last run failed",
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(x = BadgeOffset, y = -BadgeOffset),
                             )
                         }
                     },
@@ -321,6 +356,7 @@ private fun NavItem(
         label = "nav-ink",
     )
     val interaction = remember { MutableInteractionSource() }
+    val fade = effectSpec<Float>()
     Column(
         modifier = Modifier
             .width(SlotWidth)
@@ -340,36 +376,55 @@ private fun NavItem(
     ) {
         CompositionLocalProvider(LocalContentColor provides ink) {
             Box(contentAlignment = Alignment.Center) {
-                if (running()) {
-                    // The slot's whole glyph, not a decoration on one — see
-                    // the Build item's note at the call site.
-                    Box(
-                        modifier = Modifier.semantics {
-                            contentDescription = "$label — running"
-                        },
-                    ) {
-                        ThraggSpinner(size = IconSize.Nav, color = ink)
+                // One crossfade for every change of glyph: ▶ to spinner as a
+                // run starts, spinner to tick or back to ▶ as it ends, and
+                // the tick's own expiry ten seconds on (currentBuildBadge
+                // flips `succeeded` false, so its fade-out IS this).
+                // `transitionSpec` is not composable: `fade` is resolved out
+                // here, which is also where reduce-motion is read.
+                val glyph = when {
+                    running() -> Glyph.Spinner
+                    succeeded() -> Glyph.Tick
+                    else -> Glyph.Icon
+                }
+                AnimatedContent(
+                    targetState = glyph,
+                    transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) },
+                    contentAlignment = Alignment.Center,
+                    label = "nav-glyph",
+                ) { shown ->
+                    when (shown) {
+                        Glyph.Spinner ->
+                            // The slot's whole glyph, not a decoration on one
+                            // — see the Build item's note at the call site.
+                            Box(
+                                modifier = Modifier.semantics {
+                                    contentDescription = "$label — running"
+                                },
+                            ) {
+                                ThraggSpinner(size = IconSize.Nav, color = ink)
+                            }
+
+                        Glyph.Tick -> ThraggIcon(
+                            icon = R.drawable.ic_ui_check,
+                            contentDescription = "$label — the last run succeeded",
+                            // The solved added ink rather than `created` raw:
+                            // this is a mark on the Material half, where inks
+                            // clear 4.5:1 against the ground they sit on — Ayu
+                            // Light draws `created` at 2.11:1 (docs/VISUAL.md,
+                            // "THE HYBRID"). The green is the information
+                            // here, so it overrides the slot's selection tint.
+                            tint = LocalThraggColors.current.addedMark,
+                            size = IconSize.Nav,
+                        )
+
+                        Glyph.Icon -> ThraggIcon(
+                            icon = icon,
+                            contentDescription = if (landscape) label else null,
+                            tint = ink,
+                            size = IconSize.Nav,
+                        )
                     }
-                } else if (succeeded()) {
-                    ThraggIcon(
-                        icon = R.drawable.ic_ui_check,
-                        contentDescription = "$label — the last run succeeded",
-                        // The solved added ink rather than `created` raw: this
-                        // is a mark on the Material half, where inks clear
-                        // 4.5:1 against the ground they sit on — Ayu Light
-                        // draws `created` at 2.11:1 (docs/VISUAL.md, "THE
-                        // HYBRID"). The green is the information here, so it
-                        // overrides the slot's selection tint.
-                        tint = LocalThraggColors.current.addedMark,
-                        size = IconSize.Nav,
-                    )
-                } else {
-                    ThraggIcon(
-                        icon = icon,
-                        contentDescription = if (landscape) label else null,
-                        tint = ink,
-                        size = IconSize.Nav,
-                    )
                 }
                 badge()
             }
@@ -386,17 +441,46 @@ private fun NavItem(
     }
 }
 
-/** ✦'s badge: "the agent finished, or is blocked, while you were elsewhere". */
+/** What a slot's glyph is showing; the states the Build slot crossfades between. */
+private enum class Glyph { Icon, Spinner, Tick }
+
+/**
+ * ✦'s badge: "the agent finished, or is blocked, while you were elsewhere".
+ * Pulsing, because it is the only thing reporting a live state and there is
+ * no room for a spinner beside it (StatusDot.kt).
+ */
 @Composable
-private fun BoxScope.AttentionDot() {
-    StatusDot(
-        color = MaterialTheme.colorScheme.primary,
-        size = BadgeDot,
-        contentDescription = "The agent is waiting for you",
+private fun BoxScope.AttentionDot(visible: Boolean) {
+    BadgeReveal(visible = visible) {
+        StatusDot(
+            color = MaterialTheme.colorScheme.primary,
+            size = BadgeDot,
+            pulsing = true,
+            contentDescription = "The agent is waiting for you",
+        )
+    }
+}
+
+/**
+ * A badge arriving on the glyph's corner: it scales in from 90% on the
+ * spatial spring with its alpha on the effects spring, and only fades on
+ * the way out — a mark that shrinks as it leaves would pull the eye to the
+ * absence. Reduce-motion snaps both. The corner offset lives here so the
+ * two badges cannot drift apart.
+ */
+@Composable
+private fun BoxScope.BadgeReveal(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = scaleIn(initialScale = 0.9f, animationSpec = spatialSpec()) + fadeIn(effectSpec()),
+        exit = fadeOut(effectSpec()),
         modifier = Modifier
             .align(Alignment.TopEnd)
             .offset(x = BadgeOffset, y = -BadgeOffset),
-    )
+        label = "badge",
+    ) {
+        content()
+    }
 }
 
 /**
@@ -517,11 +601,13 @@ private val BadgeOffset = 2.dp
 private val TapSpring = spring<Float>(dampingRatio = 1f, stiffness = 400f, visibilityThreshold = PillThreshold)
 
 /**
- * The release spring: a little under-damped, because the gesture that
- * preceded it carried momentum and a throw that lands dead reads as caught.
- * The overshoot is a few pixels and only ever happens after a flick.
+ * The release spring is [throwSpec] — the same throw a sheet settles on —
+ * resolved in composition because it reads reduce-motion.
+ *
+ * The re-tap dip: [PRESS_SCALE] and back, at the press stiffness, so the
+ * pill gives way exactly the way a pressed card does.
  */
-private val ThrowSpring = spring<Float>(dampingRatio = 0.8f, stiffness = 400f, visibilityThreshold = PillThreshold)
+private val DipSpring = spring<Float>(dampingRatio = 1f, stiffness = PRESS_STIFFNESS)
 
 /**
  * 0.002 of a slot — under a pixel — so the spring runs to the last pixel and

@@ -78,6 +78,7 @@ import to.eyed.thragg.ui.shell.code.CodeState
 import to.eyed.thragg.ui.shell.settings.WalletSheet
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
+import to.eyed.thragg.ui.theme.longPressDoor
 import to.eyed.thragg.ui.theme.pressScale
 import to.eyed.thragg.ui.theme.MonoSmall
 import to.eyed.thragg.ui.theme.RowChevron
@@ -633,7 +634,9 @@ private fun ProjectListRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
+            // The long-press is a door (the row's menu) and a door always
+            // vibrates; the helper keeps the ripple a Material row has.
+            .longPressDoor(onLongClick = onLongPress, onClick = onOpen)
             .heightIn(min = RowHeight)
             .padding(horizontal = MD.space3, vertical = MD.space2),
     ) {

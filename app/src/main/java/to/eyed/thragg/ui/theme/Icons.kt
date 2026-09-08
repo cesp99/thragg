@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
@@ -224,19 +227,24 @@ fun RowChevron(modifier: Modifier = Modifier, tint: Color = mutedIcon) {
  * Right rather than up for closed, which is the vocabulary a list uses — `⌃`
  * and `⌄` are a pair for a *card* that collapses upward, and a row that opens
  * downward points at where its content will appear.
+ *
+ * One chevron turned a quarter on [thraggSpring] rather than two drawables
+ * swapped: the turn is the row answering the tap, and a swap is a jump cut.
+ * Under reduce motion the spring is a snap, so it is the swap again.
  */
 @Composable
 fun DisclosureMark(open: Boolean, modifier: Modifier = Modifier, tint: Color = mutedIcon) {
+    val angle by animateFloatAsState(
+        targetValue = if (open) 90f else 0f,
+        animationSpec = thraggSpring(),
+        label = "disclosure",
+    )
     ThraggIcon(
-        icon = if (open) {
-            R.drawable.ic_ui_chevron_down
-        } else {
-            R.drawable.ic_ui_chevron_right
-        },
+        icon = R.drawable.ic_ui_chevron_right,
         contentDescription = null,
         tint = tint,
         size = IconSize.Marker,
-        modifier = modifier,
+        modifier = modifier.graphicsLayer { rotationZ = angle },
     )
 }
 

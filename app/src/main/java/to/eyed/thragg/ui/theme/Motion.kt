@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VisibilityThreshold
@@ -192,6 +193,30 @@ fun <T> spatialSpec(): FiniteAnimationSpec<T> =
         spring(dampingRatio = SPATIAL_DAMPING, stiffness = SPATIAL_STIFFNESS)
     }
 
+/**
+ * A thing let go of: the nav pill on release, a sheet settling to its pose.
+ *
+ * `spring(0.8, 400)` — a little under-damped, because the gesture that
+ * preceded it carried momentum and a throw that lands dead reads as caught.
+ * The overshoot is a few pixels and only ever happens after a flick. Callers
+ * hand `animateTo` the finger's own velocity so there is no seam between
+ * the drag and the settle. Promoted from `ShellNavBar` so the sheet handle
+ * and the pill let go with the same weight.
+ *
+ * [visibilityThreshold] is in the caller's unit — slots for the pill,
+ * window fractions for a sheet — and defaults to [THROW_THRESHOLD]: under a
+ * pixel either way, so the spring runs to the last pixel and the settle is
+ * not a 3px snap at the end of it. Reduce-motion answers [snap]; the drag
+ * that came before it was never reduced.
+ */
+@Composable
+fun throwSpec(visibilityThreshold: Float = THROW_THRESHOLD): AnimationSpec<Float> =
+    if (LocalReduceMotion.current) {
+        snap()
+    } else {
+        spring(dampingRatio = THROW_DAMPING, stiffness = THROW_STIFFNESS, visibilityThreshold = visibilityThreshold)
+    }
+
 /** `ExpressiveMotionTokens.SpringDefaultEffectsDamping`. */
 private const val EFFECTS_DAMPING = 1.0f
 
@@ -203,6 +228,15 @@ private const val SPATIAL_DAMPING = 0.6f
 
 /** `ExpressiveMotionTokens.SpringFastSpatialStiffness`. */
 private const val SPATIAL_STIFFNESS = 800f
+
+/** [throwSpec]'s damping: momentum kept, wobble not. */
+private const val THROW_DAMPING = 0.8f
+
+/** [throwSpec]'s stiffness: settles in about 350ms, Apple's "move" response. */
+private const val THROW_STIFFNESS = 400f
+
+/** 0.002 of a slot, or of a window — under a pixel — see [throwSpec]. */
+const val THROW_THRESHOLD = 0.002f
 
 /**
  * The size spring, with the threshold that stops it running on invisibly.

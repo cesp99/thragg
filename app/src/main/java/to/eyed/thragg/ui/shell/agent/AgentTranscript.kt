@@ -2,6 +2,7 @@ package to.eyed.thragg.ui.shell.agent
 
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +72,7 @@ import to.eyed.thragg.ui.components.ZedCodeBlock
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.IconSize
+import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.MD
@@ -501,6 +504,10 @@ internal fun AgentTranscript(
     /** The tail of the transcript: the ticker, an error, the stop notice. */
     tail: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    /** A markdown link in a reply or a tool result, with its raw destination. */
+    onLink: (String) -> Unit = {},
+    /** Whether a turn is running: only then may the newest row show motion. */
+    live: Boolean = false,
 ) {
     LazyColumn(
         state = listState,
@@ -513,7 +520,7 @@ internal fun AgentTranscript(
         ),
         verticalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
-        transcriptRows(rows, expanded, animateRows, shell, onOpenPath, onOpenPermission, onRestoreCheckpoint)
+        transcriptRows(rows, expanded, animateRows, live, shell, onOpenPath, onLink, onOpenPermission, onRestoreCheckpoint)
         item(key = "tail") { tail() }
     }
 }
@@ -526,8 +533,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.transcriptRows(
     rows: List<TranscriptRow>,
     expanded: MutableMap<String, Boolean>,
     animateRows: Boolean,
+    live: Boolean,
     shell: ShellState,
     onOpenPath: (String) -> Unit,
+    onLink: (String) -> Unit,
     onOpenPermission: (AgentEntry.ToolCall) -> Unit,
     onRestoreCheckpoint: (Int) -> Unit,
 ) {
@@ -535,13 +544,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.transcriptRows(
         when (val row = rows[index]) {
             is TranscriptRow.Item -> when (val entry = row.entry) {
                 is AgentEntry.User -> UserBubble(entry) { onRestoreCheckpoint(index) }
-                is AgentEntry.Assistant -> AssistantRow(entry, expanded, row.id, animateRows)
+                is AgentEntry.Assistant -> AssistantRow(
+                    entry, expanded, row.id, animateRows, onLink,
+                    // Nothing animates in scrollback: the spinner is for the
+                    // turn in progress, and that is only ever the last row.
+                    thinking = live && index == rows.lastIndex,
+                )
                 is AgentEntry.ToolCall -> ToolCallRow(
                     shell = shell,
                     call = entry,
                     open = expanded[entry.key] ?: false,
                     onToggle = { expanded[entry.key] = !(expanded[entry.key] ?: false) },
                     onOpenPath = onOpenPath,
+                    onLink = onLink,
                     onOpenPermission = onOpenPermission,
                 )
                 is AgentEntry.CompletedPlan -> CompletedPlanCard(entry)
@@ -647,6 +662,9 @@ private fun AssistantRow(
     key: String,
     /** See [AgentTranscript]'s `animateRows`. */
     animate: Boolean,
+    onLink: (String) -> Unit,
+    /** This row is the live turn and it has said nothing yet — see [transcriptRows]. */
+    thinking: Boolean,
 ) {
     val scheme = MaterialTheme.colorScheme
     val thoughts = entry.thoughts.trim()
@@ -681,12 +699,25 @@ private fun AssistantRow(
                     size = IconSize.Marker,
                     modifier = Modifier.rotate(turn),
                 )
-                ThraggIcon(
-                    icon = R.drawable.ic_ui_brain,
-                    contentDescription = null,
-                    tint = scheme.onSurfaceVariant,
-                    size = IconSize.Marker,
-                )
+                // The mark slot is the spinner while there is nothing said
+                // yet — the one place on this row that says a turn is moving
+                // — and the brain once there is: the spinner's 12 dp is the
+                // marker's 14 less its stroke, so the swap does not shift the
+                // label. Reduce motion stops it and keeps it (ThraggSpinner).
+                // A replayed turn that stopped mid-thought keeps the brain:
+                // nothing animates in scrollback.
+                if (thinking && spoken.isBlank()) {
+                    Box(modifier = Modifier.size(IconSize.Marker), contentAlignment = Alignment.Center) {
+                        ThraggSpinner(size = 12.dp, color = scheme.onSurfaceVariant)
+                    }
+                } else {
+                    ThraggIcon(
+                        icon = R.drawable.ic_ui_brain,
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant,
+                        size = IconSize.Marker,
+                    )
+                }
                 Text(
                     // "Thinking…" while it is the last thing on screen and
                     // nothing has been said yet; "Reasoning" once the answer
@@ -720,12 +751,17 @@ private fun AssistantRow(
                 val appearing = remember(key, index) {
                     MutableTransitionState(false).apply { targetState = true }
                 }
+                val reduce = LocalReduceMotion.current
                 AnimatedVisibility(
                     visibleState = appearing,
-                    enter = fadeIn(animationSpec = tween(durationMillis = Durations.BLOCK_FADE)),
+                    enter = if (reduce) {
+                        EnterTransition.None
+                    } else {
+                        fadeIn(animationSpec = tween(durationMillis = Durations.BLOCK_FADE))
+                    },
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
-                        MarkdownText(block.text)
+                        MarkdownText(block.text, onLink = onLink)
                     }
                 }
             }
@@ -828,6 +864,7 @@ private fun ToolCallRow(
     open: Boolean,
     onToggle: () -> Unit,
     onOpenPath: (String) -> Unit,
+    onLink: (String) -> Unit,
     onOpenPermission: (AgentEntry.ToolCall) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -979,7 +1016,7 @@ private fun ToolCallRow(
                 }
                 for (content in call.content) {
                     when (content) {
-                        is ToolContent.Markdown -> MarkdownText(content.markdown)
+                        is ToolContent.Markdown -> MarkdownText(content.markdown, onLink = onLink)
                         is ToolContent.Diff -> Unit // drawn above
                         is ToolContent.Terminal -> TerminalBlock(
                             terminalId = content.terminalId,

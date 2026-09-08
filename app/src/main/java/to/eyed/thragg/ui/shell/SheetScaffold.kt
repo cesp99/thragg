@@ -1,5 +1,6 @@
 package to.eyed.thragg.ui.shell
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -22,22 +23,29 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlinx.coroutines.launch
 import to.eyed.thragg.ui.components.BottomActions
+import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.MD
+import to.eyed.thragg.ui.theme.throwSpec
 import to.eyed.thragg.ui.theme.touchTarget
 
 /**
@@ -70,6 +78,15 @@ import to.eyed.thragg.ui.theme.touchTarget
  * Dragging the handle below [DISMISS_FRACTION] dismisses, as does a tap on the
  * scrim, a back press (Material's sheet window takes it before the shell's
  * handler is asked — see ShellBackHandler.kt) and a downward fling on the body.
+ *
+ * THE HANDLE TRACKS 1:1 AND SETTLES. While the finger holds it the height is
+ * the finger's; on release the sheet is thrown to the nearer of its two poses
+ * — [OPEN_FRACTION] or the full window — carrying the finger's velocity
+ * ([settlePose], [throwSpec]), and crossing the dismiss line ticks once per
+ * crossing so the hand knows where the door is before the sheet goes. Every
+ * dismissal, whichever door it came through, runs the sheet's exit first and
+ * the caller's [onDismiss] after: callers still null their state and never
+ * learn there was an animation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,7 +139,25 @@ fun SheetScaffold(
     // every recomposition; without it a sheet dismissed by back would run the
     // lambda from the frame it opened on.
     val dismiss by rememberUpdatedState(onDismiss)
-    val handle = remember { SheetHandle { dismiss() } }
+    val scope = rememberCoroutineScope()
+    // ONE WAY OUT. The scrim, back, the handle's drag and the shell's
+    // dismissTopSheet all come through here, and the sheet leaves the way it
+    // came — Material's own hide animation — before the caller is told. The
+    // latch is what makes that safe: M3 calls `onDismissRequest` after its
+    // own animation, a second call from the shell can land mid-hide, and the
+    // caller's lambda nulls state that must be nulled exactly once. The
+    // `runCatching` is for a hide cancelled by the sheet leaving composition
+    // first, which is not a reason to skip telling the caller.
+    var dismissed by remember { mutableStateOf(false) }
+    fun hide() {
+        if (dismissed) return
+        dismissed = true
+        scope.launch {
+            runCatching { sheetState.hide() }
+            dismiss()
+        }
+    }
+    val handle = remember { SheetHandle { hide() } }
     DisposableEffect(handle) {
         state.sheetOpened(handle)
         onDispose { state.sheetClosed(handle) }
@@ -135,12 +170,27 @@ fun SheetScaffold(
     // passing a constant) is not stuck with the first frame's value, and
     // clamped because a fraction at or below the dismiss threshold would open
     // a sheet that is already asking to be closed.
-    var fraction by remember(openFraction) {
-        mutableFloatStateOf(openFraction.coerceIn(DISMISS_FRACTION, 1f))
+    // An Animatable, not a state: the drag `snapTo`s it and the release
+    // `animateTo`s it, and there is one number either way.
+    val fraction = remember(openFraction) {
+        Animatable(openFraction.coerceIn(DISMISS_FRACTION, 1f))
     }
+    val windowHeightPx = LocalWindowInfo.current.containerSize.height.toFloat()
+    val reduceMotion = LocalReduceMotion.current
+    val throwSpring = throwSpec()
+    val haptics = LocalHapticFeedback.current
+    // Below the dismiss line right now, for the crossing tick: flips on the
+    // way down, re-arms on the way back up, so a finger hovering on the line
+    // is told once per crossing and not once per frame.
+    var crossed by remember { mutableStateOf(false) }
+    // Where the finger last put the sheet, written synchronously: the
+    // `snapTo` behind it is launched on the composition's dispatcher, which
+    // may be a frame behind the gesture, and the release must not settle
+    // from a frame-old height. NaN when no finger has it.
+    val held = remember { floatArrayOf(Float.NaN) }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::hide,
         sheetState = sheetState,
         // A sheet whose body is a bare list takes `surfaceContainer`; the two
         // sheets whose bodies are CARDS (permission, question) pass
@@ -165,7 +215,7 @@ fun SheetScaffold(
         // the floor. 65% is a CAP, not a height: a sheet wraps its content and
         // stops growing there, which is what a Material bottom sheet does and
         // what makes a short one read as a dialog rather than a broken page.
-        Column(modifier = Modifier.heightIn(max = windowHeight * fraction)) {
+        Column(modifier = Modifier.heightIn(max = windowHeight * fraction.value)) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -175,9 +225,42 @@ fun SheetScaffold(
                     .draggable(
                         orientation = Orientation.Vertical,
                         state = rememberDraggableState { delta ->
-                            // Up is negative, and up grows the sheet.
-                            val next = fraction - delta / windowHeight.value
-                            if (next < DISMISS_FRACTION) onDismiss() else fraction = next.coerceAtMost(1f)
+                            // Up is negative, and up grows the sheet. The
+                            // sheet follows below the line too — the tick
+                            // says where it is, and the release decides.
+                            // Pixels over pixels: the delta arrives in px,
+                            // and dividing it by the dp height moved the
+                            // sheet three fingers per finger on a 480 dpi
+                            // phone, which is not tracking.
+                            val from = held[0].takeUnless { it.isNaN() } ?: fraction.value
+                            val next = (from - delta / windowHeightPx).coerceIn(0f, 1f)
+                            val below = next < DISMISS_FRACTION
+                            if (below != crossed) {
+                                crossed = below
+                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            }
+                            held[0] = next
+                            scope.launch { fraction.snapTo(next) }
+                        },
+                        onDragStopped = { velocityPx ->
+                            // Fractions of the window per second, up positive.
+                            val velocity = -velocityPx / windowHeightPx
+                            val at = held[0].takeUnless { it.isNaN() } ?: fraction.value
+                            held[0] = Float.NaN
+                            // Continuous: the animatable takes over at the
+                            // drag's last position, whether or not its own
+                            // snap has landed yet.
+                            fraction.snapTo(at)
+                            if (at < DISMISS_FRACTION) {
+                                hide()
+                            } else {
+                                val pose = settlePose(at, velocity)
+                                if (reduceMotion) {
+                                    fraction.snapTo(pose)
+                                } else {
+                                    fraction.animateTo(pose, throwSpring, initialVelocity = velocity)
+                                }
+                            }
                         },
                     )
                     .padding(vertical = HandlePadding),
@@ -234,11 +317,35 @@ fun SheetScaffold(
     }
 }
 
+/**
+ * Where a sheet let go at [fraction] of the window, moving at [velocity]
+ * windows per second (up positive), comes to rest: the nearer of its two
+ * poses — [OPEN_FRACTION] or the full window — to where that speed would
+ * have carried it.
+ *
+ * The projection is the nav pill's ([settleSlot], `ShellNavBar.kt`): the
+ * same exponential decay, so a flick on a sheet handle and a flick on the
+ * pill carry the same fifth of a second of the finger. A slow release below
+ * the midpoint between the poses goes to 65%, above it to 100%; a real flick
+ * clears the midpoint from either side. A sheet that opened at 1.0 is not
+ * special-cased — a small drag on it projects nowhere near 0.65 and it
+ * settles home. Never below [DISMISS_FRACTION]: below the line is a
+ * dismissal, decided before this is asked.
+ */
+internal fun settlePose(fraction: Float, velocity: Float): Float {
+    val thrown = velocity / 1000f * SETTLE_DECELERATION / (1f - SETTLE_DECELERATION)
+    val projected = fraction + thrown
+    return if (abs(projected - OPEN_FRACTION) <= abs(projected - 1f)) OPEN_FRACTION else 1f
+}
+
 /** "Sheets open at ~65% height" — docs/UI.md, "Navigation". */
-private const val OPEN_FRACTION = 0.65f
+internal const val OPEN_FRACTION = 0.65f
 
 /** Dragged below this, the gesture was a dismissal rather than a resize. */
-private const val DISMISS_FRACTION = 0.45f
+internal const val DISMISS_FRACTION = 0.45f
+
+/** `ShellNavBar`'s `DECELERATION`, in the same units of "how much of a flick carries". */
+private const val SETTLE_DECELERATION = 0.995f
 
 private val HandleWidth = 32.dp
 private val HandleHeight = 4.dp

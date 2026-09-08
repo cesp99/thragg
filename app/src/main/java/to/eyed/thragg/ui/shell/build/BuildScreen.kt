@@ -6,7 +6,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
@@ -83,7 +92,10 @@ import to.eyed.thragg.ui.theme.RowChevron
 import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.TabularNums
+import to.eyed.thragg.ui.theme.Durations
+import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.accentIcon
+import to.eyed.thragg.ui.theme.animateSize
 import to.eyed.thragg.ui.theme.effectSpec
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.touchTarget
@@ -281,7 +293,13 @@ private fun BuildBar(
 ) {
     var overflow by remember { mutableStateOf(false) }
     val projectName = state.project?.rootName
-    val runnable = layout != null && unavailableReason(context, layout) == null
+    val toolchainReady = unavailableReason(context, layout) == null
+    val runnable = layout != null && toolchainReady
+    // The overflow's Test and Deploy answer [verbReason], the same function
+    // the screen's own controls answer, so the two can never disagree about
+    // whether a verb is available.
+    fun reason(action: BuildAction): String? =
+        verbReason(action, toolchainReady, layout, BuildRunner.freshness, BuildRunner.isRunning)
 
     ThraggTopBar(
         title = if (inShell) "Shell" else "Build",
@@ -326,16 +344,12 @@ private fun BuildBar(
                     expanded = overflow,
                     onDismiss = { overflow = false },
                     items = listOf(
-                        ContextMenuItem("Test", enabled = runnable, onClick = onTest),
+                        ContextMenuItem("Test", enabled = reason(BuildAction.Test) == null, onClick = onTest),
                         // Deploy needs a project with an artifact and nothing
                         // from the guest: the chain layer signs and sends
                         // from Kotlin, so a phone with no toolchain can still
                         // ship a .so it was handed (solana/chain/ProgramDeploy.kt).
-                        ContextMenuItem(
-                            "Deploy",
-                            enabled = layout?.isBuildable == true &&
-                                BuildRunner.freshness !is ArtifactFreshness.Missing,
-                        ) {
+                        ContextMenuItem("Deploy", enabled = reason(BuildAction.Deploy) == null) {
                             DeployPrompt.open = true
                         },
                         // Deploy and Test spend from the deploy key; this is
@@ -445,61 +459,83 @@ private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
     val errors = issues.count { it.severity == DiagnosticSeverity.Error }
     val warnings = issues.size - errors
 
-    Row(
+    // `transitionSpec` is not composable: the fade is resolved here, which
+    // is also the one place reduce-motion is read for it (LevelSlider.kt).
+    val fade = effectSpec<Float>()
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(MD.stripHeight)
             .padding(horizontal = MD.space4),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MD.space2),
+        contentAlignment = Alignment.CenterStart,
     ) {
-        if (running) {
-            val startedAt = (state.build as? BuildState.Running)?.startedAt
-            if (startedAt != null) {
-                RunTicker(startedAt = startedAt, tokens = null, tint = scheme.primary)
-            } else {
-                // A run the shell state has not caught up with yet: the
-                // spinner still says "going", which is the only claim the
-                // strip can honestly make without a start time.
-                ThraggSpinner(size = 12.dp)
+        // The strip's contents crossfade as a run starts and as it ends: dot
+        // and "Built" to ticker and "Building", and back. The strip itself
+        // never moves — it is 36dp whichever it is saying.
+        AnimatedContent(
+            targetState = running,
+            transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) },
+            contentAlignment = Alignment.CenterStart,
+            label = "build-strip",
+            modifier = Modifier.fillMaxWidth(),
+        ) { shownRunning ->
+            Row(
+                modifier = Modifier.fillMaxWidth().height(MD.stripHeight),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MD.space2),
+            ) {
+                if (shownRunning) {
+                    val startedAt = (state.build as? BuildState.Running)?.startedAt
+                    if (startedAt != null) {
+                        RunTicker(startedAt = startedAt, tokens = null, tint = scheme.primary)
+                    } else {
+                        // A run the shell state has not caught up with yet:
+                        // the spinner still says "going", which is the only
+                        // claim the strip can honestly make without a start
+                        // time.
+                        ThraggSpinner(size = 12.dp)
+                    }
+                    Text(
+                        text = BuildRunner.runningAction?.progressLabel ?: "Working",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    val failed = state.build is BuildState.Failed
+                    StatusDot(
+                        color = when {
+                            failed -> colors.removedMark
+                            BuildRunner.freshness is ArtifactFreshness.Stale -> colors.warnMark
+                            state.build is BuildState.Succeeded -> colors.addedMark
+                            else -> scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        },
+                        size = 8.dp,
+                    )
+                    Text(
+                        text = restLabel(state),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = layout?.primary?.artifactPath.orEmpty(),
+                        // The buffer's face, because it is a path: the same
+                        // figure in the same face as the editor's tab and the
+                        // log's own rows.
+                        style = MonoSmall.copy(color = scheme.onSurfaceVariant),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IssueCounts(errors, warnings)
+                }
             }
-            Text(
-                text = BuildRunner.runningAction?.progressLabel ?: "Working",
-                style = MaterialTheme.typography.labelMedium,
-                color = scheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            val failed = state.build is BuildState.Failed
-            StatusDot(
-                color = when {
-                    failed -> colors.removedMark
-                    BuildRunner.freshness is ArtifactFreshness.Stale -> colors.warnMark
-                    state.build is BuildState.Succeeded -> colors.addedMark
-                    else -> scheme.onSurfaceVariant.copy(alpha = 0.4f)
-                },
-                size = 8.dp,
-            )
-            Text(
-                text = restLabel(state),
-                style = MaterialTheme.typography.labelMedium,
-                color = scheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = layout?.primary?.artifactPath.orEmpty(),
-                // The buffer's face, because it is a path: the same figure in
-                // the same face as the editor's tab and the log's own rows.
-                style = MonoSmall.copy(color = scheme.onSurfaceVariant),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.End,
-                modifier = Modifier.weight(1f),
-            )
-            IssueCounts(errors, warnings)
         }
     }
 }
@@ -607,24 +643,58 @@ private fun BuildBody(
     // Issues, not preview: a warnings-only run previews no cards but still
     // owns the one chip into Problems.
     val header = notice != null || failed || (!BuildRunner.isRunning && issues.isNotEmpty())
+    // What the header said last, kept for its exit: a new run clears the
+    // issues and the failure the frame it starts, and a header that shrank
+    // away empty would be a bar collapsing over nothing. Plain fields, not
+    // snapshot state — the composable re-runs on its inputs anyway.
+    val hold = remember { HeaderHold() }
+    if (header) {
+        hold.notice = notice
+        hold.failed = state.build as? BuildState.Failed
+        hold.issues = issues
+        hold.preview = preview
+    }
+    val reduce = LocalReduceMotion.current
 
     Column(modifier = modifier.fillMaxSize()) {
         // What the last deploy left: the id, the link, the sheet (DeployedCard.kt).
         DeployedCard(state = state, root = root, layout = layout)
-        if (header) {
+        // The header expands in as a run ends badly and shrinks out as the
+        // next one starts, on the band durations every strip uses; the log
+        // island below takes the height back on the same motion.
+        AnimatedVisibility(
+            visible = header,
+            enter = if (reduce) {
+                fadeIn(snap())
+            } else {
+                expandVertically(tween(Durations.BAND_IN)) + fadeIn(tween(Durations.BAND_IN))
+            },
+            exit = if (reduce) {
+                fadeOut(snap())
+            } else {
+                shrinkVertically(tween(Durations.BAND_OUT)) + fadeOut(tween(Durations.BAND_OUT))
+            },
+            label = "build-header",
+        ) {
+            val shownNotice = hold.notice
+            val shownFailed = hold.failed
+            val shownIssues = hold.issues
+            val shownPreview = hold.preview
+            Column {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .animateSize()
                     .padding(horizontal = MD.space4, vertical = MD.space3),
                 verticalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
-                if (notice != null) {
+                if (shownNotice != null) {
                     NoticeCard(
                         severity = Severity.Warn,
                         title = null,
-                        body = notice.message,
+                        body = shownNotice.message,
                         actions = {
-                            if (notice.setup) {
+                            if (shownNotice.setup) {
                                 ThraggChip(
                                     label = "Set up the toolchain",
                                     onClick = { state.push(Route.Setup) },
@@ -633,7 +703,7 @@ private fun BuildBody(
                             }
                         },
                     )
-                } else if (failed) {
+                } else if (shownFailed != null) {
                     // The third tier of the error model: not a toast, not a
                     // banner — a card that STAYS, in the place the thing went
                     // wrong, with the ways out on it (docs/VISUAL.md, "What we
@@ -641,7 +711,7 @@ private fun BuildBody(
                     NoticeCard(
                         severity = Severity.Error,
                         title = "The build failed",
-                        body = failureBody(state.build as? BuildState.Failed),
+                        body = failureBody(shownFailed),
                         actions = {
                             ThraggChip(
                                 label = "Retry",
@@ -657,7 +727,7 @@ private fun BuildBody(
                                         state,
                                         context,
                                         BuildDiagnostics.agentPrompt(
-                                            issues,
+                                            shownIssues,
                                             BuildRunner.lastCommand,
                                         ),
                                     )
@@ -670,19 +740,19 @@ private fun BuildBody(
                         },
                     )
                 }
-                for (issue in preview) {
+                for (issue in shownPreview) {
                     BuildIssueCard(
                         issue = issue,
                         onClick = { openIssue(state, issue, root) },
                     )
                 }
-                if (issues.size > preview.size) {
+                if (shownIssues.size > shownPreview.size) {
                     // With error cards above it this counts the rest; with
                     // none — a run that produced only warnings — it is the
                     // single, whole representation the warnings get here.
-                    val rest = issues.size - preview.size
+                    val rest = shownIssues.size - shownPreview.size
                     ThraggChip(
-                        label = if (preview.isEmpty()) {
+                        label = if (shownPreview.isEmpty()) {
                             "$rest ${plural(rest, "warning")} in Problems"
                         } else {
                             "$rest more in Problems"
@@ -692,6 +762,7 @@ private fun BuildBody(
                 }
             }
             HairlineDivider(modifier = Modifier.padding(horizontal = MD.space4))
+            }
         }
 
         BuildLogView(
@@ -871,6 +942,44 @@ internal data class Unavailable(
     /** Whether Setup is the way out, and therefore whether to offer it. */
     val setup: Boolean,
 )
+
+/** The header's last contents, held through its exit — see [BuildBody]. */
+private class HeaderHold {
+    var notice: Unavailable? = null
+    var failed: BuildState.Failed? = null
+    var issues: List<BuildIssue> = emptyList()
+    var preview: List<BuildIssue> = emptyList()
+}
+
+/**
+ * Why a verb is greyed, as data — or null when it is not.
+ *
+ * The gate for Test and Deploy, in one pure function, so the overflow and
+ * whatever control a screen draws beside the log agree about it. The words
+ * are the short ones a control can print under itself: `no toolchain`,
+ * `open a project`, `needs a build`, `building…`. A STALE artifact is not a
+ * blocker — deploying a `.so` from before the last edit is allowed and the
+ * status strip says so — and Deploy asks nothing of the guest: the chain
+ * layer signs and sends from Kotlin (solana/chain/ProgramDeploy.kt), so a
+ * phone with no toolchain can still ship the artifact it has.
+ *
+ * [toolchainReady] is `unavailableReason(context, layout) == null`, passed
+ * rather than computed so this needs no Context and can be tested as a
+ * table (VerbReasonTest).
+ */
+internal fun verbReason(
+    action: BuildAction,
+    toolchainReady: Boolean,
+    layout: ProjectLayout?,
+    freshness: ArtifactFreshness,
+    running: Boolean,
+): String? = when {
+    running -> "building…"
+    layout == null || !layout.isBuildable -> "open a project"
+    action != BuildAction.Deploy && !toolchainReady -> "no toolchain"
+    action == BuildAction.Deploy && freshness is ArtifactFreshness.Missing -> "needs a build"
+    else -> null
+}
 
 internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavailable? = when {
     !Userland.backend.isSupported -> Unavailable(

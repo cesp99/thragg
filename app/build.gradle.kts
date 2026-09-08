@@ -16,6 +16,16 @@ val rustAbis = (project.findProperty("thragg.abis") as String?)
     ?: listOf("arm64-v8a", "x86_64")
 val rustJniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
 
+// A UI variant under evaluation: `-Pthragg.variant=tide` installs beside the
+// real app as `to.eyed.thragg.tide`, labelled "Thragg tide", and exposes the
+// name as BuildConfig.UI_VARIANT so the code can branch on it. Absent (the
+// normal case) the build is the app itself. `-Pthragg.skipRust=true` leaves
+// the engine alone: a worktree that only changes Kotlin copies jniLibs from
+// the main tree instead of paying the cold cargo build.
+val uiVariant: String? = (project.findProperty("thragg.variant") as String?)
+    ?.trim()?.takeIf { it.isNotEmpty() }
+val skipRust = (project.findProperty("thragg.skipRust") as String?) == "true"
+
 // Which Zed the vendored crates were copied from. `core/vendor/VENDOR.md` is
 // the record of that, and it is the *only* record: a bug report has to name
 // the upstream commit to be reproducible, and a second copy of the hash in
@@ -80,6 +90,10 @@ android {
         // solana/build/BuildRunner.kt's NO_USERLAND path, reached before
         // Debian is installed — keep saying what they mean.
         buildConfigField("boolean", "USERLAND", "true")
+        buildConfigField("String", "UI_VARIANT", "\"${uiVariant ?: ""}\"")
+        manifestPlaceholders["appLabel"] =
+            if (uiVariant == null) "@string/app_name" else "Thragg $uiVariant"
+        if (uiVariant != null) applicationIdSuffix = ".$uiVariant"
     }
 
     buildTypes {
@@ -166,6 +180,7 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     inputs.dir(rootProject.file("core/crates"))
     inputs.file(rootProject.file("core/Cargo.toml"))
     outputs.dir(rustJniLibsDir)
+    enabled = !skipRust
     environment("ANDROID_NDK_HOME", "$sdkDir/ndk/$ndkVersion")
     environment(
         "PATH",

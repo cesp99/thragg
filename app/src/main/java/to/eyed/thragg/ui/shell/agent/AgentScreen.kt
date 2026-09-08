@@ -7,7 +7,12 @@
 package to.eyed.thragg.ui.shell.agent
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -108,11 +113,16 @@ import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.shell.Route
+import to.eyed.thragg.ui.workspace.Notifications
+import to.eyed.thragg.ui.shell.build.CodeJump
+import to.eyed.thragg.solana.build.BuildDiagnostics
+import java.io.File
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.projects.AgentThreadSeed
 import to.eyed.thragg.ui.shell.projects.ProjectsSheet
 import to.eyed.thragg.ui.theme.Durations
+import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.ThraggIconButton
@@ -915,6 +925,8 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                         // (the second thing the device showed).
                         animateRows = landed,
                         onOpenPath = { path -> state.push(Route.Diff(path)) },
+                        onLink = { destination -> openAgentLink(context, state, destination) },
+                        live = session.isBusy,
                         onOpenPermission = { call -> sheet = AgentSheet.Approval(call.key) },
                         onRestoreCheckpoint = { index ->
                             AgentSessions.restoreCheckpoint(index)
@@ -1453,10 +1465,28 @@ private fun AgentStatusStrip(
     // rule across the screen — and the mode alone is not something to report,
     // because it is a control on the composer a thumb's width away rather
     // than a reading.
-    if (!stripReports(busy, state.plan.isNotEmpty(), hasUsage)) return
-
+    //
+    // It arrives from under the bar at [Durations.BAND_IN] and leaves at
+    // [Durations.BAND_OUT] — the same beat as [AttentionBar], so a send is one
+    // motion (haptic, strip, Stop disc) rather than three snaps. Under reduce
+    // motion it is simply there or not.
+    val reduce = LocalReduceMotion.current
+    AnimatedVisibility(
+        visible = stripReports(busy, state.plan.isNotEmpty(), hasUsage),
+        enter = if (reduce) {
+            EnterTransition.None
+        } else {
+            expandVertically(tween(Durations.BAND_IN)) + fadeIn(tween(Durations.BAND_IN))
+        },
+        exit = if (reduce) {
+            ExitTransition.None
+        } else {
+            shrinkVertically(tween(Durations.BAND_OUT)) + fadeOut(tween(Durations.BAND_OUT))
+        },
+        modifier = modifier,
+    ) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .animateSize(),
@@ -1485,6 +1515,7 @@ private fun AgentStatusStrip(
             PlanUnfold(plan = state.plan)
         }
         HairlineDivider()
+    }
     }
 }
 
@@ -1545,10 +1576,19 @@ private fun AttentionBar(label: String?, onAnswer: () -> Unit, modifier: Modifie
     val held = remember { arrayOfNulls<String>(1) }
     if (label != null) held[0] = label
     val shown = held[0].orEmpty()
+    val reduce = LocalReduceMotion.current
     AnimatedVisibility(
         visible = label != null,
-        enter = fadeIn(tween(Durations.BAND_IN)) + expandVertically(tween(Durations.BAND_IN)),
-        exit = fadeOut(tween(Durations.BAND_OUT)) + shrinkVertically(tween(Durations.BAND_OUT)),
+        enter = if (reduce) {
+            EnterTransition.None
+        } else {
+            fadeIn(tween(Durations.BAND_IN)) + expandVertically(tween(Durations.BAND_IN))
+        },
+        exit = if (reduce) {
+            ExitTransition.None
+        } else {
+            fadeOut(tween(Durations.BAND_OUT)) + shrinkVertically(tween(Durations.BAND_OUT))
+        },
         modifier = modifier,
     ) {
         Column {
@@ -1776,5 +1816,84 @@ private fun AgentEmpty(
             },
         )
         notice()
+    }
+}
+
+/**
+ * Where a markdown link in a reply points.
+ *
+ * Two kinds and no third: a web address the browser opens, or a path the
+ * Code tab opens — with the line the agent named, because a link to
+ * `src/lib.rs:42` that lands at the top of the file has not done what it
+ * promised. Pure, so the parsing is testable without a screen.
+ */
+internal sealed class LinkTarget {
+    data class Web(val url: String) : LinkTarget()
+    data class Source(val path: String, val line: Int?, val column: Int?) : LinkTarget()
+}
+
+private val WEB_SCHEMES = listOf("http://", "https://", "mailto:")
+
+/**
+ * `https://…` → [LinkTarget.Web]; anything else is a path, with an optional
+ * `:line[:col]` or `#L<line>` suffix the way a compiler, a stack trace and a
+ * forge each spell it. `file://` is stripped rather than sent to the browser.
+ * Blank → null.
+ */
+internal fun linkTarget(destination: String): LinkTarget? {
+    val raw = destination.trim()
+    if (raw.isEmpty()) return null
+    if (WEB_SCHEMES.any { raw.startsWith(it, ignoreCase = true) }) return LinkTarget.Web(raw)
+    var path = raw.removePrefix("file://")
+    var line: Int? = null
+    var column: Int? = null
+    val anchor = Regex("#L(\\d+)$").find(path)
+    if (anchor != null) {
+        line = anchor.groupValues[1].toIntOrNull()
+        path = path.substring(0, anchor.range.first)
+    } else {
+        val suffix = Regex(":(\\d+)(?::(\\d+))?$").find(path)
+        if (suffix != null) {
+            line = suffix.groupValues[1].toIntOrNull()
+            column = suffix.groupValues[2].toIntOrNull()
+            path = path.substring(0, suffix.range.first)
+        }
+    }
+    if (path.isEmpty()) return null
+    return LinkTarget.Source(path, line, column)
+}
+
+/**
+ * The tap on a link in a reply.
+ *
+ * A path goes the way a build error row goes ([CodeJump], the same reduction
+ * `openIssue` does on the compiler's spelling), so a reply's `src/lib.rs:42`
+ * and Problems' `src/lib.rs:42` land in the same place. A web address goes to
+ * whatever handles it; a phone without a browser for it gets told, not a
+ * crash.
+ */
+internal fun openAgentLink(context: Context, state: ShellState, destination: String) {
+    when (val target = linkTarget(destination) ?: return) {
+        is LinkTarget.Web -> {
+            val opened = runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target.url)))
+            }
+            if (opened.isFailure) Notifications.error("Nothing on this phone opens ${target.url}")
+        }
+
+        is LinkTarget.Source -> {
+            val root = state.project?.rootPath
+            if (root == null) {
+                Notifications.error("Open a project to follow ${target.path}")
+                return
+            }
+            val relative = BuildDiagnostics.normalizePath(root, target.path)
+            val absolute = if (relative.startsWith("/")) relative else File(root, relative).path
+            if (!File(absolute).isFile) {
+                Notifications.error("No file at ${target.path}")
+                return
+            }
+            CodeJump.to(state, absolute, target.line, target.column)
+        }
     }
 }

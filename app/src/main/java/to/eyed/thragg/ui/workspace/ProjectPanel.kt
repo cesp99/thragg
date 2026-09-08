@@ -11,6 +11,8 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -2291,6 +2293,7 @@ private fun ProjectRootRow(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed = remember { mutableStateOf(Offset.Zero) }
+    val haptics = LocalHapticFeedback.current
     val contextGesture = rememberPointerContextMenu(
         onPress = { at, _ -> pressed.value = at },
         onContext = onContextMenu,
@@ -2314,7 +2317,10 @@ private fun ProjectRootRow(
                     interactionSource = interaction,
                     indication = LocalIndication.current,
                     onClick = onClick,
-                    onLongClick = { onContextMenu(pressed.value) },
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onContextMenu(pressed.value)
+                    },
                 )
                 .padding(horizontal = RowPadding),
         ) {
@@ -2545,6 +2551,7 @@ private fun ProjectRow(
      * press, which is the only moment unambiguously before both.
      */
     val longPressed = remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     val contextGesture = rememberPointerContextMenu(
         onPress = { at, modifiers ->
             pressed.value = at
@@ -2661,6 +2668,10 @@ private fun ProjectRow(
                         onDragStart = {
                             moved = false
                             longPressed.value = true
+                            // One pulse for the door, whichever of its two
+                            // rooms — the menu or the drag — the hold turns
+                            // out to be.
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onDragEnd = {
                             if (moved) onDragEnd() else onContextMenu(pressed.value)

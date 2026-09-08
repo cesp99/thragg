@@ -1,5 +1,7 @@
 package to.eyed.thragg.ui.shell.code
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -24,9 +26,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -39,6 +44,8 @@ import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ThraggIconButton
+import to.eyed.thragg.ui.theme.effectSpec
+import to.eyed.thragg.ui.theme.revealItem
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.workspace.OpenFilesState
 
@@ -94,6 +101,9 @@ fun FileBar(
     modifier: Modifier = Modifier,
 ) {
     if (WindowInsets.isImeVisible) return
+    // No tabs, no bar: a 44dp strip holding one tree glyph is a row of
+    // nothing, and the empty state's "Browse files" is already the door.
+    if (files.tabs.isEmpty()) return
     val haptics = LocalHapticFeedback.current
     val listState = rememberLazyListState()
     val activeIndex = files.activeIndex
@@ -106,7 +116,7 @@ fun FileBar(
     // Stable positions, moving viewport.
     LaunchedEffect(activeIndex, files.tabs.size) {
         if (activeIndex in files.tabs.indices) {
-            runCatching { listState.animateScrollToItem(activeIndex) }
+            runCatching { listState.revealItem(activeIndex) }
         }
     }
 
@@ -189,14 +199,19 @@ private fun FileChip(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    // The fill answers the tap on the frame and settles over the next few:
+    // a colour, so `effectSpec`, which snaps under reduce-motion.
+    val fill by animateColorAsState(
+        targetValue = if (active) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+        animationSpec = effectSpec(),
+        label = "file-chip-fill",
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .height(ChipHeight)
             .clip(RoundedCornerShape(MD.pill))
-            .background(
-                if (active) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent
-            )
+            .background(fill)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -216,18 +231,42 @@ private fun FileChip(
             maxLines = 1,
             overflow = TextOverflow.MiddleEllipsis,
         )
-        if (dirty) {
-            // The dot, not a close button: closing is the long press, and a
-            // tiny ✕ next to a tiny label on a 400dp row is two targets inside
-            // one thumb.
-            ThraggIcon(
-                icon = R.drawable.ic_ui_dot,
-                contentDescription = "unsaved",
-                tint = MaterialTheme.colorScheme.primary,
-                size = DirtyDotSize,
-                modifier = Modifier.padding(start = MD.space1),
-            )
-        }
+        // The dot, not a close button: closing is the long press, and a
+        // tiny ✕ next to a tiny label on a 400dp row is two targets inside
+        // one thumb.
+        UnsavedDot(
+            dirty = dirty,
+            size = DirtyDotSize,
+            modifier = Modifier.padding(start = MD.space1),
+        )
+    }
+}
+
+/**
+ * The unsaved mark, and the save being acknowledged.
+ *
+ * [dirty] follows the buffer's own status, which `saveNow` refreshes only
+ * after the engine's write has been awaited — so a dot that fades is a file
+ * that is on disk, and a dot that stays is a save that failed. It fades
+ * rather than vanishes so the eye can see *which* mark went, and stays in
+ * the composition until its alpha reaches zero. `effectSpec` snaps it under
+ * reduce-motion. No haptic: a save is not a commit in this app.
+ */
+@Composable
+internal fun UnsavedDot(dirty: Boolean, size: Dp, modifier: Modifier = Modifier) {
+    val alpha by animateFloatAsState(
+        targetValue = if (dirty) 1f else 0f,
+        animationSpec = effectSpec(),
+        label = "unsaved-dot",
+    )
+    if (dirty || alpha > 0f) {
+        ThraggIcon(
+            icon = R.drawable.ic_ui_dot,
+            contentDescription = if (dirty) "unsaved" else null,
+            tint = MaterialTheme.colorScheme.primary,
+            size = size,
+            modifier = modifier.graphicsLayer { this.alpha = alpha },
+        )
     }
 }
 

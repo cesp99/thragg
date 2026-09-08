@@ -14,6 +14,11 @@ import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -55,6 +60,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -117,6 +125,9 @@ import to.eyed.thragg.ui.theme.LocalAppSettings
 import to.eyed.thragg.ui.theme.BufferFontFamily
 import to.eyed.thragg.ui.theme.LocalBufferFontFeatures
 import to.eyed.thragg.ui.theme.touchTarget
+import to.eyed.thragg.ui.theme.pressedFill
+import to.eyed.thragg.ui.theme.spatialSpec
+import to.eyed.thragg.ui.theme.thraggSpring
 import to.eyed.thragg.ui.theme.ThemeStore
 import to.eyed.thragg.core.GitHunk
 import to.eyed.thragg.core.AppSettings
@@ -602,6 +613,7 @@ fun EditorPane(
     // completion list behind it.
     val menu = rememberCompletionMenu(state) { receipt -> onWorkspaceEditApplied?.invoke(receipt) }
     val hover = rememberHoverCard(state)
+    val haptics = LocalHapticFeedback.current
     val references = rememberReferences(state, onOpenReferences) { target ->
         onOpenDefinition?.invoke(target)
     }
@@ -1021,6 +1033,9 @@ fun EditorPane(
                 .pointerInput(state) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { position ->
+                            // The door pulse every long-press in the app
+                            // gives: the word is taken and the card is coming.
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             actions.hideToolbar()
                             state.selectWordAt(position, layoutForLine)
                             focusRequester.requestFocus()
@@ -2555,6 +2570,14 @@ private fun EditorActionRow(
     // of the ordered handler dismisses the IME and is told, in as many words,
     // to "leave the action row's state alone" (docs/UI.md, "Navigation").
     var expanded by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    // The ⌄ turns over rather than swapping for a ⌃: one mark, one motion,
+    // so the eye follows the strips it opens. Snaps under reduce-motion.
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = thraggSpring(),
+        label = "action-row-chevron",
+    )
 
     fun act(action: () -> Unit): () -> Unit = {
         action()
@@ -2569,7 +2592,16 @@ private fun EditorActionRow(
             .padding(bottom = with(density) { overlap.toDp() })
             .background(theme.color("status_bar.background")),
     ) {
-        if (expanded) {
+        // The strips grow out of the row and shrink back into it. They sit
+        // above the fixed row in this Column, so the row itself never moves
+        // off the keyboard while they animate; `spatialSpec` snaps under
+        // reduce-motion.
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(animationSpec = spatialSpec()),
+            exit = shrinkVertically(animationSpec = spatialSpec()),
+        ) {
+          Column {
             // Row one: the punctuation a Rust file is made of and a soft
             // keyboard buries two taps deep behind ?123. Inserted as text, so
             // the engine's auto-pairing and the completion menu see it exactly
@@ -2634,6 +2666,7 @@ private fun EditorActionRow(
                     ActionKey("next conflict", act { state.goToConflict(forward = true) })
                 }
             }
+          }
         }
         Row(
             modifier = Modifier.fillMaxWidth().height(ACTION_ROW_HEIGHT),
@@ -2660,7 +2693,13 @@ private fun EditorActionRow(
             // the press that starts a second.
             FixedKey(
                 label = if (buildRunning) "Stop the build" else "Build",
-                onClick = act { onBuild?.invoke() },
+                onClick = act {
+                    // The same single Confirm the Build tab's run control
+                    // gives on start, and never on Stop: a commit vibrates,
+                    // a cancel does not.
+                    if (!buildRunning) haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    onBuild?.invoke()
+                },
                 enabled = onBuild != null,
                 accent = true,
                 icon = if (buildRunning) R.drawable.ic_ui_stop else R.drawable.ic_ui_play,
@@ -2668,11 +2707,8 @@ private fun EditorActionRow(
             FixedKey(
                 label = if (expanded) "Fewer keys" else "More keys",
                 onClick = { expanded = !expanded },
-                icon = if (expanded) {
-                    R.drawable.ic_ui_chevron_up
-                } else {
-                    R.drawable.ic_ui_chevron_down
-                },
+                icon = R.drawable.ic_ui_chevron_down,
+                iconRotation = { chevronAngle },
             )
         }
     }
@@ -2725,8 +2761,11 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
     accent: Boolean = false,
     /** Drawn instead of [label] when the key is a mark rather than a word. */
     @DrawableRes icon: Int? = null,
+    /** Degrees the mark is turned, read in the draw layer so a turn never recomposes the row. */
+    iconRotation: () -> Float = { 0f },
 ) {
     val theme = LocalZedTheme.current
+    val interaction = remember { MutableInteractionSource() }
     val ink = when {
         !enabled -> theme.color("text.disabled", MaterialTheme.colorScheme.onSurfaceVariant)
         accent -> theme.color("text.accent", MaterialTheme.colorScheme.primary)
@@ -2737,8 +2776,17 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
+            // The whole cell lights the frame the finger lands: the surface
+            // draws no ripple, and a keystroke must be seen where it was made.
+            .pressedFill(interaction, theme.color("ghost_element.active"))
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                onClickLabel = label,
+                onClick = onClick,
+            )
             .semantics { contentDescription = label },
     ) {
         if (icon != null) {
@@ -2748,6 +2796,7 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
                 contentDescription = null,
                 tint = ink,
                 size = IconSize.Action,
+                modifier = Modifier.graphicsLayer { rotationZ = iconRotation() },
             )
         } else {
             Text(
@@ -2762,16 +2811,19 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
 
 @Composable
 private fun ActionKey(label: String, onClick: () -> Unit) {
+    val theme = LocalZedTheme.current
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(4.dp)
     Text(
         text = label,
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .touchTarget()
-            .clip(RoundedCornerShape(4.dp))
-            .background(Color.Transparent)
+            .clip(shape)
+            .pressedFill(interaction, theme.color("ghost_element.active"), shape)
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
 }

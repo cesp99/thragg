@@ -36,10 +36,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import to.eyed.thragg.solana.build.BuildDiagnostics
@@ -54,6 +56,8 @@ import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.MonoBody
 import to.eyed.thragg.ui.theme.MonoSmall
+import to.eyed.thragg.ui.theme.longPressDoor
+import to.eyed.thragg.ui.theme.revealItem
 import to.eyed.thragg.ui.theme.touchTarget
 import to.eyed.thragg.ui.workspace.ContextMenu
 import to.eyed.thragg.ui.workspace.ContextMenuItem
@@ -195,9 +199,17 @@ internal fun BuildLogView(
             listState.scrollToTail(lastItem)
         }
     }
+    // The bar's re-tap: back to the tail, gliding, because the user asked
+    // for it — arrival (the first run of this effect, whatever the count is
+    // when the log is composed) still snaps, as everything arriving does.
+    // The glide lands on the newest row; the tail alignment after it is
+    // the same instant one the follow uses, and is a few pixels at most.
+    val arrivedAt = remember { state.retapCount }
     LaunchedEffect(state.retapCount) {
         follow.rejoin()
-        if (rows.isNotEmpty()) listState.scrollToTail(lastItem)
+        if (rows.isEmpty()) return@LaunchedEffect
+        if (state.retapCount != arrivedAt) listState.revealItem(lastItem)
+        listState.scrollToTail(lastItem)
     }
     // A new run empties the log (BuildRunner.start clears it): a scroll-up
     // from the last run's failure must not leave the next run unfollowed —
@@ -470,6 +482,9 @@ private fun IssueRow(state: ShellState, issue: BuildIssue, projectRoot: String?,
         }
     }
     val label = issue.location?.let { "Open $it" } ?: issue.message
+    // Its own combinedClickable rather than [longPressDoor], for the
+    // click label a screen reader speaks; the door's haptic is the same.
+    val haptics = LocalHapticFeedback.current
 
     Box {
         Box(
@@ -478,7 +493,10 @@ private fun IssueRow(state: ShellState, issue: BuildIssue, projectRoot: String?,
                 .combinedClickable(
                     onClickLabel = label,
                     onClick = { openIssue(state, issue, projectRoot) },
-                    onLongClick = { menuOpen = true },
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuOpen = true
+                    },
                 )
                 .touchTarget()
                 .padding(horizontal = MD.space2, vertical = MD.space1),
@@ -534,10 +552,7 @@ private fun SelectableLine(state: ShellState, text: String, content: @Composable
     var menuOpen by remember { mutableStateOf(false) }
     Box {
         Box(
-            modifier = Modifier.combinedClickable(
-                onClick = {},
-                onLongClick = { menuOpen = true },
-            )
+            modifier = Modifier.longPressDoor(onLongClick = { menuOpen = true })
         ) {
             content()
         }

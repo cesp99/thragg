@@ -16,6 +16,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -90,6 +93,7 @@ import to.eyed.thragg.ui.theme.ZedTheme
 import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.LocalZedTheme
 import to.eyed.thragg.ui.theme.touchTarget
+import to.eyed.thragg.ui.theme.pressedFill
 import to.eyed.thragg.ui.theme.LocalAppSettings
 import to.eyed.thragg.ui.theme.FontCatalog
 import to.eyed.thragg.ui.workspace.ContextMenu
@@ -674,6 +678,7 @@ private fun SessionChip(
     onClose: () -> Unit,
 ) {
     val theme = LocalZedTheme.current
+    val haptics = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     Box {
         Row(
@@ -692,7 +697,12 @@ private fun SessionChip(
                 .onSecondaryClick { menuOpen = true }
                 .combinedClickable(
                     onClick = onSelect,
-                    onLongClick = { menuOpen = true },
+                    onLongClick = {
+                        // A door with no drawn affordance: the pulse is how
+                        // the finger learns it found one.
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuOpen = true
+                    },
                     onDoubleClick = onRename,
                 )
                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -974,6 +984,8 @@ private fun ExtraKey(
     onClick: () -> Unit,
 ) {
     val theme = LocalZedTheme.current
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(4.dp)
     Text(
         text = label,
         style = MaterialTheme.typography.labelMedium,
@@ -983,7 +995,7 @@ private fun ExtraKey(
             MaterialTheme.colorScheme.onSurfaceVariant
         },
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
+            .clip(shape)
             // The row is 38dp tall, so this widens each key to 48dp and
             // leaves the height; a key row is the one place on this screen
             // where a mis-tap costs a keystroke into a running program.
@@ -996,8 +1008,11 @@ private fun ExtraKey(
                     Color.Transparent
                 }
             )
+            // Lit the frame the finger lands; a latched key keeps its
+            // `element.selected` underneath and the press draws over it.
+            .pressedFill(interaction, theme.color("ghost_element.active"), shape)
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
 }
