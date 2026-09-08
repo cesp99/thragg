@@ -39,10 +39,14 @@ import java.io.File
  *     design it out is to make save-then-build a single action nobody can get
  *     between.
  *  2. **reconcile the program id** if `declare_id!` still holds the scaffold's
- *     placeholder while a program keypair exists — `anchor keys sync` — because
- *     `DeclaredProgramIdMismatch` is the number-one first-deploy failure and
- *     the scaffold ships the placeholder on purpose.
- *  3. **spawn**, inside the guest, through the existing machinery.
+ *     placeholder while a program keypair exists — `anchor keys sync`, then
+ *     the Anchor.toml table and a Seahorse program's Python, which keys sync
+ *     leaves alone ([programIdsSync]) — because `DeclaredProgramIdMismatch`
+ *     is the number-one first-deploy failure and the scaffold ships the
+ *     placeholder on purpose.
+ *  3. **spawn**, inside the guest, through the existing machinery — for an
+ *     Anchor `Test`, after `yarn install` and the wallet file it needs
+ *     ([prepareAnchorTest]).
  *  4. **stream**, 5. **parse**, 6. **publish**.
  *
  * On the spawn: this drives the guest through
@@ -141,14 +145,36 @@ object BuildRunner {
     var idsDisagree: ((ProjectLayout) -> Boolean)? = null
 
     /**
-     * Point a Seahorse program's `declare_id('…')` — in its Python source — at
-     * the program keypair, returning the project-relative files rewritten.
-     * Registered with [idsDisagree] by the chain layer, which owns the keypair
-     * reading. It exists because `anchor keys sync` stops at `lib.rs`, and a
-     * Seahorse `lib.rs` is regenerated from the Python by the very build that
-     * follows the sync (see `ProgramIds.syncSeahorseIds`).
+     * Point the files `anchor keys sync` leaves behind at the program
+     * keypair, returning the project-relative files rewritten. Registered
+     * with [idsDisagree] by the chain layer, which owns the keypair reading.
+     * It exists because `keys sync` stops at `lib.rs`: it rewrites the
+     * Anchor.toml table for the provider's cluster only when that table is
+     * already there (the template writes `[programs.localnet]` alone, so a
+     * devnet project's file kept the placeholder — seen on the Seeker
+     * 2026-09-08), and a Seahorse `lib.rs` is regenerated from the Python
+     * by the very build that follows the sync (see
+     * `ProgramIds.syncProgramIds`). Anchor and Seahorse builds both run it.
      */
-    var seahorseIdsSync: ((ProjectLayout) -> List<String>)? = null
+    var programIdsSync: ((ProjectLayout) -> List<String>)? = null
+
+    /**
+     * Put the wallet Anchor.toml names where `anchor test` will look for it,
+     * returning true when the file is there afterwards. Registered by the
+     * chain layer (`ChainSeams`), which owns the key: the scaffold's
+     * `[provider] wallet` is `~/.config/solana/id.json`, so the guest file
+     * `/root/.config/solana/id.json` must hold a Solana keypair (the 64-byte
+     * JSON array) or every test's first transaction fails to sign. What the
+     * chain layer writes there is the app's own deploy key — the devnet
+     * throwaway that pays for deploys (docs/CHAIN.md, "Two keys, one
+     * prompt") — because it is the key Deploy pays with, so it is the one
+     * that holds SOL when anything on this phone does. (It exists whether or
+     * not a deploy has happened; a fresh one holds nothing, and the log says
+     * where it gets funded.) Null before the
+     * chain layer has registered, and read as "no wallet": the run still
+     * goes ahead and the log says what will happen.
+     */
+    var testWallet: ((Context) -> Boolean)? = null
 
     // --- state -----------------------------------------------------------------
 
@@ -365,17 +391,29 @@ object BuildRunner {
             }
             if (generation != generationAtStart) return RunResult(-1, emptyList(), null)
         }
-        // 2b. For Seahorse the sync has to reach the Python, or the build
-        // that follows regenerates lib.rs with the placeholder back in it.
-        if (action == BuildAction.Build && project.framework == ProjectFramework.Seahorse) {
-            for (path in seahorseIdsSync?.invoke(project).orEmpty()) {
+        // 2b. The sync has to reach what `keys sync` does not: the Anchor.toml
+        // table for the configured cluster, or the file lies about the id it
+        // deploys under; and for Seahorse the Python, or the build that
+        // follows regenerates lib.rs with the placeholder back in it.
+        if (action == BuildAction.Build &&
+            (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
+        ) {
+            val synced = programIdsSync?.invoke(project).orEmpty()
+            if (synced.isNotEmpty()) {
+                val verb = if (synced.size == 1) "names" else "name"
                 log.append(
-                    BuildLogRow.Note(
-                        "declare_id in $path now names the program keypair — " +
-                            "seahorse build regenerates lib.rs from it"
-                    )
+                    BuildLogRow.Note("${synced.joinToString(" and ")} now $verb the program keypair")
                 )
             }
+        }
+
+        // 2c. An Anchor test run has two things a build does not: a Node
+        // dependency tree and a wallet file. Both are settled here, before
+        // the command, so a failure is a sentence in the log rather than a
+        // stack trace from ts-mocha.
+        if (action == BuildAction.Test && command.display == BuildTasks.ANCHOR_TEST) {
+            val prepared = prepareAnchorTest(context, project, generationAtStart)
+            if (prepared != null) return prepared
         }
 
         // 3-5. Spawn, stream, parse.
@@ -423,6 +461,87 @@ object BuildRunner {
         throttle.drain()?.let { consume(parser.feed(it), redraw = true) }
         consume(parser.flush())
         return RunResult(exit, issues, null)
+    }
+
+    /**
+     * What `anchor test` needs that `anchor build` does not, done before the
+     * run. Null when the test can go ahead; a [RunResult] when it cannot.
+     *
+     *  1. **`yarn install`** when `node_modules/.bin/ts-mocha` is missing. The scaffold's
+     *     `[scripts] test` is `yarn run ts-mocha …`, and a fresh clone or a
+     *     fresh scaffold has no `node_modules` — yarn would fail with
+     *     "Couldn't find the binary ts-mocha", which explains nothing. Run
+     *     through the same [execute] path as the test, so it streams into the
+     *     log and Stop kills it. Network, and a minute or two the first time;
+     *     never again for this project unless `node_modules` is deleted or
+     *     was left half-written by a stopped install.
+     *  2. **The wallet.** [testWallet] writes the deploy key to the path
+     *     Anchor.toml names; without one the tests run unsigned and fail on
+     *     their first transaction, and the log says so before they do.
+     *  3. **A reminder of what is on chain.** There is no local validator and
+     *     no deploy in this run (`--skip-deploy`): the tests call the program
+     *     Anchor.toml's `[provider] cluster` already has under the id in
+     *     `[programs.<cluster>]`, which Deploy put there. A test against a
+     *     program that was edited but not redeployed tests the old program,
+     *     and an id nothing was deployed to fails as "program not found".
+     */
+    private fun prepareAnchorTest(
+        context: Context,
+        project: ProjectLayout,
+        generationAtStart: Int,
+    ): RunResult? {
+        val root = File(project.root)
+        // The binary the script runs, not the directory: a `yarn install`
+        // stopped or cut off by the network leaves `node_modules/` half made,
+        // and a directory test would call that done.
+        if (!File(root, "node_modules/.bin/ts-mocha").exists()) {
+            log.append(
+                BuildLogRow.Note(
+                    "First test run: installing the project's JavaScript dependencies with " +
+                        "yarn install. This needs the network and takes a minute or two; " +
+                        "it happens once per project."
+                )
+            )
+            log.append(BuildLogRow.Command("yarn install", System.currentTimeMillis()))
+            val exit = execute(context, project, "yarn install") { line ->
+                log.append(BuildLogRow.Text(line))
+            }
+            if (generation != generationAtStart) return RunResult(-1, emptyList(), null)
+            if (exit != 0) {
+                log.append(
+                    BuildLogRow.Note(
+                        "yarn install exited $exit, so the tests cannot run: ts-mocha and " +
+                            "@coral-xyz/anchor are not installed. Check the network, or run " +
+                            "`yarn install` in the Shell to see the full output, then Test again."
+                    )
+                )
+                return RunResult(exit, emptyList(), null)
+            }
+        }
+
+        val wallet = testWallet?.invoke(context) == true
+        log.append(
+            BuildLogRow.Note(
+                if (wallet) {
+                    "The wallet Anchor.toml names (~/.config/solana/id.json) is this app's " +
+                        "deploy key: the tests pay with the same key Deploy pays with, so it " +
+                        "needs SOL on this cluster — the Deploy sheet is where it gets some."
+                } else {
+                    "No wallet for the tests — nothing could be written to " +
+                        "~/.config/solana/id.json, so the tests will run unsigned and fail on " +
+                        "the first transaction."
+                }
+            )
+        )
+
+        log.append(
+            BuildLogRow.Note(
+                "There is no local validator and no deploy in this run: the tests call the " +
+                    "program already deployed under Anchor.toml's [provider] cluster, so " +
+                    "Deploy must have run first — and again after any change to the program."
+            )
+        )
+        return null
     }
 
     /**

@@ -147,6 +147,24 @@ class SolanaTemplatesTest {
     }
 
     /**
+     * The picker offers only the three real networks. There is no validator
+     * on the phone (chain/Cluster.kt refuses `localnet` for the same reason),
+     * so a project must not be born pointing at one — while Anchor's
+     * `[programs.localnet]` program-id table stays, because `anchor keys
+     * sync` looks it up there whatever the provider cluster says.
+     */
+    @Test
+    fun localnetIsNotOfferedButItsProgramTableStays() {
+        assertEquals(listOf("Devnet", "Testnet", "Mainnet"), SolanaProgram.CLUSTERS)
+        for (cluster in SolanaProgram.CLUSTERS) {
+            val toml = SolanaFramework.Anchor.files(program, cluster)
+                .first { it.path == "Anchor.toml" }.contents
+            assertTrue(cluster, toml.contains("""cluster = "$cluster""""))
+            assertTrue(cluster, toml.contains("[programs.localnet]"))
+        }
+    }
+
+    /**
      * Seahorse writes the program's `src/` itself and nothing else, so the
      * scaffold ships the Python, the crate manifest Seahorse never writes,
      * and a placeholder `lib.rs` that gives cargo a target until the first
@@ -169,6 +187,12 @@ class SolanaTemplatesTest {
         val lib = files.first { it.path == "programs/my_project/src/lib.rs" }.contents
         assertTrue(lib.contains("declare_id!(\"${SolanaProgram.PLACEHOLDER_ID}\")"))
         assertTrue(lib.contains("Replaced by `seahorse build`"))
+        // Anchor.toml's `[scripts] test` runs tests/**/*.ts; an empty glob is a
+        // failing `anchor test`, so the suite ships with the Python.
+        val suite = files.first { it.path == "tests/my-project.ts" }.contents
+        assertTrue(suite.contains("../target/types/my_project"))
+        assertTrue(suite.contains(".initialize()"))
+        assertTrue(suite.contains("owner: provider.publicKey"))
     }
 
     /** Interpolating a user-supplied name into a path must not escape the project. */

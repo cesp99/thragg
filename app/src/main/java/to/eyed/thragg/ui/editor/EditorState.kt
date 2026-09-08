@@ -406,7 +406,7 @@ class EditorState private constructor(
     /** The visible height, for anything drawing against the viewport. */
     internal val viewportHeightPx: Float get() = viewportHeight
 
-    /** The same, across — what the minimap's width is measured against. */
+    /** The same, across. */
     internal val viewportWidthPx: Float get() = viewportWidth
 
     /** Rows that fit on screen, which is what a page motion moves by. */
@@ -758,69 +758,9 @@ class EditorState private constructor(
     }
 
     fun updateViewport(width: Float, height: Float) {
-        val grew = height != viewportHeight
         viewportWidth = width
         viewportHeight = height
         syncDisplayMap()
-        // The viewport is a plain field — the draw pass sets it — but the
-        // inlay-hint request watches the visible rows through the snapshot
-        // system, and a pane that has just been measured has more of them.
-        // Written only when the height actually changes, so the draw pass
-        // never invalidates itself.
-        if (grew) viewportGeneration++
-    }
-
-    /** Bumped when the viewport's height changes; see [updateViewport]. */
-    private var viewportGeneration by mutableIntStateOf(0)
-
-    /**
-     * The same counter, for a `snapshotFlow` that has to notice the pane
-     * being measured — the minimap's, whose row count is the viewport's
-     * height divided by a row. The height itself is a plain field the draw
-     * pass writes, so reading it alone would never fire.
-     */
-    internal val measuredGeneration: Int get() = viewportGeneration
-
-    /**
-     * The buffer rows on screen, first to last inclusive — what the inlay
-     * hints are asked for. Reads [scrollY], [lineCount] and the viewport
-     * generation, so a `snapshotFlow` over it fires on a scroll, an edit
-     * that moves rows, and the first measurement.
-     */
-    internal fun visibleBufferRowRange(): IntRange {
-        @Suppress("UNUSED_VARIABLE")
-        val generation = viewportGeneration
-        val end = (lineCount - 1).coerceAtLeast(0)
-        if (lineHeightPx <= 0f) return 0..min(end, 40)
-        val first = firstDisplayRow()
-        val last = lastDisplayRow(first)
-        val firstRow = displayMap.bufferRowOf(first).coerceIn(0, end)
-        val lastRow = displayMap.bufferRowOf((last - 1).coerceAtLeast(first)).coerceIn(firstRow, end)
-        return firstRow..lastRow
-    }
-
-    // ---- Inlay hints -------------------------------------------------------
-
-    /**
-     * The hints on screen, by row — display-only decorations the draw pass
-     * splices into each row's layout ([spliceInlays]). Snapshot state so a
-     * fresh answer repaints; installed by [rememberInlayHints] and cleared
-     * by it on every edit, because a hint's column describes text that may
-     * have moved.
-     */
-    internal var inlayHints: Map<Int, List<InlayHint>> by mutableStateOf(emptyMap())
-        private set
-
-    internal fun setInlayHints(hints: Map<Int, List<InlayHint>>) {
-        if (hints.isEmpty() && inlayHints.isEmpty()) return
-        inlayHints = hints
-    }
-
-    /** The hints on [row], sorted by column; empty for most rows. */
-    internal fun inlayHintsFor(row: Int): List<InlayHint> {
-        val hints = inlayHints
-        if (hints.isEmpty()) return emptyList()
-        return hints[row] ?: emptyList()
     }
 
     /**
@@ -1495,18 +1435,15 @@ class EditorState private constructor(
 
     /**
      * The display switches Zed keeps *on the editor* rather than in the file
-     * — `editor::ToggleLineNumbers`, `ToggleRelativeLineNumbers`,
-     * `ToggleMinimap` and `ToggleInlineDiagnostics`, each of which flips this
-     * editor and leaves settings.json alone (editor.rs's
-     * `show_line_numbers`, `show_minimap`, `inline_diagnostics_enabled`
-     * overrides). Null means "whatever the setting says"; the pane resolves
-     * it through [showsWith].
+     * — `editor::ToggleLineNumbers`, `ToggleRelativeLineNumbers` and
+     * `ToggleInlineDiagnostics`, each of which flips this editor and leaves
+     * settings.json alone (editor.rs's `show_line_numbers` and
+     * `inline_diagnostics_enabled` overrides). Null means "whatever the
+     * setting says"; the pane resolves it through [showsWith].
      */
     var lineNumbersOverride: Boolean? by mutableStateOf(null)
         private set
     var relativeLineNumbersOverride: Boolean? by mutableStateOf(null)
-        private set
-    var minimapOverride: Boolean? by mutableStateOf(null)
         private set
     var inlineDiagnosticsOverride: Boolean? by mutableStateOf(null)
         private set
@@ -1521,11 +1458,6 @@ class EditorState private constructor(
 
     fun toggleRelativeLineNumbers(setting: Boolean) {
         relativeLineNumbersOverride = !showsWith(relativeLineNumbersOverride, setting)
-        bumpRevision()
-    }
-
-    fun toggleMinimap(setting: Boolean) {
-        minimapOverride = !showsWith(minimapOverride, setting)
         bumpRevision()
     }
 
@@ -1873,13 +1805,11 @@ class EditorState private constructor(
         val end = wrap.endOf(segment, text.length)
         val indentPx = if (segment > 0) wrap.indentColumns * charWidthPx else 0f
         val xInText = point.x - gutterWidthPx - textPaddingPx - indentPx + effectiveScrollX
-        // With hints on the row the layout is of the spliced text — the
-        // same string the draw pass measures — and the hit is mapped back
-        // to the column it annotates, so a tap on `: i32` lands after `x`.
-        val spliced = spliceInlays(text, start, end, inlayHintsFor(row))
-        val layout = layoutForLine(spliced.text)
-        val displayOffset = layout.getOffsetForPosition(Offset(xInText.coerceAtLeast(0f), 0f))
-        val col = start + spliced.toBuffer(displayOffset)
+        // The layout is of the segment's own text — the same string the
+        // draw pass measures — so the hit lands between the glyphs the frame
+        // drew.
+        val layout = layoutForLine(segmentText(text, start, end))
+        val col = start + layout.getOffsetForPosition(Offset(xInText.coerceAtLeast(0f), 0f))
         return row to col.coerceIn(start, end)
     }
 

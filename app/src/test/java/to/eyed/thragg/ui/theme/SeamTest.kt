@@ -137,7 +137,12 @@ class SeamTest {
         "ui/agent/ContextPicker.kt" to 2,
         "ui/agent/spettro/OrchBits.kt" to 2,
         "ui/shell/agent/AgentTranscript.kt" to 2,
-        "ui/shell/build/BuildLogView.kt" to 5,
+        // The import and five reads: the log body, NoteRow, SummaryRow,
+        // IssueRow, and LogLine, which since the Seahorse work runs an ordinary
+        // line through the same ANSI pass a rendered diagnostic gets and needs
+        // `terminal.ansi.*` for it. The build log is painted raw on purpose,
+        // like the diagnostics it shows.
+        "ui/shell/build/BuildLogView.kt" to 6,
         // The import and the one `LocalZedTheme.current` that feeds
         // [GitStatusColours.forProjectPanel]. NOT debt — the tree's git inks
         // are the theme's on purpose — and a count alone would not say so,

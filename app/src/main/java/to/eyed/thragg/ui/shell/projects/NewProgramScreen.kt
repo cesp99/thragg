@@ -125,6 +125,9 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
                 stringResource(option.blurbRes),
         )
     }
+    // Devnet, Testnet, Mainnet — no Localnet, because there is no validator
+    // on the phone (chain/Cluster.kt); the list is owned by the template so
+    // the picker and Anchor.toml can never disagree.
     val clusters = SolanaProgram.CLUSTERS.map { Choice(value = it, name = it) }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -197,7 +200,7 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
                 options = clusters,
                 selectedValue = cluster,
                 onSelect = { cluster = it },
-                // The four cluster names say everything a description would;
+                // The three cluster names say everything a description would;
                 // the sentence below is about where the choice is *written*,
                 // which is a property of the form and not of the choice.
                 showActiveDescription = false,

@@ -23,8 +23,7 @@ import to.eyed.thragg.core.AppSettings
  * and `ZedTheme.palette()` turns that one source into both the Material
  * `ColorScheme` and [ThraggColors] in a single pass. A wallpaper primary would
  * appear nowhere in the editor, which is exactly the clash the hybrid exists
- * to prevent. The two fonts and the icon theme come from settings.json the
- * same way.
+ * to prevent. The two fonts come from settings.json the same way.
  *
  * What this root provides is now the APP's rules — real Material type, real
  * Material shapes, ripple, and the locale's own layout direction. The editor's
@@ -38,7 +37,6 @@ fun ThraggTheme(
     val context = LocalContext.current
     val preview by ThemeStore.preview.collectAsState()
     val userThemes by UserThemes.scan.collectAsState()
-    val iconThemes by IconThemes.scan.collectAsState()
 
     // Everything here is a disk read, so the first frame paints with what the
     // APK ships and swaps once. That is the right trade: an app that blocks
@@ -50,8 +48,6 @@ fun ThraggTheme(
             ThemeStore.load(context)
             UserThemes.scan(context)
             UserThemes.watch(context)
-            IconThemes.scan(context)
-            IconThemes.watch(context)
         }
     }
 
@@ -95,13 +91,11 @@ fun ThraggTheme(
         }
     }
 
-    // The icon theme follows the *appearance*, as Zed's `icon_theme` object
-    // does; a bare name ignores it.
-    val iconTheme = remember(settings.iconTheme, theme.isDark, iconThemes) {
-        iconThemes.themes.firstOrNull {
-            it.name == settings.iconTheme.iconThemeName(theme.isDark)
-        } ?: IconThemes.bundled
-    }
+    // One icon theme, Zed's own. `icon_theme` went with the icon-theme
+    // selector and the watched `icon_themes` folder (docs/UI.md, "What is
+    // removed"), so the tree draws from the bundled tables and nothing is
+    // scanned for at start-up.
+    val iconTheme = IconThemes.bundled
 
     // ONE DERIVATION, ONE `remember`, TWO LOCALS. The Material half's whole
     // ColorScheme and the small token set M3 has no role for come out of the

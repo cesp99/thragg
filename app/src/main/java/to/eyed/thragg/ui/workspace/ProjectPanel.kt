@@ -93,7 +93,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.core.GitFileStatus as EngineStatus
 import to.eyed.thragg.core.CoreBridge
-import to.eyed.thragg.core.EntrySpacing
 import to.eyed.thragg.core.GitignoredFiles
 import to.eyed.thragg.core.ProjectEntry
 import to.eyed.thragg.core.ProjectPanelSettings
@@ -123,6 +122,17 @@ import to.eyed.thragg.ui.theme.revealItem
  * below are what the panel actually reads. The px-valued members are the
  * dimensions Zed writes as `px(…)`, which do *not* scale — see [PanelPixels].
  */
+/**
+ * The row pitch — what Zed's `project_panel.entry_spacing` used to choose
+ * between. The key is not read any more (docs/UI.md, P8); the panel draws
+ * [Comfortable], Zed's default, and the type stays because the row-height
+ * arithmetic below is written in its terms.
+ */
+enum class EntrySpacing {
+    Comfortable,
+    Standard,
+}
+
 internal object PanelMetrics {
 
     /** `gap_1` = `rems(0.25)` between a row's icon and its name (list_item.rs:363). */
@@ -711,8 +721,8 @@ fun ProjectPanel(
         val statusSource = remember(project, gitStatus) {
             gitStatus ?: gitStatusSourceFor(project)
         }
-        val tree = remember(project, gitignoredFiles, statusSource, panel.autoFoldDirs) {
-            ProjectTreeState(project, gitignoredFiles, statusSource, panel.autoFoldDirs)
+        val tree = remember(project, gitignoredFiles, statusSource) {
+            ProjectTreeState(project, gitignoredFiles, statusSource)
         }
         // Resolved once per theme, never per row: this panel draws one row
         // per visible line per frame, and a scheme read is cheap but a map
@@ -823,7 +833,7 @@ fun ProjectPanel(
         var overwrite by remember(project) { mutableStateOf<OverwritePrompt?>(null) }
         /** The drag in flight, and the folder it is over. */
         var drag by remember(project) { mutableStateOf<PanelDrag?>(null) }
-        val rowHeight = rowHeight(panel.entrySpacing)
+        val rowHeight = rowHeight(EntrySpacing.Comfortable)
         val rowHeightPx = with(density) { rowHeight.roundToPx() }
 
         // Zed's `sticky_scroll`, on by default (settings/default.json:871):
@@ -1670,7 +1680,7 @@ fun ProjectPanel(
         // empty space, which is what Zed does too.
         if (!panel.hideRoot) ProjectRootRow(
             name = project.rootName,
-            spacing = panel.entrySpacing,
+            spacing = EntrySpacing.Comfortable,
             rowColours = rowColours,
             iconColour = iconColour,
             isDropTarget = drag?.over == "",
@@ -1748,7 +1758,7 @@ fun ProjectPanel(
                                     label = row.label,
                                     depth = renderedDepth(row.depth),
                                     indentSize = panel.indentSize.dp,
-                                    spacing = panel.entrySpacing,
+                                    spacing = EntrySpacing.Comfortable,
                                     status = row.status,
                                     diagnostic = diagnostics.severityOf(row.entry.path),
                                     colours = colours,
@@ -1880,7 +1890,7 @@ fun ProjectPanel(
                             iconColour = iconColour,
                             rowColours = rowColours,
                             dimIgnored = dimIgnored,
-                            spacing = panel.entrySpacing,
+                            spacing = EntrySpacing.Comfortable,
                             indentSize = panel.indentSize.dp,
                             hideRoot = panel.hideRoot,
                             diagnostics = diagnostics,

@@ -25,7 +25,7 @@ enum class BuildAction(val label: String, val progressLabel: String) {
     /** `anchor build` / `cargo build-sbf`. */
     Build("Build", "Building"),
 
-    /** `anchor test --skip-local-validator` / `cargo test`. */
+    /** `anchor test --skip-local-validator --skip-deploy` / `cargo test`. */
     Test("Test", "Testing"),
 
     /** `solana program deploy target/deploy/<name>.so` — through P6's [Deployer]. */
@@ -109,7 +109,7 @@ data class ProjectLayout(
 }
 
 /**
- * Which of the four programs a build needs are actually present in the guest.
+ * Which of the programs a build or a test needs are actually present in the guest.
  *
  * This is read rather than assumed for one measured reason: `cargo-build-sbf`
  * and `anchor` have no arm64 binary anywhere upstream and are *built on the
@@ -127,6 +127,10 @@ data class GuestTools(
     val platformCargo: Boolean = false,
     /** The Agave CLI — `solana program deploy`, `solana balance`. */
     val solanaCli: Boolean = false,
+    /** Node (manifest.json, `node`) — what `anchor test` runs its TypeScript through. Optional. */
+    val node: Boolean = false,
+    /** The yarn classic corepack activates beside Node; the scaffold's `[scripts] test` calls it. */
+    val yarn: Boolean = false,
 ) {
     /** Whether anything at all can compile SBF here. */
     val canCompile: Boolean get() = cargoBuildSbf || platformCargo
@@ -179,6 +183,13 @@ object BuildTasks {
     /** platform-tools' LLVM — `llvm-readelf`, `llvm-objdump`, `lld`. */
     const val LLVM_BIN = "$PLATFORM_TOOLS/llvm/bin"
 
+    /**
+     * Node and yarn, through the `current` symlink the manifest's `node` row
+     * points at its versioned unpack directory — so a Node bump is a manifest
+     * edit and this constant does not move.
+     */
+    const val NODE_BIN = "/opt/node/current/bin"
+
     /** The host cargo that built `cargo-build-sbf` on the device. */
     const val PLATFORM_CARGO = "$PLATFORM_TOOLS/rust/bin/cargo"
 
@@ -214,7 +225,12 @@ object BuildTasks {
      *  2. the Agave CLI, for `solana`.
      *  3. platform-tools' LLVM, so `cargo-build-sbf`'s linker invocation finds
      *     the `lld` with the SBF backend rather than Debian's.
-     *  4. the guest's own, last.
+     *  4. Node and yarn, for `anchor test`'s `yarn run ts-mocha` — after every
+     *     Solana entry, so nothing Node ships can shadow a build tool, and
+     *     present whether or not the optional row is installed (a missing
+     *     entry is a failed `stat` per lookup, and [probe] is what says
+     *     whether `node` resolves).
+     *  5. the guest's own, last.
      *
      * platform-tools' *rust* bin is deliberately **not** on this path.
      * `cargo-build-sbf` reaches that toolchain through rustup — it is linked
@@ -228,12 +244,20 @@ object BuildTasks {
      * `cargo-build-sbf` shells out to `rustup` and dies with "Failed to
      * execute rustup" if it cannot (docs/SOLANA.md). It must be present and it
      * must never own a compiler.
+     *
+     * `COREPACK_ENABLE_DOWNLOAD_PROMPT=0` is for the `yarn` on that path,
+     * which is corepack's shim: asked for a yarn it has not cached, it prompts
+     * on stdin before downloading, and a build's stdin is a closed pipe — the
+     * run would hang, not fail. Setup activates yarn 1.22.22 so the prompt
+     * never fires; this is for a project whose `packageManager` field pins
+     * another.
      */
     fun guestEnvironment(): List<String> = listOf(
-        "PATH=$CARGO_BIN:$CLI_BIN:$LLVM_BIN:" +
+        "PATH=$CARGO_BIN:$CLI_BIN:$LLVM_BIN:$NODE_BIN:" +
             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "CARGO_HOME=$CARGO_HOME",
         "RUSTUP_HOME=$RUSTUP_HOME",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT=0",
         // A build driven from a pipe is not a terminal, and cargo's progress
         // bar redrawn with escape codes into a log view is noise. The
         // diagnostics keep their own colour where they are asked for it.
@@ -409,7 +433,7 @@ object BuildTasks {
      */
     fun probe(context: Context): GuestTools {
         val script = buildString {
-            append("for t in cargo-build-sbf anchor seahorse solana; do ")
+            append("for t in cargo-build-sbf anchor seahorse solana node yarn; do ")
             append("command -v \$t >/dev/null 2>&1 && echo have:\$t; ")
             append("done; ")
             append("[ -x $PLATFORM_CARGO ] && echo have:platform-cargo")
@@ -437,6 +461,8 @@ object BuildTasks {
             seahorse = "seahorse" in found,
             platformCargo = "platform-cargo" in found,
             solanaCli = "solana" in found,
+            node = "node" in found,
+            yarn = "yarn" in found,
         )
     }
 
@@ -581,11 +607,21 @@ object BuildTasks {
      *
      * Native's `cargo test` works: it is a host build of the program's own
      * Rust tests and needs nothing but the toolchain. Anchor's scaffolded
-     * `[scripts] test` is `yarn run ts-mocha …` and the manifest ships no
-     * Node, so [anchorTestNeedsNode] is what the screen asks first, and
-     * [cargoTestCommand] is the alternative it offers. `--skip-local-validator`
-     * is unconditional: Agave has no arm64 build, so there is no local
-     * validator on this phone to start.
+     * `[scripts] test` is `yarn run ts-mocha …`, which is why Node and yarn
+     * are an optional Setup row (manifest.json, `node`) and why
+     * [anchorTestBlockedBy] is what the screen asks first, with
+     * [cargoTestCommand] as the alternative it offers when the answer is no.
+     *
+     * Both skip flags are unconditional, and both are the same fact: there is
+     * no Agave CLI in the guest (no arm64 build), so `anchor test` can neither
+     * start a local validator nor run `solana program deploy`. Without
+     * `--skip-local-validator` it would try to spawn `solana-test-validator`;
+     * without `--skip-deploy` it would try to deploy through the `solana` CLI
+     * first and die with "command not found" before a single test ran. What
+     * the tests hit instead is the program already on chain under
+     * Anchor.toml's `[provider] cluster` — put there by the app's own Deploy
+     * sheet, which is the one deployer this phone has — signed by the wallet
+     * that file names, which [BuildRunner] writes before the run.
      */
     fun testCommand(
         layout: ProjectLayout,
@@ -600,11 +636,14 @@ object BuildTasks {
         // `solana` link nor the tools cache.
         ProjectFramework.Anchor, ProjectFramework.Seahorse ->
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion, seeds) + "anchor test --skip-local-validator",
-                display = "anchor test --skip-local-validator",
+                line = toolchainGuard(platformToolsVersion, seeds) + ANCHOR_TEST,
+                display = ANCHOR_TEST,
                 jsonDiagnostics = false,
             )
     }
+
+    /** The one `anchor test` line this phone can run — see [testCommand] for each flag. */
+    const val ANCHOR_TEST = "anchor test --skip-local-validator --skip-deploy"
 
     /**
      * The Rust half of an Anchor project's tests, which needs no Node.
@@ -621,12 +660,33 @@ object BuildTasks {
     )
 
     /**
-     * Whether pressing Test on this project is about to need Node and yarn.
-     * The screen turns this into a question rather than a failed run.
+     * Whether pressing Test on this project runs its tests through Node and
+     * yarn — an Anchor or Seahorse project's `[scripts] test` — rather than
+     * through cargo alone.
      */
     fun anchorTestNeedsNode(layout: ProjectLayout): Boolean =
         layout.framework == ProjectFramework.Anchor ||
             layout.framework == ProjectFramework.Seahorse
+
+    /**
+     * Why Test cannot run on this project as `anchor test`, or null when it
+     * can. The screen turns a non-null answer into a sheet — Node is an
+     * optional Setup row, `cargo test` is the alternative — rather than into
+     * `yarn: not found` three lines into a log.
+     *
+     * Both are asked for, not just Node: the scaffold's script is `yarn run
+     * ts-mocha …`, and a Node whose corepack step failed has `node` and no
+     * `yarn`, which is the same failed run with a different last line.
+     * [tools] is the guest as [probe] last saw it, so a phone that finished
+     * the Node row since the Build tab was opened answers after the next
+     * refresh, not before — the same staleness every other row has.
+     */
+    fun anchorTestBlockedBy(layout: ProjectLayout, tools: GuestTools): String? = when {
+        !anchorTestNeedsNode(layout) -> null
+        !tools.node -> "Node is not installed"
+        !tools.yarn -> "yarn is not installed"
+        else -> null
+    }
 
     /**
      * Whether the artifact [program] should produce is newer than every source

@@ -330,9 +330,11 @@ internal suspend fun requestLsp(
                 CoreBridge.lspRequestSignatureHelp(bufferId, row.toLong(), colUtf16.toLong())
             // These carry arguments a (kind, position) call cannot: start
             // them through their own helpers (WorkspaceEditActions.kt,
-            // InlayHints.kt, SyntaxFolds.kt, the symbol picker), which hand
-            // the id to [pollLspRequest]. -1 is the bridge's own failure
-            // convention, so asking here answers null.
+            // SyntaxFolds.kt, the symbol picker), which hand the id to
+            // [pollLspRequest]. -1 is the bridge's own failure convention,
+            // so asking here answers null. `InlayHint` is kept as a kind the
+            // engine can still name in a reply; nothing on this side asks
+            // for one since the inlay hints were removed (docs/UI.md).
             LspRequestKind.CodeActionApply,
             LspRequestKind.Rename,
             LspRequestKind.Formatting,

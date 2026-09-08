@@ -104,20 +104,6 @@ class AppSettingsAppearanceTest {
         assertEquals(1.618f, fonts.bufferLineHeight.value, 0.0001f)
         assertEquals(FontSettings.DEFAULT_UI_FONT_SIZE, fonts.uiSize, 0f)
         assertEquals("", fonts.featureSettings)
-        assertEquals(IconThemeSelection.DEFAULT, AppSettings.parse("{}").iconTheme.light)
-    }
-
-    @Test
-    fun the_icon_theme_takes_both_shapes() {
-        assertEquals(
-            "Pastel",
-            AppSettings.parse("""{ "icon_theme": "Pastel" }""").iconTheme.iconThemeName(true),
-        )
-        val dynamic = AppSettings.parse(
-            """{ "icon_theme": { "mode": "system", "light": "Day", "dark": "Night" } }"""
-        ).iconTheme
-        assertEquals("Night", dynamic.iconThemeName(isDark = true))
-        assertEquals("Day", dynamic.iconThemeName(isDark = false))
     }
 
     @Test

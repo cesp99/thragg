@@ -88,6 +88,12 @@ class NoEmojiInUiTest {
      * chord labels ("Ctrl →") rather than icons, which is a fair argument for
      * an exemption and not one this test is going to make on their behalf —
      * the shell's menus print chords through a drawable now.
+     *
+     * There is no package-level skip any more. ui/editor was the last one,
+     * held back until the vim package, the minimap and the inlay hints were
+     * gone (docs/UI.md, "What is removed"); they are, and the editor's action
+     * row spells its motions in words rather than arrows, so the directory
+     * is scanned like everything else and carries no entry here.
      */
     private val baseline: Map<String, Int> = mapOf(
         "solana/agents/SpettroInstall.kt" to 2,
@@ -106,26 +112,6 @@ class NoEmojiInUiTest {
         "ui/git/DiffPane.kt" to 1,
         "ui/workspace/RenameSymbol.kt" to 2,
         "ui/workspace/LspLogsPane.kt" to 2,
-    )
-
-    /**
-     * Packages still carrying the inherited desktop UI.
-     *
-     * Converting glyphs in a file that is about to be deleted is work with a
-     * negative return, so the packages awaiting demolition are skipped whole.
-     * The exclusion is a dated concession, not a permanent carve-out.
-     *
-     * P4 cut it from seven entries to one. ui/workspace, ui/agent, ui/git,
-     * ui/preview, ui/media and ui/tasks have had their dead halves removed
-     * (docs/UI.md, "What is removed"), so what is left in them is code that
-     * ships and is now scanned like everything else — its remaining glyph
-     * sites moved into `baseline` above, where they are debts with names
-     * rather than a hole in the net. ui/editor is the last one out: the vim
-     * package, the minimap and the inlay hints go in the editor pass, and
-     * until they do a third of that directory is about to stop existing.
-     */
-    private val notYetDeleted = setOf(
-        "ui/editor",
     )
 
     private fun pictographs(text: String): Set<Char> =
@@ -177,7 +163,6 @@ class NoEmojiInUiTest {
 
         src.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->
             val rel = file.relativeTo(src).path.replace(File.separatorChar, '/')
-            if (notYetDeleted.any { rel.startsWith(it) }) return@forEach
             if (file.name in allowedFiles) return@forEach
 
             file.readLines().forEachIndexed { i, line ->

@@ -85,19 +85,100 @@ class ProgramIdsTest {
     }
 
     @Test
-    fun `syncSeahorseIds writes the Python once a keypair exists, and only for Seahorse`() {
+    fun `syncProgramIds writes the Python once a keypair exists, and only for Seahorse`() {
         write("programs_py/my_program.py", "declare_id('$idA')\n\nclass Counter(Account):\n    count: u64\n")
         // No keypair yet: the first build makes one, nothing to sync to.
-        assertEquals(emptyList<String>(), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Seahorse)))
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
         val keypair = writeKeypair()
-        // An Anchor layout has no Python to sync.
-        assertEquals(emptyList<String>(), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Anchor)))
-        assertEquals(listOf("programs_py/my_program.py"), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Seahorse)))
+        // An Anchor layout has no Python to sync, and here no Anchor.toml either.
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+        assertEquals(listOf("programs_py/my_program.py"), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
         val text = File(root, "programs_py/my_program.py").readText()
         assertTrue(text.startsWith("declare_id('${keypair.publicKey.base58}')\n"))
         assertTrue(text.contains("class Counter(Account)"))
         // Idempotent: the second pass finds nothing to change.
-        assertEquals(emptyList<String>(), ProgramIds.syncSeahorseIds(layout(ProjectFramework.Seahorse)))
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
+    }
+
+    // --- Anchor.toml's [programs.<cluster>] ---------------------------------------
+
+    /** The template's file: a `localnet` table with the placeholder, and the provider on devnet. */
+    private val templateToml =
+        "[toolchain]\n\n[features]\nresolution = true\nskip-lint = false\n\n" +
+            "[programs.localnet]\nmy_program = \"$idA\"\n\n" +
+            "[registry]\nurl = \"https://api.apr.dev\"\n\n" +
+            "[provider]\ncluster = \"devnet\"\nwallet = \"~/.config/solana/id.json\"\n"
+
+    @Test
+    fun `syncProgramIds writes the provider cluster table and fixes the localnet placeholder, once`() {
+        // The Seeker, 2026-09-08: after `anchor keys sync` on a devnet project
+        // Anchor.toml still had the placeholder under localnet and no devnet table.
+        write("Anchor.toml", templateToml)
+        write("programs/my-program/src/lib.rs", "declare_id!(\"$idA\");\n")
+        val id = writeKeypair().publicKey.base58
+
+        assertEquals(listOf("Anchor.toml"), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+        val text = File(root, "Anchor.toml").readText()
+        assertEquals(id, AnchorToml.programId(text, "devnet", "my_program"))
+        assertEquals(id, AnchorToml.programId(text, "localnet", "my_program"))
+        // Everything else is byte-for-byte the template's.
+        assertTrue(text.startsWith("[toolchain]\n\n[features]\nresolution = true\nskip-lint = false\n\n"))
+        assertTrue(text.contains("[registry]\nurl = \"https://api.apr.dev\"\n\n[provider]\ncluster = \"devnet\"\n"))
+        // No Python exists for an Anchor project, and none was invented.
+        assertFalse(File(root, "programs_py").exists())
+
+        // Idempotent: the second pass has nothing to write.
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+        assertEquals(text, File(root, "Anchor.toml").readText())
+    }
+
+    @Test
+    fun `syncProgramIds leaves a localnet id that is not the placeholder, and falls back to devnet`() {
+        // A real id under localnet is somebody's deliberate map; only the
+        // placeholder is a lie `keys sync` was meant to replace. And a provider
+        // saying `localnet` names no cluster we have, so the default table is written.
+        write("Anchor.toml", "[programs.localnet]\nmy_program = \"$idB\"\n\n[provider]\ncluster = \"localnet\"\n")
+        val id = writeKeypair().publicKey.base58
+        assertEquals(listOf("Anchor.toml"), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+        val text = File(root, "Anchor.toml").readText()
+        assertEquals(idB, AnchorToml.programId(text, "localnet", "my_program"))
+        assertEquals(id, AnchorToml.programId(text, "devnet", "my_program"))
+    }
+
+    @Test
+    fun `syncProgramIds rewrites a row keyed by the crate name instead of adding a module row`() {
+        // A cloned or hand-written Anchor.toml keys the table the way resolve()
+        // also reads it — by crate name. Adding `my_program = …` beside
+        // `my-program = …` would leave the file holding two ids for one program.
+        write("Anchor.toml", "[programs.localnet]\nmy-program = \"$idA\"\n\n[programs.devnet]\nmy-program = \"$idB\"\n\n[provider]\ncluster = \"devnet\"\n")
+        val id = writeKeypair().publicKey.base58
+        assertEquals(listOf("Anchor.toml"), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+        val text = File(root, "Anchor.toml").readText()
+        assertEquals(id, AnchorToml.programId(text, "devnet", "my-program"))
+        assertEquals(id, AnchorToml.programId(text, "localnet", "my-program"))
+        assertNull(AnchorToml.programId(text, "devnet", "my_program"))
+        assertNull(AnchorToml.programId(text, "localnet", "my_program"))
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Anchor)))
+    }
+
+    @Test
+    fun `a Seahorse project gets both the Python and Anchor toml, Anchor toml first`() {
+        write("Anchor.toml", templateToml)
+        write("programs_py/my_program.py", "declare_id('$idA')\n")
+        val id = writeKeypair().publicKey.base58
+        assertEquals(
+            listOf("Anchor.toml", "programs_py/my_program.py"),
+            ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)),
+        )
+        assertEquals(id, AnchorToml.programId(File(root, "Anchor.toml").readText(), "devnet", "my_program"))
+        assertEquals("declare_id('$id')\n", File(root, "programs_py/my_program.py").readText())
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Seahorse)))
+    }
+
+    @Test
+    fun `withAnchorTomlId is a no-op when both tables already agree`() {
+        val text = "[programs.localnet]\nmy_program = \"$idB\"\n\n[programs.devnet]\nmy_program = \"$idB\"\n"
+        assertEquals(text, ProgramIds.withAnchorTomlId(text, Cluster.Devnet, "my_program", idB))
     }
 
     // --- declare_id! ----------------------------------------------------------

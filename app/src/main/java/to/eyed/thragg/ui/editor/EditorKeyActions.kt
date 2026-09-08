@@ -87,9 +87,6 @@ object EditorAction {
      */
     const val ToggleRelativeLineNumbers = "editor::ToggleRelativeLineNumbers"
 
-    /** Zed's `editor::ToggleMinimap`, the minimap's own switch. */
-    const val ToggleMinimap = "editor::ToggleMinimap"
-
     const val MoveLineUp = "editor::MoveLineUp"
     const val MoveLineDown = "editor::MoveLineDown"
     const val DuplicateLineUp = "editor::DuplicateLineUp"

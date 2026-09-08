@@ -4,6 +4,7 @@ import to.eyed.thragg.solana.build.BuildTasks
 import to.eyed.thragg.solana.build.ProgramTarget
 import to.eyed.thragg.solana.build.ProjectFramework
 import to.eyed.thragg.solana.build.ProjectLayout
+import to.eyed.thragg.solana.templates.SolanaProgram
 import java.io.File
 
 /**
@@ -129,30 +130,101 @@ object ProgramIds {
     }
 
     /**
-     * Point every Seahorse program's `declare_id(...)` at its keypair's
-     * address, and say which files changed (project-relative). Blocking.
+     * Point every program's other two claims at its keypair's address, and
+     * say which files changed (project-relative). Blocking. Anchor and
+     * Seahorse only; a Native project has no Anchor.toml and no Python.
      *
-     * `anchor keys sync` fixes `declare_id!` in `lib.rs` and the Anchor.toml
-     * table, and for an Anchor project that is the end of it. A Seahorse
-     * `lib.rs` is *generated* from the Python on every build, so a sync that
-     * stops there is undone by the build that follows it, and the program
-     * ships with the placeholder id again: DeclaredProgramIdMismatch on the
-     * first call. The Python is the source; this is the sync for it. A
-     * program with no keypair yet is left alone — the first build makes one.
+     * `anchor keys sync` fixes `declare_id!` in `lib.rs`, and the build that
+     * runs after it is what the id is for. But two files it does not reach
+     * on this phone:
+     *
+     *  - **Anchor.toml.** Measured on the Seeker 2026-09-08, after `keys
+     *    sync` on a Seahorse project whose `[provider] cluster` was devnet:
+     *    `lib.rs` and the Python carried the keypair's address, and
+     *    Anchor.toml still read `[programs.localnet] sea_counter = "<the
+     *    placeholder>"` with no `[programs.devnet]` table at all. Anchor's
+     *    sync rewrites the table for the cluster the *provider* names only
+     *    when that table exists, and the template writes `localnet` alone
+     *    (SolanaTemplates.anchorToml). So the file lied about the id it
+     *    deploys under, and [resolve] read it as a third, disagreeing claim.
+     *    This writes `[programs.<provider cluster>]` when its row is missing
+     *    or differs from the keypair, and fixes `[programs.localnet]` when
+     *    it still holds [SolanaProgram.PLACEHOLDER_ID] — that table is
+     *    Anchor's own convention and stays, but a placeholder in it is
+     *    exactly what `keys sync` was meant to replace.
+     *  - **The Python.** A Seahorse `lib.rs` is *generated* from
+     *    `programs_py/<module>.py` on every build, so a sync that stops at
+     *    `lib.rs` is undone by the build that follows it, and the program
+     *    ships with the placeholder id again: DeclaredProgramIdMismatch on
+     *    the first call. The Python is the source; [withSeahorseDeclaredId]
+     *    is the sync for it.
+     *
+     * A program with no keypair yet is left alone — the first build makes
+     * one. Idempotent: a file that already agrees is neither written nor
+     * returned, and Anchor.toml is written at most once for all programs.
      */
-    fun syncSeahorseIds(layout: ProjectLayout): List<String> {
-        if (layout.framework != ProjectFramework.Seahorse) return emptyList()
+    fun syncProgramIds(layout: ProjectLayout): List<String> {
+        when (layout.framework) {
+            ProjectFramework.Anchor, ProjectFramework.Seahorse -> Unit
+            ProjectFramework.Native, ProjectFramework.Unknown -> return emptyList()
+        }
         val changed = ArrayList<String>()
+        val anchorToml = File(layout.root, "Anchor.toml")
+        val originalToml = if (anchorToml.isFile) runCatching { anchorToml.readText() }.getOrNull() else null
+        val cluster = originalToml
+            ?.let { AnchorToml.providerCluster(it) }
+            ?.let { Cluster.fromAnchor(it) }
+            ?: Cluster.DEFAULT
+        var toml = originalToml
         for (program in layout.programs) {
             val keypairId = Keypair.read(keypairFile(layout.root, program))?.publicKey?.base58
                 ?: continue
+            toml = toml?.let { withAnchorTomlId(it, cluster, program.moduleName, keypairId, program.crateName) }
+            if (layout.framework != ProjectFramework.Seahorse) continue
             val source = seahorseSourceFile(layout.root, program)
             val text = runCatching { source.readText() }.getOrNull() ?: continue
             val rewritten = withSeahorseDeclaredId(text, keypairId) ?: continue
             source.writeText(rewritten)
             changed.add("programs_py/${program.moduleName}.py")
         }
+        if (toml != null && toml != originalToml) {
+            anchorToml.writeText(toml)
+            changed.add(0, "Anchor.toml")
+        }
         return changed
+    }
+
+    /**
+     * [text] with `[programs.<cluster>] module = "id"` — written when the row
+     * is absent or names something else — and `[programs.localnet]`'s row for
+     * [module] replaced when it still holds the scaffold's placeholder. The
+     * same text back when both already hold, so a caller can compare to know
+     * whether to write. Pure; the file-shaped half is [syncProgramIds].
+     *
+     * The row is keyed the way the file already keys it. The scaffold writes
+     * the module name, but [resolve] also accepts a row under [crate] (a
+     * hand-written or cloned Anchor.toml with `my-program = "…"`), and a sync
+     * that only knew the module would *add* a second row under it and leave
+     * the crate-keyed one holding the wrong id — a file that half lies.
+     */
+    fun withAnchorTomlId(text: String, cluster: Cluster, module: String, id: String, crate: String? = null): String {
+        var out = text
+        val key = keyFor(out, cluster.anchorName, module, crate)
+        if (AnchorToml.programId(out, cluster.anchorName, key) != id) {
+            out = AnchorToml.withProgramId(out, cluster.anchorName, key, id)
+        }
+        val localKey = keyFor(out, LOCALNET, module, crate)
+        if (AnchorToml.programId(out, LOCALNET, localKey) == SolanaProgram.PLACEHOLDER_ID) {
+            out = AnchorToml.withProgramId(out, LOCALNET, localKey, id)
+        }
+        return out
+    }
+
+    /** The key `[programs.<cluster>]` already uses for this program; the module name when neither is there. */
+    private fun keyFor(text: String, cluster: String, module: String, crate: String?): String = when {
+        AnchorToml.programId(text, cluster, module) != null -> module
+        crate != null && AnchorToml.programId(text, cluster, crate) != null -> crate
+        else -> module
     }
 
     /**
@@ -225,6 +297,12 @@ object ProgramIds {
         val native = File(root, "src/lib.rs")
         return native.takeIf { it.isFile }
     }
+
+    /**
+     * The table the template writes and Anchor's `keys sync` expects to find:
+     * not a [Cluster] (there is no validator on this phone), just the name.
+     */
+    private const val LOCALNET = "localnet"
 
     private val DECLARE_ID = Regex("""declare_id!\s*\(\s*"([1-9A-HJ-NP-Za-km-z]{32,44})"\s*\)""")
 

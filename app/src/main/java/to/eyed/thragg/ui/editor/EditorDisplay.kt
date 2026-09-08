@@ -4,12 +4,15 @@ import org.json.JSONObject
 
 /**
  * The display settings Zed keeps outside the language layer — how the gutter
- * counts, how the caret looks, what the scrollbar and the minimap show, and
- * whether a diagnostic writes itself at the end of its line.
+ * counts, how the caret looks, and whether a diagnostic writes itself at the
+ * end of its line.
  *
  * They are parsed here rather than in `AppSettings` for the reason
  * `LanguageSettings` is a file of its own: the pane is the only reader, and
- * everything in here is a Zed key with a Zed default beside it.
+ * everything in here is a Zed key with a Zed default beside it. The
+ * `scrollbar` and `minimap` blocks used to be here too; both went with the
+ * marks and the map they configured (docs/UI.md, "What is removed"), and
+ * the scrollbar thumb that stays has nothing to configure.
  */
 
 /**
@@ -82,23 +85,12 @@ enum class EditorCursorShape(val key: String) {
     }
 }
 
-/** Zed's `scrollbar.show` (default.json:600-613). */
-enum class ShowScrollbar(val key: String) {
-    /** Zed's default, and this pane's behaviour since it had a scrollbar. */
-    Auto("auto"),
-    System("system"),
-    Always("always"),
-    Never("never");
-
-    companion object {
-        fun fromKey(key: String?): ShowScrollbar = entries.firstOrNull { it.key == key } ?: Auto
-    }
-}
-
 /**
- * Zed's `scrollbar.diagnostics`, which is a severity floor rather than a
- * flag: `"warning"` marks errors and warnings and nothing quieter. `false`
- * and `true` are read as `none` and `all`, as Zed reads them.
+ * Zed's severity floor, as `diagnostics.inline.max_severity` spells it:
+ * `"warning"` admits errors and warnings and nothing quieter. `false` and
+ * `true` are read as `none` and `all`, as Zed reads them. The name is the
+ * one Zed's `scrollbar.diagnostics` gave it; that key is gone with the
+ * scrollbar marks, and the inline messages are what is left reading it.
  */
 enum class ScrollbarDiagnostics(val key: String) {
     None("none"),
@@ -123,72 +115,6 @@ enum class ScrollbarDiagnostics(val key: String) {
                 is String -> entries.firstOrNull { it.key == value } ?: fallback
                 else -> fallback
             }
-    }
-}
-
-/** Zed's `scrollbar` block, narrowed to the marks this pane can draw. */
-data class ScrollbarSettings(
-    val show: ShowScrollbar = ShowScrollbar.Auto,
-    val cursors: Boolean = true,
-    val gitDiff: Boolean = true,
-    val searchResults: Boolean = true,
-    val selectedSymbol: Boolean = true,
-    val diagnostics: ScrollbarDiagnostics = ScrollbarDiagnostics.All,
-) {
-    /** Whether the track is drawn at all when there is something to scroll. */
-    val isShown: Boolean get() = show != ShowScrollbar.Never
-
-    companion object {
-        fun parse(json: JSONObject?): ScrollbarSettings {
-            val fallback = ScrollbarSettings()
-            if (json == null) return fallback
-            return ScrollbarSettings(
-                show = ShowScrollbar.fromKey(json.optString("show", null)),
-                cursors = json.optBoolean("cursors", fallback.cursors),
-                gitDiff = json.optBoolean("git_diff", fallback.gitDiff),
-                searchResults = json.optBoolean("search_results", fallback.searchResults),
-                selectedSymbol = json.optBoolean("selected_symbol", fallback.selectedSymbol),
-                diagnostics = ScrollbarDiagnostics.fromKey(json.opt("diagnostics")),
-            )
-        }
-    }
-}
-
-/** Zed's `minimap.show` (default.json:640-649); the default is `never`. */
-enum class ShowMinimap(val key: String) {
-    /** With the scrollbar — which on this pane means "when there is scroll". */
-    Auto("auto"),
-    Always("always"),
-    Never("never");
-
-    companion object {
-        fun fromKey(key: String?): ShowMinimap = entries.firstOrNull { it.key == key } ?: Never
-    }
-}
-
-/**
- * Zed's `minimap` block. `display_in` and `thumb_border` are not here: this
- * pane has one editor per pane and draws the thumb as a wash, so neither key
- * has anything to change.
- */
-data class MinimapSettings(
-    val show: ShowMinimap = ShowMinimap.Never,
-    /** `hover` means "while it is being dragged" on a touch screen. */
-    val thumbAlways: Boolean = true,
-    /** How wide the map may get, in buffer-font columns. */
-    val maxWidthColumns: Int = 80,
-) {
-    companion object {
-        fun parse(json: JSONObject?): MinimapSettings {
-            val fallback = MinimapSettings()
-            if (json == null) return fallback
-            return MinimapSettings(
-                show = ShowMinimap.fromKey(json.optString("show", null)),
-                thumbAlways = json.optString("thumb", "always") != "hover",
-                maxWidthColumns = json.optInt("max_width_columns", fallback.maxWidthColumns)
-                    .coerceIn(8, 200),
-            )
-        }
     }
 }
 

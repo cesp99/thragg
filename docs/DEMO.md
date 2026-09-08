@@ -14,8 +14,8 @@ laptop, no cloud builder, no remote toolchain.
 All of this happens once, on Wi-Fi, on the charger. Budget 30–45 minutes,
 mostly unattended.
 
-1. **Run Setup to completion.** Build tab → the setup screen. ~677 MB down,
-   ~2.1 GB on disk; the slow steps are the platform-tools download (505 MB),
+1. **Run Setup to completion.** Build tab → the setup screen. ~890 MB down,
+   ~2.9 GB on disk (Node and Seahorse included); the slow steps are the platform-tools download (505 MB),
    apt (2–4 min) and `cargo install cargo-build-sbf`, which compiles on the
    phone in ~3 min 45 s. Every row must be green — the fallback path when
    `cargo-build-sbf` is missing builds into the wrong layout and would poison
@@ -69,10 +69,15 @@ mostly unattended.
   on-device compile, after Anchor). Unless it was installed and a Seahorse
   build was verified the day before, leave the card alone: the Build tab
   will say "Seahorse is not installed", which is honest and not a demo.
-- **Deploy** — P6 is unbuilt; there is no wallet or cluster wiring yet. The
-  overflow item errors honestly, but a demo is not the place to prove that.
-- **Anchor Test** — needs Node, which the manifest doesn't ship; the fallback
-  dialog offers `cargo test`, an awkward beat in front of a guest.
+- **Deploy** — real, but it spends: the deploy key needs SOL on the cluster
+  and the devnet faucet is a wait, not a beat. Deploy the day before and show
+  the "deployed from this phone" record and the explorer link instead.
+- **Anchor Test** — needs the optional Node row installed in Setup *and* a
+  deploy first: `anchor test` runs with `--skip-deploy` against the program
+  on the cluster, and its first run does a `yarn install` over the network.
+  Without both it is a sheet ("Node is not installed") or a failing test, an
+  awkward beat in front of a guest either way; rehearse it the day before or
+  leave it.
 - The talk track for all three is the same and true: the SBF toolchain and the
   agent loop are the hard part and they are done; deploy/sign is Seed Vault
   integration, designed and next.

@@ -273,10 +273,22 @@ class BuildTasksTest {
         assertNull(BuildTasks.buildCommand(layout(ProjectFramework.Unknown), GuestTools()))
     }
 
+    /**
+     * Both skips, always: there is no Agave CLI in the guest, so `anchor
+     * test` can neither start `solana-test-validator` nor run `solana program
+     * deploy`. Without `--skip-deploy` the run died with "command not found"
+     * before its first test; the program the tests call is the one Deploy
+     * already put on chain.
+     */
     @Test
-    fun `test skips the local validator, because this phone has none`() {
-        val command = BuildTasks.testCommand(layout(ProjectFramework.Anchor))!!
-        assertTrue(command.line.contains("--skip-local-validator"))
+    fun `test skips the local validator and the deploy, because this phone has neither`() {
+        for (framework in listOf(ProjectFramework.Anchor, ProjectFramework.Seahorse)) {
+            val command = BuildTasks.testCommand(layout(framework))!!
+            assertTrue(command.line.contains("--skip-local-validator"))
+            assertTrue(command.line.contains("--skip-deploy"))
+            assertTrue(command.line.endsWith(BuildTasks.ANCHOR_TEST))
+            assertEquals(BuildTasks.ANCHOR_TEST, command.display)
+        }
         assertEquals("cargo test", BuildTasks.testCommand(layout(ProjectFramework.Native))!!.display)
     }
 
@@ -285,6 +297,28 @@ class BuildTasksTest {
         assertTrue(BuildTasks.anchorTestNeedsNode(layout(ProjectFramework.Anchor)))
         assertTrue(BuildTasks.anchorTestNeedsNode(layout(ProjectFramework.Seahorse)))
         assertFalse(BuildTasks.anchorTestNeedsNode(layout(ProjectFramework.Native)))
+    }
+
+    /**
+     * The sheet's question, as a pure function: Test on an Anchor project is
+     * blocked by a missing Node, then by a missing yarn (a Node whose corepack
+     * step failed), and by nothing once both resolve. Native never asks.
+     */
+    @Test
+    fun `anchor test is blocked by a missing node or yarn, and by nothing else`() {
+        val anchor = layout(ProjectFramework.Anchor)
+        assertEquals("Node is not installed", BuildTasks.anchorTestBlockedBy(anchor, GuestTools()))
+        assertEquals(
+            "yarn is not installed",
+            BuildTasks.anchorTestBlockedBy(anchor, GuestTools(node = true)),
+        )
+        assertNull(BuildTasks.anchorTestBlockedBy(anchor, GuestTools(node = true, yarn = true)))
+        assertEquals(
+            "Node is not installed",
+            BuildTasks.anchorTestBlockedBy(layout(ProjectFramework.Seahorse), GuestTools(yarn = true)),
+        )
+        // Native's `cargo test` needs neither, so it is never asked.
+        assertNull(BuildTasks.anchorTestBlockedBy(layout(ProjectFramework.Native), GuestTools.NONE))
     }
 
     // --- the environment ---------------------------------------------------------------
@@ -297,6 +331,10 @@ class BuildTasksTest {
         assertEquals(BuildTasks.CARGO_BIN, entries[0])
         assertEquals(BuildTasks.CLI_BIN, entries[1])
         assertEquals(BuildTasks.LLVM_BIN, entries[2])
+        // Node after every Solana entry: nothing it ships may shadow a build
+        // tool, and it resolves through the manifest's `current` symlink.
+        assertEquals(BuildTasks.NODE_BIN, entries[3])
+        assertEquals("/opt/node/current/bin", BuildTasks.NODE_BIN)
         assertTrue(entries.last().startsWith("/"))
         // The one that must NOT be there: a second cargo ahead of
         // $CARGO_HOME/bin shadows the cargo-build-sbf subcommand shim.
@@ -308,6 +346,16 @@ class BuildTasksTest {
         val environment = BuildTasks.guestEnvironment()
         assertTrue(environment.any { it == "RUSTUP_HOME=${BuildTasks.RUSTUP_HOME}" })
         assertTrue(environment.any { it == "CARGO_HOME=${BuildTasks.CARGO_HOME}" })
+    }
+
+    /**
+     * corepack's yarn shim prompts on stdin before downloading a yarn it has
+     * not cached, and a build's stdin is a closed pipe: the prompt would hang
+     * the run, not fail it.
+     */
+    @Test
+    fun `corepack is told never to prompt`() {
+        assertTrue(BuildTasks.guestEnvironment().contains("COREPACK_ENABLE_DOWNLOAD_PROMPT=0"))
     }
 
     // --- the summary line ----------------------------------------------------------------

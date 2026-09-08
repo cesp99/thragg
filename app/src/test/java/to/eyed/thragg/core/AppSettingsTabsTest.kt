@@ -7,8 +7,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The Kotlin half of Zed's `tabs`, `preview_tabs`, `max_tabs` and the rest of
- * `project_panel`.
+ * The Kotlin half of Zed's `tabs`, `max_tabs` and what is left of
+ * `project_panel` — `hide_root`, `indent_size`, `show_diagnostics`. The
+ * `preview_tabs` block and the panel's `sort_mode`, `auto_fold_dirs` and
+ * `entry_spacing` are gone from the model with the surfaces they configured
+ * (docs/UI.md, P8).
  *
  * The engine parses the same file with serde and clamps it; this parser has to
  * agree with it on every default, because the two run against the same
@@ -26,15 +29,7 @@ class AppSettingsTabsTest {
         assertEquals(ShowDiagnostics.Off, settings.tabs.showDiagnostics)
         assertEquals(ActivateOnClose.History, settings.tabs.activateOnClose)
         assertNull(settings.maxTabs)
-        assertTrue(settings.previewTabs.enabled)
-        assertTrue(settings.previewTabs.fromProjectPanel)
-        // Zed's odd one out: the finder opens permanently by default.
-        assertFalse(settings.previewTabs.fromFileFinder)
-        assertTrue(settings.previewTabs.fromCodeNavigation)
-        assertEquals(ProjectPanelSort.DirectoriesFirst, settings.projectPanel.sort)
         assertFalse(settings.projectPanel.hideRoot)
-        assertTrue(settings.projectPanel.autoFoldDirs)
-        assertEquals(EntrySpacing.Comfortable, settings.projectPanel.entrySpacing)
         assertEquals(20f, settings.projectPanel.indentSize, 0f)
         // `all` in the panel, `off` in the tabs — Zed's two different defaults
         // for the same enum.
@@ -91,36 +86,19 @@ class AppSettingsTabsTest {
     }
 
     @Test
-    fun `preview routes follow the settings`() {
-        val off = PreviewTabSettings(enabled = false)
-        assertFalse(off.previews(PreviewRoute.ProjectPanel))
-        val on = PreviewTabSettings(fromFileFinder = true)
-        assertTrue(on.previews(PreviewRoute.FileFinder))
-        assertTrue(on.previews(PreviewRoute.ProjectPanel))
-        // A permanent open is never a preview, whatever the settings say.
-        assertFalse(on.previews(PreviewRoute.Permanent))
-    }
-
-    @Test
     fun `the project panel block is read`() {
         val settings = AppSettings.parse(
             """
             {
               "project_panel": {
-                "sort_mode": "mixed",
                 "hide_root": true,
-                "auto_fold_dirs": false,
-                "entry_spacing": "standard",
                 "indent_size": 32,
                 "show_diagnostics": "off"
               }
             }
             """.trimIndent()
         )
-        assertEquals(ProjectPanelSort.Mixed, settings.projectPanel.sort)
         assertTrue(settings.projectPanel.hideRoot)
-        assertFalse(settings.projectPanel.autoFoldDirs)
-        assertEquals(EntrySpacing.Standard, settings.projectPanel.entrySpacing)
         assertEquals(32f, settings.projectPanel.indentSize, 0f)
         assertEquals(ShowDiagnostics.Off, settings.projectPanel.showDiagnostics)
     }

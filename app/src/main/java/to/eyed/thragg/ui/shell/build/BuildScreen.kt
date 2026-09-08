@@ -123,7 +123,10 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     val root = state.project?.rootPath
     val layout = BuildRunner.layout
     val inShell = ShellModes.isShell(root)
-    var testSheet by remember { mutableStateOf(false) }
+    // Why Test cannot run as `anchor test` right now, or null. Non-null is
+    // the sheet; it is a String rather than a Boolean because the sheet
+    // says which of Node and yarn is missing.
+    var testBlockedBy by remember { mutableStateOf<String?>(null) }
 
     // Detect, probe and stat — all three are blocking, and the probe starts a
     // proot. Keyed on the project and on the toolchain flag, so finishing
@@ -153,8 +156,9 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
             layout = layout,
             inShell = inShell,
             onTest = {
-                if (layout != null && BuildTasks.anchorTestNeedsNode(layout)) {
-                    testSheet = true
+                val blocked = layout?.let { BuildTasks.anchorTestBlockedBy(it, BuildRunner.tools) }
+                if (blocked != null) {
+                    testBlockedBy = blocked
                 } else {
                     BuildRunner.start(context, state, BuildAction.Test)
                 }
@@ -189,12 +193,17 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
         }
     }
 
-    if (testSheet) {
+    testBlockedBy?.let { reason ->
         AnchorTestSheet(
             state = state,
-            onDismiss = { testSheet = false },
+            reason = reason,
+            onDismiss = { testBlockedBy = null },
+            onSetup = {
+                testBlockedBy = null
+                state.push(Route.Setup)
+            },
             onCargoTest = {
-                testSheet = false
+                testBlockedBy = null
                 BuildRunner.start(context, state, BuildAction.Test, BuildTasks.cargoTestCommand())
             },
         )
@@ -748,29 +757,44 @@ private fun BuildIssueCard(issue: BuildIssue, onClick: () -> Unit) {
 }
 
 /**
- * Anchor's tests need Node, and the manifest ships none.
+ * Anchor's tests need Node and yarn, and this guest has not got them yet.
  *
  * Said before the run rather than after it. Anchor's scaffolded
  * `[scripts] test` is `yarn run ts-mocha …`, so pressing Test on an Anchor
  * project with no Node fails with a shell error that explains nothing —
- * docs/UI.md calls this out by name ("Test honesty"). The alternative offered
- * is real: `cargo test` runs the program's own Rust tests and needs nothing
- * but the toolchain that is already there.
+ * docs/UI.md calls this out by name ("Test honesty"). Since 2026-09-08 Node
+ * is an optional Setup row (manifest.json, `node`), so the first way out is
+ * Setup, one tap; the second is real too: `cargo test` runs the program's
+ * own Rust tests and needs nothing but the toolchain that is already there.
+ * [reason] is [BuildTasks.anchorTestBlockedBy]'s sentence — which of the two
+ * is missing — because a Node whose yarn step failed is a different repair
+ * from no Node at all.
  */
 @Composable
-private fun AnchorTestSheet(state: ShellState, onDismiss: () -> Unit, onCargoTest: () -> Unit) {
+private fun AnchorTestSheet(
+    state: ShellState,
+    reason: String,
+    onDismiss: () -> Unit,
+    onSetup: () -> Unit,
+    onCargoTest: () -> Unit,
+) {
     SheetScaffold(
         state = state,
         onDismiss = onDismiss,
-        title = "Anchor tests need Node",
+        title = reason,
         actions = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
                 FlatButton(
-                    label = "Run cargo test instead",
+                    label = "Set up",
                     emphasis = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onSetup,
+                )
+                FlatButton(
+                    label = "Run cargo test instead",
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onCargoTest,
                 )
@@ -783,10 +807,19 @@ private fun AnchorTestSheet(state: ShellState, onDismiss: () -> Unit, onCargoTes
         },
     ) {
         Text(
-            text = "Anchor's scaffolded test script is `yarn run ts-mocha`, and this device " +
-                "has no Node — it is not part of the toolchain, and installing it is about " +
-                "90 MB in the Shell (`apt install nodejs npm`).\n\n" +
-                "`cargo test` runs the program's own Rust tests and works today.",
+            text = if (reason.startsWith("yarn")) {
+                "Node is installed but its yarn step did not finish: the Node row in Setup " +
+                    "activates yarn through corepack, over the network, after the download. " +
+                    "Retry that row in Setup and come back, and Test will run `anchor test` " +
+                    "against the program deployed under Anchor.toml's cluster.\n\n" +
+                    "`cargo test` runs the program's own Rust tests and works today."
+            } else {
+                "Anchor's scaffolded test script is `yarn run ts-mocha`, which runs on " +
+                    "Node. Node (with yarn) is an optional part of Setup, about 57 MB to " +
+                    "download; install it and come back, and Test will run `anchor test` " +
+                    "against the program deployed under Anchor.toml's cluster.\n\n" +
+                    "`cargo test` runs the program's own Rust tests and works today."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = MD.space4, vertical = MD.space2),

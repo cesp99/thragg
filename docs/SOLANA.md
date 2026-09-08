@@ -114,8 +114,9 @@ symlinks (see the manifest's `toolsCacheSeedsNote` for why each tag is
 seeded). `BuildTasks.toolchainGuard` re-runs the link+default pair before
 every build, so a phone set up under the old name heals on its next build.
 
-There is no Node — Spettro is a single static binary, which is part of why it
-is the bundled agent.
+Spettro needs no Node — it is a single static binary, which is part of why it
+is the bundled agent. The one Node in the guest is the optional `node` row,
+there for Anchor's TypeScript tests alone ("How tests run", below).
 
 ### The two with no arm64 build: built by our own workflow
 
@@ -384,7 +385,8 @@ Programs are compiled by `cargo-build-sbf`, which drives the platform-tools
 Build   →  anchor build            (Anchor)
            seahorse build          (Seahorse: Python → Rust, then anchor build)
            cargo build-sbf         (Native)
-Test    →  anchor test / cargo test
+Test    →  anchor test --skip-local-validator --skip-deploy   (Anchor, Seahorse; needs the Node row)
+           cargo test                                          (Native, or offered for Anchor's Rust tests)
 Deploy  →  solana program deploy target/deploy/<name>.so
 ```
 
@@ -402,7 +404,7 @@ The new-project dialog mirrors Solana Playground's: a name and a framework.
 |---|---|
 | **Anchor (Rust)** | `Anchor.toml`, `programs/<name>/src/lib.rs`, `tests/` |
 | **Native (Rust)** | `Cargo.toml` against `solana-program`, `src/lib.rs` |
-| **Seahorse (Python)** | `programs_py/<name>.py`, the crate manifest and a placeholder `lib.rs` under `programs/<name>/` that `seahorse build` regenerates, and the same `Anchor.toml` — Seahorse *is* an Anchor project |
+| **Seahorse (Python)** | `programs_py/<name>.py`, `tests/`, the crate manifest and a placeholder `lib.rs` under `programs/<name>/` that `seahorse build` regenerates, and the same `Anchor.toml` — Seahorse *is* an Anchor project |
 
 Seahorse's compiler is the one component that compiles on the phone: nobody
 publishes `seahorse-dev` for arm64, and at two minutes it is not worth a
@@ -414,6 +416,40 @@ generated `lib.rs` is overwritten on every build — so Build's program-id sync
 rewrites the `.py` after `anchor keys sync`, or the next build would put the
 placeholder back.
 
+### How tests run
+
+Anchor's scaffold puts its tests in `tests/*.ts`, and its `[scripts] test` is
+`yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts` — so `anchor
+test` is a Node program before it is anything else. Node 22 LTS is therefore
+an optional Setup row (`node` in the manifest, 57 MB down, ~190 MB on disk,
+since 2026-09-08), unpacked to `/opt/node` with a `current` symlink that
+`PATH` names, and corepack activating the yarn classic the scaffold's
+`yarn.lock` was written for. Pressing Test on an Anchor or Seahorse project
+without it opens a sheet — Node is not installed → Set up, or run `cargo
+test` instead — rather than failing three lines into a log.
+
+With it, a Test run does three things before `anchor test`: `yarn install`
+when `node_modules/` has not been installed — the check is for the
+`ts-mocha` binary the script runs, so a stopped install is retried, not
+trusted (network, a minute or two, once per project); writes the wallet
+Anchor.toml names (`~/.config/solana/id.json` in the guest) from the app's
+own deploy key — the devnet throwaway that pays for deploys (docs/CHAIN.md,
+"Two keys, one prompt"), so it is the key on the phone that holds SOL and the
+tests' transactions pay; and says in the log what it is about to hit. Both skip
+flags are the same fact: there is no Agave CLI in the guest, so `anchor test`
+can neither start a local validator nor deploy. The tests run against the
+program already on chain under Anchor.toml's `[provider] cluster`, which the
+Deploy sheet must have put there first — and again after any change to the
+program, or the tests exercise the old one.
+
+Measured on the Seeker, 2026-09-08, on the Anchor scaffold against devnet:
+the first Test press took 5 min 52 s end to end — `yarn install` and the
+`anchor build` that `anchor test` runs first are most of it — and the two
+scaffolded tests themselves passed in 22 s (create a counter 12.8 s,
+increment it 9.1 s: two devnet confirmations each). The Seahorse scaffold's
+suite, same day, same cluster: 1 min 01 s for the press, 2 passing in 7 s.
+The Node row itself installed in 2.3 s over Wi-Fi.
+
 ## Wallet and cluster
 
 This is the part a laptop cannot do. The Seeker has **Seed Vault**, and the
@@ -422,8 +458,9 @@ Mobile Wallet Adapter rather than by a keypair file lying in the project.
 
 A filesystem keypair stays available for devnet throwaway work, because that
 is what most tutorials assume, and airdrops are one button. The cluster —
-localnet, devnet, testnet, mainnet-beta — is a status-bar item next to the
-toolchain, and the balance of the selected wallet sits beside it.
+devnet, testnet or mainnet-beta; there is no localnet, because no validator
+runs on the phone — is chosen in Settings and written to Anchor.toml, and the
+balance of the selected wallet sits beside it.
 
 ## Agents
 

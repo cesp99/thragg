@@ -89,13 +89,11 @@ import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
@@ -495,33 +493,16 @@ fun EditorPane(
     val showLineNumbers = state.showsWith(state.lineNumbersOverride, settings.lineNumbers)
     val relativeLineNumbers =
         state.showsWith(state.relativeLineNumbersOverride, settings.relativeLineNumbers.isRelative)
-    // Zed's `show_whitespaces`, per language; and the two remaining
-    // editor-local switches.
+    // Zed's `show_whitespaces`, per language; and the last editor-local
+    // switch.
     val whitespaceMode = languageSettings.showWhitespaces
     val showInlineDiagnostics = state.showsWith(
         state.inlineDiagnosticsOverride,
         settings.inlineDiagnostics.enabled,
     )
-    val showMinimap = state.showsWith(
-        state.minimapOverride,
-        settings.minimap.show != ShowMinimap.Never,
-    )
     // The bracket pair around the caret, re-asked when the caret or the text
     // moves — one tree walk per move, never per frame.
     val brackets = rememberMatchingBrackets(state)
-    // The minimap's geometry: one row per MINIMAP_ROW_DP, and one pixel per
-    // column up to `max_width_columns` — but never more than a quarter of the
-    // pane, because a phone has no room to be generous and Zed's own null
-    // default is "as wide as the content". The width is measured against the
-    // pane, so it is worked out where the pane's width is known: in the draw
-    // pass and in the gesture, both of which have `size`.
-    val minimapRowPx = with(density) { MINIMAP_ROW_DP.dp.toPx() }
-    val minimapColumnPx = with(density) { 1.dp.toPx() }
-    val minimapWanted = if (showMinimap) settings.minimap.maxWidthColumns * minimapColumnPx else 0f
-    /** Zed's `scrollbar.show`; `never` takes the drag handle with the track. */
-    val scrollbarShown = settings.scrollbar.isShown
-    val minimap = rememberMinimap(state, showMinimap, minimapRowPx)
-    var minimapDragging by remember { mutableStateOf(false) }
 
     // Syntax lags the text slightly by design (the reparse is off the
     // keystroke path), so watch for it landing and repaint when it does.
@@ -637,10 +618,8 @@ fun EditorPane(
     val format = rememberFormat(state) { receipt -> onWorkspaceEditApplied?.invoke(receipt) }
     val signatureHelp = rememberSignatureHelp(state)
     // What the buffer's server opens its menus on, kept current off the
-    // main thread; the inlay hints, asked for the visible rows; the fold
-    // ranges the syntax tree and the server know.
+    // main thread; the fold ranges the syntax tree and the server know.
     rememberBufferTriggers(state)
-    rememberInlayHints(state, settings.inlayHints)
     rememberSyntaxFolds(state)
     // A long press that finds nothing to say was an ordinary long press, and
     // an ordinary long press ends with the clipboard toolbar.
@@ -796,43 +775,10 @@ fun EditorPane(
                 // moves the viewport, and a tap on the track jumps there. It is
                 // claimed in the initial pass so a drag that starts on the
                 // track never also places the caret under it.
-                // The minimap is a handle too: a drag on it moves the
-                // viewport by the rows the finger crossed, which is Zed's own
-                // thumb drag. Claimed in the initial pass, ahead of the
-                // scrollbar below, because it sits left of the track.
-                .pointerInput(state, minimapWanted, minimapRowPx) {
+                .pointerInput(state) {
                     awaitEachGesture {
                         val down = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull()
                             ?: return@awaitEachGesture
-                        val minimapWidthPx = min(minimapWanted, size.width / 4f)
-                        if (minimapWidthPx <= 0f || state.maxScrollY <= 0f) return@awaitEachGesture
-                        val trackWidth = state.charWidthPx.coerceIn(10f, 24f)
-                        val left = size.width - trackWidth - minimapWidthPx
-                        if (down.position.x < left) return@awaitEachGesture
-                        if (down.position.x >= size.width - trackWidth) return@awaitEachGesture
-                        down.consume()
-                        minimapDragging = true
-                        var last = down.position.y
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) break
-                            change.consume()
-                            val rows = (change.position.y - last) / minimapRowPx
-                            last = change.position.y
-                            state.applyScrollDeltaY(-rows * state.lineHeightPx)
-                        }
-                        minimapDragging = false
-                    }
-                }
-                .pointerInput(state, scrollbarShown) {
-                    awaitEachGesture {
-                        val down = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull()
-                            ?: return@awaitEachGesture
-                        // `scrollbar.show: "never"` takes the handle with the
-                        // track: a press on a strip that is not there belongs
-                        // to the text under it.
-                        if (!scrollbarShown) return@awaitEachGesture
                         val trackWidth = state.charWidthPx.coerceIn(10f, 24f)
                         if (state.maxScrollY <= 0f) return@awaitEachGesture
                         if (down.position.x < size.width - trackWidth) return@awaitEachGesture
@@ -1197,45 +1143,26 @@ fun EditorPane(
             fun lineAt(row: Int): String = rows.text(row)
 
             /**
-             * This display row's text with its inlay hints spliced in — the
-             * string the frame measures and draws — and the column mapping
-             * back to the buffer. A row without hints is the plain segment,
-             * so the layout cache keys exactly as before hints existed.
+             * This display row's layout — the segment of its buffer row
+             * that this row shows, under the spans that fall in it. An
+             * unwrapped row hands the cache the row's own string, so the
+             * key is the text and nothing else.
              */
-            fun splicedOf(i: Int): SplicedSegment {
-                val row = window.bufferRow(i)
-                val line = lineAt(row)
-                val hints = state.inlayHintsFor(row)
-                val start = window.startCol(i)
-                val end = min(window.endCol(i), line.length)
-                if (hints.isEmpty()) return SplicedSegment.plain(state.segmentText(line, start, end))
-                return spliceInlays(line, start, end, hints)
-            }
-
             fun layoutOf(i: Int): TextLayoutResult {
                 val row = window.bufferRow(i)
-                val spliced = splicedOf(i)
-                val spans = spansIn(rows.spans(row), window.startCol(i), window.endCol(i))
-                return layoutCache.layoutFor(
-                    spliced.text,
-                    spliced.shiftSpans(spans),
-                    spliced.hintRanges,
-                )
+                val line = lineAt(row)
+                val start = window.startCol(i)
+                val end = min(window.endCol(i), line.length)
+                val spans = spansIn(rows.spans(row), start, window.endCol(i))
+                return layoutCache.layoutFor(state.segmentText(line, start, end), spans)
             }
 
             /**
              * The x of buffer column [col] on display row [i], relative to
-             * the row's left edge. [before] measures up to the column
-             * counting only the hints in front of it — the right edge of a
-             * span, which must not swallow the hint hanging off its last
-             * character.
+             * the row's left edge.
              */
-            fun xOf(i: Int, col: Int, before: Boolean = false): Float {
-                val spliced = splicedOf(i)
-                val local = col - window.startCol(i)
-                val display = if (before) spliced.toDisplayBefore(local) else spliced.toDisplay(local)
-                return layoutOf(i).getHorizontalPosition(display, true)
-            }
+            fun xOf(i: Int, col: Int): Float =
+                layoutOf(i).getHorizontalPosition(col - window.startCol(i), true)
 
             /** Left edge of this display row's text, continuation indent included. */
             fun leftOf(i: Int): Float = textLeft + window.indentColumns(i) * state.charWidthPx
@@ -1271,7 +1198,7 @@ fun EditorPane(
                     // has to be visible somewhere.
                     if (overlaps && (right > left || tail || minWidth > 0f)) {
                         val x0 = leftOf(i) + xOf(i, left)
-                        var x1 = leftOf(i) + xOf(i, right, before = right > left)
+                        var x1 = leftOf(i) + xOf(i, right)
                         if (tail) x1 += state.charWidthPx / 2f
                         drawRect(
                             color = color,
@@ -1329,7 +1256,7 @@ fun EditorPane(
                         val x1 = if (empty) {
                             x0 + state.charWidthPx
                         } else {
-                            leftOf(i) + xOf(i, right, before = true)
+                            leftOf(i) + xOf(i, right)
                         }
                         // The bottom of the glyph box, plus a hair, so the
                         // wave rides under the descenders rather than through
@@ -1555,9 +1482,6 @@ fun EditorPane(
                     // background (element.rs `CursorShape::Block`).
                     val glyphEnd = if (at < line.length) line.offsetByCodePoints(at, 1) else at
                     val width = if (at < line.length && glyphEnd <= window.endCol(i)) {
-                        // Through [xOf], not the raw layout: an inlay hint
-                        // spliced into the row moves the glyph, and the block
-                        // must cover where it is drawn.
                         (leftOf(i) + xOf(i, glyphEnd) - caretX)
                             .coerceAtLeast(state.cursorWidthPx)
                     } else {
@@ -1765,7 +1689,6 @@ fun EditorPane(
                         }
                         val marks = whitespaceColumns(text, whitespaceMode, covered)
                         if (marks.isEmpty()) continue
-                        val spliced = splicedOf(i)
                         val layout = layoutOf(i)
                         val startCol = window.startCol(i)
                         val endCol = window.endCol(i)
@@ -1773,8 +1696,7 @@ fun EditorPane(
                         for (column in marks) {
                             if (column < startCol || column >= endCol) continue
                             val glyph = if (text[column] == '\t') tabGlyph else spaceGlyph
-                            val x = left +
-                                layout.getHorizontalPosition(spliced.toDisplay(column - startCol), true)
+                            val x = left + layout.getHorizontalPosition(column - startCol, true)
                             if (x < gutterWidth || x >= size.width) continue
                             drawText(
                                 textLayoutResult = glyph,
@@ -2180,142 +2102,24 @@ fun EditorPane(
                 }
             }
 
-            // The minimap — Zed's `minimap` block, drawn as per-line colour
-            // blocks rather than glyphs (see Minimap.kt). It sits left of the
-            // scrollbar, so the two never overlap and either can be dragged.
-            val maxScroll = state.maxScrollY
-            val trackWidth = state.charWidthPx.coerceIn(10f, 24f)
-            val minimapWidthPx = min(minimapWanted, size.width / 4f)
-            if (minimapWidthPx > 0f) {
-                val left = size.width - trackWidth - minimapWidthPx
-                val content = minimap.value
-                drawRect(
-                    color = theme.color("editor.background"),
-                    topLeft = Offset(left, 0f),
-                    size = Size(minimapWidthPx, size.height),
-                )
-                val plain = theme.color("editor.foreground").copy(alpha = 0.35f)
-                val columnPx = minimapWidthPx / settings.minimap.maxWidthColumns
-                clipRect(left = left, right = size.width - trackWidth) {
-                    content.rows.forEachIndexed { index, runs ->
-                        val top = index * minimapRowPx
-                        if (top >= size.height) return@forEachIndexed
-                        for (run in runs) {
-                            val x = left + run.startCol * columnPx
-                            val width = ((run.endCol - run.startCol) * columnPx)
-                                .coerceAtLeast(columnPx)
-                            drawRect(
-                                color = if (run.style < 0) {
-                                    plain
-                                } else {
-                                    theme.spanStyle(run.style)?.color?.takeIf {
-                                        it != Color.Unspecified
-                                    } ?: plain
-                                },
-                                topLeft = Offset(x, top),
-                                size = Size(width, minimapRowPx),
-                            )
-                        }
-                    }
-                }
-                // The viewport thumb: a wash over the rows on screen. Zed's
-                // `thumb: "hover"` has no hover to wait for on a touch screen,
-                // so it is drawn while the map is being dragged instead.
-                if (settings.minimap.thumbAlways || minimapDragging) {
-                    val thumbTop = (state.topVisibleRow() - content.firstRow) * minimapRowPx
-                    val thumbHeight = (state.viewportRows() * minimapRowPx)
-                        .coerceAtLeast(minimapRowPx * 2f)
-                    drawRect(
-                        color = theme.color("scrollbar.thumb.background"),
-                        topLeft = Offset(left, thumbTop.coerceIn(0f, size.height)),
-                        size = Size(minimapWidthPx, thumbHeight),
-                    )
-                }
-            }
-
             // The scrollbar, over everything: Zed's is a 15px track down the
             // right edge (crates/ui/src/components/scrollbar.rs:376) and on a
             // phone it earns its width twice over, as the only way to cross a
-            // long file without a hundred flings.
-            if (maxScroll > 0f && scrollbarShown) {
+            // long file without a hundred flings. The track carries no marks:
+            // Zed's search, hunk, diagnostic and caret markers went with the
+            // `scrollbar` block and the minimap (docs/UI.md, "What is
+            // removed") — a pixel-high bar per row on a phone-height track
+            // said nothing a finger could act on, and the thumb is the part
+            // that earns the width.
+            val maxScroll = state.maxScrollY
+            val trackWidth = state.charWidthPx.coerceIn(10f, 24f)
+            if (maxScroll > 0f) {
                 val trackLeft = size.width - trackWidth
                 drawRect(
                     color = theme.color("scrollbar.track.background"),
                     topLeft = Offset(trackLeft, 0f),
                     size = Size(trackWidth, size.height),
                 )
-                // Zed's scrollbar markers (`marker_quads_for_ranges`,
-                // crates/editor/src/element.rs:6100-6200): a short bar at the
-                // row's place in the file for every search hit, git hunk,
-                // diagnostic, selected-symbol match and caret, each under the
-                // `scrollbar` key that switches it off. Drawn in Zed's order,
-                // quietest first, so a diagnostic is never hidden by a hunk.
-                val rowCount = map.displayRowCount.coerceAtLeast(1)
-                val markHeight = (size.height / rowCount).coerceIn(2f, 6f)
-                fun markAt(row: Int, color: Color, left: Float, width: Float) {
-                    val display = state.displayRowOf(row, 0)
-                    if (display < 0) return
-                    val y = (display.toFloat() / rowCount) * size.height
-                    drawRect(
-                        color = color,
-                        topLeft = Offset(left, y.coerceIn(0f, size.height - markHeight)),
-                        size = Size(width, markHeight),
-                    )
-                }
-                if (settings.scrollbar.gitDiff) {
-                    for (hunk in state.gitHunks) {
-                        markAt(
-                            hunk.startRow,
-                            when (hunk.kind) {
-                                GitHunkKind.Added -> gitColours.added
-                                GitHunkKind.Deleted -> gitColours.deleted
-                                else -> gitColours.modified
-                            },
-                            trackLeft,
-                            trackWidth / 3f,
-                        )
-                    }
-                }
-                if (settings.scrollbar.searchResults) {
-                    val ink = theme.color("search.match_background")
-                    // One mark per row, not per hit: a search for `e` in a
-                    // long file would otherwise be thousands of rectangles
-                    // stacked on a dozen pixels.
-                    var lastMarked = -1
-                    for (match in state.searchMatches) {
-                        if (match.startRow == lastMarked) continue
-                        lastMarked = match.startRow
-                        markAt(match.startRow, ink, trackLeft + trackWidth / 3f, trackWidth / 3f)
-                    }
-                }
-                if (settings.scrollbar.diagnostics != ScrollbarDiagnostics.None) {
-                    // One pass, not one per severity: a row keeps the worst of
-                    // its problems, which is what Zed's "most severe paints
-                    // last" comes to once the marks are a pixel high.
-                    val worstByRow = HashMap<Int, DiagnosticSeverity>()
-                    state.diagnostics.forEachIn(0, state.lineCount - 1) { diagnostic ->
-                        if (!settings.scrollbar.diagnostics.marks(diagnostic.severity)) {
-                            return@forEachIn
-                        }
-                        val known = worstByRow[diagnostic.row]
-                        if (known == null || diagnostic.severity < known) {
-                            worstByRow[diagnostic.row] = diagnostic.severity
-                        }
-                    }
-                    for ((row, severity) in worstByRow) {
-                        markAt(
-                            row,
-                            theme.color(severity.token),
-                            trackLeft + trackWidth * 2f / 3f,
-                            trackWidth / 3f,
-                        )
-                    }
-                }
-                if (settings.scrollbar.cursors) {
-                    val ink = theme.cursor
-                    markAt(state.cursorRow, ink, trackLeft, trackWidth)
-                    for (caret in extras) markAt(caret.headRow, ink, trackLeft, trackWidth)
-                }
                 val visible =
                     (size.height / (map.displayRowCount * lineHeight)).coerceIn(0f, 1f)
                 val thumbHeight = (size.height * visible).coerceAtLeast(trackWidth * 2f)
@@ -2647,18 +2451,18 @@ private fun anchorPx(
     val segment = wrap.segmentOf(at)
     val start = wrap.startOf(segment)
     val end = wrap.endOf(segment, line.length)
-    val (layout, spliced) = segmentLayout(state, layoutCache, safeRow, line, start, end, wrap.wraps)
+    val layout = segmentLayout(state, layoutCache, safeRow, line, start, end, wrap.wraps)
     val indentPx = if (segment > 0) wrap.indentColumns * state.charWidthPx else 0f
     val x = state.gutterWidthPx + state.textPaddingPx - state.effectiveScrollX + indentPx +
-        layout.getHorizontalPosition(spliced.toDisplay(at - start), true)
+        layout.getHorizontalPosition(at - start, true)
     return Offset(x, state.displayRowOf(safeRow, at) * state.lineHeightPx - state.scrollY)
 }
 
 /**
- * One segment's layout as the draw pass measures it — inlay hints spliced
- * in, spans shifted around them — and the splice, for mapping a column
- * into it. The popups, the handles and the fold chip all measure through
- * this so they land where the frame drew the text.
+ * One segment's layout as the draw pass measures it — the same text under
+ * the same spans, through the same cache. The popups, the handles and the
+ * fold chip all measure through this so they land where the frame drew the
+ * text.
  */
 private fun segmentLayout(
     state: EditorState,
@@ -2668,15 +2472,9 @@ private fun segmentLayout(
     start: Int,
     end: Int,
     wraps: Boolean,
-): Pair<TextLayoutResult, SplicedSegment> {
-    val hints = state.inlayHintsFor(row)
+): TextLayoutResult {
     val spans = spansIn(state.spansFor(row), start, if (wraps) end else Int.MAX_VALUE)
-    if (hints.isEmpty()) {
-        val plain = SplicedSegment.plain(state.segmentText(line, start, end))
-        return layoutCache.layoutFor(plain.text, spans) to plain
-    }
-    val spliced = spliceInlays(line, start, end, hints)
-    return layoutCache.layoutFor(spliced.text, spliced.shiftSpans(spans), spliced.hintRanges) to spliced
+    return layoutCache.layoutFor(state.segmentText(line, start, end), spans)
 }
 
 /**
@@ -2798,8 +2596,8 @@ private fun EditorActionRow(
                 // Listed only while the file has problems: a key that can
                 // never do anything is worse than no key.
                 if (!state.diagnostics.isEmpty) {
-                    ActionKey("prob↑", act { state.goToDiagnostic(forward = false) })
-                    ActionKey("prob↓", act { state.goToDiagnostic(forward = true) })
+                    ActionKey("prev prob", act { state.goToDiagnostic(forward = false) })
+                    ActionKey("next prob", act { state.goToDiagnostic(forward = true) })
                 }
                 ActionKey("fold", act { state.foldAtCarets() })
                 ActionKey("//", act { state.toggleComment() })
@@ -2807,9 +2605,10 @@ private fun EditorActionRow(
                 ActionKey("unfold", act { state.unfoldAtCarets() })
                 ActionKey("outdent", act { state.outdent() })
                 ActionKey("del", act { state.delete() })
-                // Words rather than `⌫`, `⌦` and `↵`: those three are keycap
-                // glyphs a phone's UI face is not obliged to carry, and a key
-                // that draws tofu is a key nobody presses.
+                // Words rather than `⌫`, `⌦`, `↵`, `↑` and `↓`: keycap and
+                // arrow glyphs a phone's UI face is not obliged to carry, and
+                // a key that draws tofu is a key nobody presses. The
+                // NoEmojiInUiTest ratchet holds this row to it.
                 ActionKey("del word back", act { state.deleteToPreviousWordStart() })
                 ActionKey("del word fwd", act { state.deleteToNextWordEnd() })
                 ActionKey("newline above", act { state.newlineAbove() })
@@ -2818,11 +2617,11 @@ private fun EditorActionRow(
                 ActionKey("type def", act { definition.goToCaret(GoToKind.TypeDefinition) })
                 ActionKey("impl", act { definition.goToCaret(GoToKind.Implementation) })
                 ActionKey("decl", act { definition.goToCaret(GoToKind.Declaration) })
-                ActionKey("add caret ↑", act { state.addCaretVertically(-1) })
-                ActionKey("add caret ↓", act { state.addCaretVertically(1) })
+                ActionKey("caret above", act { state.addCaretVertically(-1) })
+                ActionKey("caret below", act { state.addCaretVertically(1) })
                 ActionKey("add next", act { state.selectNextOccurrence() })
-                ActionKey("line↑", act { state.moveLines(-1) })
-                ActionKey("line↓", act { state.moveLines(1) })
+                ActionKey("line up", act { state.moveLines(-1) })
+                ActionKey("line down", act { state.moveLines(1) })
                 ActionKey("dup", act { state.duplicateLines(above = false) })
                 ActionKey("del line", act { state.deleteLines() })
                 ActionKey("join", act { state.joinLines() })
@@ -2831,8 +2630,8 @@ private fun EditorActionRow(
                 // buttons on each conflict resolve it, but a finger still needs
                 // a way to the next one without scrolling for the next tinted row.
                 if (state.conflicts.isNotEmpty()) {
-                    ActionKey("conflict↑", act { state.goToConflict(forward = false) })
-                    ActionKey("conflict↓", act { state.goToConflict(forward = true) })
+                    ActionKey("prev conflict", act { state.goToConflict(forward = false) })
+                    ActionKey("next conflict", act { state.goToConflict(forward = true) })
                 }
             }
         }
@@ -3128,10 +2927,10 @@ private fun selectionHandles(
         val segment = wrap.segmentOf(at)
         val start = wrap.startOf(segment)
         val end = wrap.endOf(segment, line.length)
-        val (layout, spliced) = segmentLayout(state, layoutCache, row, line, start, end, wrap.wraps)
+        val layout = segmentLayout(state, layoutCache, row, line, start, end, wrap.wraps)
         val indentPx = if (segment > 0) wrap.indentColumns * state.charWidthPx else 0f
         val x = state.gutterWidthPx + state.textPaddingPx - state.effectiveScrollX + indentPx +
-            layout.getHorizontalPosition(spliced.toDisplay(at - start), true)
+            layout.getHorizontalPosition(at - start, true)
         val display = state.displayRowOf(row, at)
         return Offset(x, (display + 1) * state.lineHeightPx - state.scrollY)
     }
@@ -3156,7 +2955,7 @@ private fun foldChipBounds(
     val wrap = state.displayMap.wrapOf(line)
     val segment = wrap.segmentCount - 1
     val start = wrap.startOf(segment)
-    val (layout, _) = segmentLayout(state, layoutCache, row, line, start, line.length, wrap.wraps)
+    val layout = segmentLayout(state, layoutCache, row, line, start, line.length, wrap.wraps)
     val indentPx = if (segment > 0) wrap.indentColumns * state.charWidthPx else 0f
     val x = state.gutterWidthPx + state.textPaddingPx - state.effectiveScrollX + indentPx +
         layout.size.width
@@ -3429,9 +3228,6 @@ private fun editorActionHandlers(
         EditorAction.ToggleRelativeLineNumbers to does {
             state.toggleRelativeLineNumbers(settings.relativeLineNumbers.isRelative)
         },
-        EditorAction.ToggleMinimap to does {
-            state.toggleMinimap(settings.minimap.show != ShowMinimap.Never)
-        },
         EditorAction.ToggleInlineDiagnostics to does {
             state.toggleInlineDiagnostics(settings.inlineDiagnostics.enabled)
         },
@@ -3569,42 +3365,24 @@ internal class TextLayoutCache(
     private val theme: ZedTheme,
     private val capacity: Int = 512,
 ) {
-    private data class Key(val line: String, val spans: List<HighlightSpan>, val hints: List<IntRange>)
+    private data class Key(val line: String, val spans: List<HighlightSpan>)
 
     private val cache = object : LinkedHashMap<Key, TextLayoutResult>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, TextLayoutResult>) =
             size > capacity
     }
 
-    /**
-     * Zed draws an inlay in the theme's `hint` colour, unbolded and unitalic
-     * whatever the text around it (`inlay_hint_style` — editor.rs's
-     * `EditorStyle`, from `theme.status().hint`), so a hint reads as an
-     * annotation and never as code.
-     */
-    private val hintStyle = SpanStyle(
-        color = theme.color("hint", theme.color("text.muted")),
-        fontWeight = FontWeight.Normal,
-        fontStyle = FontStyle.Normal,
-    )
-
-    /**
-     * The layout of [line] under [spans]; [hints] are the runs of [line]
-     * that are inlay text rather than buffer text, painted in [hintStyle]
-     * over whatever span they fall in. Part of the key: the same characters
-     * with and without a hint are two layouts.
-     */
+    /** The layout of [line] under [spans]. */
     fun layoutFor(
         line: String,
         spans: List<HighlightSpan> = emptyList(),
-        hints: List<IntRange> = emptyList(),
     ): TextLayoutResult =
-        cache.getOrPut(Key(line, spans, hints)) {
-            measurer.measure(annotate(line, spans, hints), style, softWrap = false)
+        cache.getOrPut(Key(line, spans)) {
+            measurer.measure(annotate(line, spans), style, softWrap = false)
         }
 
-    private fun annotate(line: String, spans: List<HighlightSpan>, hints: List<IntRange>): AnnotatedString {
-        if (spans.isEmpty() && hints.isEmpty()) return AnnotatedString(line)
+    private fun annotate(line: String, spans: List<HighlightSpan>): AnnotatedString {
+        if (spans.isEmpty()) return AnnotatedString(line)
         return buildAnnotatedString {
             append(line)
             for (span in spans) {
@@ -3612,11 +3390,6 @@ internal class TextLayoutCache(
                 val end = span.end.coerceIn(0, line.length)
                 if (start >= end) continue
                 theme.spanStyle(span.style)?.let { addStyle(it, start, end) }
-            }
-            for (hint in hints) {
-                val start = hint.first.coerceIn(0, line.length)
-                val end = (hint.last + 1).coerceIn(0, line.length)
-                if (start < end) addStyle(hintStyle, start, end)
             }
         }
     }

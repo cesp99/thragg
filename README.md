@@ -77,9 +77,9 @@ at one deliberately narrow, coarse-grained JNI boundary. See
 
 | Area | State |
 |---|---|
-| Setup: Debian, rustup, platform-tools, `cargo-build-sbf`, Anchor, Seahorse, rust-analyzer, Spettro | ✅ one manifest, two install lanes, resumable downloads; the gate opens in under seven minutes on a Seeker, the rest finishes in the background |
+| Setup: Debian, rustup, platform-tools, `cargo-build-sbf`, Anchor, Node, Seahorse, rust-analyzer, Spettro | ✅ one manifest, two install lanes, resumable downloads; the gate opens in under seven minutes on a Seeker, the rest finishes in the background |
 | Build | ✅ Anchor, Native and Seahorse; diagnostics parsed into the editor and the Problems screen; program-id sync before the build; ~1 min 15 s first build of a fresh crate, 4–5 s rebuilds |
-| Test | ✅ `cargo test` for Native and as the offered alternative for Anchor, whose scaffolded TypeScript tests need Node the manifest does not ship (the Build tab says so) |
+| Test | ✅ `cargo test` for Native; `anchor test --skip-local-validator --skip-deploy` for Anchor and Seahorse against the program already deployed, with Node and yarn as an optional Setup row, a one-time `yarn install`, and the deploy key written as the test wallet — or `cargo test` as the offered alternative when Node is not installed (the Build tab says so) |
 | Deploy, cluster, wallet | ✅ devnet / testnet / mainnet-beta, Seed Vault signing through Mobile Wallet Adapter, Kotlin-side chunked program deploy, buffer recovery, close; devnet funding from the proof-of-work faucet |
 | Editor | ✅ Zed's engine under a touch surface: tree-sitter highlighting for 31 languages, LSP diagnostics, completions, hover, go to definition, rename, code actions, formatting; soft wrap on by default; find and replace |
 | Agent | ✅ any ACP agent; Spettro rendered in full, bundled by Setup |

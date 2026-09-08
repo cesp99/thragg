@@ -49,8 +49,16 @@ data class SolanaProgram(
         const val PLACEHOLDER_ID = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
 
         /**
-         * The four clusters, in the order the New program screen offers
+         * The three clusters, in the order the New program screen offers
          * them, spelled the way `anchor init` writes `[provider] cluster`.
+         *
+         * Deliberately no Localnet, the same rule as `chain/Cluster.kt`:
+         * there is no validator on this phone (Agave has no arm64 build,
+         * docs/SOLANA.md), so a project born saying `localnet` could never
+         * build, deploy or test here, and the chain layer would refuse it
+         * on first open anyway. The `[programs.localnet]` table stays in
+         * the template regardless — that is Anchor's program-id map, not a
+         * cluster choice, and `anchor keys sync` looks it up there.
          *
          * Anchor lower-cases the value before matching it, so the capitals
          * are cosmetic and a hand-edited `"devnet"` means the same thing —
@@ -58,7 +66,7 @@ data class SolanaProgram(
          * because the next person to open it will be following an Anchor
          * tutorial.
          */
-        val CLUSTERS: List<String> = listOf("Devnet", "Localnet", "Testnet", "Mainnet")
+        val CLUSTERS: List<String> = listOf("Devnet", "Testnet", "Mainnet")
 
         /**
          * What a new project gets unless the screen says otherwise.
@@ -131,11 +139,12 @@ enum class SolanaFramework(
     /**
      * Every file this template writes, in creation order.
      *
-     * [cluster] is Anchor's `[provider] cluster` — one of Anchor's own four
-     * spellings ([SolanaProgram.CLUSTERS]). It is a parameter rather than a
-     * field of [SolanaProgram] because it is not a *name*: it is the one
-     * thing in the scaffold that changes after the project exists, and P6's
-     * cluster chip rewrites the same line in `Anchor.toml` (docs/UI.md, P6).
+     * [cluster] is Anchor's `[provider] cluster` — one of the three
+     * spellings this app offers ([SolanaProgram.CLUSTERS]). It is a
+     * parameter rather than a field of [SolanaProgram] because it is not a
+     * *name*: it is the one thing in the scaffold that changes after the
+     * project exists, and P6's cluster chip rewrites the same line in
+     * `Anchor.toml` (docs/UI.md, P6).
      * The default is Anchor's, so `files(program)` alone still writes what
      * `anchor init` writes.
      */
@@ -665,6 +674,56 @@ private fun seahorseFiles(program: SolanaProgram, cluster: String): List<Templat
         """.trimIndent() + "\n",
     ),
     TemplateFile("programs_py/seahorse/prelude.py", SEAHORSE_PRELUDE),
+    // The same `[scripts] test` as Anchor's runs `tests/**/*.ts`, and mocha
+    // with nothing to match is a failing run ("No test files found") — so the
+    // scaffold ships the suite for the program above. Seahorse's own `init`
+    // writes one too. The accounts are the instruction's parameters by name;
+    // the system program and rent the generated Rust adds carry fixed
+    // addresses in the IDL, so the client fills them in.
+    TemplateFile(
+        "tests/${program.crateName}.ts",
+        """
+        import * as anchor from "@coral-xyz/anchor";
+        import { Program } from "@coral-xyz/anchor";
+        import { assert } from "chai";
+        import { ${program.typeName} } from "../target/types/${program.moduleName}";
+
+        describe("${program.crateName}", () => {
+          const provider = anchor.AnchorProvider.env();
+          anchor.setProvider(provider);
+
+          const program = anchor.workspace.${program.typeName} as Program<${program.typeName}>;
+
+          // The PDA `counter.init(seeds = ['counter', owner])` derives in
+          // programs_py/${program.moduleName}.py, derived here the same way.
+          const [counter] = anchor.web3.PublicKey.findProgramAddressSync(
+            [Buffer.from("counter"), provider.publicKey.toBuffer()],
+            program.programId
+          );
+
+          it("creates a counter", async () => {
+            await program.methods
+              .initialize()
+              .accountsPartial({ owner: provider.publicKey, counter })
+              .rpc();
+
+            const account = await program.account.counter.fetch(counter);
+            assert.equal(account.count.toNumber(), 0);
+            assert.isTrue(account.owner.equals(provider.publicKey));
+          });
+
+          it("increments it", async () => {
+            await program.methods
+              .increment()
+              .accountsPartial({ owner: provider.publicKey, counter })
+              .rpc();
+
+            const account = await program.account.counter.fetch(counter);
+            assert.equal(account.count.toNumber(), 1);
+          });
+        });
+        """.trimIndent() + "\n",
+    ),
     TemplateFile("package.json", anchorPackageJson(program)),
     TemplateFile("tsconfig.json", ANCHOR_TSCONFIG),
     TemplateFile(

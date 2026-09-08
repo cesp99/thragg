@@ -4,9 +4,7 @@ import org.json.JSONObject
 import to.eyed.thragg.ui.editor.CurrentLineHighlight
 import to.eyed.thragg.ui.editor.EditorCursorShape
 import to.eyed.thragg.ui.editor.InlineDiagnosticsSettings
-import to.eyed.thragg.ui.editor.MinimapSettings
 import to.eyed.thragg.ui.editor.RelativeLineNumbers
-import to.eyed.thragg.ui.editor.ScrollbarSettings
 import to.eyed.thragg.ui.editor.ShowWhitespaces
 import to.eyed.thragg.ui.editor.SoftWrapMode
 
@@ -74,29 +72,6 @@ enum class ActivateOnClose(val key: String) {
     }
 }
 
-/** How siblings are ordered in the project panel — Zed's `sort_mode`. */
-enum class ProjectPanelSort(val key: String) {
-    DirectoriesFirst("directories_first"),
-    Mixed("mixed"),
-    FilesFirst("files_first");
-
-    companion object {
-        fun fromKey(key: String?): ProjectPanelSort =
-            entries.firstOrNull { it.key == key } ?: DirectoriesFirst
-    }
-}
-
-/** Row height in the project panel — Zed's `entry_spacing`. */
-enum class EntrySpacing(val key: String) {
-    Comfortable("comfortable"),
-    Standard("standard");
-
-    companion object {
-        fun fromKey(key: String?): EntrySpacing =
-            entries.firstOrNull { it.key == key } ?: Comfortable
-    }
-}
-
 /** The editor's tab strip — Zed's `tabs` block, with Zed's own defaults. */
 data class TabSettings(
     val closePosition: ClosePosition = ClosePosition.Right,
@@ -104,78 +79,6 @@ data class TabSettings(
     val gitStatus: Boolean = false,
     val showDiagnostics: ShowDiagnostics = ShowDiagnostics.Off,
     val activateOnClose: ActivateOnClose = ActivateOnClose.History,
-)
-
-/**
- * Provisional tabs — Zed's `preview_tabs`.
- *
- * A tab opened with a single click is italic and is *reused* by the next
- * provisional open; editing it, or double-clicking, promotes it.
- */
-data class PreviewTabSettings(
-    val enabled: Boolean = true,
-    val fromProjectPanel: Boolean = true,
-    val fromFileFinder: Boolean = false,
-    val fromCodeNavigation: Boolean = true,
-) {
-    /** Whether an open through [route] should land in the preview tab. */
-    fun previews(route: PreviewRoute): Boolean = enabled && when (route) {
-        PreviewRoute.ProjectPanel -> fromProjectPanel
-        PreviewRoute.FileFinder -> fromFileFinder
-        PreviewRoute.CodeNavigation -> fromCodeNavigation
-        PreviewRoute.Permanent -> false
-    }
-}
-
-/** Which of Zed's `preview_tabs` keys an open is governed by. */
-enum class PreviewRoute {
-    ProjectPanel,
-    FileFinder,
-    CodeNavigation,
-
-    /** Not a preview route at all: this open makes a permanent tab. */
-    Permanent,
-}
-
-/**
- * Zed's `toolbar` block (assets/settings/default.json:544-555): which parts
- * of the row under the tabs are drawn.
- *
- * Three of Zed's five keys — the two left out, `agent_review` and
- * `code_actions`, name toolbar items there is no version of here.
- */
-data class ToolbarSettings(
-    /** The file name and the symbol path at the caret. */
-    val breadcrumbs: Boolean = true,
-    /** The icon buttons: find in file, project symbols, preview. */
-    val quickActions: Boolean = true,
-    /** The selections readout and its menu of multi-caret actions. */
-    val selectionsMenu: Boolean = true,
-) {
-    /** Whether the toolbar has anything left to draw. */
-    val isVisible: Boolean get() = breadcrumbs || quickActions || selectionsMenu
-}
-
-/**
- * Zed's `tab_bar` block (assets/settings/default.json:1386-1397): whether the
- * strip is drawn, and which of its two fixed button groups are.
- */
-data class TabBarSettings(
-    val show: Boolean = true,
-    /** The `←` / `→` group at the leading edge (tab_bar.rs:103-112). */
-    val showNavHistoryButtons: Boolean = true,
-    /** The `⇥ + ⊞ ⤢` group at the trailing edge (tab_bar.rs:141-150). */
-    val showTabBarButtons: Boolean = true,
-)
-
-/**
- * Zed's `status_bar` block (assets/settings/default.json:1904-1913): the two
- * readouts that can be switched off. The dock buttons cannot — on a phone
- * they are the only route to a panel.
- */
-data class StatusBarSettings(
-    val activeLanguageButton: Boolean = true,
-    val cursorPositionButton: Boolean = true,
 )
 
 /**
@@ -210,12 +113,14 @@ enum class ReduceMotion(val key: String, val label: String) {
     }
 }
 
-/** The project panel's own settings — Zed's `project_panel` block. */
+/**
+ * What is left of Zed's `project_panel` block. `sort_mode`, `auto_fold_dirs`
+ * and `entry_spacing` are not read any more (docs/UI.md, P8): the tree sorts
+ * directories first, folds single-child chains and uses Zed's comfortable
+ * pitch, and a row for a key that changes nothing is worse than no row.
+ */
 data class ProjectPanelSettings(
-    val sort: ProjectPanelSort = ProjectPanelSort.DirectoriesFirst,
     val hideRoot: Boolean = false,
-    val autoFoldDirs: Boolean = true,
-    val entrySpacing: EntrySpacing = EntrySpacing.Comfortable,
     /** Indent per nesting level, in dp. Zed's default is 20. */
     val indentSize: Float = 20f,
     val showDiagnostics: ShowDiagnostics = ShowDiagnostics.All,
@@ -232,62 +137,6 @@ enum class ThemeMode(val key: String) {
             entries.firstOrNull { it.key == key } ?: System
     }
 }
-
-/**
- * Zed's `base_keymap`: whose shortcuts to start from. Every value but
- * [None] lays one of Zed's own overlay keymaps over the defaults; [None] is
- * Zed's "no defaults at all", leaving keymap.json as the whole keymap. The
- * keys are Zed's spellings, capitals included, so a line from a Zed settings
- * file works here.
- */
-enum class BaseKeymap(val key: String, val label: String) {
-    VSCode("VSCode", "VS Code"),
-    JetBrains("JetBrains", "JetBrains"),
-    SublimeText("SublimeText", "Sublime Text"),
-    Atom("Atom", "Atom"),
-    Emacs("Emacs", "Emacs"),
-    None("None", "None");
-
-    companion object {
-        fun fromKey(key: String?): BaseKeymap = entries.firstOrNull { it.key == key } ?: VSCode
-    }
-}
-
-/**
- * The app's resolved settings, mirroring `engine::Settings`.
- *
- * The engine owns the file — it is JSONC, hand-editable, and keeps its
- * comments through edits made here (see `core/crates/engine/src/config.rs`).
- * This is just the read model; every field is wired to something visible.
- */
-/**
- * Which side of the workspace a panel lives on — Zed's `dock` — plus
- * [Hidden], this app's third answer: the panel is switched off, its
- * status-bar button gone and its commands refusing. Zed separates that into a
- * per-panel `"button"` key; here it is one row with three answers, by the
- * owner's design.
- */
-enum class DockSide(val key: String, val label: String) {
-    Left("left", "Left"),
-    Right("right", "Right"),
-    Hidden("hidden", "Hidden");
-
-    companion object {
-        fun fromKey(key: String?): DockSide = entries.firstOrNull { it.key == key } ?: Left
-
-        /**
-         * The docks that exist on screen. **Iterate this, never [entries]**,
-         * when walking the workspace's docks: [Hidden] is a per-panel state,
-         * not a third dock — an `entries` loop treated it as one and drew the
-         * right dock's panel twice, because every `left-else-right` branch
-         * reads Hidden as Right.
-         */
-        val docks: List<DockSide> = listOf(Left, Right)
-    }
-}
-
-/** Where a panel docks, and how wide it opens the first time. */
-data class PanelPlacement(val dock: DockSide, val defaultWidth: Float)
 
 /**
  * Zed's `autosave` (settings_content/src/workspace.rs:609-618): three plain
@@ -450,37 +299,6 @@ enum class NotifyWhenAgentWaiting(val key: String) {
 }
 
 /**
- * Zed's `inlay_hints` (assets/settings/default.json:793-821): off as a
- * whole by default, every kind shown once it is on. [showOtherHints] covers
- * hints with no LSP kind — rust-analyzer's chaining and lifetime hints.
- */
-data class InlayHintSettings(
-    val enabled: Boolean = false,
-    val showTypeHints: Boolean = true,
-    val showParameterHints: Boolean = true,
-    val showOtherHints: Boolean = true,
-) {
-    /** Whether a hint of [kind] (`type`, `parameter`, or null) is shown. */
-    fun shows(kind: String?): Boolean = enabled && when (kind) {
-        "type" -> showTypeHints
-        "parameter" -> showParameterHints
-        else -> showOtherHints
-    }
-
-    companion object {
-        fun parse(json: JSONObject?): InlayHintSettings {
-            if (json == null) return InlayHintSettings()
-            return InlayHintSettings(
-                enabled = json.optBoolean("enabled", false),
-                showTypeHints = json.optBoolean("show_type_hints", true),
-                showParameterHints = json.optBoolean("show_parameter_hints", true),
-                showOtherHints = json.optBoolean("show_other_hints", true),
-            )
-        }
-    }
-}
-
-/**
  * Zed's `markdown_preview` object, as the engine resolves it.
  *
  * Zed makes a preview that tracks its editor a *separate item*
@@ -493,6 +311,19 @@ data class MarkdownPreviewSettings(
     val scrollSync: Boolean = true,
 )
 
+/**
+ * The app's resolved settings, mirroring `engine::Settings`.
+ *
+ * The engine owns the file — it is JSONC, hand-editable, and keeps its
+ * comments through edits made here (see `core/crates/engine/src/config.rs`).
+ * This is just the read model; every field is wired to something visible.
+ * The keys for surfaces the phone build removed — vim, `base_keymap`, the
+ * docks, `tab_bar` / `toolbar` / `status_bar`, `minimap`, `scrollbar`,
+ * `inlay_hints`, `preview_tabs`, `icon_theme`, the project panel's sort,
+ * fold and spacing — are not modelled at all (docs/UI.md, P8): the engine
+ * still parses them off a Zed settings file, and this side has nothing to
+ * hand them to.
+ */
 data class AppSettings(
     /** Which theme, in Zed's two shapes — see [ThemeSelection]. */
     val themeSelection: ThemeSelection = ThemeSelection.Default,
@@ -503,12 +334,8 @@ data class AppSettings(
      * data class compare by value (`JSONObject` compares by identity).
      */
     val themeOverrides: String = "",
-    /** Which icon theme the tree and the tabs draw from — Zed's `icon_theme`. */
-    val iconTheme: IconThemeSelection = IconThemeSelection.Default,
     /** The font keys: families, fallbacks, features, weight, line height, sizes. */
     val fonts: FontSettings = FontSettings(),
-    /** Whose shortcuts to start from — Zed's `base_keymap`. */
-    val baseKeymap: BaseKeymap = BaseKeymap.VSCode,
     /** Editor text size in sp. */
     val bufferFontSize: Float = 14f,
     /** Spaces inserted by the Tab key. */
@@ -554,19 +381,10 @@ data class AppSettings(
     val closeOnFileDelete: Boolean = false,
     /** Zed's `git.inline_blame.enabled`, whose default is on. */
     val inlineBlame: Boolean = true,
-    /** Zed's `inlay_hints`, off by default as in Zed. */
-    val inlayHints: InlayHintSettings = InlayHintSettings(),
-    /**
-     * Where each panel docks and how wide it opens — Zed's `dock` and
-     * `default_width`, per panel.
-     */
-    val panels: Map<String, PanelPlacement> = DEFAULT_PANELS,
     /** How gitignored entries appear in the project tree. */
     val gitignoredFiles: GitignoredFiles = GitignoredFiles.Dimmed,
     /** Zed's `tabs`: what a tab shows and how the strip behaves. */
     val tabs: TabSettings = TabSettings(),
-    /** Zed's `preview_tabs`: which routes open a provisional tab. */
-    val previewTabs: PreviewTabSettings = PreviewTabSettings(),
     /**
      * Zed's `max_tabs`: opening one past this closes the tab gone longest
      * without being looked at. Null is unlimited, which is Zed's default.
@@ -589,12 +407,6 @@ data class AppSettings(
     val notifyWhenAgentWaiting: NotifyWhenAgentWaiting = NotifyWhenAgentWaiting.PrimaryScreen,
     /** Zed's `markdown_preview` — see [MarkdownPreviewSettings]. */
     val markdownPreview: MarkdownPreviewSettings = MarkdownPreviewSettings(),
-    /** Zed's `toolbar`: which parts of the row under the tabs are drawn. */
-    val toolbar: ToolbarSettings = ToolbarSettings(),
-    /** Zed's `tab_bar`: the strip itself and its two button groups. */
-    val tabBar: TabBarSettings = TabBarSettings(),
-    /** Zed's `status_bar`: the language and cursor-position readouts. */
-    val statusBar: StatusBarSettings = StatusBarSettings(),
     /** Zed's `reduce_motion`, plus this platform's `auto` — see [ReduceMotion]. */
     val reduceMotion: ReduceMotion = ReduceMotion.Auto,
     /**
@@ -622,21 +434,9 @@ data class AppSettings(
     /** Zed's `cursor_shape` and `cursor_blink`. */
     val cursorShape: EditorCursorShape = EditorCursorShape.Bar,
     val cursorBlink: Boolean = true,
-    /** Zed's `scrollbar` block — the marks down the track. */
-    val scrollbar: ScrollbarSettings = ScrollbarSettings(),
-    /** Zed's `minimap` block. */
-    val minimap: MinimapSettings = MinimapSettings(),
     /** Zed's `diagnostics.inline` — the error-lens messages. */
     val inlineDiagnostics: InlineDiagnosticsSettings = InlineDiagnosticsSettings(),
 ) {
-    /**
-     * Where the panel keyed [settingsKey] sits, falling back to the shipped
-     * default. Keyed by string rather than by the UI's enum: settings are the
-     * lower layer and cannot see it.
-     */
-    fun panel(settingsKey: String): PanelPlacement =
-        panels[settingsKey] ?: DEFAULT_PANELS.getValue(settingsKey)
-
     /**
      * How the app picks light or dark, for the callers that only want the
      * mode. A bare theme name has none — the theme's own appearance decides —
@@ -648,14 +448,12 @@ data class AppSettings(
     companion object {
         /** Keys as the engine names them, for [CoreBridge.setSetting]. */
         const val KEY_THEME = "theme"
-        const val KEY_ICON_THEME = "icon_theme"
         const val KEY_BUFFER_FONT_FAMILY = "buffer_font_family"
         const val KEY_BUFFER_FONT_FEATURES = "buffer_font_features"
         const val KEY_BUFFER_FONT_WEIGHT = "buffer_font_weight"
         const val KEY_BUFFER_LINE_HEIGHT = "buffer_line_height"
         const val KEY_UI_FONT_FAMILY = "ui_font_family"
         const val KEY_UI_FONT_SIZE = "ui_font_size"
-        const val KEY_BASE_KEYMAP = "base_keymap"
         const val KEY_FONT_SIZE = "buffer_font_size"
         const val KEY_TAB_SIZE = "tab_size"
         const val KEY_HARD_TABS = "hard_tabs"
@@ -667,26 +465,8 @@ data class AppSettings(
         const val KEY_SOFT_WRAP = "soft_wrap"
         const val KEY_INLINE_BLAME = "git.inline_blame.enabled"
         const val KEY_NOTIFY_AGENT = "agent.notify_when_agent_waiting"
-        const val KEY_INLAY_HINTS = "inlay_hints.enabled"
-        const val KEY_INLAY_TYPE_HINTS = "inlay_hints.show_type_hints"
-        const val KEY_INLAY_PARAMETER_HINTS = "inlay_hints.show_parameter_hints"
-        const val KEY_INLAY_OTHER_HINTS = "inlay_hints.show_other_hints"
         const val KEY_MARKDOWN_SCROLL_SYNC = "markdown_preview.scroll_sync"
         const val KEY_REDUCE_MOTION = "reduce_motion"
-
-        /** Zed's `toolbar` block, key by key. */
-        const val KEY_TOOLBAR_BREADCRUMBS = "toolbar.breadcrumbs"
-        const val KEY_TOOLBAR_QUICK_ACTIONS = "toolbar.quick_actions"
-        const val KEY_TOOLBAR_SELECTIONS_MENU = "toolbar.selections_menu"
-
-        /** Zed's `tab_bar` block. */
-        const val KEY_TAB_BAR_SHOW = "tab_bar.show"
-        const val KEY_TAB_BAR_NAV_BUTTONS = "tab_bar.show_nav_history_buttons"
-        const val KEY_TAB_BAR_BUTTONS = "tab_bar.show_tab_bar_buttons"
-
-        /** Zed's `status_bar` block. */
-        const val KEY_STATUS_BAR_LANGUAGE = "status_bar.active_language_button"
-        const val KEY_STATUS_BAR_CURSOR = "status_bar.cursor_position_button"
 
         /** The editor's display block, key by key. */
         const val KEY_RELATIVE_LINE_NUMBERS = "relative_line_numbers"
@@ -698,28 +478,9 @@ data class AppSettings(
         const val KEY_SHOW_WRAP_GUIDES = "show_wrap_guides"
         const val KEY_REMOVE_TRAILING_WHITESPACE = "remove_trailing_whitespace_on_save"
         const val KEY_ENSURE_FINAL_NEWLINE = "ensure_final_newline_on_save"
-        const val KEY_MINIMAP_SHOW = "minimap.show"
-        const val KEY_SCROLLBAR_SHOW = "scrollbar.show"
         const val KEY_INLINE_DIAGNOSTICS = "diagnostics.inline.enabled"
 
-        /** `project_panel` → `project_panel.dock`. */
-        fun keyForDock(panel: String): String = "$panel.dock"
-
-        /**
-         * What each panel does when settings.json says nothing. The project
-         * tree on the left is *this app's* default rather than Zed's current
-         * one — Zed moved its tree to the right — because every file manager
-         * on this platform puts it left and it is one line to change.
-         */
-        val DEFAULT_PANELS: Map<String, PanelPlacement> = mapOf(
-            "project_panel" to PanelPlacement(DockSide.Left, 240f),
-            // Zed's own `outline_panel` defaults (default.json:955-957).
-            "outline_panel" to PanelPlacement(DockSide.Right, 300f),
-            "git_panel" to PanelPlacement(DockSide.Right, 360f),
-            "project_search" to PanelPlacement(DockSide.Right, 360f),
-            "preview" to PanelPlacement(DockSide.Right, 400f),
-            "agent_panel" to PanelPlacement(DockSide.Right, 400f),
-        )
+        /** How the tree treats gitignored entries — see [GitignoredFiles]. */
         const val KEY_GITIGNORED = "project_panel.gitignored_files"
 
         /** Zed's `tabs` block, key by key. */
@@ -728,13 +489,9 @@ data class AppSettings(
         const val KEY_TAB_GIT_STATUS = "tabs.git_status"
         const val KEY_TAB_DIAGNOSTICS = "tabs.show_diagnostics"
         const val KEY_TAB_ACTIVATE_ON_CLOSE = "tabs.activate_on_close"
-        const val KEY_PREVIEW_TABS = "preview_tabs.enabled"
 
         /** The rest of Zed's `project_panel` block. */
-        const val KEY_PANEL_SORT = "project_panel.sort_mode"
         const val KEY_PANEL_HIDE_ROOT = "project_panel.hide_root"
-        const val KEY_PANEL_AUTO_FOLD = "project_panel.auto_fold_dirs"
-        const val KEY_PANEL_SPACING = "project_panel.entry_spacing"
         const val KEY_PANEL_DIAGNOSTICS = "project_panel.show_diagnostics"
 
         fun parse(json: String): AppSettings = runCatching {
@@ -744,9 +501,7 @@ data class AppSettings(
                 themeSelection = ThemeSelection.parse(root.opt("theme")),
                 themeOverrides = root.optJSONObject("theme_overrides")
                     ?.takeIf { it.length() > 0 }?.toString().orEmpty(),
-                iconTheme = IconThemeSelection.parse(root.opt("icon_theme")),
                 fonts = FontSettings.parse(root),
-                baseKeymap = BaseKeymap.fromKey(root.optString("base_keymap", "VSCode")),
                 bufferFontSize = root.optDouble("buffer_font_size", 14.0).toFloat(),
                 tabSize = root.optInt("tab_size", 4),
                 hardTabs = root.optBoolean("hard_tabs", false),
@@ -763,22 +518,10 @@ data class AppSettings(
                 inlineBlame = root.optJSONObject("git")
                     ?.optJSONObject("inline_blame")
                     ?.optBoolean("enabled", true) ?: true,
-                inlayHints = InlayHintSettings.parse(root.optJSONObject("inlay_hints")),
-                panels = DEFAULT_PANELS.mapValues { (key, fallback) ->
-                    val panel = root.optJSONObject(key) ?: return@mapValues fallback
-                    PanelPlacement(
-                        dock = DockSide.fromKey(panel.optString("dock", fallback.dock.key)),
-                        defaultWidth = panel.optDouble(
-                            "default_width",
-                            fallback.defaultWidth.toDouble(),
-                        ).toFloat().coerceIn(120f, 900f),
-                    )
-                },
                 gitignoredFiles = GitignoredFiles.fromKey(
                     panel?.optString("gitignored_files", "dimmed") ?: "dimmed"
                 ),
                 tabs = parseTabs(root.optJSONObject("tabs")),
-                previewTabs = parsePreviewTabs(root.optJSONObject("preview_tabs")),
                 // `optInt` cannot tell 0 from absent, and both mean "no cap"
                 // here — the engine refuses a zero for the same reason.
                 maxTabs = root.optInt("max_tabs", 0).takeIf { it > 0 },
@@ -793,41 +536,6 @@ data class AppSettings(
                     scrollSync = root.optJSONObject("markdown_preview")
                         ?.optBoolean("scroll_sync", true) ?: true,
                 ),
-                toolbar = root.optJSONObject("toolbar").let { toolbar ->
-                    val fallback = ToolbarSettings()
-                    ToolbarSettings(
-                        breadcrumbs = toolbar?.optBoolean("breadcrumbs", fallback.breadcrumbs)
-                            ?: fallback.breadcrumbs,
-                        quickActions = toolbar?.optBoolean("quick_actions", fallback.quickActions)
-                            ?: fallback.quickActions,
-                        selectionsMenu = toolbar
-                            ?.optBoolean("selections_menu", fallback.selectionsMenu)
-                            ?: fallback.selectionsMenu,
-                    )
-                },
-                tabBar = root.optJSONObject("tab_bar").let { bar ->
-                    val fallback = TabBarSettings()
-                    TabBarSettings(
-                        show = bar?.optBoolean("show", fallback.show) ?: fallback.show,
-                        showNavHistoryButtons = bar
-                            ?.optBoolean("show_nav_history_buttons", fallback.showNavHistoryButtons)
-                            ?: fallback.showNavHistoryButtons,
-                        showTabBarButtons = bar
-                            ?.optBoolean("show_tab_bar_buttons", fallback.showTabBarButtons)
-                            ?: fallback.showTabBarButtons,
-                    )
-                },
-                statusBar = root.optJSONObject("status_bar").let { bar ->
-                    val fallback = StatusBarSettings()
-                    StatusBarSettings(
-                        activeLanguageButton = bar
-                            ?.optBoolean("active_language_button", fallback.activeLanguageButton)
-                            ?: fallback.activeLanguageButton,
-                        cursorPositionButton = bar
-                            ?.optBoolean("cursor_position_button", fallback.cursorPositionButton)
-                            ?: fallback.cursorPositionButton,
-                    )
-                },
                 reduceMotion = ReduceMotion.fromKey(root.optString("reduce_motion", "auto")),
                 commandAliases = parseCommandAliases(root.optJSONObject("command_aliases")),
                 showWhitespaces = ShowWhitespaces.fromKey(
@@ -848,8 +556,6 @@ data class AppSettings(
                 ),
                 cursorShape = EditorCursorShape.fromKey(root.optString("cursor_shape", "bar")),
                 cursorBlink = root.optBoolean("cursor_blink", true),
-                scrollbar = ScrollbarSettings.parse(root.optJSONObject("scrollbar")),
-                minimap = MinimapSettings.parse(root.optJSONObject("minimap")),
                 inlineDiagnostics = InlineDiagnosticsSettings.parse(
                     root.optJSONObject("diagnostics")
                 ),
@@ -889,34 +595,11 @@ data class AppSettings(
             )
         }
 
-        private fun parsePreviewTabs(json: JSONObject?): PreviewTabSettings {
-            val fallback = PreviewTabSettings()
-            if (json == null) return fallback
-            return PreviewTabSettings(
-                enabled = json.optBoolean("enabled", fallback.enabled),
-                fromProjectPanel = json.optBoolean(
-                    "enable_preview_from_project_panel",
-                    fallback.fromProjectPanel,
-                ),
-                fromFileFinder = json.optBoolean(
-                    "enable_preview_from_file_finder",
-                    fallback.fromFileFinder,
-                ),
-                fromCodeNavigation = json.optBoolean(
-                    "enable_preview_from_code_navigation",
-                    fallback.fromCodeNavigation,
-                ),
-            )
-        }
-
         private fun parseProjectPanel(json: JSONObject?): ProjectPanelSettings {
             val fallback = ProjectPanelSettings()
             if (json == null) return fallback
             return ProjectPanelSettings(
-                sort = ProjectPanelSort.fromKey(json.optString("sort_mode", null)),
                 hideRoot = json.optBoolean("hide_root", fallback.hideRoot),
-                autoFoldDirs = json.optBoolean("auto_fold_dirs", fallback.autoFoldDirs),
-                entrySpacing = EntrySpacing.fromKey(json.optString("entry_spacing", null)),
                 // Clamped like the engine's: a hand-edited 0 would stack every
                 // level on top of the last, and a 200 would leave no room for
                 // the name.

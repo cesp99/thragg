@@ -39,17 +39,18 @@ class ToolchainManifestTest {
     }
 
     /**
-     * Nine rows, and exactly one of them compiles on the device: Seahorse.
+     * Ten rows, and exactly one of them compiles on the device: Seahorse.
      * The two build drivers used to compile on the phone; since 2026-09-02
      * they come prebuilt from cesp99/solana-tools-arm64, and a driver going
      * back to `cargo-install` without the Setup screen's copy changing would
      * be a silent nine-minute lie. Seahorse is the exception on purpose — no
      * one publishes it for arm64 and it is a two-minute build — and it is
-     * optional, so the gate never waits on it.
+     * optional, so the gate never waits on it. The tenth row, Node
+     * (2026-09-08), is a plain download like the rest.
      */
     @Test
-    fun `lists nine components, and only Seahorse is compiled on the device`() {
-        assertEquals(9, manifest.components.size)
+    fun `lists ten components, and only Seahorse is compiled on the device`() {
+        assertEquals(10, manifest.components.size)
         assertEquals(listOf("seahorse"), manifest.components.filter { it.isCompiled }.map { it.id })
         assertFalse(manifest.component("seahorse")!!.required)
     }
@@ -84,18 +85,68 @@ class ToolchainManifestTest {
     }
 
     /**
+     * Node is what `anchor test` actually runs — the scaffold's `[scripts]
+     * test` is `yarn run ts-mocha …` — and it is the one row whose tarball
+     * unpacks to a versioned directory the installer's tar cannot strip. So
+     * the row's contract is: nodejs.org's arm64 tarball for the pinned
+     * version, into /opt/node, a relative `current` symlink that PATH, the
+     * verify and the Build tab's probe name, a marker the tarball writes, and
+     * corepack activating the yarn classic the scaffold was written for. A
+     * bump that changed the version and forgot the link would leave `node`
+     * resolving to the previous release, or to nothing. Optional, and behind
+     * nothing but the userland: the gate must not wait on a test runner.
+     */
+    @Test
+    fun `node is nodejs org's arm64 tarball, linked as current, with yarn through corepack`() {
+        val node = manifest.component("node")!!
+        assertEquals(InstallMethod.Tarball, node.method)
+        val version = node.version ?: error("node pins no version")
+        assertTrue(version.matches(Regex("v[0-9]+\\.[0-9]+\\.[0-9]+")))
+        assertEquals(
+            "https://nodejs.org/dist/$version/node-$version-linux-arm64.tar.gz",
+            node.url,
+        )
+        assertEquals("/opt/node", node.installPath)
+        // The marker is what the tarball writes, not the link postInstall
+        // makes: it is there before the guest lane runs, so an interrupted
+        // install is "staged", and it is a real file on the Android side.
+        assertEquals("/opt/node/node-$version-linux-arm64/bin/node", node.marker)
+        assertEquals(listOf("/opt/node/current/bin/node", "--version"), node.verify)
+        assertFalse(node.required)
+        assertEquals(listOf("debian"), node.needs)
+        assertFalse(node.isCompiled)
+        assertFalse(node.onGuestLane)
+
+        val link = node.postInstall.first { "-sfn" in it }
+        // Relative, because the installer's File.exists() follows the link on
+        // the Android side, where an absolute /opt/node/... target is nothing.
+        assertEquals("node-$version-linux-arm64", link[link.size - 2])
+        assertEquals("/opt/node/current", link.last())
+        val corepack = node.postInstall.flatten().joinToString("\n")
+        assertTrue(corepack.contains("corepack enable"))
+        assertTrue(corepack.contains("corepack prepare yarn@1."))
+        assertTrue(corepack.contains("--activate"))
+        // Nothing here can answer a prompt.
+        assertTrue(corepack.contains("COREPACK_ENABLE_DOWNLOAD_PROMPT=0"))
+        // And the Build tab's PATH has to reach the link, or `anchor test`
+        // sees a guest with no node in it.
+        assertTrue("/opt/node/current/bin" in SolanaToolchain.GUEST_PATH_ENTRIES)
+    }
+
+    /**
      * Every fetched component pins a hash, and it is a real SHA-256.
      *
      * The three that pin nothing are the three that fetch nothing this way:
      * the Debian rootfs verifies the registry's own digest as it streams, the
      * apt step is Debian's package signing, and the editor's Rust is fetched
-     * and verified by rustup. Five fetch: the three upstream binaries and the
-     * two drivers from our own build repository.
+     * and verified by rustup. Six fetch: the four upstream binaries (rustup,
+     * platform-tools, Spettro, Node) and the two drivers from our own build
+     * repository.
      */
     @Test
     fun `every downloaded component pins a sha256 and an https url`() {
         val fetched = manifest.components.filter { it.url != null }
-        assertEquals(5, fetched.size)
+        assertEquals(6, fetched.size)
         for (component in fetched) {
             val sha = component.sha256
             assertNotNull("${component.id} has no sha256", sha)

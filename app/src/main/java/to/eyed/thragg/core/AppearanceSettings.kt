@@ -104,54 +104,6 @@ data class ThemeSelection(
 }
 
 /**
- * Zed's `icon_theme`, which takes `theme`'s two shapes
- * (`settings_content/src/theme.rs:379-394`).
- */
-data class IconThemeSelection(
-    val mode: ThemeMode?,
-    val light: String,
-    val dark: String,
-) {
-    /** The icon theme to draw with, given the appearance in effect. */
-    fun iconThemeName(isDark: Boolean): String = when (mode) {
-        null -> light
-        ThemeMode.System -> if (isDark) dark else light
-        ThemeMode.Light -> light
-        ThemeMode.Dark -> dark
-    }
-
-    fun with(name: String): IconThemeSelection =
-        if (mode == null) IconThemeSelection(null, name, name) else copy(light = name, dark = name)
-
-    fun toJson(): String = if (mode == null) {
-        JSONObject.quote(light)
-    } else {
-        JSONObject().apply {
-            put("mode", mode.key)
-            put("light", light)
-            put("dark", dark)
-        }.toString()
-    }
-
-    companion object {
-        /** Zed's own icon theme, which is the set this app bundles. */
-        const val DEFAULT = "Zed (Default)"
-
-        val Default = IconThemeSelection(null, DEFAULT, DEFAULT)
-
-        fun parse(value: Any?): IconThemeSelection = when (value) {
-            is String -> IconThemeSelection(null, value, value)
-            is JSONObject -> IconThemeSelection(
-                mode = ThemeMode.fromKey(value.optString("mode", "system")),
-                light = value.optString("light").ifEmpty { DEFAULT },
-                dark = value.optString("dark").ifEmpty { DEFAULT },
-            )
-            else -> Default
-        }
-    }
-}
-
-/**
  * Zed's `buffer_line_height` (`settings_content/src/theme.rs:509-517`): two
  * words and one object, `{"custom": 1.4}`.
  */

@@ -127,7 +127,12 @@ object SolanaToolchain {
      * `RUSTUP_TOOLCHAIN` for the server (manifest.json, `rust-editor`);
      * `/opt/solana/cli/bin` is where the two on-device compiles install to;
      * the LLVM directory carries `ld.lld`, `llvm-readelf` and the rest of the
-     * SBF link step.
+     * SBF link step. `/opt/node/current/bin` is Node and the yarn corepack
+     * activated beside it (manifest.json, `node`) — what `anchor test` runs
+     * its TypeScript through — and it goes *after* the Solana entries so
+     * nothing Node ships can shadow a build tool; `current` is the symlink
+     * the manifest's postInstall points at the versioned directory, so a
+     * bump of Node changes no PATH.
      *
      * Exported whether or not the toolchain is installed. A `PATH` entry that
      * does not exist costs a failed `stat` per lookup and nothing else, and the
@@ -139,6 +144,7 @@ object SolanaToolchain {
         "/root/.cargo/bin",
         "/opt/solana/cli/bin",
         "/opt/solana/platform-tools/llvm/bin",
+        "/opt/node/current/bin",
     )
 
     /** As one `PATH` fragment, without a trailing separator. */
@@ -419,6 +425,10 @@ object SolanaToolchain {
             add("/opt/ra")
             add("/root/.cargo")
             add("/root/.rustup")
+            // Node's own root (manifest.json, `node`): outside guestRoot so a
+            // Solana bump never touches it, but it is the toolchain's, and
+            // "free the disk" that left 190 MB behind would be a lie.
+            add("/opt/node")
         }
         for (guest in directories) {
             val target = File(root, guest.trimStart('/'))

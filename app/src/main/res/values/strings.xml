@@ -4,12 +4,9 @@
     <!-- settings -->
     <string name="settings_settings">SETTINGS</string>
     <string name="settings_settings_json_could_not_be_parsed">settings.json could not be parsed — showing defaults. Fix the file, or change something here to rewrite it.</string>
-    <string name="settings_themes_fonts_and_icon_themes_you">Themes, fonts and icon themes you add yourself go in the themes, fonts and icon_themes folders beside settings.json.</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_theme">Theme…</string>
     <string name="settings_pick_a_theme_previewing_each_as">Pick a theme, previewing each as you go</string>
-    <string name="settings_icon_theme">Icon theme</string>
-    <string name="settings_zed_s_icon_theme_which_icons">Zed\'s icon_theme — which icons the file tree draws</string>
     <string name="settings_interface_size">Interface size</string>
     <string name="settings_zed_s_ui_font_size_the">Zed\'s ui_font_size — the whole chrome scales with it</string>
     <string name="settings_interface_font">Interface font</string>
@@ -50,11 +47,8 @@
     <string name="settings_zed_s_cursor_shape_vim_mode">Zed\'s cursor_shape. Vim mode has shapes of its own</string>
     <string name="settings_blink_the_cursor">Blink the cursor</string>
     <string name="settings_zed_s_cursor_blink">Zed\'s cursor_blink</string>
-    <string name="settings_minimap">Minimap</string>
-    <string name="settings_zed_s_minimap_the_file_as">Zed\'s minimap — the file as colour blocks down the right edge</string>
     <string name="settings_inline_diagnostics">Inline diagnostics</string>
     <string name="settings_zed_s_diagnostics_inline_the_message">Zed\'s diagnostics.inline — the message at the end of its line</string>
-    <string name="settings_inlay_hints">Inlay hints</string>
     <string name="settings_types_and_parameter_names_from_the">Types and parameter names from the language server, shown dimmed without changing the file</string>
     <string name="settings_type_hints">Type hints</string>
     <string name="settings_i32_after_a_binding">`: i32` after a binding</string>
@@ -89,13 +83,11 @@
     <string name="settings_zed_s_sort_mode">Zed\'s sort_mode</string>
     <string name="settings_fold_single_child_folders">Fold single-child folders</string>
     <string name="settings_row_spacing">Row spacing</string>
-    <string name="settings_zed_s_entry_spacing">Zed\'s entry_spacing</string>
     <string name="settings_mark_problems_in_the_tree">Mark problems in the tree</string>
     <string name="settings_the_file_and_every_folder_above">The file and every folder above it</string>
     <string name="settings_project_name_row">Project name row</string>
     <string name="settings_zed_s_hide_root">Zed\'s hide_root</string>
     <string name="settings_zed_s_tabs_block_max_tabs">Zed\'s tabs block. max_tabs is settings.json only.</string>
-    <string name="settings_preview_tabs">Preview tabs</string>
     <string name="settings_a_single_click_reuses_one_italic">A single click reuses one italic tab until you edit it</string>
     <string name="settings_close_button">Close button</string>
     <string name="settings_which_end_of_the_tab_it">Which end of the tab it sits on</string>
@@ -245,7 +237,6 @@
     <string name="menu_edit_tasks_json">Edit tasks.json</string>
     <string name="menu_edit_project_tasks_zed_tasks_json">Edit project tasks (.zed/tasks.json)</string>
     <string name="menu_theme">Theme…</string>
-    <string name="menu_icon_theme">Icon theme…</string>
     <string name="menu_welcome">Welcome…</string>
     <string name="menu_about">About…</string>
     <string name="menu_settings">Settings…</string>

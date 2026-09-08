@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * The display settings' pure halves: which whitespace gets a glyph, what
- * number the gutter draws, and which diagnostics earn a scrollbar mark.
+ * number the gutter draws, and which diagnostics clear the inline floor.
  */
 class EditorDisplayTest {
 
@@ -96,18 +96,5 @@ class EditorDisplayTest {
         assertFalse(CurrentLineHighlight.Line.washesGutter)
         assertTrue(CurrentLineHighlight.Line.washesText)
         assertFalse(CurrentLineHighlight.None.washesGutter || CurrentLineHighlight.None.washesText)
-    }
-
-    /** A file shorter than the map starts at its first row; a longer one scrolls. */
-    @Test
-    fun theMinimapScrollsProportionallyWithTheEditor() {
-        assertEquals(0, minimapFirstRow(topRow = 0, viewportRows = 40, minimapRows = 400, totalRows = 100))
-        // 1000 rows, 400 on the map, 40 on screen: at the top it starts at 0…
-        assertEquals(0, minimapFirstRow(topRow = 0, viewportRows = 40, minimapRows = 400, totalRows = 1000))
-        // …and at the bottom the map's last row is the file's last row.
-        assertEquals(
-            600,
-            minimapFirstRow(topRow = 960, viewportRows = 40, minimapRows = 400, totalRows = 1000),
-        )
     }
 }
