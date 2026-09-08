@@ -30,6 +30,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -451,6 +454,10 @@ internal fun AgentComposer(
         // 890dp screen. One scrolling strip is a fixed 32dp however many there
         // are.
         if (mentioned.isNotEmpty() || attached.isNotEmpty()) {
+            // Resolved out here: `items` is not a composable scope, and the
+            // reduce-motion branch lives inside the two tokens.
+            val placement = spatialSpec<IntOffset>()
+            val fade = effectSpec<Float>()
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -460,6 +467,10 @@ internal fun AgentComposer(
                 horizontalArrangement = Arrangement.spacedBy(MD.space2),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // A removed chip fades and its neighbours close the gap on
+                // the spatial spring (snap under reduce-motion); an arriving
+                // one simply appears, as everything arriving does. Keys are
+                // identities, never indices, or a removal re-keys the rest.
                 items(
                     count = mentioned.size,
                     key = { "m:" + (mentioned[it].textToken ?: mentioned[it].label) },
@@ -469,15 +480,25 @@ internal fun AgentComposer(
                         label = "@" + (mention.textToken ?: mention.label),
                         icon = R.drawable.ic_ui_at,
                         onRemove = { mentioned.remove(mention) },
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = null,
+                            placementSpec = placement,
+                            fadeOutSpec = fade,
+                        ),
                     )
                 }
-                items(count = attached.size, key = { "a:" + it + ":" + attached[it].name }) { index ->
+                items(count = attached.size, key = { "a:" + attached[it].id }) { index ->
                     val image = attached[index]
                     DraftChip(
                         label = image.name,
                         icon = R.drawable.ic_agent_attach,
                         thumbnail = image,
                         onRemove = { attached.remove(image) },
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = null,
+                            placementSpec = placement,
+                            fadeOutSpec = fade,
+                        ),
                     )
                 }
             }
@@ -652,14 +673,20 @@ internal fun AgentComposer(
                     // wash of it it is not, and `onSurfaceVariant` is already
                     // solved against the container the wash sits on.
                     disabledInk = scheme.onSurfaceVariant,
-                    longClickLabel = "More ways to send",
+                    longClickLabel = "More ways to send".takeIf { busy },
                     // A door only while a turn is running (the queue and
-                    // the interrupt), so the pulse is gated the same way.
-                    onLongClick = {
-                        if (busy) {
+                    // the interrupt). Registered only then, rather than
+                    // guarded inside: a long-press recogniser with nothing
+                    // behind it still eats the tap that ends a slow press,
+                    // and an idle Send that sometimes does not send is worse
+                    // than one with no door.
+                    onLongClick = if (busy) {
+                        {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             longPress = true
                         }
+                    } else {
+                        null
                     },
                     onClick = { send() },
                 )
@@ -770,6 +797,9 @@ private val ThumbSize = 22.dp
 /** How wide a chip's label may get before it middle-ellipsises. */
 private val ChipLabelMax = 140.dp
 
+/** The `✕` target on a draft chip's trailing edge: 32dp of strip by this. */
+private val ChipCloseWidth = 36.dp
+
 /**
  * One of the three controls in the input row: `＋`, stop, send.
  *
@@ -852,14 +882,14 @@ private fun ComposerCircle(
 /**
  * One mention or one attachment, in the strip above the box.
  *
- * THE WHOLE CHIP IS THE REMOVE CONTROL, and the `⨯` on it is decoration. The
- * alternative — a separate icon button — is the correct shape for the
- * affordance and the wrong one for the constraint: `ThraggIconButton` carries
+ * THE `✕` IS THE REMOVE CONTROL, and the body of the chip does nothing. It
+ * used to be the other way round — the whole chip removed, the mark was
+ * decoration — and a chip that vanishes when its label is touched is the
+ * one thing on the composer that punishes a glance. The mark's own target is
+ * [ChipCloseWidth] wide by the strip's full 32dp, which clears WCAG 2.5.8's
+ * 24dp floor; it is not a `ThraggIconButton` because that carries
  * `minimumInteractiveComponentSize()`, which reports 48dp of *layout* and
- * would make this strip 48dp tall rather than the 32dp it is specified at.
- * With the row itself clickable the target is 32dp × its full width, which
- * clears WCAG 2.5.8's 24dp floor for a labelled control, and the click label
- * says what the tap does.
+ * would make the strip 48dp tall. No haptic: a removal is not a commit.
  *
  * An attachment draws its own picture: [thumbnail] is decoded off the frame
  * thread from the base64 the prompt will carry, so the chip shows the image
@@ -881,8 +911,7 @@ private fun DraftChip(
             .clip(RoundedCornerShape(MD.pill))
             .background(scheme.surfaceContainerHigh)
             .border(MD.hairline, scheme.outlineVariant, RoundedCornerShape(MD.pill))
-            .clickable(onClickLabel = "Remove $label", onClick = onRemove)
-            .padding(horizontal = MD.space2),
+            .padding(start = MD.space2),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
     ) {
@@ -913,12 +942,20 @@ private fun DraftChip(
             // width is an invisible chip.
             modifier = Modifier.widthIn(max = ChipLabelMax),
         )
-        ThraggIcon(
-            icon = R.drawable.ic_ui_close,
-            contentDescription = null,
-            tint = mutedIcon,
-            size = IconSize.Marker,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(ChipCloseWidth)
+                .clickable(onClickLabel = "Remove $label", onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            ThraggIcon(
+                icon = R.drawable.ic_ui_close,
+                contentDescription = null,
+                tint = mutedIcon,
+                size = IconSize.Marker,
+            )
+        }
     }
 }
 

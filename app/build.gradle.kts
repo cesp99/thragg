@@ -77,8 +77,8 @@ android {
         // below the UI — clone, apt, the agent, the build runner — was written
         // twice for it. The constraint is now unconditional, so it lives here.
         targetSdk = 28
-        versionCode = 21
-        versionName = "0.0.21"
+        versionCode = 22
+        versionName = "0.0.22"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

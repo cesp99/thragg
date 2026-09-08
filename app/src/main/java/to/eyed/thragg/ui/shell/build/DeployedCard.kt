@@ -36,7 +36,6 @@ import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.components.ThraggChip
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.settings.ProgramSheet
-import to.eyed.thragg.ui.shell.settings.copyAddress
 import to.eyed.thragg.ui.shell.settings.openExplorer
 import to.eyed.thragg.ui.theme.MD
 
@@ -131,14 +130,15 @@ internal fun DeployedCard(state: ShellState, root: String, layout: ProjectLayout
                     label = "Explorer",
                     onClick = { openExplorer(context, cluster.explorerAddress(record.programId)) },
                 )
-                ThraggChip(
-                    label = "Copy link",
-                    onClick = { copyAddress(context, cluster.explorerAddress(record.programId), "Explorer link") },
-                )
+                // "Copied" in place, like the id beside it: one copy
+                // behaviour on the card, no toast.
+                CopyChip(text = cluster.explorerAddress(record.programId), label = "Copy link")
+                // Neutral: the card has no primary act, and a tinted chip
+                // beside two plain ones was a button with no more weight
+                // behind it than its neighbours.
                 ThraggChip(
                     label = "Program",
                     onClick = { sheetOpen = true },
-                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
         }

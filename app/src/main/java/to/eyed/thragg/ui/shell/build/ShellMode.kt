@@ -2,6 +2,7 @@ package to.eyed.thragg.ui.shell.build
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
@@ -104,7 +105,15 @@ fun ShellTerminal(state: ShellState, projectRoot: String, modifier: Modifier = M
     // (TerminalSessionHost's own warning).
     LaunchedEffect(projectRoot) { terminals.openShell(projectRoot) }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // The window is edge-to-edge, so `adjustResize` resizes nothing and the
+    // keyboard arrives as an inset. The bar and the deck answer it by taking
+    // no height, which hands this box the whole window — and the dock's
+    // extra-keys row, the last thing in its column, then sits under the
+    // keyboard it exists for. Pad by the IME here, as the Agent composer
+    // does (AgentComposer.kt), so the prompt line and the keys ride above it.
+    // The editor cannot use this (EditorPane.kt `imeOverlapPx`): it keeps its
+    // canvas and lifts one row; a terminal has no row worth keeping covered.
+    Box(modifier = modifier.fillMaxSize().imePadding()) {
         if (terminals.active != null) ZedSurface {
             TerminalDock(
                 state = terminals,

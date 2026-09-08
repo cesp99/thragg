@@ -251,7 +251,11 @@ fun SheetScaffold(
                             // drag's last position, whether or not its own
                             // snap has landed yet.
                             fraction.snapTo(at)
-                            if (at < DISMISS_FRACTION) {
+                            // A throw has momentum: a flick down from the
+                            // open pose leaves the way it came even though
+                            // the finger never reached the line, because
+                            // where it was GOING is below it ([releaseDismisses]).
+                            if (releaseDismisses(at, velocity)) {
                                 hide()
                             } else {
                                 val pose = settlePose(at, velocity)
@@ -333,10 +337,28 @@ fun SheetScaffold(
  * dismissal, decided before this is asked.
  */
 internal fun settlePose(fraction: Float, velocity: Float): Float {
-    val thrown = velocity / 1000f * SETTLE_DECELERATION / (1f - SETTLE_DECELERATION)
-    val projected = fraction + thrown
+    val projected = projectedPose(fraction, velocity)
     return if (abs(projected - OPEN_FRACTION) <= abs(projected - 1f)) OPEN_FRACTION else 1f
 }
+
+/**
+ * Where a sheet let go at [fraction], moving at [velocity] windows per
+ * second, would come to rest if nothing caught it: the nav pill's
+ * exponential projection ([SETTLE_DECELERATION]), about a quarter of a
+ * second of the finger. Shared by [settlePose] and [releaseDismisses] so
+ * the two decisions a release makes — which pose, or out — are made from
+ * the same throw.
+ */
+internal fun projectedPose(fraction: Float, velocity: Float): Float =
+    fraction + velocity / 1000f * SETTLE_DECELERATION / (1f - SETTLE_DECELERATION)
+
+/**
+ * Whether a release is a dismissal: the sheet is below the line, or it was
+ * thrown hard enough downward that it would cross it. A flick down from the
+ * open pose leaves; a slow drift that stopped above the line settles back.
+ */
+internal fun releaseDismisses(fraction: Float, velocity: Float): Boolean =
+    fraction < DISMISS_FRACTION || projectedPose(fraction, velocity) < DISMISS_FRACTION
 
 /** "Sheets open at ~65% height" — docs/UI.md, "Navigation". */
 internal const val OPEN_FRACTION = 0.65f
@@ -344,8 +366,17 @@ internal const val OPEN_FRACTION = 0.65f
 /** Dragged below this, the gesture was a dismissal rather than a resize. */
 internal const val DISMISS_FRACTION = 0.45f
 
-/** `ShellNavBar`'s `DECELERATION`, in the same units of "how much of a flick carries". */
-private const val SETTLE_DECELERATION = 0.995f
+/**
+ * A sheet carries a little more of a flick than the pill does (`ShellNavBar`'s
+ * `DECELERATION` is 0.995, a fifth of a second): a handle is thrown with the
+ * whole forearm where a pill is nudged with a thumb, and at the pill's rate a
+ * 1500 px/s flick from the open pose fell short of full height and settled
+ * back. At 0.996 — a quarter of a second — a flick of ~0.7 windows/s (about
+ * 1900 px/s on the phone) clears the midpoint from 65 %, and ~0.8 down from
+ * 65 % leaves through the line; a slow drift (0.1 windows/s) still projects
+ * under 0.03 and stays put.
+ */
+private const val SETTLE_DECELERATION = 0.996f
 
 private val HandleWidth = 32.dp
 private val HandleHeight = 4.dp

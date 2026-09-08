@@ -16,6 +16,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -197,6 +198,21 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
     val shown = drag ?: pill.value
     val lit = shown.roundToInt().coerceIn(0, last)
     val scheme = MaterialTheme.colorScheme
+    // GRABBED. The three slots' interaction sources live here so the bar can
+    // know a finger is on it before anything has moved: the pill's wash
+    // deepens from 16% to 24% the frame the finger lands, on any slot, and
+    // stays deep for as long as a drag has it. Not a scale and not a ripple
+    // — a colour state — so the physics and the slots are untouched; it is
+    // the pill saying it is a thing in the hand, which is the drag's only
+    // affordance. Snaps under reduce-motion (a state, not motion).
+    val slotInteractions = remember { List(Destination.entries.size) { MutableInteractionSource() } }
+    val heldSlot = slotInteractions.map { it.collectIsPressedAsState() }.any { it.value }
+    val grabbed = heldSlot || drag != null
+    val pillWash by animateColorAsState(
+        targetValue = scheme.primary.copy(alpha = if (grabbed) GRABBED_WASH else REST_WASH),
+        animationSpec = effectSpec(),
+        label = "pill-wash",
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -263,7 +279,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                         scaleY = dip.value
                     }
                     .size(SlotWidth, slotHeight)
-                    .background(scheme.primary.copy(alpha = 0.16f), CircleShape),
+                    .background(pillWash, CircleShape),
             )
             Row(modifier = Modifier.selectableGroup()) {
                 NavItem(
@@ -273,6 +289,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                     landscape = landscape,
                     lit = lit == Destination.Code.ordinal,
                     icon = R.drawable.ic_file_code,
+                    interaction = slotInteractions[Destination.Code.ordinal],
                 )
                 NavItem(
                     destination = Destination.Agent,
@@ -281,6 +298,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                     landscape = landscape,
                     lit = lit == Destination.Agent.ordinal,
                     icon = R.drawable.ic_ui_agent,
+                    interaction = slotInteractions[Destination.Agent.ordinal],
                     badge = { AttentionDot(visible = state.agentAttention) },
                 )
                 // One glyph per slot: while a run is going the spinner IS the
@@ -301,6 +319,7 @@ fun ShellNavBar(state: ShellState, modifier: Modifier = Modifier) {
                     landscape = landscape,
                     lit = lit == Destination.Build.ordinal,
                     icon = R.drawable.ic_ui_play,
+                    interaction = slotInteractions[Destination.Build.ordinal],
                     running = { buildBadge == BuildBadge.Ring },
                     succeeded = { buildBadge == BuildBadge.Tick },
                     badge = {
@@ -345,6 +364,8 @@ private fun NavItem(
     landscape: Boolean,
     lit: Boolean,
     icon: Int,
+    /** Owned by the bar, which reads it for the grabbed wash. */
+    interaction: MutableInteractionSource,
     running: () -> Boolean = { false },
     succeeded: () -> Boolean = { false },
     badge: @Composable BoxScope.() -> Unit = {},
@@ -355,7 +376,6 @@ private fun NavItem(
         animationSpec = effectSpec(),
         label = "nav-ink",
     )
-    val interaction = remember { MutableInteractionSource() }
     val fade = effectSpec<Float>()
     Column(
         modifier = Modifier
@@ -627,3 +647,9 @@ private const val DECELERATION = 0.995f
 
 /** How much the pill follows a finger past the end: about half, decaying. */
 private const val RUBBER = 0.55f
+
+/** The selection wash every pill in the app draws (docs/VISUAL.md). */
+private const val REST_WASH = 0.16f
+
+/** The same hue, deeper, while a finger holds the bar: the pill in the hand. */
+private const val GRABBED_WASH = 0.24f

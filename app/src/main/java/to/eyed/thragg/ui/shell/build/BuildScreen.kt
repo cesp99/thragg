@@ -5,7 +5,6 @@ package to.eyed.thragg.ui.shell.build
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -16,10 +15,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,29 +24,29 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
 import to.eyed.thragg.solana.chain.Cluster
@@ -70,7 +65,6 @@ import to.eyed.thragg.terminal.Userland
 import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.NoticeCard
-import to.eyed.thragg.ui.components.RunTicker
 import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.components.ThraggChip
 import to.eyed.thragg.ui.components.ThraggSpinner
@@ -94,12 +88,10 @@ import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.Durations
 import to.eyed.thragg.ui.theme.LocalReduceMotion
-import to.eyed.thragg.ui.theme.accentIcon
 import to.eyed.thragg.ui.theme.animateSize
 import to.eyed.thragg.ui.theme.effectSpec
 import to.eyed.thragg.ui.theme.mutedIcon
-import to.eyed.thragg.ui.theme.touchTarget
-import to.eyed.thragg.ui.theme.pressScale
+import to.eyed.thragg.ui.components.outlinedButtonEdge
 import to.eyed.thragg.ui.workspace.ContextMenu
 import to.eyed.thragg.ui.workspace.ContextMenuItem
 import to.eyed.thragg.ui.workspace.Notifications
@@ -130,6 +122,11 @@ import to.eyed.thragg.ui.workspace.Notifications
  * sit under the thumb that presses Build forty times a session. VISUAL.md is
  * the authority here and its wireframe has no bottom row.
  *
+ * THE TACTILE VARIANT PUTS A ROW BACK — the [RunDeck], four keys above the
+ * capsule — and asks the owner to judge exactly the paragraph above on the
+ * phone. Deploy's key opens the Deploy sheet and never spends; the bar keeps
+ * only ⋮. See RunDeck.kt for the argument and the fallback.
+ *
  * The whole destination still toggles in place to [ShellTerminal]; see
  * [ShellModes].
  */
@@ -150,6 +147,9 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     // cluster is Anchor.toml's, read off the main thread as ProjectsSheet
     // reads it.
     var walletOpen by remember { mutableStateOf(false) }
+    // A tap on a blocked deck key, counted so the status strip's readout —
+    // where the key's reason is printed — can flash (RunDeck.kt).
+    var blockedTaps by remember { mutableIntStateOf(0) }
     val walletCluster by produceState(Cluster.DEFAULT, root, ClusterStore.version) {
         value = withContext(Dispatchers.IO) { ClusterStore.of(context, root) }
     }
@@ -174,21 +174,21 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
         if (BuildRunner.isRunning) Notifications.dismissKey(BUILD_TOAST_KEY)
     }
 
+    val onTest = {
+        val blocked = layout?.let { BuildTasks.anchorTestBlockedBy(it, BuildRunner.tools) }
+        if (blocked != null) {
+            testBlockedBy = blocked
+        } else {
+            BuildRunner.start(context, state, BuildAction.Test)
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         BuildBar(
             state = state,
             context = context,
-            root = root,
             layout = layout,
             inShell = inShell,
-            onTest = {
-                val blocked = layout?.let { BuildTasks.anchorTestBlockedBy(it, BuildRunner.tools) }
-                if (blocked != null) {
-                    testBlockedBy = blocked
-                } else {
-                    BuildRunner.start(context, state, BuildAction.Test)
-                }
-            },
             onWallet = { walletOpen = true },
         )
         // The seam under a flat bar. Nothing tints on scroll anywhere in this
@@ -198,7 +198,7 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
         // No project means nothing to report, and a strip that says "Not
         // built" about a project that does not exist is noise with a border.
         if (!inShell && root != null) {
-            BuildStatusStrip(state, layout)
+            BuildStatusStrip(state, layout, context, blockedTaps)
             HairlineDivider()
         }
 
@@ -217,6 +217,21 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
             inShell -> ShellTerminal(state, root, modifier = Modifier.weight(1f))
 
             else -> BuildBody(state, context, root, layout, modifier = Modifier.weight(1f))
+        }
+
+        // The verbs, under the thumb, in Build and in Shell alike; the log
+        // island above yields the 56dp band. Hides under the IME with the
+        // capsule.
+        if (root != null) {
+            RunDeck(
+                state = state,
+                context = context,
+                layout = layout,
+                inShell = inShell,
+                onTest = onTest,
+                onWallet = { walletOpen = true },
+                onBlockedTap = { blockedTaps++ },
+            )
         }
     }
 
@@ -280,26 +295,23 @@ object BuildBootstrap {
     }
 }
 
-/** `Build / escrow · Anchor        [terminal] [▶] [⋮]` */
+/**
+ * `Build / escrow · Anchor                          [⋮]`
+ *
+ * Only ⋮: the run control and the terminal mark went down to the [RunDeck],
+ * where the thumb is. What is left in the menu is what is not a verb —
+ * Wallet, Problems, the log as text, Setup.
+ */
 @Composable
 private fun BuildBar(
     state: ShellState,
     context: Context,
-    root: String?,
     layout: ProjectLayout?,
     inShell: Boolean,
-    onTest: () -> Unit,
     onWallet: () -> Unit,
 ) {
     var overflow by remember { mutableStateOf(false) }
     val projectName = state.project?.rootName
-    val toolchainReady = unavailableReason(context, layout) == null
-    val runnable = layout != null && toolchainReady
-    // The overflow's Test and Deploy answer [verbReason], the same function
-    // the screen's own controls answer, so the two can never disagree about
-    // whether a verb is available.
-    fun reason(action: BuildAction): String? =
-        verbReason(action, toolchainReady, layout, BuildRunner.freshness, BuildRunner.isRunning)
 
     ThraggTopBar(
         title = if (inShell) "Shell" else "Build",
@@ -310,29 +322,6 @@ private fun BuildBar(
             else -> projectName
         },
         actions = {
-            // The mode switch, and the app's only route to a terminal. The
-            // label always names where the tap GOES rather than where you are,
-            // which is the rule the old `⌗ Shell` chip already followed.
-            ThraggIconButton(
-                icon = R.drawable.ic_ui_terminal,
-                description = if (inShell) "Leave the shell" else "Open the shell",
-                onClick = { ShellModes.toggle(root) },
-                tint = if (inShell) accentIcon else mutedIcon,
-                enabled = root != null,
-            )
-            if (!inShell) {
-                RunControl(
-                    running = BuildRunner.isRunning,
-                    enabled = runnable || BuildRunner.isRunning,
-                    onClick = {
-                        if (BuildRunner.isRunning) {
-                            BuildRunner.stop()
-                        } else {
-                            BuildRunner.start(context, state, BuildAction.Build)
-                        }
-                    },
-                )
-            }
             Box {
                 ThraggIconButton(
                     icon = R.drawable.ic_ui_more_vertical,
@@ -344,14 +333,6 @@ private fun BuildBar(
                     expanded = overflow,
                     onDismiss = { overflow = false },
                     items = listOf(
-                        ContextMenuItem("Test", enabled = reason(BuildAction.Test) == null, onClick = onTest),
-                        // Deploy needs a project with an artifact and nothing
-                        // from the guest: the chain layer signs and sends
-                        // from Kotlin, so a phone with no toolchain can still
-                        // ship a .so it was handed (solana/chain/ProgramDeploy.kt).
-                        ContextMenuItem("Deploy", enabled = reason(BuildAction.Deploy) == null) {
-                            DeployPrompt.open = true
-                        },
                         // Deploy and Test spend from the deploy key; this is
                         // where it is funded (Mine 5 SOL on devnet) and emptied.
                         ContextMenuItem("Wallet", onClick = onWallet),
@@ -368,96 +349,58 @@ private fun BuildBar(
 }
 
 /**
- * One filled 40dp control in 48dp of target, and the only thing on this screen
- * that starts or stops work.
- *
- * Hand-rolled rather than a `FilledIconButton` for two small reasons that add
- * up. The fill has to CROSS between three states — disabled, armed, running —
- * and `IconButtonColors` is a static triple that swaps on recomposition, where
- * this tweens on [effectSpec] so the change of meaning is a 200ms colour move
- * rather than a frame swap. And the shape is [MD.radiusMd]: a 12dp square, not
- * the circle 1.4.0's filled icon button draws, because every other filled
- * thing on this screen is a rounded rectangle. [touchTarget] is applied
- * explicitly so the 48dp hit box around the 40dp drawn square is readable at
- * this call site rather than inherited from a default.
- */
-@Composable
-private fun RunControl(running: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val fill by animateColorAsState(
-        targetValue = when {
-            !enabled -> scheme.surfaceContainerHigh
-            running -> scheme.errorContainer
-            else -> scheme.primary
-        },
-        animationSpec = effectSpec(),
-        label = "build-run-fill",
-    )
-    val ink = when {
-        !enabled -> scheme.onSurfaceVariant.copy(alpha = 0.38f)
-        running -> scheme.onErrorContainer
-        else -> scheme.onPrimary
-    }
-    val label = if (running) "Stop the build" else "Build"
-    val haptic = LocalHapticFeedback.current
-    val interaction = remember { MutableInteractionSource() }
-    Box(
-        modifier = Modifier
-            .touchTarget()
-            // The square gives under the thumb like every other filled
-            // control, and a build starting is the one act on this screen
-            // that earns a haptic: 71 seconds of work begin on this tap, and
-            // the confirm says the tap took. Stopping gets none — a cancel is
-            // not a success.
-            .pressScale(interaction)
-            .size(40.dp)
-            .clip(RoundedCornerShape(MD.radiusMd))
-            .background(fill)
-            .clickable(
-                interactionSource = interaction,
-                indication = LocalIndication.current,
-                enabled = enabled,
-                onClickLabel = label,
-                onClick = {
-                    if (!running) haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                    onClick()
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        ThraggIcon(
-            icon = if (running) R.drawable.ic_ui_stop else R.drawable.ic_ui_play,
-            contentDescription = label,
-            tint = ink,
-            size = IconSize.Action,
-        )
-    }
-}
-
-/**
  * `◐ 2m 08s   anchor build            3 warnings` — 36dp, and it reports.
  *
  * A bar that acts is 48dp and a bar that reports is [MD.stripHeight]; this one
  * has no target in it at all, which is why it can be that short. Running, it
- * is the app's shared [RunTicker] — the same spinner cadence, the same
- * `TabularNums` clock and the same single spoken semantics node the Agent's
- * status strip uses, so "how long has this been going" looks and sounds
- * identical whichever thing is going.
+ * is a [ThraggSpinner] and the progress word only — the elapsed clock lives
+ * in the deck's Stop key ([RunDeck]), so there is one clock on the screen,
+ * in the key that ends what it is timing.
  *
  * At rest it is a [StatusDot] and the artifact's freshness, which is the one
  * fact this screen exists to keep honest: deploying a `.so` from before the
  * edit you are trying to test is the failure the old ProgramRow was there to
  * prevent (docs/UI.md — `stale — edited since the last build`), and it now
- * lives here rather than in a band of its own.
+ * lives here rather than in a band of its own. Its trailing slot is the
+ * artifact path — or, while a deck verb is blocked, that verb's reason
+ * ([deckReadout]: "Deploy · needs a build"), which flashes the warning ink
+ * when the blocked key is tapped ([blockedTaps]). The deck's keys never
+ * print a reason themselves; this is where it lives.
  */
 @Composable
-private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
+private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?, context: Context, blockedTaps: Int) {
     val scheme = MaterialTheme.colorScheme
     val colors = LocalThraggColors.current
     val running = BuildRunner.isRunning
     val issues = BuildRunner.lastIssues
     val errors = issues.count { it.severity == DiagnosticSeverity.Error }
     val warnings = issues.size - errors
+    // A tap on a blocked key answers here: the readout goes warnInk for one
+    // TINT and returns on effectSpec (a cut under reduce-motion).
+    var flashing by remember { mutableStateOf(false) }
+    LaunchedEffect(blockedTaps) {
+        if (blockedTaps == 0) return@LaunchedEffect
+        flashing = true
+        delay(Durations.TINT.toLong())
+        flashing = false
+    }
+    val readoutInk by animateColorAsState(
+        targetValue = if (flashing) colors.warnInk else scheme.onSurfaceVariant,
+        animationSpec = effectSpec(),
+        label = "strip-readout-ink",
+    )
+    // The first blocked verb's reason, or null for the path. Quiet while
+    // running (drawnReason): the spinner row is the whole strip then, and a
+    // blocked tap flashes nothing rather than "· building…".
+    val toolchainReady = unavailableReason(context, layout) == null
+    val readout = drawnReason(
+        deckReadout(
+            listOf(BuildAction.Build, BuildAction.Test, BuildAction.Deploy).map { action ->
+                action to verbReason(action, toolchainReady, layout, BuildRunner.freshness, running = false)
+            },
+        ),
+        running,
+    )
 
     // `transitionSpec` is not composable: the fade is resolved here, which
     // is also the one place reduce-motion is read for it (LevelSlider.kt).
@@ -486,16 +429,8 @@ private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
                 horizontalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
                 if (shownRunning) {
-                    val startedAt = (state.build as? BuildState.Running)?.startedAt
-                    if (startedAt != null) {
-                        RunTicker(startedAt = startedAt, tokens = null, tint = scheme.primary)
-                    } else {
-                        // A run the shell state has not caught up with yet:
-                        // the spinner still says "going", which is the only
-                        // claim the strip can honestly make without a start
-                        // time.
-                        ThraggSpinner(size = 12.dp)
-                    }
+                    // "Going", and no seconds: the clock is in the Stop key.
+                    ThraggSpinner(size = 12.dp)
                     Text(
                         text = BuildRunner.runningAction?.progressLabel ?: "Working",
                         style = MaterialTheme.typography.labelMedium,
@@ -522,17 +457,29 @@ private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = layout?.primary?.artifactPath.orEmpty(),
-                        // The buffer's face, because it is a path: the same
-                        // figure in the same face as the editor's tab and the
-                        // log's own rows.
-                        style = MonoSmall.copy(color = scheme.onSurfaceVariant),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (readout != null) {
+                        Text(
+                            text = readout,
+                            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                            color = readoutInk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Text(
+                            text = layout?.primary?.artifactPath.orEmpty(),
+                            // The buffer's face, because it is a path: the same
+                            // figure in the same face as the editor's tab and the
+                            // log's own rows.
+                            style = MonoSmall.copy(color = scheme.onSurfaceVariant),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     IssueCounts(errors, warnings)
                 }
             }
@@ -886,22 +833,29 @@ private fun AnchorTestSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(MD.space2),
             ) {
-                FlatButton(
-                    label = "Set up",
-                    emphasis = true,
-                    modifier = Modifier.fillMaxWidth(),
+                // One filled button, the way out; the rest outlined with
+                // the house edge. Zero elevation in every slot, as always.
+                Button(
                     onClick = onSetup,
-                )
-                FlatButton(
-                    label = "Run cargo test instead",
                     modifier = Modifier.fillMaxWidth(),
+                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
+                ) {
+                    Text("Set up")
+                }
+                OutlinedButton(
                     onClick = onCargoTest,
-                )
-                FlatButton(
-                    label = "Not now",
                     modifier = Modifier.fillMaxWidth(),
+                    border = outlinedButtonEdge(),
+                ) {
+                    Text("Run cargo test instead")
+                }
+                OutlinedButton(
                     onClick = onDismiss,
-                )
+                    modifier = Modifier.fillMaxWidth(),
+                    border = outlinedButtonEdge(),
+                ) {
+                    Text("Not now")
+                }
             }
         },
     ) {
@@ -981,6 +935,25 @@ internal fun verbReason(
     else -> null
 }
 
+/**
+ * What the strip DRAWS of a reason, as against what gates the key. While a
+ * run is going the screen already says so twice — the red Stop and the
+ * strip's spinner — so a third "building…" was repetition (the owner's
+ * note). The keys stay disabled, the reason still gates and is still spoken
+ * as `stateDescription`, but no readout is drawn until the run ends; at rest
+ * the reason is drawn as given. Pure, so it is a table (DeckReadoutTest).
+ */
+internal fun drawnReason(reason: String?, running: Boolean): String? = reason.takeUnless { running }
+
+/**
+ * The status strip's readout for the deck: the first blocked verb in deck
+ * order, said as `Verb · reason`, or null when nothing is blocked and the
+ * slot is the artifact path. Callers pass the reasons already resolved so
+ * this needs no Context (DeckReadoutTest).
+ */
+internal fun deckReadout(reasons: List<Pair<BuildAction, String?>>): String? =
+    reasons.firstNotNullOfOrNull { (action, reason) -> reason?.let { "${action.label} · $it" } }
+
 internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavailable? = when {
     !Userland.backend.isSupported -> Unavailable(
         "No Linux guest on this device",
@@ -1028,72 +1001,6 @@ internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavai
     )
 
     else -> null
-}
-
-/**
- * The flat rectangular button the pre-Material screens were built from.
- *
- * KEPT ON PURPOSE, AND IT IS NOT USED BY THIS SCREEN ANY MORE. Four files in
- * `ui/shell/changes/` import it — ChangesScreen, CommitSheet, DiffScreen and
- * ProblemsScreen — and those are another chunk's to convert; deleting it here
- * would break their build for a cosmetic gain. Its colours are Material now,
- * so the sites that still call it stop being the only raised-looking things
- * left in the app while they wait.
- */
-@Composable
-internal fun FlatButton(
-    label: String,
-    modifier: Modifier = Modifier,
-    emphasis: Boolean = false,
-    /** Drawn before the label — play, stop. Decoration: the label names it. */
-    @DrawableRes icon: Int? = null,
-    /** Drawn after it, for a button that goes somewhere rather than doing something. */
-    @DrawableRes trailingIcon: Int? = null,
-    onClick: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    val background: Color = if (emphasis) scheme.primary else scheme.surfaceContainerHigh
-    val ink: Color = if (emphasis) scheme.onPrimary else scheme.onSurface
-    Box(
-        modifier = modifier
-            .height(MD.rowMin)
-            .clip(RoundedCornerShape(MD.radiusMd))
-            .background(background)
-            .clickable(onClickLabel = label, onClick = onClick)
-            .touchTarget(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MD.iconGap),
-            modifier = Modifier.padding(horizontal = MD.space2),
-        ) {
-            if (icon != null) {
-                ThraggIcon(
-                    icon = icon,
-                    contentDescription = null,
-                    tint = ink,
-                    size = IconSize.Inline,
-                )
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = ink,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (trailingIcon != null) {
-                ThraggIcon(
-                    icon = trailingIcon,
-                    contentDescription = null,
-                    tint = ink,
-                    size = IconSize.Inline,
-                )
-            }
-        }
-    }
 }
 
 // --- the two things the log rows also need ------------------------------------

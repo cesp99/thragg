@@ -1,6 +1,7 @@
 package to.eyed.thragg.ui.shell
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +43,26 @@ class SheetPoseTest {
     @Test
     fun `a sheet that opened full settles home after a small drag`() {
         assertEquals(1f, settlePose(fraction = 0.95f, velocity = -0.2f), 0f)
+    }
+
+    @Test
+    fun `a fast downward flick from the open pose is a dismissal`() {
+        // The finger never reached the line; where it was going is below it.
+        assertTrue(releaseDismisses(fraction = 0.65f, velocity = -1.5f))
+        assertTrue(releaseDismisses(fraction = 0.60f, velocity = -1.0f))
+    }
+
+    @Test
+    fun `a slow drift above the line is not a dismissal`() {
+        assertFalse(releaseDismisses(fraction = 0.65f, velocity = -0.3f))
+        assertFalse(releaseDismisses(fraction = 0.50f, velocity = 0f))
+        assertFalse(releaseDismisses(fraction = 1f, velocity = -1.5f))
+    }
+
+    @Test
+    fun `below the line is a dismissal whatever the throw`() {
+        assertTrue(releaseDismisses(fraction = 0.44f, velocity = 0f))
+        assertTrue(releaseDismisses(fraction = 0.40f, velocity = 3f))
     }
 
     @Test

@@ -228,17 +228,16 @@ internal fun BuildLogView(
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (unavailable == null) {
                 if (artifactOnDisk) {
+                    // One line each: the deck under this island is the
+                    // instruction, so the prose only has to say what is here.
                     EmptyState(
                         headline = "No output this session",
-                        body = "The last build's artifact is on disk — the strip above " +
-                            "has it. Press Run to build again and the compiler's " +
-                            "output streams here.",
+                        body = "The last artifact is on disk; Build streams the next one here.",
                     )
                 } else {
                     EmptyState(
                         headline = "Nothing built yet",
-                        body = "Press Run and the compiler's output arrives here, " +
-                            "line by line, with every problem tappable.",
+                        body = "Build, and the compiler's output arrives here.",
                     )
                 }
             } else {

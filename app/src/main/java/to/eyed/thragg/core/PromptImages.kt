@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Base64
 import android.util.Log
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 import kotlin.math.roundToInt
 import org.json.JSONArray
@@ -27,8 +28,20 @@ data class PromptAttachment(
     /** What to call it in the composer's chip. */
     val name: String,
 ) {
+    /**
+     * A key for the composer's chip row, minted once per attachment. Off the
+     * constructor so two attachments of the same picture stay equal (and
+     * `copy` mints a fresh one); a content hash would collide on exactly
+     * that case, and an identity hash is not promised unique.
+     */
+    val id: Long = nextId.getAndIncrement()
+
     /** Roughly what this costs on the wire, for the composer's own limit. */
     val approximateBytes: Int get() = data.length / 4 * 3
+
+    private companion object {
+        val nextId = AtomicLong(1)
+    }
 }
 
 /**

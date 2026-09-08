@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -145,6 +148,21 @@ fun FilesSheet(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    // The placeholder says what the field is for, in the
+                    // muted ink, and leaves the frame the first character lands.
+                    decorationBox = { inner ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.text.isEmpty()) {
+                                Text(
+                                    text = "Search files…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                            inner()
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f, fill = true)
                         .focusRequester(focus)
@@ -221,17 +239,24 @@ private fun ColumnScope.BrowseBody(
                         .clickable { onOpenFile(file.path) }
                         .padding(horizontal = MD.space4, vertical = MD.rowPadY),
                 ) {
-                    ThraggIcon(
-                        icon = if (file.isDirty) R.drawable.ic_ui_dot else R.drawable.ic_ui_circle,
-                        contentDescription = if (file.isDirty) "unsaved" else null,
-                        tint = if (file.isDirty) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        size = IconSize.Marker,
-                        modifier = Modifier.padding(end = MD.space2),
-                    )
+                    // The dirty dot, or nothing: a clean file drew a hollow
+                    // circle that read as a second state, and "saved" is
+                    // not a state a file needs a mark for. The slot stays
+                    // so names line up.
+                    Box(
+                        modifier = Modifier.size(IconSize.Marker),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (file.isDirty) {
+                            ThraggIcon(
+                                icon = R.drawable.ic_ui_dot,
+                                contentDescription = "unsaved",
+                                tint = MaterialTheme.colorScheme.primary,
+                                size = IconSize.Marker,
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(MD.space2))
                     Text(
                         text = file.name,
                         style = MaterialTheme.typography.bodyMedium,

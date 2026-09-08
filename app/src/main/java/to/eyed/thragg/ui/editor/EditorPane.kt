@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -110,10 +111,13 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import to.eyed.thragg.R
 import to.eyed.thragg.core.CoreBridge
 import to.eyed.thragg.core.Runnable
@@ -2681,10 +2685,12 @@ private fun EditorActionRow(
             // The arrow cluster a soft keyboard does not have. One column at a
             // time: this is the key you hold to nudge a caret off the end of a
             // string literal, which is the motion touch is worst at.
-            FixedKey("Left", act { state.moveCursorHorizontally(-1) }, icon = R.drawable.ic_ui_arrow_left)
-            FixedKey("Right", act { state.moveCursorHorizontally(1) }, icon = R.drawable.ic_ui_arrow_right)
-            FixedKey("Undo", act { state.undo() }, icon = R.drawable.ic_ui_undo)
-            FixedKey("Redo", act { state.redo() }, icon = R.drawable.ic_ui_redo)
+            // Held, they repeat like hardware keys (`repeats`): the same
+            // `act` the tap dispatches, from this row's own pointer loop.
+            FixedKey("Left", act { state.moveCursorHorizontally(-1) }, icon = R.drawable.ic_ui_arrow_left, repeats = true)
+            FixedKey("Right", act { state.moveCursorHorizontally(1) }, icon = R.drawable.ic_ui_arrow_right, repeats = true)
+            FixedKey("Undo", act { state.undo() }, icon = R.drawable.ic_ui_undo, repeats = true)
+            FixedKey("Redo", act { state.redo() }, icon = R.drawable.ic_ui_redo, repeats = true)
             // The shell's save: `format_on_save`, the whitespace
             // rules and the write, in that order.
             FixedKey("save", act { onSaveBuffer?.invoke() }, enabled = onSaveBuffer != null)
@@ -2763,9 +2769,22 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
     @DrawableRes icon: Int? = null,
     /** Degrees the mark is turned, read in the draw layer so a turn never recomposes the row. */
     iconRotation: () -> Float = { 0f },
+    /**
+     * Hold-to-repeat, for the four motion keys. After [REPEAT_DELAY_MS] the
+     * key fires [onClick] every [REPEAT_INTERVAL_MS] until the finger lifts,
+     * with no haptic — a hardware key does not vibrate — and no motion, so
+     * reduce-motion changes nothing. The loop runs on this row's own pointer
+     * scope, on the pane's thread, and dispatches the very lambda the tap
+     * does; it never touches the editor from anywhere else.
+     */
+    repeats: Boolean = false,
 ) {
     val theme = LocalZedTheme.current
     val interaction = remember { MutableInteractionSource() }
+    val currentClick by rememberUpdatedState(onClick)
+    // Whether the hold already fired: the release that ends a hold must not
+    // also count as a tap, or a held ← walks one column too far.
+    val repeated = remember { booleanArrayOf(false) }
     val ink = when {
         !enabled -> theme.color("text.disabled", MaterialTheme.colorScheme.onSurfaceVariant)
         accent -> theme.color("text.accent", MaterialTheme.colorScheme.primary)
@@ -2780,12 +2799,46 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
             // draws no ripple, and a keystroke must be seen where it was made.
             .pressedFill(interaction, theme.color("ghost_element.active"))
             .pointerHoverIcon(PointerIcon.Hand)
+            .then(
+                if (repeats && enabled) {
+                    // Keyed on Unit and reading the action through
+                    // `rememberUpdatedState`: `act {}` hands this cell a
+                    // fresh lambda every recomposition, and a loop keyed on
+                    // it would be cancelled — hold ended, key waiting for a
+                    // new down — by any recomposition of the row mid-hold.
+                    Modifier.pointerInput(Unit) {
+                        // The loop is a sibling of the gesture, not inside
+                        // it: the pointer scope is suspended on events while
+                        // the finger rests, which is when the repeat ticks.
+                        coroutineScope {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                repeated[0] = false
+                                val loop = launch {
+                                    delay(REPEAT_DELAY_MS)
+                                    while (true) {
+                                        repeated[0] = true
+                                        currentClick()
+                                        delay(REPEAT_INTERVAL_MS)
+                                    }
+                                }
+                                waitForUpOrCancellation()
+                                loop.cancel()
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 enabled = enabled,
                 onClickLabel = label,
-                onClick = onClick,
+                onClick = {
+                    if (repeated[0]) repeated[0] = false else onClick()
+                },
             )
             .semantics { contentDescription = label },
     ) {
@@ -2808,6 +2861,12 @@ private fun androidx.compose.foundation.layout.RowScope.FixedKey(
         }
     }
 }
+
+/** How long a motion key is held before it starts repeating: a hardware keyboard's. */
+private const val REPEAT_DELAY_MS = 350L
+
+/** The repeat rate once it has started, ~16 columns a second. */
+private const val REPEAT_INTERVAL_MS = 60L
 
 @Composable
 private fun ActionKey(label: String, onClick: () -> Unit) {

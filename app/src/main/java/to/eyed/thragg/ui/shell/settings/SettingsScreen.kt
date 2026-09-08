@@ -436,6 +436,18 @@ fun SettingsScreen(
             )
         }
 
+        // THE HIDDEN TIER, WRITTEN DOWN ONCE. Five facts in the owner's
+        // register — no chevrons, no taps, no tour: the shell's gestures are
+        // found by doing the easy thing harder, and this is the one place a
+        // user who wants the list can read it.
+        SectionHeader("Gestures", modifier = Modifier.padding(top = MD.space4))
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
+            GESTURE_FACTS.forEachIndexed { index, fact ->
+                if (index > 0) HairlineDivider()
+                LinkRow(label = fact, onClick = null)
+            }
+        }
+
         SectionHeader("Advanced", modifier = Modifier.padding(top = MD.space4))
         ThraggCard(modifier = Modifier.fillMaxWidth()) {
             // Null rather than disabled, for the reason on [LinkRow]: with no
@@ -665,6 +677,15 @@ internal fun programRowDescription(
     unreachable -> "could not reach $cluster"
     else -> described
 }
+
+/** The Gestures group, as plain facts. */
+private val GESTURE_FACTS = listOf(
+    "Drag the bar to switch tabs",
+    "Tap the current tab to scroll to the top",
+    "Flick a sheet up for full height, down to close",
+    "Hold a key in the keyboard row to repeat it",
+    "Hold a verb on Build for what gates it",
+)
 
 /**
  * A row that goes somewhere: a label, an optional readout or description, and
