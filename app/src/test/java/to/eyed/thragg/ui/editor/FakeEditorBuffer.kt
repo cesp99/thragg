@@ -266,6 +266,20 @@ internal class FakeEditorBuffer(
         return true
     }
 
+    /**
+     * The disk-change reload, as the engine does it (`Engine::reload_buffer`,
+     * file.rs): the whole text replaced in one edit under the buffer's own
+     * lock, the version bumped, and *nothing said to the editor* — the
+     * workspace's status loop is what tells it, a tick later. Undoable, as
+     * the engine's is.
+     */
+    fun rewriteFromDisk(newText: String) {
+        undoStack.add(text)
+        redoStack.clear()
+        text = newText
+        version++
+    }
+
     /** The fake holds no git state: no conflicts, and nothing to resolve. */
     override fun conflicts(): List<ConflictRegion> = emptyList()
 

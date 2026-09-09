@@ -2418,6 +2418,20 @@ class EditorState private constructor(
      */
     private fun runEdits(edits: List<CaretEdit>): List<CaretEdit> {
         if (edits.isEmpty()) return emptyList()
+        // Every offset in the batch was measured against the text this
+        // editor last synced with. If the buffer moved since — the
+        // disk-change reload landing from the status loop's IO thread, an
+        // agent writing through the open buffer — those offsets name bytes
+        // of a file that is gone, and the engine would either refuse them or,
+        // worse, clip them into a place the user never typed at. The
+        // keystroke that raced the rewrite is dropped, and the editor is
+        // resynced so the next one lands where the caret is now shown. The
+        // window cache's own guard ([applyLineDiff]) covers the write that
+        // lands *during* the edit; this covers the one that landed before.
+        if (buffer.version != measuredVersion) {
+            afterHistoryChange()
+            return emptyList()
+        }
         // How far the batch can reach, for the display map. Every range in it
         // was derived from a caret, and the furthest an operation ever goes
         // past one is the newline on either side — deleting a line takes the
@@ -2492,6 +2506,14 @@ class EditorState private constructor(
      * across carets the shadow knows nothing about.
      */
     fun applyLineDiff(row: Int, newLine: String, selUtf16: Int): Boolean {
+        // The connection's shadow was seeded from the line as it was; if the
+        // buffer moved underneath since (a reload, an engine-side write), the
+        // diff below would be old text against new and its edit would
+        // re-insert the shadow into the new file. Resync instead — this
+        // notifies [onCursorChangedExternally], and the input node restarts
+        // its connection from the line as it is now — and report "no
+        // structural change" so the connection only re-reports its selection.
+        if (resyncIfBufferMoved()) return false
         val oldLine = line(row)
         if (oldLine == newLine) {
             // Only the caret moved (a tap on the IME's cursor control, a
@@ -3047,10 +3069,37 @@ class EditorState private constructor(
         // Undoing a multi-caret edit restores the text, not the carets that
         // made it; collapsing to one is what Zed's history does too.
         dropExtraCarets()
-        cursorRow = cursorRow.coerceIn(0, lineCount - 1)
-        cursorCol = cursorCol.coerceAtMost(currentLine().length)
+        clampCaretToText()
         ensureCursorVisible()
         onCursorChangedExternally?.invoke()
+    }
+
+    /**
+     * Pull the primary caret — head *and* anchor — back inside the text the
+     * buffer now holds. Zed never has to: its selections are anchors the
+     * buffer moves with the edit (`Editor::selections` over
+     * `text::Anchor`). Ours are row/column pairs, and a reload that shrank
+     * the file — the agent rewriting it, a `seahorse build` regenerating
+     * it, a `git checkout` — leaves them naming rows and columns the text
+     * no longer has. The head was always clamped here; the anchor was not,
+     * and an anchor past the end made [primaryCaret] a range the engine
+     * refuses (`end < start` once the head is clamped and the anchor is
+     * not), and the next keystroke an edit computed against text that was
+     * gone. An anchor that lands on the head is no selection at all.
+     */
+    private fun clampCaretToText() {
+        val lastRow = (lineCount - 1).coerceAtLeast(0)
+        cursorRow = cursorRow.coerceIn(0, lastRow)
+        cursorCol = cursorCol.coerceIn(0, currentLine().length)
+        if (selectionAnchorRow < 0) return
+        val anchorRow = selectionAnchorRow.coerceIn(0, lastRow)
+        val anchorCol = selectionAnchorCol.coerceIn(0, line(anchorRow).length)
+        if (anchorRow == cursorRow && anchorCol == cursorCol) {
+            clearSelection()
+        } else {
+            selectionAnchorRow = anchorRow
+            selectionAnchorCol = anchorCol
+        }
     }
 
     // ---- UTF-8 / UTF-16 arithmetic ---------------------------------------

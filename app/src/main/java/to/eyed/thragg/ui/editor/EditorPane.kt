@@ -42,6 +42,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
@@ -570,6 +571,19 @@ fun EditorPane(
     val toolbar = LocalTextToolbar.current
     val clipboard = LocalClipboardManager.current
     var paneCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // The pane's bottom edge in window pixels, *as state*, updated from every
+    // placement. The action row and the popups dock on the keyboard by how
+    // far it overlaps this pane (imeOverlapPx), and that used to be computed
+    // from [paneCoordinates] in composition — which is the same object
+    // across relayouts, so nothing recomposed when the pane moved. The
+    // moment the keyboard shows, the nav bar, the file bar and the status
+    // line give their height back and the pane's bottom drops by theirs; a
+    // row composed in that same recomposition measured the old bottom and
+    // sat that far *under* the keyboard. A keyboard opening animates its
+    // inset and a later frame repaired it; a keyboard that is already up
+    // when the pane appears — the process restored with the IME open, Code
+    // returned to with it up — animates nothing, and the row stayed buried.
+    var paneBottomPx by remember { mutableFloatStateOf(-1f) }
 
     // A pane activated from the keymap asks for the keyboard through its
     // state — see [EditorState.requestFocus].
@@ -766,7 +780,10 @@ fun EditorPane(
                 // DeX and paired keyboards mean a mouse is ordinary here, not
                 // exotic; text should say so under the pointer.
                 .pointerHoverIcon(PointerIcon.Text)
-                .onGloballyPositioned { paneCoordinates = it }
+                .onGloballyPositioned {
+                    paneCoordinates = it
+                    paneBottomPx = it.localToWindow(Offset(0f, it.size.height.toFloat())).y
+                }
                 // Two fingers resize the text — the touch half of Zed's
                 // `zed::IncreaseBufferFontSize` chords, and the gesture every
                 // reader on this platform already knows. Ahead of the
@@ -2221,7 +2238,7 @@ fun EditorPane(
                 onSaveBuffer = onSaveBuffer,
                 onBuild = onBuild,
                 buildRunning = buildRunning,
-                paneCoordinates = paneCoordinates,
+                paneBottomPx = paneBottomPx,
                 onActed = { focusRequester.requestFocus() },
                 modifier = Modifier.align(Alignment.BottomStart),
             )
@@ -2238,6 +2255,7 @@ fun EditorPane(
             signatureHelp = signatureHelp,
             layoutCache = layoutCache,
             paneCoordinates = paneCoordinates,
+            paneBottomPx = paneBottomPx,
             onActed = { focusRequester.requestFocus() },
         )
     }
@@ -2338,6 +2356,7 @@ private fun EditorPopups(
     signatureHelp: SignatureHelpState,
     layoutCache: TextLayoutCache,
     paneCoordinates: LayoutCoordinates?,
+    paneBottomPx: Float,
     onActed: () -> Unit,
 ) {
     if (!menu.isOpen && !hover.isShowing && !references.isShowing && !codeActions.isShowing &&
@@ -2352,7 +2371,7 @@ private fun EditorPopups(
     // The first pixel a popup may not use: the top of the soft keyboard, or of
     // the row of keys riding above it. See [placeMenuAtCaret], which is where
     // the one mandatory deviation from Zed's placement lives.
-    val covered = imeOverlapPx(paneCoordinates) +
+    val covered = imeOverlapPx(paneBottomPx) +
         if (WindowInsets.isImeVisible) with(density) { ACTION_ROW_HEIGHT.toPx() } else 0f
     val areaBottom = (paneHeight - covered).coerceAtLeast(0f)
 
@@ -2507,15 +2526,18 @@ private fun segmentLayout(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun imeOverlapPx(paneCoordinates: LayoutCoordinates?): Float {
+private fun imeOverlapPx(paneBottomPx: Float): Float {
     if (!WindowInsets.isImeVisible) return 0f
     val density = LocalDensity.current
-    val windowHeight = LocalWindowInfo.current.containerSize.height
-    val paneBottom = paneCoordinates
-        ?.takeIf { it.isAttached }
-        ?.let { it.localToWindow(Offset(0f, it.size.height.toFloat())).y }
-        ?: windowHeight.toFloat()
-    return (WindowInsets.ime.getBottom(density) - (windowHeight - paneBottom)).coerceAtLeast(0f)
+    val windowHeight = LocalWindowInfo.current.containerSize.height.toFloat()
+    // [paneBottomPx] is snapshot state written on every placement, so this
+    // recomputes when the pane moves — the arithmetic itself is
+    // [imeOverlap], kept pure for its test.
+    return imeOverlap(
+        imeBottomPx = WindowInsets.ime.getBottom(density).toFloat(),
+        windowHeightPx = windowHeight,
+        paneBottomPx = paneBottomPx,
+    )
 }
 
 /**
@@ -2558,7 +2580,7 @@ private fun EditorActionRow(
     onSaveBuffer: (() -> Unit)?,
     onBuild: (() -> Unit)?,
     buildRunning: Boolean,
-    paneCoordinates: LayoutCoordinates?,
+    paneBottomPx: Float,
     onActed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2567,7 +2589,7 @@ private fun EditorActionRow(
     if (!WindowInsets.isImeVisible) return
     val density = LocalDensity.current
     // How far to lift the row so it lands on top of the keyboard.
-    val overlap = imeOverlapPx(paneCoordinates)
+    val overlap = imeOverlapPx(paneBottomPx)
     val theme = LocalZedTheme.current
     // The ⌄ expansion. Remembered against the pane rather than hoisted: it is
     // a posture, not navigation, and back leaves it alone on purpose — step 3

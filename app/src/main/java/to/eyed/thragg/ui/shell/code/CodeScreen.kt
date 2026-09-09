@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import android.view.View
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -435,8 +439,13 @@ fun CodeScreen(
             written
         }
     }
+    // The view, for one imperative read of the IME's visibility below —
+    // `WindowInsets.isImeVisible` is a composition read, and the restore is
+    // a coroutine.
+    val hostView = LocalView.current
     LaunchedEffect(code.pendingOpens.size, project) {
         val open = project ?: return@LaunchedEffect
+        var restored = false
         while (code.pendingOpens.isNotEmpty()) {
             val pending = code.pendingOpens.removeAt(0)
             openFile(relativeTo(open, pending.path)) { file ->
@@ -444,6 +453,7 @@ fun CodeScreen(
                 // (ui/shell/SessionRestore.kt) and is put back whole.
                 pending.restore?.let { saved ->
                     saved.restoreIn(file)
+                    restored = true
                     return@openFile
                 }
                 // 1-based from the compiler and from the terminal, 0-based in
@@ -457,6 +467,13 @@ fun CodeScreen(
                 }
             }
         }
+        // A session restored under a keyboard that is already up — the
+        // process killed and brought back while the user was typing — has a
+        // keyboard with no owner: Compose restores no focus, so the IME is
+        // connected to nothing and the editor's action row docks on it with
+        // nobody to act for. Hand the keyboard to the file the user was in.
+        // Only when it *is* up: a restore must never raise the keyboard.
+        if (restored && imeIsShowing(hostView)) files.active?.editor?.requestFocus()
     }
 
     var searchDeploy by remember { mutableStateOf<SearchDeploy?>(null) }
@@ -523,10 +540,22 @@ fun CodeScreen(
             files.refreshStatuses()
             for (file in files.tabs) {
                 // A file the engine moved under us (a workspace edit, a git
-                // command) — one field compared, no bridge call.
+                // command, an agent writing through the open buffer): the
+                // handle's version is re-read first, because an engine-side
+                // write bumps the engine's version and not the handle's, and
+                // an editor comparing the handle against itself would never
+                // notice. One bridge call, next to the five refreshStatus
+                // already makes.
+                file.session?.refreshVersion()
                 file.editor?.resyncIfBufferMoved()
                 if (file.hasDiskChange && !file.isDirty) {
-                    withContext(Dispatchers.IO) { file.session?.reload() }
+                    val reloaded = withContext(Dispatchers.IO) { file.session?.reload() ?: false }
+                    // Resync *now*, in the same turn as the reload — not on
+                    // the next tick. Between the two, the editor's carets,
+                    // anchor and line count named a file that was gone, and a
+                    // keystroke or an IME commit in that quarter second was
+                    // an edit against text the buffer no longer had.
+                    if (reloaded) file.editor?.noteExternalEdit()
                     file.refreshStatus()
                 }
             }
@@ -1164,6 +1193,15 @@ internal fun fixWithAgent(state: ShellState, path: String, diagnostic: Diagnosti
  * WorkspaceScreen.kt:249 with its interval intact.
  */
 private const val STATUS_POLL_MS = 250L
+
+/**
+ * Whether the soft keyboard is on screen right now, read off the window
+ * rather than the composition — for the one caller that asks from a
+ * coroutine, after a restore, and must not subscribe the screen to the
+ * insets to find out.
+ */
+private fun imeIsShowing(view: View): Boolean =
+    ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
 
 /** The toast key the project-settings complaint is keyed on, so it replaces. */
 private const val LOCAL_SETTINGS_NOTIFICATION = "project-settings"
