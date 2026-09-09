@@ -658,7 +658,13 @@ fun CodeScreen(
             // "every setting is the built-in default" there would be the
             // notice contradicting the app in front of it (QA G-11).
             val consequence = if (loaded.recovered) {
-                "The editor's own settings are the built-in defaults until it is fixed."
+                // `recovered` means this side parsed the whole file, so the
+                // settings the user can see — theme, font size, tab width,
+                // the agent, the terminal — really are theirs. Saying they
+                // are defaults was the notice contradicting the screen
+                // behind it, which is what QA found on the device.
+                "Thragg read it anyway, so your settings are in effect; the editor engine " +
+                    "refused it, so fix the file to be sure they all apply."
             } else {
                 "Every setting is the built-in default until it is fixed."
             }
