@@ -4,6 +4,7 @@ package to.eyed.thragg.ui.shell.changes
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +38,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +54,7 @@ import to.eyed.thragg.core.GitAskpass
 import to.eyed.thragg.core.GitChange
 import to.eyed.thragg.core.GitFileStatus
 import to.eyed.thragg.core.GitPanelState
+import to.eyed.thragg.core.GitIdentityPrompt
 import to.eyed.thragg.core.GitSession
 import to.eyed.thragg.core.PatchResult
 import to.eyed.thragg.core.ProjectSession
@@ -70,6 +74,7 @@ import to.eyed.thragg.ui.git.formatRemoteOutput
 import to.eyed.thragg.ui.git.isGitPanelSupported
 import to.eyed.thragg.ui.git.remoteFailureMessage
 import to.eyed.thragg.ui.shell.Route
+import to.eyed.thragg.ui.shell.SheetScaffold
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.components.DiffStatLabel
 import to.eyed.thragg.ui.components.HairlineDivider
@@ -79,6 +84,8 @@ import to.eyed.thragg.ui.components.ThraggTopBar
 import to.eyed.thragg.ui.components.SectionHeader
 import to.eyed.thragg.ui.shell.build.CodeJump
 import to.eyed.thragg.ui.shell.projects.ProjectWork
+import to.eyed.thragg.ui.shell.projects.SheetButtons
+import to.eyed.thragg.ui.shell.projects.SheetTextField
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
@@ -216,7 +223,7 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             onOpenBranches = { sheet = ChangesSheet.Branches },
             onPull = { pull(session, project.id, snapshot.status) },
             onPush = { push(session, project.id, snapshot.status) },
-            onFetch = { runRemote(RemoteAction.Fetch(null), project.id) { session.fetch(null) } },
+            onFetch = { fetch(session, project.id) },
             onUnstageAll = {
                 if (model.stagedPaths.isNotEmpty()) perform({ session.unstage(model.stagedPaths) })
             },
@@ -341,6 +348,12 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             message = message,
             stagedCount = model.stagedCount,
             busy = ops.busy,
+            // A project outside any repository has nothing to commit *to*,
+            // and two full-width buttons offering to do it anyway were the
+            // loudest controls on that screen (QA P-15). The note above the
+            // list is what to read there, and ⋮ → Initialize repository is
+            // what to press.
+            hasRepo = snapshot.status.hasRepo,
             onEdit = { sheet = ChangesSheet.Commit },
             onCommit = { andPush ->
                 if (message.isBlank() || model.stagedCount == 0) {
@@ -390,6 +403,24 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
     // tracked file from the last commit and *trashes* one the commit has never
     // seen, which is a difference the confirmation has to state rather than
     // imply.
+    // Who git will say made this commit. Raised by [GitSession.commit] itself,
+    // so both commit buttons and both surfaces reach it; answered once per
+    // guest (QA G-13).
+    GitIdentityPrompt.pending?.let { request ->
+        // One sheet at a time: the refused commit may have come from the
+        // commit sheet, and two modal sheets stacked is two scrims.
+        LaunchedEffect(request) { sheet = null }
+        GitIdentitySheet(
+            state = state,
+            request = request,
+            projectId = project.id,
+            onCommitted = {
+                CommitDrafts.clear(project.id)
+                message = ""
+            },
+        )
+    }
+
     discardAsk?.let { change ->
         AlertDialog(
             onDismissRequest = { discardAsk = null },
@@ -404,6 +435,104 @@ fun ChangesScreen(state: ShellState, modifier: Modifier = Modifier) {
             dismissButton = {
                 TextButton(onClick = { discardAsk = null }) { Text("Cancel") }
             },
+        )
+    }
+}
+
+/**
+ * `Who is committing?` — the sheet a fresh install's first commit raises.
+ *
+ * git records a name and an email on every commit and *refuses to guess*
+ * them: a fresh Debian offers `root@localhost.(none)`, will not use it, and
+ * fails the commit with a paragraph of advice about a command line. Nothing
+ * in this app ever set one — [GitSession.identity] and `setIdentity` existed
+ * with no call sites at all — so the only repair was `git config --global` in
+ * the Shell, which is exactly the "go and use the terminal" answer this
+ * product exists to refuse (QA G-13).
+ *
+ * Saving it runs the commit that was refused, through the same single-flight
+ * every other mutation uses. It is written globally inside the guest, so it
+ * is asked once and never again, for every project.
+ */
+@Composable
+private fun GitIdentitySheet(
+    state: ShellState,
+    request: GitIdentityPrompt.Request,
+    projectId: Long,
+    onCommitted: () -> Unit,
+) {
+    var name by remember { mutableStateOf(request.current?.name.orEmpty()) }
+    var email by remember { mutableStateOf(request.current?.email.orEmpty()) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    SheetScaffold(
+        state = state,
+        onDismiss = { GitIdentityPrompt.dismiss() },
+        title = "Who is committing?",
+        field = {
+            Column(verticalArrangement = Arrangement.spacedBy(MD.space2)) {
+                SheetTextField(
+                    value = name,
+                    onValueChange = { name = it; failure = null },
+                    placeholder = "Your name",
+                    autoFocus = true,
+                )
+                SheetTextField(
+                    value = email,
+                    onValueChange = { email = it; failure = null },
+                    placeholder = "you@example.com",
+                    error = failure,
+                    // An address, so the IME stops capitalising and
+                    // autocorrecting it.
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Email,
+                    ),
+                )
+            }
+        },
+        actions = {
+            SheetButtons(
+                cancelLabel = "Not now",
+                onCancel = { GitIdentityPrompt.dismiss() },
+                confirmLabel = "Save and commit",
+                confirmEnabled = !saving && name.isNotBlank() && email.isNotBlank(),
+                onConfirm = {
+                    saving = true
+                    ProjectWork.launch launchIdentity@{
+                        val refusal = withContext(Dispatchers.IO) {
+                            request.session.setIdentity(name.trim(), email.trim())
+                        }
+                        saving = false
+                        if (refusal != null) {
+                            // git's own validation — a missing `@`, a leading
+                            // dash — said under the field it is about.
+                            failure = refusal
+                            return@launchIdentity
+                        }
+                        GitIdentityPrompt.remember()
+                        val started = GitOps.run(
+                            projectId,
+                            action = { request.retry() },
+                            onDone = { commitFailure ->
+                                if (commitFailure == null) {
+                                    onCommitted()
+                                    Notifications.info("Committed", key = "git:commit")
+                                }
+                            },
+                        )
+                        if (!started) {
+                            Notifications.info("Still running the last git command…", key = "git:busy")
+                        }
+                    }
+                },
+            )
+        },
+    ) {
+        Note(
+            "git puts a name and an email on every commit and will not guess them. " +
+                "This is kept in the Linux guest and used for every project."
         )
     }
 }
@@ -678,9 +807,11 @@ private fun CommitBar(
     message: String,
     stagedCount: Int,
     busy: Boolean,
+    hasRepo: Boolean,
     onEdit: () -> Unit,
     onCommit: (andPush: Boolean) -> Unit,
 ) {
+    val enabled = hasRepo && !busy
     // The shared bar, so the edge, the gesture-handle inset and the gutter
     // are the same three decisions Projects, New program, Setup and every
     // sheet make — this screen was drawing two of them by hand and missing
@@ -714,9 +845,9 @@ private fun CommitBar(
             // answer, which is what `FlatButton(emphasis = true)` was drawing
             // by hand out of `element.selected`.
             OutlinedButton(
-                onClick = { if (!busy) onCommit(false) },
-                enabled = !busy,
-                border = outlinedButtonEdge(!busy),
+                onClick = { if (enabled) onCommit(false) },
+                enabled = enabled,
+                border = outlinedButtonEdge(enabled),
                 modifier = Modifier.weight(1f),
             ) {
                 Text(
@@ -726,8 +857,8 @@ private fun CommitBar(
                 )
             }
             Button(
-                onClick = { if (!busy) onCommit(true) },
-                enabled = !busy,
+                onClick = { if (enabled) onCommit(true) },
+                enabled = enabled,
                 modifier = Modifier.weight(1f),
             ) {
                 Text(text = "Commit & Push", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -959,6 +1090,28 @@ private fun push(session: GitSession, projectId: Long, status: GitPanelState) {
                 setUpstream = !branch.hasUpstream || branch.upstreamGone,
             )
         }
+    }
+}
+
+/**
+ * Fetch every remote — or say there is none.
+ *
+ * `git fetch` with no remote configured exits 0 having done nothing, so the
+ * menu item was a completely silent no-op on a project this app created,
+ * which is every project until somebody adds a remote (QA P-15). The check is
+ * the same one [push] makes, and the sentence is the same sentence.
+ */
+private fun fetch(session: GitSession, projectId: Long) {
+    ProjectWork.launch {
+        val remotes = withContext(Dispatchers.IO) { session.remotes().remotes.map { it.name } }
+        if (remotes.isEmpty()) {
+            Notifications.error(
+                "No remote to fetch from. Add one with `git remote add origin …` in Shell.",
+                key = "git:remote",
+            )
+            return@launch
+        }
+        runRemote(RemoteAction.Fetch(null), projectId) { session.fetch(null) }
     }
 }
 

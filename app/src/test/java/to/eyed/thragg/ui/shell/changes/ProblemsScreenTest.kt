@@ -92,12 +92,103 @@ class ProblemsScreenTest {
         assertEquals(0, countBy(filterProblems(rows, ProblemFilter.Errors), DiagnosticSeverity.Warning))
     }
 
+    /**
+     * The one counting function, and the property that makes five numbers
+     * impossible: a chip's count is the size of the list that chip opens
+     * (QA G-19).
+     */
     @Test
-    fun thePromptLeadsWithTheErrorsAndSpellsPositionsOneBased() {
+    fun everyCountIsTheSizeOfTheListItOpens() {
+        for (filter in ProblemFilter.entries) {
+            val shown = filterProblems(rows, filter)
+            assertEquals(
+                shown.files.sumOf { it.rows.size },
+                problemCount(rows, filter),
+            )
+        }
+        // And the subtitle's two numbers add up to the whole, which the old
+        // pair — strict `Warning` beside "everything that is not an error" —
+        // did not: the hint belonged to neither.
+        assertEquals(
+            problemCount(rows, ProblemFilter.All),
+            problemCount(rows, ProblemFilter.Errors) + problemCount(rows, ProblemFilter.Warnings),
+        )
+    }
+
+    @Test
+    fun theSameProblemFromTwoProducersIsListedOnceAndNamesBoth() {
+        val doubled = ProjectDiagnosticRows(
+            version = 3,
+            files = listOf(
+                FileDiagnosticRows(
+                    "programs/escrow/src/lib.rs",
+                    listOf(
+                        row(4, DiagnosticSeverity.Warning, "unexpected `cfg` condition value", "rustc"),
+                        row(
+                            4,
+                            DiagnosticSeverity.Warning,
+                            "unexpected `cfg` condition value",
+                            "cargo · anchor build",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val once = normalizeProblems(doubled).files.single().rows
+        assertEquals(1, once.size)
+        assertEquals("rustc + cargo · anchor build", once.single().source)
+        assertEquals(1, problemCount(normalizeProblems(doubled), ProblemFilter.All))
+    }
+
+    @Test
+    fun twoToolsDisagreeingAboutOneLineAreBothKept() {
+        // rust-analyzer and rustc describing the same syntax error in
+        // different words is a fact the list exists to show, not a duplicate.
+        val disagreeing = ProjectDiagnosticRows(
+            version = 1,
+            files = listOf(
+                FileDiagnosticRows(
+                    "programs/escrow/src/lib.rs",
+                    listOf(
+                        row(9, DiagnosticSeverity.Error, "Syntax Error: expected SEMICOLON", "rust-analyzer"),
+                        row(9, DiagnosticSeverity.Error, "expected `;`, found `msg`", "cargo · anchor build"),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(2, normalizeProblems(disagreeing).files.single().rows.size)
+    }
+
+    @Test
+    fun errorsSortAboveWarningsInsideAFile() {
+        // The device saw a file's warnings listed above its errors, because
+        // document order is all the merge knew about.
+        val mixed = ProjectDiagnosticRows(
+            version = 1,
+            files = listOf(
+                FileDiagnosticRows(
+                    "programs/escrow/src/lib.rs",
+                    listOf(
+                        row(1, DiagnosticSeverity.Warning, "unused import: `std::mem`"),
+                        row(16, DiagnosticSeverity.Error, "no field `esrow`"),
+                    ),
+                ),
+            ),
+        )
+        val ordered = normalizeProblems(mixed).files.single().rows
+        assertEquals(DiagnosticSeverity.Error, ordered.first().severity)
+        assertEquals(DiagnosticSeverity.Warning, ordered.last().severity)
+    }
+
+    @Test
+    fun thePromptCarriesTheErrorsAloneAndSpellsPositionsOneBased() {
         val prompt = problemsPrompt(rows)
-        val error = prompt.indexOf("no field `esrow`")
-        val warning = prompt.indexOf("unused import")
-        assertTrue(error in 0 until warning)
+        assertTrue("no field `esrow`" in prompt)
+        // Warnings are left out while there is an error to fix: a project with
+        // three errors and fourteen `unexpected cfg` warnings from anchor-lang
+        // itself handed the agent all seventeen (QA P-10).
+        assertFalse("unused import" in prompt)
+        assertTrue("3 more are not listed here." in prompt)
         // 1-based, as the compiler and the terminal spell a position; the
         // engine's rows and columns are 0-based.
         assertTrue("programs/escrow/src/lib.rs:17:5" in prompt)
@@ -109,9 +200,24 @@ class ProblemsScreenTest {
 
     @Test
     fun thePromptStopsAtTheLimitAndSaysHowManyItLeftOut() {
-        val prompt = problemsPrompt(rows, limit = 2)
-        assertTrue("2 more are not listed here." in prompt)
-        assertFalse("never read" in prompt)
+        val warningsOnly = ProjectDiagnosticRows(
+            version = 1,
+            files = listOf(
+                FileDiagnosticRows(
+                    "programs/escrow/src/lib.rs",
+                    listOf(
+                        row(1, DiagnosticSeverity.Warning, "unused import: `std::mem`"),
+                        row(2, DiagnosticSeverity.Warning, "field is never read: `bump`"),
+                        row(3, DiagnosticSeverity.Warning, "unused variable: `ctx`"),
+                    ),
+                ),
+            ),
+        )
+        // With no errors the warnings ARE what there is to say.
+        val prompt = problemsPrompt(warningsOnly, limit = 2)
+        assertTrue("unused import" in prompt)
+        assertTrue("1 more are not listed here." in prompt)
+        assertFalse("unused variable" in prompt)
     }
 
     @Test

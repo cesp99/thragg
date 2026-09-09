@@ -2,6 +2,7 @@ package to.eyed.thragg.core
 
 import android.content.Context
 import java.io.File
+import to.eyed.thragg.solana.chain.DeployedPrograms
 
 /** A project directory as the picker lists it. */
 data class ProjectSummary(
@@ -9,6 +10,16 @@ data class ProjectSummary(
     val path: String,
     /** Direct children, for a cheap sense of size. Not a recursive count. */
     val entryCount: Int,
+    /**
+     * When this project was last *touched*: the later of the folder's own
+     * mtime and the last time the app opened it.
+     *
+     * The folder's mtime alone is not what a list headed RECENT means. A
+     * directory's mtime moves when a direct child is created or removed, not
+     * when a file three levels down is edited and not when the project is
+     * opened — so the project you had open for an hour read "4 hours ago" and
+     * sat at the bottom of the list (QA P-13).
+     */
     val lastModified: Long,
 )
 
@@ -34,6 +45,9 @@ object ProjectsRoot {
     private const val PREFS = "projects"
     private const val KEY_LAST_OPENED = "last_opened"
 
+    /** `opened:<name>` → epoch millis; what makes the RECENT list recent. */
+    private fun openedKey(name: String) = "opened:$name"
+
     /** Longest project name we accept, well under any filesystem limit. */
     private const val MAX_NAME_LENGTH = 96
 
@@ -43,8 +57,9 @@ object ProjectsRoot {
     fun projectDir(context: Context, name: String): File = File(directory(context), name)
 
     /** Every project, most recently touched first. */
-    fun list(context: Context): List<ProjectSummary> =
-        directory(context)
+    fun list(context: Context): List<ProjectSummary> {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return directory(context)
             .listFiles()
             .orEmpty()
             .filter { it.isDirectory }
@@ -53,10 +68,20 @@ object ProjectsRoot {
                     name = dir.name,
                     path = dir.absolutePath,
                     entryCount = dir.list()?.size ?: 0,
-                    lastModified = dir.lastModified(),
+                    lastModified = touchedAt(dir.lastModified(), prefs.getLong(openedKey(dir.name), 0L)),
                 )
             }
             .sortedByDescending { it.lastModified }
+    }
+
+    /**
+     * When a project was last touched, from the two facts we have about it.
+     *
+     * Pure, and the reason it is: "the project you just opened is at the top
+     * and says *just now*" is the rule the list is read by, and it is
+     * checkable without a device (ProjectsRootTest).
+     */
+    fun touchedAt(folderModified: Long, openedAt: Long): Long = maxOf(folderModified, openedAt)
 
     /**
      * Why [name] can't be a project name, or null if it can. Rejecting rather
@@ -112,6 +137,10 @@ object ProjectsRoot {
         // Guard against a name that somehow escapes the root.
         if (dir.parentFile != directory(context)) return false
         if (lastOpened(context) == name) setLastOpened(context, null)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .remove(openedKey(name))
+            .apply()
         // Its saved place goes with it, or a project created later under the
         // same name would open yesterday's files (engine/src/session.rs).
         runCatching { CoreBridge.sessionClear(dir.absolutePath) }
@@ -126,10 +155,24 @@ object ProjectsRoot {
             .getString(KEY_LAST_OPENED, null)
             ?.takeIf { projectDir(context, it).isDirectory }
 
-    fun setLastOpened(context: Context, name: String?) {
+    /**
+     * Note that [name] is the open project, and that it was opened *now*.
+     *
+     * The timestamp is the half that was missing: this stored a name only, so
+     * nothing in the app ever recorded that a project had been opened and the
+     * RECENT list had nothing to sort by but folder mtimes (QA P-13).
+     */
+    fun setLastOpened(context: Context, name: String?, at: Long = System.currentTimeMillis()) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .apply { if (name == null) remove(KEY_LAST_OPENED) else putString(KEY_LAST_OPENED, name) }
+            .apply {
+                if (name == null) {
+                    remove(KEY_LAST_OPENED)
+                } else {
+                    putString(KEY_LAST_OPENED, name)
+                    putLong(openedKey(name), at)
+                }
+            }
             .apply()
     }
 
@@ -166,10 +209,28 @@ object ProjectsRoot {
      * Rename a project, keeping it inside the projects directory.
      *
      * Returns the new directory, or null when [to] is not a usable name or
-     * the rename failed. A rename is a `File.renameTo` and nothing else: the
-     * project's *contents* never mention its directory name (a scaffold names
-     * the crate, not the folder), and the engine is told about the move by
-     * being reopened on the new path.
+     * the rename failed. The project's *contents* never mention its directory
+     * name (a scaffold names the crate, not the folder), and the engine is
+     * told about the move by being reopened on the new path.
+     *
+     * What is **not** in the directory has to move with it, and this is where
+     * that happens rather than at the one call site: everything the app files
+     * under a project is keyed by the project's absolute path.
+     *
+     *  - **The session document.** `files/sessions/` is named by a hash of the
+     *    root path, so a rename left an orphan behind and the renamed project
+     *    opened on "Nothing open yet" — renaming back brought the files
+     *    straight back, which is what proved the key (QA G-17). It is read
+     *    *before* the move, while the files it names are still there for the
+     *    engine to validate against, and written under the new root, whose
+     *    own `save_session` restamps the document's `root` field.
+     *  - **The deployed-programs record**, whose `projectRoot` is how the
+     *    Build tab finds the card for what is on chain.
+     *
+     * Both are best-effort: a rename that worked is not undone because a
+     * bookkeeping file could not be rewritten.
+     *
+     * **Blocking** — it moves a directory and runs the session bridge.
      */
     fun rename(context: Context, from: String, to: String): File? {
         val trimmed = to.trim()
@@ -178,8 +239,36 @@ object ProjectsRoot {
         val source = projectDir(context, from)
         if (!source.isDirectory || source.parentFile != directory(context)) return null
         val target = projectDir(context, trimmed)
+        val document = runCatching { CoreBridge.sessionLoad(source.absolutePath) }.getOrNull()
         if (!source.renameTo(target)) return null
-        if (lastOpened(context) == from) setLastOpened(context, trimmed)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val openedAt = prefs.getLong(openedKey(from), 0L)
+        prefs.edit()
+            .remove(openedKey(from))
+            .apply { if (openedAt > 0L) putLong(openedKey(trimmed), openedAt) }
+            .apply()
+        if (lastOpened(context) == from) setLastOpened(context, trimmed, openedAt.takeIf { it > 0L } ?: System.currentTimeMillis())
+        if (document != null) {
+            runCatching { CoreBridge.sessionSave(target.absolutePath, document) }
+            runCatching { CoreBridge.sessionClear(source.absolutePath) }
+        }
+        retargetRecords(context, source.absolutePath, target.absolutePath)
         return target
+    }
+
+    /**
+     * Point every deployed-program record at the project's new path.
+     *
+     * Uses [DeployedPrograms]'s own reader and writer rather than touching
+     * `deployed-programs.json`, so the file's shape stays that object's
+     * business. Silent when there is nothing recorded, which is the common
+     * case.
+     */
+    private fun retargetRecords(context: Context, from: String, to: String) {
+        runCatching {
+            DeployedPrograms.all(context)
+                .filter { it.projectRoot == from }
+                .forEach { DeployedPrograms.record(context, it.copy(projectRoot = to)) }
+        }
     }
 }

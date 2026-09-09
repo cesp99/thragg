@@ -114,15 +114,24 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
     // inside the merge: it is the snapshot-state counter that makes a build
     // publishing its errors repaint this list. Keyed on it rather than on the
     // store, which is plain collections and cannot be observed.
-    val merged = remember(lsp, BuildDiagnostics.version) { BuildDiagnostics.merge(lsp) }
+    val merged = remember(lsp, BuildDiagnostics.version) {
+        normalizeProblems(BuildDiagnostics.merge(lsp))
+    }
     val shown = remember(merged, filter) { filterProblems(merged, filter) }
     // The chips count the WHOLE set, not the filtered one: a chip that said
     // "Errors 0" because the warnings filter was on would be a control lying
     // about what pressing it does. The subtitle counts the same set for the
     // same reason.
-    val errors = remember(merged) { countBy(merged, DiagnosticSeverity.Error) }
-    val warnings = remember(merged) { countBy(merged, DiagnosticSeverity.Warning) }
-    val total = remember(merged) { merged.files.sumOf { it.rows.size } }
+    //
+    // And all three numbers come from [problemCount], which counts *what the
+    // filter would show* — so a chip cannot disagree with the list it opens,
+    // and the subtitle cannot disagree with the chips. They did: the subtitle
+    // counted `Warning` strictly while the chip counted "everything that is
+    // not an error", so every hint was a warning to one of them and not to
+    // the other (QA G-19).
+    val errors = remember(merged) { problemCount(merged, ProblemFilter.Errors) }
+    val warnings = remember(merged) { problemCount(merged, ProblemFilter.Warnings) }
+    val total = remember(merged) { problemCount(merged, ProblemFilter.All) }
 
     Column(modifier = modifier.fillMaxSize()) {
         ThraggTopBar(
@@ -147,7 +156,7 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
                     count = when (entry) {
                         ProblemFilter.All -> total
                         ProblemFilter.Errors -> errors
-                        ProblemFilter.Warnings -> total - errors
+                        ProblemFilter.Warnings -> warnings
                     },
                     onClick = { filter = entry },
                 )
@@ -425,9 +434,85 @@ internal fun filterProblems(
     return ProjectDiagnosticRows(version = rows.version, files = files)
 }
 
-/** How many rows of one severity are listed — what the bar's subtitle counts. */
+/** How many rows of one severity are listed. */
 internal fun countBy(rows: ProjectDiagnosticRows, severity: DiagnosticSeverity): Int =
     rows.files.sumOf { file -> file.rows.count { it.severity == severity } }
+
+/**
+ * How many rows [filter] would show — the **one** counting function.
+ *
+ * Every number this screen prints goes through it: the bar's subtitle, all
+ * three chips, and (through the same [ProblemFilter.keeps]) the list itself.
+ * That is the whole point. Counting with one rule and listing with another is
+ * how one state came to have five numbers on it — a badge saying 1, a strip
+ * saying 2 errors and 3 warnings, a header saying 3 and 11, chips saying
+ * 17/3/14 and a status line saying 10 (QA G-19).
+ */
+internal fun problemCount(rows: ProjectDiagnosticRows, filter: ProblemFilter): Int =
+    rows.files.sumOf { file -> file.rows.count { filter.keeps(it.severity) } }
+
+/**
+ * The merged set, with each problem said once and the errors first.
+ *
+ * Two producers describe the same project — rust-analyzer live, and cargo as
+ * of the last build — so the same problem arrives twice whenever both have
+ * seen it: on the device every `unexpected cfg` warning was listed once as
+ * `rustc` and once as `cargo · anchor build`, doubling a list of eleven into
+ * one of twenty-two and doubling every count taken from it (QA G-19).
+ *
+ * A duplicate is the same **position, severity and message** — deliberately
+ * not "the same position", because two tools genuinely disagreeing about one
+ * line (rust-analyzer's "expected SEMICOLON" beside rustc's "expected `;`,
+ * found `msg`") is a fact worth keeping, and collapsing it would hide the
+ * disagreement this list exists to show. The survivor keeps the first row's
+ * text and names **both** producers, so the merge is visible rather than
+ * silent.
+ *
+ * Within a file the errors come first and the rest keep document order: the
+ * top of a file's card is what is read, and a warning is rarely why the build
+ * failed.
+ *
+ * Pure (ProblemsScreenTest).
+ */
+internal fun normalizeProblems(rows: ProjectDiagnosticRows): ProjectDiagnosticRows =
+    ProjectDiagnosticRows(
+        version = rows.version,
+        files = rows.files.map { file ->
+            val kept = LinkedHashMap<String, Diagnostic>()
+            for (diagnostic in file.rows) {
+                val key = duplicateKey(diagnostic)
+                val existing = kept[key]
+                kept[key] = if (existing == null) {
+                    diagnostic
+                } else {
+                    existing.copy(source = mergedSource(existing.source, diagnostic.source))
+                }
+            }
+            FileDiagnosticRows(file.path, kept.values.sortedWith(PROBLEM_ORDER))
+        },
+    )
+
+/** What makes two rows the same problem — see [normalizeProblems]. */
+private fun duplicateKey(diagnostic: Diagnostic): String =
+    "${diagnostic.row}:${diagnostic.colUtf16}:${diagnostic.severity}:" +
+        diagnostic.message.trim().replace(WHITESPACE, " ")
+
+private val WHITESPACE = Regex("\\s+")
+
+/** `rust-analyzer + cargo · anchor build`, or whichever of the two there is. */
+private fun mergedSource(first: String?, second: String?): String? = when {
+    first.isNullOrBlank() -> second
+    second.isNullOrBlank() || second == first -> first
+    second in first.split(" + ") -> first
+    else -> "$first + $second"
+}
+
+/** Errors first, then document order — the order a file's card is read in. */
+private val PROBLEM_ORDER = compareBy<Diagnostic>(
+    { if (it.severity == DiagnosticSeverity.Error) 0 else 1 },
+    { it.row },
+    { it.colUtf16 },
+)
 
 /**
  * The filtered list as the sentence `Fix with agent` seeds the composer with.
@@ -447,8 +532,12 @@ internal fun countBy(rows: ProjectDiagnosticRows, severity: DiagnosticSeverity):
 internal fun problemsPrompt(rows: ProjectDiagnosticRows, limit: Int = 12): String {
     val all = rows.files.flatMap { file -> file.rows.map { file.path to it } }
     val errors = all.filter { it.second.severity == DiagnosticSeverity.Error }
-    val ordered = errors + all.filterNot { it.second.severity == DiagnosticSeverity.Error }
-    val chosen = ordered.take(limit)
+    // Errors ALONE when there are any. A project with three errors and
+    // fourteen `unexpected cfg` warnings from anchor-lang itself handed the
+    // agent all seventeen, and eleven of them were not the user's code and
+    // not fixable in it (QA P-10). With no errors the warnings are the whole
+    // of what there is to say, so they are what goes.
+    val chosen = (if (errors.isNotEmpty()) errors else all).take(limit)
     if (chosen.isEmpty()) return "There are no problems in this project."
     return buildString {
         append("There ")

@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.solana.build.ProjectLayout
 import to.eyed.thragg.solana.chain.Cluster
@@ -107,8 +109,20 @@ internal fun DeployedCard(state: ShellState, root: String, layout: ProjectLayout
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
+                // Read from a ticking clock, not from the composition's: the
+                // card is not recomposed by the passage of time, so a deploy
+                // read "4 min ago" for the next 58 minutes (QA P-07). A
+                // minute is the smallest unit this label prints, so a minute
+                // is how often it is asked.
+                var now by remember(record.deployedAt) { mutableLongStateOf(System.currentTimeMillis()) }
+                LaunchedEffect(record.deployedAt) {
+                    while (true) {
+                        delay(AGO_TICK_MS)
+                        now = System.currentTimeMillis()
+                    }
+                }
                 Text(
-                    text = deployedAgo(record.deployedAt, System.currentTimeMillis()),
+                    text = deployedAgo(record.deployedAt, now),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -162,6 +176,9 @@ internal fun DeployedCard(state: ShellState, root: String, layout: ProjectLayout
 
 /** The card's inputs, read together off the main thread. */
 private data class Found(val cluster: Cluster, val record: DeployedProgram, val deployKey: String?)
+
+/** How often the card re-asks what time it is — the label's own resolution. */
+private const val AGO_TICK_MS = 30_000L
 
 /** `just now`, `3 min ago`, `2 h ago`, `yesterday`: the card's timestamp. Pure. */
 internal fun deployedAgo(at: Long, now: Long): String {
