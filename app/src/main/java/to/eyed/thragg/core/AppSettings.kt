@@ -108,6 +108,16 @@ enum class ThemeMode(val key: String) {
  * Zed's `autosave` (settings_content/src/workspace.rs:609-618): three plain
  * words and one object, `{"after_delay": {"milliseconds": N}}`.
  */
+/**
+ * The settings, with the reason they are the defaults if they are.
+ *
+ * [problem] is a *phrase*, not a sentence: the caller puts it in one — "…/
+ * settings.json is not in effect: <problem>" — exactly as
+ * `reportLocalSettings` does for the project's own file, which had this and
+ * the global one did not (QA 0.0.22, G-11).
+ */
+data class Loaded(val settings: AppSettings, val problem: String?)
+
 sealed class Autosave {
     data object Off : Autosave()
 
@@ -385,7 +395,54 @@ data class AppSettings(
         const val KEY_PANEL_HIDE_ROOT = "project_panel.hide_root"
         const val KEY_PANEL_DIAGNOSTICS = "project_panel.show_diagnostics"
 
-        fun parse(json: String): AppSettings = runCatching {
+        /**
+         * The settings, and *why* they are the defaults when they are.
+         *
+         * Two things can quietly hand back defaults, and until 0.0.22 neither
+         * said anything: the engine falls back to `Settings::default()` when
+         * `settings.json` does not parse (config.rs, `Engine::settings`), and
+         * [parse] below swallows whatever the JSON in front of it throws. One
+         * duplicated key in the file was enough to revert every setting and
+         * disconnect the agent — `agent_servers` comes out of the same object
+         * — with no message anywhere in the app, and the only way to find out
+         * was to delete the line and relaunch (QA 0.0.22, G-11).
+         *
+         * The `runCatching` stays: the settings screen must be reachable with
+         * a broken file, because it is where the file gets fixed. What changes
+         * is that the throwable is kept and turned into a sentence.
+         *
+         * **Blocking** — call it off the main thread.
+         */
+        fun loadChecked(): Loaded {
+            val text = runCatching { CoreBridge.settings() }.getOrDefault("")
+            // Asked separately, because the engine resolves the file itself
+            // and can be the one that refused it; the JSON reaching us then
+            // parses perfectly and is simply not what the file says.
+            val engineAccepted = runCatching { CoreBridge.settingsAreValid() }.getOrDefault(true)
+            return checkedFrom(text, engineAccepted)
+        }
+
+        /** [loadChecked] without the bridge — the part worth a host test. */
+        fun checkedFrom(json: String, engineAccepted: Boolean): Loaded {
+            // No engine, or no settings file yet: the defaults are the truth,
+            // not a fallback from a failure, and there is nothing to report.
+            if (json.isBlank()) return Loaded(AppSettings(), null)
+            val parsed = runCatching { parseOrThrow(json) }
+            val problem = when {
+                !engineAccepted -> "it is not valid JSON"
+                parsed.isFailure -> parsed.exceptionOrNull()
+                    ?.message
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "it could not be read"
+                else -> null
+            }
+            return Loaded(parsed.getOrDefault(AppSettings()), problem)
+        }
+
+        fun parse(json: String): AppSettings =
+            runCatching { parseOrThrow(json) }.getOrDefault(AppSettings())
+
+        private fun parseOrThrow(json: String): AppSettings = run {
             val root = JSONObject(json)
             val panel = root.optJSONObject("project_panel")
             AppSettings(
@@ -435,7 +492,7 @@ data class AppSettings(
                     root.optJSONObject("diagnostics")
                 ),
             )
-        }.getOrDefault(AppSettings())
+        }
 
         private fun parseProjectPanel(json: JSONObject?): ProjectPanelSettings {
             val fallback = ProjectPanelSettings()

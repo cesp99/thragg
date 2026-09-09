@@ -114,19 +114,31 @@ object SessionRestore {
 
     private fun OpenFile.toSessionItem(): SessionItem? {
         if (!isReopenable || path.isBlank() || path.startsWith("/")) return null
-        val editor = editor
-        return when {
-            editor != null -> SessionItem(
-                path = path,
-                kind = SessionItemKind.Text,
-                scroll = editor.scrollY,
-                selections = editor.caretsInOrder().map { caret ->
-                    SessionSelection(caret.anchorRow, caret.anchorCol, caret.headRow, caret.headCol)
-                },
-            )
-            media != null -> SessionItem(path = path, kind = SessionItemKind.Media)
-            else -> null
-        }
+        return placeOf(this, path)
+    }
+}
+
+/**
+ * Where [file] is standing right now — caret, selection and scroll — as a
+ * place that can be put back into a tab keyed [path].
+ *
+ * [path] is a parameter rather than `file.path` for the one caller that needs
+ * a different one: a file renamed under an open tab is closed and reopened at
+ * its new name, and the place has to travel with it (CodeScreen, G-07).
+ */
+internal fun placeOf(file: OpenFile, path: String = file.path): SessionItem? {
+    val editor = file.editor
+    return when {
+        editor != null -> SessionItem(
+            path = path,
+            kind = SessionItemKind.Text,
+            scroll = editor.scrollY,
+            selections = editor.caretsInOrder().map { caret ->
+                SessionSelection(caret.anchorRow, caret.anchorCol, caret.headRow, caret.headCol)
+            },
+        )
+        file.media != null -> SessionItem(path = path, kind = SessionItemKind.Media)
+        else -> null
     }
 }
 

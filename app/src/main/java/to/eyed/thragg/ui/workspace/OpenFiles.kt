@@ -379,7 +379,26 @@ class OpenFile(
  */
 class OpenFilesState {
     private val _tabs = mutableStateListOf<OpenFile>()
-    val tabs: List<OpenFile> get() = _tabs
+
+    /**
+     * The open tabs, as a **snapshot** rather than as the live list.
+     *
+     * A `SnapshotStateList`'s iterator throws `ConcurrentModificationException`
+     * the moment the list is written while a `for` loop is standing in it, and
+     * every loop over the tabs in this app suspends inside its body —
+     * `session.reload()` and `refreshLanguageSettings()` both hop to IO, and
+     * the status poll runs one of each per tick. A tab opened or closed in
+     * that window (the session restore adding its second file, a tap on the
+     * file bar's ✕) killed the process on three cold starts out of eight
+     * (QA 0.0.22, B-02).
+     *
+     * Copying here rather than at each call site is the point: the four loops
+     * that already remembered to write `.toList()` are exactly what proves the
+     * per-caller version is a courtesy the next caller forgets. The copy is a
+     * dozen references at most, and iterating the state list still registers
+     * the snapshot read, so composition still recomposes when a tab appears.
+     */
+    val tabs: List<OpenFile> get() = _tabs.toList()
 
     var activeIndex by mutableIntStateOf(-1)
         private set
@@ -862,6 +881,26 @@ class OpenFilesState {
         if (closedPaths.size > REOPEN_HISTORY) closedPaths.removeAt(0)
     }
 }
+
+/**
+ * Where a tab keyed [path] ends up when [from] is renamed or moved to [to],
+ * or null when the move does not touch that tab.
+ *
+ * A *directory* moves too — the project panel's cut-and-paste and its rename
+ * both work on folders — so a tab under the old prefix follows it. Pure, and
+ * separate from the host that acts on it, because the prefix rule is the part
+ * that is easy to get wrong: `src/lib.rs` must not follow a rename of `s`.
+ */
+fun movedTabPath(path: String, from: String, to: String): String? = when {
+    from.isEmpty() || to.isEmpty() -> null
+    path == from -> to
+    path.startsWith("$from/") -> to + path.substring(from.length)
+    else -> null
+}
+
+/** Whether a tab keyed [path] goes with [removed] — the entry itself, or under it. */
+fun isUnderRemoved(path: String, removed: String): Boolean =
+    removed.isNotEmpty() && (path == removed || path.startsWith("$removed/"))
 
 /**
  * The tabs in most-recently-used order, newest first.

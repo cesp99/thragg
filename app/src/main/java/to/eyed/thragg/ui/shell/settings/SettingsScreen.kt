@@ -63,7 +63,6 @@ import to.eyed.thragg.solana.toolchain.formatBytes
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.SectionHeader
 import to.eyed.thragg.ui.components.ThraggCard
-import to.eyed.thragg.ui.editor.SoftWrapMode
 import to.eyed.thragg.ui.shell.Destination
 import to.eyed.thragg.ui.shell.Route
 import to.eyed.thragg.ui.shell.ShellState
@@ -250,6 +249,21 @@ fun SettingsScreen(
     // back from).
     var refusals by remember { mutableIntStateOf(0) }
 
+    // WHETHER THE ROWS BELOW ARE TELLING THE TRUTH.
+    //
+    // Every row on this screen reads `settings`, and `settings` is the
+    // defaults whenever the file did not parse — the engine falls back, and so
+    // does the app's own reader. One duplicated key was enough to make this
+    // whole screen a lie (Wrap and Format-on-save reading OFF, "Coding agent:
+    // none installed" with an agent installed and configured) with nothing on
+    // screen to say so; the only way to find out was to delete the line and
+    // relaunch (QA 0.0.22, G-11). Re-asked on every arrival and after every
+    // write, because a write is how it gets fixed.
+    var settingsProblem by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(settings, refusals) {
+        settingsProblem = withContext(Dispatchers.IO) { AppSettings.loadChecked().problem }
+    }
+
     /** One key, written off the main thread, with the refusal made visible. */
     fun write(key: String, valueJson: String) {
         scope.launch {
@@ -266,6 +280,33 @@ fun SettingsScreen(
         }
     }
 
+    /**
+     * The one door to the keys with no row — `reduce_motion` among them.
+     *
+     * Two things were wrong with it and both had to be fixed for the row to
+     * do anything at all (QA 0.0.22, G-12): [ShellState.show] changes the
+     * destination and does **not** touch the route stack, so Settings stayed
+     * on top of the Code it had just switched to and the tap looked dead; and
+     * `settings.json` lives outside the project, where `openFileInto` used to
+     * refuse it — "…/files/settings.json could not be opened", which is what
+     * the user found waiting when they backed out.
+     *
+     * Null rather than disabled, for the reason on [LinkRow]: with no
+     * settings.json on disk and no editor registered to open it there is
+     * nothing behind the chevron, so there is no chevron.
+     */
+    val openInEditor = state.openPath
+    val openSettingsJson: (() -> Unit)? = if (settingsPath != null && openInEditor != null) {
+        {
+            // Off this screen first: the route is what is covering Code.
+            state.pop()
+            if (state.destination != Destination.Code) state.show(Destination.Code)
+            openInEditor(settingsPath)
+        }
+    } else {
+        null
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -276,6 +317,20 @@ fun SettingsScreen(
             .padding(bottom = MD.space6),
         verticalArrangement = Arrangement.spacedBy(MD.space2),
     ) {
+        // First, above everything, because it is the sentence that decides
+        // whether the rest of the screen means anything.
+        settingsProblem?.let { problem ->
+            SectionHeader("Settings file", modifier = Modifier.padding(top = MD.space4))
+            ThraggCard(modifier = Modifier.fillMaxWidth()) {
+                LinkRow(
+                    label = "settings.json is not in effect",
+                    description = "$problem — every setting below is the built-in default " +
+                        "until it is fixed. Tap to open the file.",
+                    onClick = openSettingsJson,
+                )
+            }
+        }
+
         SectionHeader("Solana", modifier = Modifier.padding(top = MD.space4))
         ThraggCard(modifier = Modifier.fillMaxWidth()) {
             LinkRow(
@@ -401,17 +456,20 @@ fun SettingsScreen(
                 },
             )
             HairlineDivider()
-            ToggleRow(
-                refusals = refusals,
-                label = "Wrap long lines",
-                checked = settings.softWrap.wraps,
-                onToggle = { on ->
-                    // `editor_width` and not `bounded`: bounded also wraps at
-                    // preferred_line_length, and an 80-column wrap on a 400dp
-                    // screen would leave a strip of empty gutter down the right.
-                    val mode = if (on) SoftWrapMode.EditorWidth else SoftWrapMode.None
-                    write(AppSettings.KEY_SOFT_WRAP, "\"${mode.key}\"")
-                },
+            // NOT A SWITCH. It was one until 0.0.22, and it was a placebo:
+            // the write landed — the file really said `"soft_wrap": "none"` —
+            // and every long line went on wrapping, because the Code host
+            // passes `languageSettings.wrappedForAPhone()` to the pane and
+            // that forces `editor_width` whenever the setting does not wrap.
+            // Out of the box the switch even read OFF while the editor
+            // wrapped, so it was wrong in both directions at once (QA 0.0.22,
+            // G-06). A switch that writes a key nothing reads is worse than no
+            // row; this is the fact, stated once, where the row was.
+            LinkRow(
+                label = "Long lines wrap",
+                description = "always, on this screen: a 400dp column has nowhere to " +
+                    "scroll sideways to.",
+                onClick = null,
             )
             HairlineDivider()
             ToggleRow(
@@ -450,21 +508,10 @@ fun SettingsScreen(
 
         SectionHeader("Advanced", modifier = Modifier.padding(top = MD.space4))
         ThraggCard(modifier = Modifier.fillMaxWidth()) {
-            // Null rather than disabled, for the reason on [LinkRow]: with no
-            // settings.json on disk and no editor registered to open it there
-            // is nothing behind the chevron, so there is no chevron.
-            val openInEditor = state.openPath
             LinkRow(
                 label = "Edit settings.json",
                 description = "every key, including the ones with no row",
-                onClick = if (settingsPath != null && openInEditor != null) {
-                    {
-                        state.show(Destination.Code)
-                        openInEditor(settingsPath)
-                    }
-                } else {
-                    null
-                },
+                onClick = openSettingsJson,
             )
             HairlineDivider()
             // Between the JSON door and About, which is where

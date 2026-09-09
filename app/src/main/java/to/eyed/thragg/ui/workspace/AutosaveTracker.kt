@@ -1,5 +1,7 @@
 package to.eyed.thragg.ui.workspace
 
+import to.eyed.thragg.core.Autosave
+
 /**
  * The bookkeeping behind `"autosave": {"after_delay": …}` — Zed's
  * `pending_autosave.fire_new(delay, …)` on every `ItemEvent::Edit`
@@ -59,3 +61,32 @@ class AutosaveTracker {
         seen.keys.retainAll(keys.toSet())
     }
 }
+
+/**
+ * Whether `"autosave"` asks for a write when the *active file* changes —
+ * Zed's `AutosaveSetting::OnFocusChange`, and the setting the Settings screen
+ * spells "Autosave on leaving a file".
+ *
+ * These three answers are the whole of what `settings.autosave` means to this
+ * app, and they are here rather than at the call sites because until 0.0.22 it
+ * meant nothing at all: the switch wrote `"autosave": "off"` into the file and
+ * the only reader of the key in `app/src/main` was the row that wrote it, so
+ * the autosave ran either way and the user's one lever against a silent
+ * overwrite did nothing (QA 0.0.22, G-05).
+ */
+fun Autosave.savesOnLeavingFile(): Boolean = this is Autosave.OnFocusChange
+
+/**
+ * Whether it asks for a write when the app — or the Code destination — goes
+ * away. Everything but [Autosave.Off], including [Autosave.AfterDelay]: the
+ * process holding a 1.4 GB toolchain is killed within a minute of leaving the
+ * foreground, and a debounce that has not fired yet is exactly the work that
+ * would be lost.
+ */
+fun Autosave.savesOnLeavingApp(): Boolean = this != Autosave.Off
+
+/**
+ * The debounce, in milliseconds, or null when this setting has none — what
+ * the status poll drives [AutosaveTracker.observe]/[AutosaveTracker.due] with.
+ */
+fun Autosave.autosaveDelayMs(): Long? = (this as? Autosave.AfterDelay)?.milliseconds
