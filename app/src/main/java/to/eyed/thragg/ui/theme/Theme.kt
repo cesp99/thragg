@@ -12,10 +12,12 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -108,6 +110,19 @@ fun ThraggTheme(
     // Driven from the resolved theme instead, in a SideEffect so the window
     // is touched after the frame that changed the theme has been applied and
     // never during composition.
+    //
+    // ONE APPEARANCE, EVERY WINDOW. The activity is not the only window this
+    // app puts under the status bar: every `ModalBottomSheet` raises a dialog
+    // window of its own with its own `WindowInsetsController`, and that one
+    // follows the SYSTEM's dark mode until somebody tells it otherwise — so
+    // an app pinned to a light theme on a phone in dark mode drew white icons
+    // over a white sheet (measured over the clock strip: min 226 / max 255
+    // against a correct 101 / 252 on the screen behind it; QA 0.0.23 G-15).
+    // The boolean is published as [LocalDarkSystemBarIcons] and applied by
+    // [applySystemBarIcons], which every window-raising surface calls — there
+    // is one for sheets, [to.eyed.thragg.ui.shell.SheetScaffold], and it is
+    // the only scaffold a sheet in this app is allowed to have, so no sheet
+    // can be added without it.
     val view = LocalView.current
     val darkIcons = usesDarkSystemBarIcons(palette.scheme.background)
     if (!view.isInEditMode) {
@@ -125,6 +140,7 @@ fun ThraggTheme(
     val reduceMotion = rememberReduceMotion(settings)
     CompositionLocalProvider(
         LocalZedTheme provides theme,
+        LocalDarkSystemBarIcons provides darkIcons,
         LocalThraggColors provides palette.thragg,
         LocalAppSettings provides settings,
         LocalReduceMotion provides reduceMotion,
@@ -182,6 +198,39 @@ fun ThraggTheme(
  * them sits clear of the line.
  */
 internal fun usesDarkSystemBarIcons(background: Color): Boolean = background.luminance() > 0.5f
+
+/**
+ * What [ThraggTheme] decided the system bars must draw, published so a window
+ * the theme's own `SideEffect` cannot reach can ask.
+ *
+ * The default is false — light icons, the dark-theme answer — so a preview or
+ * a test composing a fragment of the app outside [ThraggTheme] reads the same
+ * thing the app's shipped default theme would have said.
+ */
+val LocalDarkSystemBarIcons = staticCompositionLocalOf { false }
+
+/**
+ * Apply [LocalDarkSystemBarIcons] to the window this composition is in.
+ *
+ * Called from inside a `Dialog`/`ModalBottomSheet` body, where `LocalView`'s
+ * parent is the window provider Compose wraps the content in. Outside such a
+ * window there is no parent provider and this does nothing — the activity's
+ * bars are already driven by [ThraggTheme] itself, and setting them twice
+ * from two places is how they end up fighting.
+ */
+@Composable
+fun ApplySystemBarIcons() {
+    val view = LocalView.current
+    if (view.isInEditMode) return
+    val darkIcons = LocalDarkSystemBarIcons.current
+    SideEffect {
+        val window = (view.parent as? DialogWindowProvider)?.window ?: return@SideEffect
+        WindowInsetsControllerCompat(window, view).apply {
+            isAppearanceLightStatusBars = darkIcons
+            isAppearanceLightNavigationBars = darkIcons
+        }
+    }
+}
 
 /**
  * The activity behind a composition's context.

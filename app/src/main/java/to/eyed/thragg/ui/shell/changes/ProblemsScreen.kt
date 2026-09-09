@@ -114,9 +114,7 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
     // inside the merge: it is the snapshot-state counter that makes a build
     // publishing its errors repaint this list. Keyed on it rather than on the
     // store, which is plain collections and cannot be observed.
-    val merged = remember(lsp, BuildDiagnostics.version) {
-        normalizeProblems(BuildDiagnostics.merge(lsp))
-    }
+    val merged = remember(lsp, BuildDiagnostics.version) { mergedProblems(lsp) }
     val shown = remember(merged, filter) { filterProblems(merged, filter) }
     // The chips count the WHOLE set, not the filtered one: a chip that said
     // "Errors 0" because the warnings filter was on would be a control lying
@@ -129,9 +127,10 @@ fun ProblemsScreen(state: ShellState, modifier: Modifier = Modifier) {
     // counted `Warning` strictly while the chip counted "everything that is
     // not an error", so every hint was a warning to one of them and not to
     // the other (QA G-19).
-    val errors = remember(merged) { problemCount(merged, ProblemFilter.Errors) }
-    val warnings = remember(merged) { problemCount(merged, ProblemFilter.Warnings) }
-    val total = remember(merged) { problemCount(merged, ProblemFilter.All) }
+    val counts = remember(merged) { countProblems(merged) }
+    val errors = counts.errors
+    val warnings = counts.warnings
+    val total = counts.total
 
     Column(modifier = modifier.fillMaxSize()) {
         ThraggTopBar(
@@ -452,6 +451,60 @@ internal fun problemCount(rows: ProjectDiagnosticRows, filter: ProblemFilter): I
     rows.files.sumOf { file -> file.rows.count { filter.keeps(it.severity) } }
 
 /**
+ * How many problems there are, once — the number every surface in the app
+ * that prints one must get from here.
+ *
+ * The three [problemCount] answers taken together, so that "errors",
+ * "warnings" and "all" cannot be computed from three different sets by three
+ * different screens. On the device they were: the Problems header counted the
+ * merged set, the Code bar's ✕ badge counted rust-analyzer alone, and the
+ * status line counted rust-analyzer's rows for the open file with the build's
+ * rows for the same file missing entirely (QA G-19). [total] is not
+ * `errors + warnings`: infos and hints are problems the list shows and the
+ * `All` chip counts.
+ */
+internal data class ProblemCounts(val errors: Int, val warnings: Int, val total: Int)
+
+/**
+ * THE set. The language server's rows, the last build's rows, each problem
+ * said once, errors first — what Problems lists and what every count is taken
+ * from ([countProblems]).
+ */
+internal fun mergedProblems(lsp: ProjectDiagnosticRows): ProjectDiagnosticRows =
+    normalizeProblems(BuildDiagnostics.merge(lsp))
+
+/** [ProblemCounts] over a set that has already been through [mergedProblems]. */
+internal fun countProblems(rows: ProjectDiagnosticRows): ProblemCounts = ProblemCounts(
+    errors = problemCount(rows, ProblemFilter.Errors),
+    warnings = problemCount(rows, ProblemFilter.Warnings),
+    total = problemCount(rows, ProblemFilter.All),
+)
+
+/**
+ * The same answer for ONE file, given the language server's rows for it and
+ * its absolute path — what the Code bar's ✕ badge and the editor's status
+ * line print.
+ *
+ * It goes through [normalizeProblems] like the project-wide set, against a
+ * one-file [ProjectDiagnosticRows], so a file's number on the Code screen is
+ * arithmetically the same number its card carries in Problems. Before this,
+ * the two could not agree even in principle: one of them had never heard of
+ * the build's rows.
+ */
+internal fun countFileProblems(
+    absolutePath: String?,
+    lspRows: List<Diagnostic>,
+): ProblemCounts {
+    val build = absolutePath?.let(BuildDiagnostics::rowsFor).orEmpty()
+    if (lspRows.isEmpty() && build.isEmpty()) return ProblemCounts(0, 0, 0)
+    val one = ProjectDiagnosticRows(
+        version = 0,
+        files = listOf(FileDiagnosticRows(absolutePath.orEmpty(), lspRows + build)),
+    )
+    return countProblems(normalizeProblems(one))
+}
+
+/**
  * The merged set, with each problem said once and the errors first.
  *
  * Two producers describe the same project — rust-analyzer live, and cargo as
@@ -492,10 +545,35 @@ internal fun normalizeProblems(rows: ProjectDiagnosticRows): ProjectDiagnosticRo
         },
     )
 
-/** What makes two rows the same problem — see [normalizeProblems]. */
+/**
+ * What makes two rows the same problem — see [normalizeProblems].
+ *
+ * **The FIRST LINE of the message, not all of it.** cargo prints the
+ * diagnostic's own sentence; rust-analyzer forwards the same diagnostic with
+ * every `note:` and `help:` child appended under it, one per line
+ * (`map_rust_diagnostic_to_lsp`). So the two strings are never equal and the
+ * dedupe this key exists for never fired once on the device: `unexpected
+ * `cfg` condition value: `anchor-debug`` at 35:10 was listed twice, as
+ * `rustc` and as `cargo · anchor build`, and 8 build warnings became 19 rows
+ * (QA 0.0.23, G-19). The first line is the part both tools agree on and the
+ * part the row draws; the notes under it are the same notes.
+ *
+ * Two tools genuinely disagreeing about one line still have two different
+ * first lines — "Syntax Error: expected SEMICOLON" beside "expected `;`,
+ * found `msg`" — and are still both kept, which is the fact this list exists
+ * to show.
+ */
 private fun duplicateKey(diagnostic: Diagnostic): String =
     "${diagnostic.row}:${diagnostic.colUtf16}:${diagnostic.severity}:" +
-        diagnostic.message.trim().replace(WHITESPACE, " ")
+        messageKey(diagnostic.message)
+
+/** The message's first non-blank line, whitespace-collapsed. */
+private fun messageKey(message: String): String =
+    message.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.isNotEmpty() }
+        .orEmpty()
+        .replace(WHITESPACE, " ")
 
 private val WHITESPACE = Regex("\\s+")
 

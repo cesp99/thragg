@@ -799,12 +799,21 @@ private fun BuildBody(
                     // With error cards above it this counts the rest; with
                     // none — a run that produced only warnings — it is the
                     // single, whole representation the warnings get here.
+                    //
+                    // IT NAMES ITS OWN SCOPE. "8 warnings in Problems"
+                    // promised the number the Problems route shows, which is
+                    // a different set entirely: this run's rows plus every
+                    // one the language server has about the project, each
+                    // said once ([mergedProblems]). The device read 8 here
+                    // and 19 there and both were right about different
+                    // questions (QA G-19). The count is this build's; the tap
+                    // is still the way to the list that holds it.
                     val rest = shownIssues.size - shownPreview.size
                     ThraggChip(
                         label = if (shownPreview.isEmpty()) {
-                            "$rest ${plural(rest, "warning")} in Problems"
+                            "$rest ${plural(rest, "warning")} from this build"
                         } else {
-                            "$rest more in Problems"
+                            "$rest more from this build"
                         },
                         onClick = { state.push(Route.Problems) },
                     )

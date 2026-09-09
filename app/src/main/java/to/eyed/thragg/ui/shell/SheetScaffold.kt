@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlinx.coroutines.launch
 import to.eyed.thragg.ui.components.BottomActions
+import to.eyed.thragg.ui.theme.ApplySystemBarIcons
 import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.throwSpec
@@ -208,6 +209,14 @@ fun SheetScaffold(
         dragHandle = null,
         modifier = modifier,
     ) {
+        // The sheet is its own window, and a window that is not told carries
+        // the SYSTEM's idea of light or dark into its bars — so an app pinned
+        // to a light theme under a dark system drew white status-bar icons
+        // over a near-white sheet, and the reverse under a light system (QA
+        // 0.0.23 G-15). Here rather than at each caller: this scaffold is the
+        // only sheet in the app, so this is the only place it can be missed
+        // from, and it cannot be.
+        ApplySystemBarIcons()
         // MEASURED ON DEVICE. This was `fillMaxHeight(fraction)`, which made
         // EVERY sheet exactly 65% of the window whatever was in it — so the
         // permission sheet, whose whole content is a title and one line, drew

@@ -2898,12 +2898,85 @@ class EditorState private constructor(
         return true
     }
 
+    /**
+     * Zed's `editor::Undo`, with one thing the engine's history cannot know:
+     * **it does not walk back through a reload nobody asked for.**
+     *
+     * `Engine::reload_buffer` replaces the whole text in one transaction and
+     * finalises it on both sides, deliberately, so "a mistaken reload is
+     * recoverable" (file.rs). That is right for the reload the user *chose*
+     * in the disk-change dialog, where the text it restores is their own
+     * unsaved work. It is wrong for the reload the poll performs on a CLEAN
+     * buffer, where the text it restores is the file as it was BEFORE the
+     * writer — the agent, `seahorse build`, a `git checkout` — rewrote it.
+     * Undoing that far puts the stale copy back in the buffer, marks it dirty
+     * again, and the next autosave writes it over the newer file: the other
+     * writer's work is gone and nothing said so.
+     *
+     * So the automatic reload leaves a floor ([noteExternalReload]) and undo
+     * stops on it. [onUndoStoppedAtReload] is told, so the surface can say
+     * why nothing happened; a redo cannot cross it either, because nothing
+     * below it was ever undone.
+     */
     fun undo() {
+        if (isAtReloadFloor()) {
+            onUndoStoppedAtReload?.invoke()
+            return
+        }
         if (buffer.undo()) afterHistoryChange()
     }
 
     fun redo() {
         if (buffer.redo()) afterHistoryChange()
+    }
+
+    /**
+     * The buffer was reloaded from disk by the poll rather than by the user:
+     * the text before it is a version of the file that nobody wants back.
+     *
+     * Takes the resync every external edit takes and then remembers what the
+     * reload put there, as a fingerprint rather than a copy — a whole second
+     * copy of every open buffer is not a thing to hold for the sake of one
+     * comparison.
+     */
+    fun noteExternalReload() {
+        noteExternalEdit()
+        reloadFloor = fingerprint()
+    }
+
+    /**
+     * Told when [undo] refused because the only step left is the reload.
+     * Set by whoever hosts the editor; there is nothing sensible this class
+     * can say by itself.
+     */
+    var onUndoStoppedAtReload: (() -> Unit)? = null
+
+    /** What the last automatic reload left in the buffer; see [undo]. */
+    private var reloadFloor: TextFingerprint? = null
+
+    /**
+     * Enough of the buffer's text to recognise it again, and cheap enough to
+     * ask on every undo.
+     *
+     * [rows] and [bytes] are two bridge calls and settle it for every undo
+     * that changed the shape of the text at all; [hash] is the exact answer
+     * and is only ever computed when those two already agree, which is the
+     * step that would otherwise have crossed the floor.
+     */
+    private class TextFingerprint(val rows: Int, val bytes: Long, val hash: Long)
+
+    private fun fingerprint(): TextFingerprint {
+        val rows = buffer.lineCount
+        return TextFingerprint(rows, buffer.rowStart(rows), textHash(buffer.lines(0, rows)))
+    }
+
+    /** Is the buffer exactly what the last automatic reload put in it? */
+    private fun isAtReloadFloor(): Boolean {
+        val floor = reloadFloor ?: return false
+        val rows = buffer.lineCount
+        if (rows != floor.rows) return false
+        if (buffer.rowStart(rows) != floor.bytes) return false
+        return textHash(buffer.lines(0, rows)) == floor.hash
     }
 
     // ---- Motion ----------------------------------------------------------
@@ -3207,6 +3280,21 @@ class EditorState private constructor(
     }
 
     // ---- UTF-8 / UTF-16 arithmetic ---------------------------------------
+
+    /**
+     * FNV-1a over the text, 64 bits — an identity for a buffer's contents
+     * that does not cost a second copy of them. `String.hashCode` is 32 bits
+     * and collides between two texts often enough to matter when the answer
+     * decides whether an undo is allowed.
+     */
+    internal fun textHash(text: String): Long {
+        var hash = -0x340d631b7bdddcdbL
+        for (character in text) {
+            hash = hash xor character.code.toLong()
+            hash *= 0x100000001b3L
+        }
+        return hash
+    }
 
     /**
      * UTF-8 byte length of [text]'s first [endUtf16] UTF-16 units. Counted
