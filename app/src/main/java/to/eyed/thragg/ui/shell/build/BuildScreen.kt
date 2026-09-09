@@ -51,6 +51,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
 import to.eyed.thragg.solana.chain.Cluster
 import to.eyed.thragg.solana.chain.ClusterStore
+import to.eyed.thragg.ui.shell.settings.TopUpSheet
 import to.eyed.thragg.ui.shell.settings.WalletSheet
 import to.eyed.thragg.solana.build.AgentFix
 import to.eyed.thragg.solana.build.ArtifactFreshness
@@ -147,6 +148,8 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
     // cluster is Anchor.toml's, read off the main thread as ProjectsSheet
     // reads it.
     var walletOpen by remember { mutableStateOf(false) }
+    // The deploy's shortfall, when Deploy handed it to the top-up picker.
+    var topUpShortfall by remember { mutableStateOf<Long?>(null) }
     // A tap on a blocked deck key, counted so the status strip's readout —
     // where the key's reason is printed — can flash (RunDeck.kt).
     var blockedTaps by remember { mutableIntStateOf(0) }
@@ -255,10 +258,23 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
             state = state,
             onDismiss = { DeployPrompt.open = false },
             onWallet = { walletOpen = true },
+            onTopUp = { shortfall -> topUpShortfall = shortfall },
         )
     }
     if (walletOpen) {
         WalletSheet(state = state, cluster = walletCluster, onDismiss = { walletOpen = false }, deployKeyFirst = true)
+    }
+    // The Deploy sheet's own door to the top-up: it dismisses itself first,
+    // so this is the picker standing where the deploy summary was, with the
+    // shortfall it just showed already in it.
+    topUpShortfall?.let { shortfall ->
+        TopUpSheet(
+            state = state,
+            cluster = walletCluster,
+            shortfall = shortfall,
+            onConnect = { topUpShortfall = null; walletOpen = true },
+            onDismiss = { topUpShortfall = null },
+        )
     }
 }
 

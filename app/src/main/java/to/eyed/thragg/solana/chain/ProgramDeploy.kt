@@ -363,6 +363,23 @@ private class DeploySession private constructor(
             onLine("Deploy key now holds ${sol(now)}")
         } catch (e: CancellationException) {
             throw e
+        } catch (e: PowFaucet.FaucetEmpty) {
+            // The faucet's source PDA is empty, so mining can only lose the
+            // deploy key money (PowFaucet.FaucetEmpty). The wallet is the
+            // remedy on devnet too, and it is one prompt: ask for the whole
+            // gap rather than the miner's bootstrap.
+            val gap = (required - balanceOf(payer)).coerceAtLeast(0L)
+            if (gap == 0L) return
+            if (from == null) {
+                throw ChainException(
+                    "${PowFaucet.EMPTY} Connect Seed Vault in Settings, under Wallet, and top up the deploy key " +
+                        "${payer.base58} with ${sol(gap)}.",
+                    e,
+                )
+            }
+            onLine("${PowFaucet.EMPTY} Asking Seed Vault for the difference instead")
+            walletTransfer(from, gap)
+            onLine("Deploy key now holds ${sol(balanceOf(payer))}")
         } catch (e: Exception) {
             val held = runCatching { balanceOf(payer) }.getOrDefault(balance)
             throw ChainException(
@@ -373,20 +390,15 @@ private class DeploySession private constructor(
         }
     }
 
-    /** One Transfer from the wallet to the deploy key, signed by the wallet, sent by us. */
+    /**
+     * One Transfer from the wallet to the deploy key, signed by the wallet,
+     * sent by us — [WalletTopUp.transfer], which is the app's only one. The
+     * balance check, the fee reserve and the "keep Thragg on screen" line
+     * live there now, so the Wallet sheet's Top up, the faucet's bootstrap
+     * and this cannot drift apart.
+     */
     private suspend fun walletTransfer(from: Pubkey, lamports: Long) {
-        val available = balanceOf(from)
-        val needed = lamports + Loader.LAMPORTS_PER_SIGNATURE
-        if (available < needed) {
-            throw ChainException(
-                "Seed Vault ${short(from)} holds ${sol(available)} on ${cluster.display}, and funding the deploy key needs ${sol(needed)}"
-            )
-        }
-        onLine("Asking Seed Vault to send ${sol(lamports)} to the deploy key ${short(payer)} · keep Thragg on screen while it answers")
-        val signature = ChainSigning.signAndSend(
-            app, cluster, rpc, pacer, from, listOf(Loader.transfer(from, payer, lamports)),
-            local = emptyList(), wallet = from,
-        )
+        val signature = WalletTopUp.transfer(app, cluster, rpc, pacer, from, payer, lamports, onLine)
         onLine("Seed Vault sent ${sol(lamports)} · ${Base58.short(signature)}")
     }
 

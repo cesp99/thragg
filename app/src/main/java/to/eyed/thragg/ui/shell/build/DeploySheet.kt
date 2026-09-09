@@ -3,6 +3,7 @@ package to.eyed.thragg.ui.shell.build
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -130,7 +131,13 @@ private class DeployFacts(
 )
 
 @Composable
-internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit, onWallet: (() -> Unit)? = null) {
+internal fun DeploySheet(
+    state: ShellState,
+    onDismiss: () -> Unit,
+    onWallet: (() -> Unit)? = null,
+    /** Opens the top-up picker with this many lamports pre-filled. */
+    onTopUp: ((shortfall: Long) -> Unit)? = null,
+) {
     val context = LocalContext.current
     // The system's battery dialog returns no result, so the answer is read
     // again every time this activity comes back to the front — which is
@@ -364,6 +371,7 @@ internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit, onWallet: (()
                         }
                     },
                 )
+                val gap = shortfallLamports(facts?.keyBalance?.getOrNull(), estimate)
                 val shortfall = shortfallDetail(facts?.keyBalance?.getOrNull(), estimate, cluster)
                 if (shortfall != null) {
                     Text(
@@ -372,6 +380,19 @@ internal fun DeploySheet(state: ShellState, onDismiss: () -> Unit, onWallet: (()
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
                     )
+                    // This is the moment the user is blocked, so the way out
+                    // is here rather than five taps away — and it carries the
+                    // gap this sheet just computed, so the picker's first chip
+                    // is the number they have already read.
+                    if (onTopUp != null && gap != null) {
+                        Row(modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space3)) {
+                            ThraggChip(
+                                label = "Top up from wallet",
+                                onClick = { onDismiss(); onTopUp(gap) },
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -479,20 +500,32 @@ internal fun comesBackDetail(bufferRent: Long): String =
  * Seed Vault for real SOL.
  */
 internal fun shortfallDetail(balance: Long?, estimate: Loader.CostEstimate?, cluster: Cluster?): String? {
-    if (balance == null || estimate == null || cluster == null) return null
-    val required = estimate.total + estimate.total / 10
-    if (balance >= required) return null
-    val gap = Loader.lamportsToSol(required - balance)
+    if (cluster == null) return null
+    val gap = shortfallLamports(balance, estimate)?.let { Loader.lamportsToSol(it) } ?: return null
     return when {
         cluster.hasPowFaucet ->
             "short by about $gap — Deploy mines the difference from the devnet proof-of-work " +
-                "faucet first, a minute or two; Wallet has Mine 5 SOL to do it ahead of time"
+                "faucet first, a minute or two; Wallet has Mine 5 SOL to do it ahead of time. " +
+                "When the faucet is empty, top up from Seed Vault instead"
         cluster.hasFaucet ->
             "short by about $gap — Deploy asks the ${cluster.display} faucet first, " +
                 "then Seed Vault for what the faucet will not give"
         else ->
             "short by about $gap — Seed Vault signs one transfer of real SOL to the deploy key when you confirm"
     }
+}
+
+/**
+ * The gap in lamports, or null when there is none or nothing is known — the
+ * one number behind both [shortfallDetail]'s sentence and the top-up chip's
+ * pre-filled amount, so the sheet cannot say one figure and hand over
+ * another. The threshold is the deployer's own: the estimate plus a tenth
+ * (ProgramDeploy.kt, `fund`).
+ */
+internal fun shortfallLamports(balance: Long?, estimate: Loader.CostEstimate?): Long? {
+    if (balance == null || estimate == null) return null
+    val required = estimate.total + estimate.total / 10
+    return (required - balance).takeIf { it > 0L }
 }
 
 /** The deploy key's balance line, in the order the facts arrive. */

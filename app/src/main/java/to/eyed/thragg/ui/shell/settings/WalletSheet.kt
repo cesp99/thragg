@@ -28,13 +28,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
+import to.eyed.thragg.solana.chain.BackgroundWork
 import to.eyed.thragg.solana.chain.Base58
-import to.eyed.thragg.solana.chain.ChainSigning
 import to.eyed.thragg.solana.chain.Cluster
 import to.eyed.thragg.solana.chain.DeployKey
 import to.eyed.thragg.solana.chain.DeployedProgram
@@ -53,8 +55,11 @@ import to.eyed.thragg.solana.chain.Rpc
 import to.eyed.thragg.solana.chain.RpcPacer
 import to.eyed.thragg.solana.chain.SeedVaultWallet
 import to.eyed.thragg.solana.chain.Transaction
+import to.eyed.thragg.solana.chain.WalletTopUp
 import to.eyed.thragg.ui.components.CopyChip
 import to.eyed.thragg.ui.components.HairlineDivider
+import to.eyed.thragg.ui.components.NoticeCard
+import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.SectionHeader
 import to.eyed.thragg.ui.components.ThraggCard
 import to.eyed.thragg.ui.components.ThraggChip
@@ -111,15 +116,20 @@ internal fun WalletSheet(
     val wallet = SeedVaultWallet.address
     val walletLabel = SeedVaultWallet.label
     // Bumped by Refresh and by every action that moved SOL; the balance and
-    // record effects key on it.
+    // record effects key on it. A top-up runs on its own scope and may land
+    // after this sheet was dismissed and reopened, so its version counts too.
     var refresh by remember { mutableIntStateOf(0) }
+    val topUpVersion = TopUpProgress.version
+    // The amount picker, and the one refusal the miner can discover for us.
+    var topUpOpen by remember { mutableStateOf(false) }
+    var faucetDry by remember { mutableStateOf(false) }
 
     // --- Seed Vault ------------------------------------------------------
     var walletBalance by remember { mutableStateOf<Long?>(null) }
     var walletBalanceFailed by remember { mutableStateOf(false) }
     var walletLoading by remember { mutableStateOf(false) }
     var walletBusy by remember { mutableStateOf(false) }
-    LaunchedEffect(wallet, cluster, refresh) {
+    LaunchedEffect(wallet, cluster, refresh, topUpVersion) {
         walletBalance = null
         walletBalanceFailed = false
         if (wallet == null) {
@@ -151,7 +161,7 @@ internal fun WalletSheet(
     var keyBusyLabel by remember { mutableStateOf("") }
     // The mining job, so the busy row's Stop can cancel it; null otherwise.
     var miningJob by remember { mutableStateOf<Job?>(null) }
-    LaunchedEffect(cluster, refresh) {
+    LaunchedEffect(cluster, refresh, topUpVersion) {
         keyLoading = true
         keyBalance = null
         keyBalanceFailed = false
@@ -246,57 +256,72 @@ internal fun WalletSheet(
     fun airdrop() {
         val key = deployKey ?: return
         if (keyBusy) return
+        faucetDry = false
         keyBusy = true
         keyBusyLabel = "Asking the ${cluster.display} faucet…"
-        miningJob = scope.launch {
+        val app = context.applicationContext
+        miningJob = WalletWork.scope.launch {
             var stopped = false
             try {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val rpc = Rpc(cluster)
-                        if (cluster.hasPowFaucet) {
-                            val pacer = RpcPacer()
-                            val start = pacer.run { rpc.getBalance(key.publicKey.base58) }
-                            // A dry key cannot pay for its first claim; the
-                            // wallet, when there is one, is asked for a little.
-                            val walletAddress = wallet?.let(Pubkey::of)
-                            suspend fun fromWallet(lamports: Long) {
-                                val from = walletAddress ?: return
-                                ChainSigning.signAndSend(
-                                    context, cluster, rpc, pacer, from,
-                                    listOf(Loader.transfer(from, key.publicKey, lamports)),
-                                    local = emptyList(), wallet = from,
+                val result = BackgroundWork.hold(app, "mine") {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            val rpc = Rpc(cluster)
+                            if (cluster.hasPowFaucet) {
+                                val pacer = RpcPacer()
+                                val start = pacer.run { rpc.getBalance(key.publicKey.base58) }
+                                // A dry key cannot pay for its first claim; the
+                                // wallet, when there is one, is asked for a
+                                // little — through the same one transfer the
+                                // Top up button uses (WalletTopUp.transfer).
+                                val walletAddress = wallet?.let(Pubkey::of)
+                                suspend fun fromWallet(lamports: Long) {
+                                    val from = walletAddress ?: return
+                                    WalletTopUp.transfer(
+                                        app, cluster, rpc, pacer, from, key.publicKey, lamports,
+                                        onLine = { keyBusyLabel = it },
+                                    )
+                                }
+                                val end = PowFaucet.fund(
+                                    rpc, pacer, key, target = start + MINE_SOL,
+                                    walletTransfer = if (walletAddress == null) null else ::fromWallet,
+                                    onLine = { keyBusyLabel = it },
+                                    onProgress = { keyBusyLabel = it.describe() },
                                 )
+                                "Mined ${Loader.lamportsToSol(end - start)} — the deploy key holds ${Loader.lamportsToSol(end)}"
+                            } else {
+                                // The height first, so the wait is bounded by a blockhash
+                                // that was valid when the faucet was asked.
+                                val height = rpc.getLatestBlockhash().lastValidBlockHeight
+                                val signature = rpc.requestAirdrop(key.publicKey.base58, ONE_SOL)
+                                rpc.confirm(signature, height)
+                                "1 SOL from the ${cluster.display} faucet landed in the deploy key"
                             }
-                            val end = PowFaucet.fund(
-                                rpc, pacer, key, target = start + MINE_SOL,
-                                walletTransfer = if (walletAddress == null) null else ::fromWallet,
-                                onLine = { keyBusyLabel = it },
-                                onProgress = { keyBusyLabel = it.describe() },
-                            )
-                            "Mined ${Loader.lamportsToSol(end - start)} — the deploy key holds ${Loader.lamportsToSol(end)}"
-                        } else {
-                            // The height first, so the wait is bounded by a blockhash
-                            // that was valid when the faucet was asked.
-                            val height = rpc.getLatestBlockhash().lastValidBlockHeight
-                            val signature = rpc.requestAirdrop(key.publicKey.base58, ONE_SOL)
-                            rpc.confirm(signature, height)
-                            "1 SOL from the ${cluster.display} faucet landed in the deploy key"
                         }
                     }
                 }
                 result
                     .onSuccess { Notifications.info(it, key = WALLET_KEY) }
                     .onFailure {
-                        // The message names the address: another source of
-                        // SOL is the way out of every failure here, and the
-                        // miner's own messages say when it is the first
-                        // claim that cannot be paid for.
-                        Notifications.error(
-                            "The ${cluster.display} faucet refused: ${it.message} — try again in a " +
-                                "minute, or send SOL to ${Base58.short(key.publicKey.base58)} by hand",
-                            key = WALLET_KEY,
-                        )
+                        // A dry faucet is not a refusal to retry: every claim
+                        // against an empty source is rent paid for nothing
+                        // (PowFaucet.FaucetEmpty), so the miner stops and the
+                        // card offers the wallet instead.
+                        if (it is PowFaucet.FaucetEmpty) {
+                            faucetDry = true
+                            Notifications.error(PowFaucet.EMPTY, key = WALLET_KEY)
+                        } else {
+                            // The message names the address: another source of
+                            // SOL is the way out of every failure here, and the
+                            // miner's own messages say when it is the first
+                            // claim that cannot be paid for.
+                            Notifications.error(
+                                "The ${cluster.display} faucet refused: ${it.message} — try again in a " +
+                                    "minute, top up from Seed Vault, or send SOL to " +
+                                    "${Base58.short(key.publicKey.base58)} by hand",
+                                key = WALLET_KEY,
+                            )
+                        }
                     }
             } catch (e: CancellationException) {
                 stopped = true
@@ -315,27 +340,30 @@ internal fun WalletSheet(
         val to = wallet ?: return
         if (keyBusy) return
         keyBusy = true
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val rpc = Rpc(cluster)
-                    // Re-read rather than trust the row: the row is however
-                    // old the last Refresh is.
-                    val balance = rpc.getBalance(key.publicKey.base58)
-                    val amount = balance - Loader.LAMPORTS_PER_SIGNATURE
-                    check(amount > 0) {
-                        "The deploy key holds ${Loader.lamportsToSol(balance)}, not enough to pay the fee"
+        val app = context.applicationContext
+        WalletWork.scope.launch {
+            val result = BackgroundWork.hold(app, "return") {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val rpc = Rpc(cluster)
+                        // Re-read rather than trust the row: the row is however
+                        // old the last Refresh is.
+                        val balance = rpc.getBalance(key.publicKey.base58)
+                        val amount = balance - Loader.LAMPORTS_PER_SIGNATURE
+                        check(amount > 0) {
+                            "The deploy key holds ${Loader.lamportsToSol(balance)}, not enough to pay the fee"
+                        }
+                        val blockhash = rpc.getLatestBlockhash()
+                        val message = Message.compile(
+                            feePayer = key.publicKey,
+                            instructions = listOf(Loader.transfer(key.publicKey, Pubkey.of(to), amount)),
+                            recentBlockhash = blockhash.blockhash,
+                        )
+                        val tx = Transaction.unsigned(message)
+                            .withSignature(key.publicKey, key.sign(message.serialize()))
+                        rpc.sendAndConfirm(tx, blockhash.lastValidBlockHeight)
+                        amount
                     }
-                    val blockhash = rpc.getLatestBlockhash()
-                    val message = Message.compile(
-                        feePayer = key.publicKey,
-                        instructions = listOf(Loader.transfer(key.publicKey, Pubkey.of(to), amount)),
-                        recentBlockhash = blockhash.blockhash,
-                    )
-                    val tx = Transaction.unsigned(message)
-                        .withSignature(key.publicKey, key.sign(message.serialize()))
-                    rpc.sendAndConfirm(tx, blockhash.lastValidBlockHeight)
-                    amount
                 }
             }
             keyBusy = false
@@ -354,9 +382,12 @@ internal fun WalletSheet(
     fun reclaim(buffer: OpenBuffer) {
         if (keyBusy) return
         keyBusy = true
-        scope.launch {
+        val app = context.applicationContext
+        WalletWork.scope.launch {
             // Success is announced by ProgramClose itself, with the amount.
-            val result = withContext(Dispatchers.IO) { ProgramClose.closeBuffer(context, cluster, buffer) }
+            val result = BackgroundWork.hold(app, "reclaim") {
+                withContext(Dispatchers.IO) { ProgramClose.closeBuffer(app, cluster, buffer) }
+            }
             keyBusy = false
             result.onFailure {
                 Notifications.error(
@@ -490,6 +521,37 @@ internal fun WalletSheet(
                         onRefresh = { refresh++ },
                     )
                     HairlineDivider()
+                    // The primary way in and out of this key is the wallet the
+                    // phone already has. It gets its own row, filled, above
+                    // the two outlined faucet/return actions: it is the one
+                    // that works on every cluster.
+                    val topUpReason = WalletTopUp.entryRefusal(
+                        walletAddress = wallet,
+                        walletCluster = SeedVaultWallet.authorizedCluster,
+                        walletBalance = walletBalance,
+                        deployKey = deployKeyAddress,
+                        cluster = cluster,
+                    )
+                    ActionRow(busy = TopUpProgress.running, busyLabel = "Seed Vault is signing the top-up…") {
+                        Button(
+                            onClick = { topUpOpen = true },
+                            enabled = topUpReason == null,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Top up the deploy key", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                    // A blocked control keeps its label and says why, rather
+                    // than greying in silence.
+                    if (topUpReason != null && !TopUpProgress.running) {
+                        Text(
+                            text = topUpReason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
+                        )
+                    }
+                    HairlineDivider()
                     val canReturn = wallet != null && deployKey != null && (keyBalance ?: 0L) > RETURN_THRESHOLD
                     ActionRow(
                         busy = keyBusy,
@@ -523,7 +585,21 @@ internal fun WalletSheet(
                         }
                     }
                 }
-
+                if (faucetDry) {
+                    NoticeCard(
+                        severity = Severity.Warn,
+                        title = "The devnet faucet is empty",
+                        body = "Mining it costs the deploy key rent for every claim and pays nothing back, " +
+                            "so the miner stopped. Seed Vault holds SOL on ${cluster.display} — send some across instead.",
+                        actions = {
+                            ThraggChip(
+                                label = "Top up from wallet",
+                                onClick = { topUpOpen = true },
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                }
             }
             if (deployKeyFirst) {
                 deployKeyCard(true)
@@ -568,6 +644,19 @@ internal fun WalletSheet(
 
             CloseLog()
         }
+    }
+
+    if (topUpOpen) {
+        TopUpSheet(
+            state = state,
+            cluster = cluster,
+            shortfall = null,
+            onConnect = { connect() },
+            onDismiss = { topUpOpen = false },
+            seedDeployKey = deployKeyAddress,
+            seedWalletBalance = walletBalance,
+            seedKeyBalance = keyBalance,
+        )
     }
 
     closeTarget?.let { (name, deployed) ->
@@ -768,6 +857,22 @@ internal fun bufferDetail(cluster: String, programId: String?): String =
  */
 internal fun airdropLabel(cluster: Cluster): String =
     if (cluster.hasPowFaucet) "Mine ${Loader.lamportsToSol(MINE_SOL)}" else "Airdrop 1 SOL"
+
+/**
+ * The scope Mine, Reclaim and Return run on.
+ *
+ * NOT THE SHEET'S. Measured in QA 2026-09-09: all three ran on the
+ * composition's `rememberCoroutineScope`, so a scrim tap during a two-minute
+ * mining session — or during a Seed Vault prompt — cancelled work that had
+ * already spent SOL. They now run here, inside [BackgroundWork.hold], for the
+ * same reason a close does (ProgramSheet.kt, `CloseProgress`): the foreground
+ * service and the wake lock are held for the length of the work, and the
+ * sheet's own state is only where the *progress* is drawn. Stop still works —
+ * the job is the sheet's to cancel, it is just no longer the sheet's to lose.
+ */
+internal object WalletWork {
+    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+}
 
 /** Wallet notifications replace each other rather than stacking. */
 private const val WALLET_KEY = "chain.wallet"

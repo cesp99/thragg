@@ -110,6 +110,16 @@ object SeedVaultWallet {
     var label: String? by mutableStateOf(null)
         private set
 
+    /**
+     * The cluster the current authorization was issued for, or null when
+     * nothing is remembered. MWA tokens are per chain, so this is what lets a
+     * sheet say "connected for devnet, and this project is on mainnet-beta"
+     * before it starts the wallet app rather than after the wallet has shown
+     * its own "Network mismatch" and closed (WalletTopUp.refusal).
+     */
+    var authorizedCluster: Cluster? by mutableStateOf(null)
+        private set
+
     val isConnected: Boolean get() = address != null
 
     private val lock = Any()
@@ -371,13 +381,7 @@ object SeedVaultWallet {
     private fun describe(failure: TransactionResult.Failure<*>, cluster: Cluster, asking: Asking): WalletException {
         val where = cluster.display
         val message = when (failure.remoteCode) {
-            ProtocolContract.ERROR_CLUSTER_NOT_SUPPORTED ->
-                if (cluster.hasFaucet) {
-                    "Seed Vault refused to authorize for $where — switch the wallet app to $where, " +
-                        "or fund the deploy key from the faucet instead"
-                } else {
-                    "Seed Vault refused to authorize for $where — switch the wallet app to $where"
-                }
+            ProtocolContract.ERROR_CLUSTER_NOT_SUPPORTED -> WalletTopUp.networkMismatch(cluster, authorizedCluster)
             ProtocolContract.ERROR_AUTHORIZATION_FAILED -> when (asking) {
                 Asking.Connect -> "Seed Vault declined to connect for $where"
                 Asking.Sign -> "Seed Vault no longer authorizes Thragg on $where — reconnect it in Settings, under Wallet"
@@ -394,19 +398,21 @@ object SeedVaultWallet {
                 // was slow.
                 failure.message.startsWith("Timed out waiting to send association intent") ->
                     "Thragg must be on screen for Seed Vault to be asked — bring it to the front and try again"
+                // The MWA prompt gives up after about ninety seconds
+                // (measured on the Seeker 2026-09-09). Nothing was signed and
+                // nothing was sent, so the whole remedy is to ask again.
                 failure.message.startsWith("Timed out") ->
-                    "Seed Vault did not answer in time for $where"
+                    "Seed Vault did not answer in time for $where — nothing was sent; try again"
                 failure.message.startsWith("Received an activity start request") ->
                     "Seed Vault is already being asked — finish that request first"
                 // Measured on a Seeker whose wallet was set to mainnet: the
                 // wallet shows its own "Network mismatch" sheet and closes
                 // the association without a JSON-RPC error, so from here it
-                // looks like a plain cancel. Off mainnet, say what to check.
-                failure.message.startsWith("Local association was cancelled") && !cluster.isMainnet ->
-                    "Seed Vault closed without signing for $where — if it said \"Network mismatch\", " +
-                        "set its Network to $where under the wallet app's Settings, then try again"
+                // looks like a plain cancel. Say what to check, and name both
+                // networks — the user cannot act on "mismatch" alone.
                 failure.message.startsWith("Local association was cancelled") ->
-                    "Seed Vault closed without signing for $where"
+                    "Seed Vault closed without signing for $where. If it said \"Network mismatch\": " +
+                        WalletTopUp.networkMismatch(cluster, authorizedCluster)
                 else -> "Seed Vault, on $where: ${failure.message}"
             }
         }
@@ -427,6 +433,7 @@ object SeedVaultWallet {
                 label = prefs.getString(KEY_LABEL, null)?.takeIf { it.isNotBlank() }
                 val token = prefs.getString(KEY_AUTH_TOKEN, null)?.takeIf { it.isNotBlank() }
                 val issuedFor = Cluster.fromId(prefs.getString(KEY_AUTH_CLUSTER, null))
+                authorizedCluster = issuedFor
                 if (token != null && issuedFor != null) {
                     // Set the chain first: the adapter drops its token on a
                     // chain change, and a token is only offered on its own.
@@ -448,6 +455,7 @@ object SeedVaultWallet {
                 .apply()
             address = walletAddress
             label = walletLabel?.takeIf { it.isNotBlank() }
+            authorizedCluster = cluster
             restored = true
         }
     }
@@ -462,6 +470,7 @@ object SeedVaultWallet {
                 .apply()
             address = null
             label = null
+            authorizedCluster = null
             adapter.authToken = null
             restored = true
         }

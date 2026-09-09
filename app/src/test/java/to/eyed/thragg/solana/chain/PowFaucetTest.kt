@@ -30,6 +30,32 @@ class PowFaucetTest {
     }
 
     @Test
+    fun `a source that cannot pay a claim is dry, and dry stops the miner`() {
+        // The source pays CLAIM_LAMPORTS out of itself for every claim; a
+        // claim it cannot pay is a claim that only costs the payer its fee
+        // and the receipt's rent (0.0009 SOL, measured 2026-09-09 as a
+        // deploy key went 0.22 -> 0.0008 mining an empty faucet).
+        assertTrue(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS))
+        assertTrue(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS * 100))
+        assertFalse(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS - 1))
+        assertFalse(PowFaucet.canPayClaim(0L))
+
+        // Both difficulties have their own source, so one that still pays is
+        // enough to keep mining.
+        assertTrue(PowFaucet.isDry(listOf(0L, 0L)))
+        assertTrue(PowFaucet.isDry(emptyList()))
+        assertFalse(PowFaucet.isDry(listOf(0L, PowFaucet.CLAIM_LAMPORTS)))
+        assertFalse(PowFaucet.isDry(listOf(PowFaucet.CLAIM_LAMPORTS, 0L)))
+    }
+
+    @Test
+    fun `the dry faucet says the same sentence everywhere and points at the wallet`() {
+        assertEquals(PowFaucet.EMPTY, PowFaucet.FaucetEmpty().message)
+        assertTrue(PowFaucet.EMPTY, "empty" in PowFaucet.EMPTY)
+        assertTrue(PowFaucet.EMPTY, "wallet" in PowFaucet.EMPTY)
+    }
+
+    @Test
     fun `spec and source PDAs are the accounts the program read and paid from`() {
         val spec = PowFaucet.spec(3)
         assertEquals(spec3, spec.address)
