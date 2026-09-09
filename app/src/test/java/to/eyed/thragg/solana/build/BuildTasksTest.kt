@@ -133,18 +133,23 @@ class BuildTasksTest {
         assertEquals("seahorse build", seahorse.display)
     }
 
+    /**
+     * Asking `cargo-build-sbf` for JSON loses every diagnostic. It swallows
+     * the inner cargo's stdout, which is where that flag writes: on the phone
+     * the whole failing build printed 0 bytes of stdout, so the error count
+     * was zero on the strip, in the chip and on the card. Without the flag
+     * the diagnostic comes back on stderr as plain text and the line parser
+     * reads it.
+     */
     @Test
-    fun `native asks cargo for json diagnostics through cargo-build-sbf`() {
+    fun `native does not ask cargo-build-sbf for json it will swallow`() {
         val command = BuildTasks.buildCommand(
             layout(ProjectFramework.Native),
             GuestTools(cargoBuildSbf = true, platformCargo = true),
         )!!
-        assertTrue(
-            command.line.endsWith(
-                "cargo build-sbf -- --message-format=json-diagnostic-rendered-ansi"
-            )
-        )
-        assertTrue(command.jsonDiagnostics)
+        assertTrue(command.line.endsWith("cargo build-sbf"))
+        assertFalse(command.line.contains("--message-format"))
+        assertFalse(command.jsonDiagnostics)
         assertNull(command.note)
     }
 
@@ -161,12 +166,7 @@ class BuildTasksTest {
             GuestTools(cargoBuildSbf = true),
             platformToolsVersion = "v1.57",
         )!!
-        assertTrue(
-            command.line.endsWith(
-                "cargo build-sbf --tools-version v1.57 " +
-                    "-- --message-format=json-diagnostic-rendered-ansi"
-            )
-        )
+        assertTrue(command.line.endsWith("cargo build-sbf --tools-version v1.57"))
         // The display is what the log's first row and the agent prompt see,
         // and the flag is part of how the command actually works.
         assertEquals("cargo build-sbf --tools-version v1.57", command.display)

@@ -981,16 +981,19 @@ object BuildRunner {
      *
      * The last line git, anchor or the chain marked — `error`, `failed`,
      * `fatal`, `panicked` — and the last line said at all when nothing is
-     * marked. Lines still carrying rustc's SGR escapes are skipped: the card
-     * is Material prose and a paste of control bytes is not a sentence
-     * (AnsiText.kt renders those, in the log, where they belong).
+     * marked. SGR escapes are *stripped*, not skipped: the card is Material
+     * prose and a paste of control bytes is not a sentence, but the line
+     * carrying them is usually the one the card wants, and dropping it left
+     * the card quoting an unrelated line instead of the error. Nothing in the
+     * guest colours today (TERM=dumb); this is what happens the day something
+     * does. (AnsiText.kt draws the colours in the log, where they belong.)
      *
      * Pure, because it is a sentence the product prints (BuildFailureTest).
      */
     fun failureDetail(lines: List<String>): String? {
         val clean = lines
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.contains('\u001B') }
+            .map { CargoDiagnostics.plainOf(it).trim() }
+            .filter { it.isNotEmpty() }
         if (clean.isEmpty()) return null
         val marked = clean.lastOrNull { line ->
             DETAIL_MARKERS.any { line.contains(it, ignoreCase = true) }

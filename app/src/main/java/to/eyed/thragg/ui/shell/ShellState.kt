@@ -41,10 +41,12 @@ class ShellState {
 
     /**
      * How much of the keyboard's top edge the editor's own dock is using —
-     * its caret readout and its key row — or zero when no buffer is docked
-     * there. The toast band reads it so it can ride the keyboard without
-     * landing on the keys and eating the taps meant for them; only the pane
-     * that draws the dock knows whether it is there.
+     * its caret readout, its key row and whatever the ⌄ key has opened below
+     * them — or zero when no buffer is docked there. The toast band reads it
+     * so it can ride the keyboard without landing on the keys and eating the
+     * taps meant for them; only the pane that draws the dock knows whether it
+     * is there, and it reports what it measured rather than what the
+     * collapsed posture would be.
      */
     var imeDockHeight by mutableStateOf(0.dp)
 

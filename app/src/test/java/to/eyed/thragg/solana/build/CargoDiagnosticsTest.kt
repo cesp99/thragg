@@ -243,6 +243,53 @@ class CargoDiagnosticsTest {
         assertNotNull(flushed.single() as? BuildLogEvent.Issue)
     }
 
+    // --- colour ------------------------------------------------------------
+    //
+    // Every pattern in the parser is anchored at column zero, so one escape
+    // in front of a header would lose the diagnostic and say nothing about
+    // it. Nothing in the guest colours today (TERM=dumb, CARGO_TERM_COLOR=
+    // never, measured on the phone); these hold the line for a producer that
+    // one day does.
+
+    @Test
+    fun `a coloured rustc header is still a diagnostic`() {
+        val esc = "\u001B"
+        val output = "$esc[0m$esc[1m$esc[38;5;9merror[E0425]$esc[0m$esc[1m: " +
+            "cannot find value `zzz` in this scope$esc[0m\n" +
+            "$esc[0m $esc[0m$esc[34m-->$esc[0m src/lib.rs:27:5"
+        val issue = CargoDiagnostics.issues(output, jsonDiagnostics = false).single()
+        assertEquals(DiagnosticSeverity.Error, issue.severity)
+        assertEquals("E0425", issue.code)
+        assertEquals("cannot find value `zzz` in this scope", issue.message)
+        assertEquals("src/lib.rs", issue.path)
+        assertEquals(27, issue.line)
+        assertEquals(5, issue.column)
+    }
+
+    @Test
+    fun `a coloured warning counts as a warning`() {
+        val esc = "\u001B"
+        val line = "$esc[1m$esc[33mwarning$esc[0m$esc[1m: unused import: `std::fmt`$esc[0m"
+        val issue = CargoDiagnostics.issues(line, jsonDiagnostics = false).single()
+        assertEquals(DiagnosticSeverity.Warning, issue.severity)
+        assertEquals("unused import: `std::fmt`", issue.message)
+    }
+
+    @Test
+    fun `the log row keeps the escapes the matcher dropped`() {
+        val esc = "\u001B"
+        val line = "$esc[32m   Compiling$esc[0m escrow v0.1.0"
+        val text = CargoDiagnostics.parseAll(line, jsonDiagnostics = false)
+            .filterIsInstance<BuildLogEvent.Text>().single()
+        assertEquals(line, text.line)
+    }
+
+    @Test
+    fun `a cargo json record survives a leading reset`() {
+        val output = "\u001B[0m" + e0609Json
+        assertEquals(1, CargoDiagnostics.issues(output).size)
+    }
+
     @Test
     fun `mixed json and plain output keeps both`() {
         val output = e0609Json + "\n" + "Compiling anchor-lang v0.31.1"

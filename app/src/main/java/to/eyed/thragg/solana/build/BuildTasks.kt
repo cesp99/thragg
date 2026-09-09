@@ -544,12 +544,12 @@ object BuildTasks {
      * that `cargo-build-sbf` produces, so the artifact is in the wrong place
      * for a deploy and there is no program keypair beside it.
      *
-     * `--message-format` is asked for wherever cargo is the process being
-     * driven. `anchor build` swallows its child's stdout formatting, so
-     * Anchor's diagnostics arrive as rendered text and are read by
-     * [CargoDiagnostics]'s line parser instead — which is why that parser is
-     * not a fallback in the apologetic sense but the main path for two of the
-     * three frameworks.
+     * `--message-format` is asked for only where cargo is the process this
+     * line actually starts — the platform-cargo fallback and `cargo test`.
+     * `anchor build` swallows its child's stdout formatting, and so does
+     * `cargo-build-sbf`: both leave [CargoDiagnostics]'s line parser reading
+     * plain stderr, which is why that parser is not a fallback in the
+     * apologetic sense but the main path for all three frameworks.
      *
      * [platformToolsVersion] is the manifest's platform-tools release tag
      * (`ToolchainManifest.platformToolsVersion`), and passing it as
@@ -588,13 +588,23 @@ object BuildTasks {
 
         // Native, with cargo-build-sbf present: the canonical path, and the
         // one that produces target/deploy/.
+        //
+        // NO `--message-format` HERE, and that is measured, not assumed.
+        // `cargo-build-sbf` swallows the inner cargo's stdout, which is the
+        // stream that flag writes to: asked for JSON, the whole build printed
+        // **0 bytes** of stdout and 119 bytes of stderr, so every diagnostic
+        // was lost and a failing build reported no errors at all — no count
+        // on the status strip, no Problems chip, and a failure card quoting
+        // cargo's "could not compile" epilogue instead of the error. Left
+        // alone, the same build puts `error[E0425]: …` on stderr as plain
+        // ASCII at column zero, which is exactly what [CargoDiagnostics]'s
+        // line parser reads (guest repro on the Seeker, 2026-09-09).
         tools.cargoBuildSbf -> {
             val versionFlag = platformToolsVersion?.let { " --tools-version $it" }.orEmpty()
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion, seeds) +
-                    "cargo build-sbf$versionFlag -- --message-format=json-diagnostic-rendered-ansi",
+                line = toolchainGuard(platformToolsVersion, seeds) + "cargo build-sbf$versionFlag",
                 display = "cargo build-sbf$versionFlag",
-                jsonDiagnostics = true,
+                jsonDiagnostics = false,
             )
         }
 

@@ -63,6 +63,8 @@ import to.eyed.thragg.solana.build.BuildTasks
 import to.eyed.thragg.solana.build.FailureFacts
 import to.eyed.thragg.solana.build.ProjectFramework
 import to.eyed.thragg.solana.build.ProjectLayout
+import to.eyed.thragg.solana.toolchain.ToolchainManifest
+import to.eyed.thragg.solana.toolchain.formatBytes
 import to.eyed.thragg.terminal.Userland
 import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
@@ -1069,6 +1071,21 @@ internal fun drawnReason(reason: String?, running: Boolean): String? = reason.ta
 internal fun deckReadout(reasons: List<Pair<BuildAction, String?>>): String? =
     reasons.firstNotNullOfOrNull { (action, reason) -> reason?.let { "${action.label} · $it" } }
 
+/**
+ * What the toolchain costs, said once, from the same manifest Setup reads.
+ *
+ * Setup prints the manifest's own totals; this card used to print two numbers
+ * typed into the source when the toolchain was smaller, so the two screens
+ * disagreed about the same download (600 MB against 886 MB). Reading the
+ * manifest means a component added to it moves both. The fallback is vague on
+ * purpose: a number that cannot be computed should not be invented.
+ */
+internal fun toolchainSize(context: Context): String =
+    runCatching { ToolchainManifest.load(context) }.getOrNull()?.let {
+        "${formatBytes(it.totalDownloadBytes)} to download and " +
+            "${formatBytes(it.totalInstallBytes)} on disk"
+    } ?: "about a gigabyte to download"
+
 internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavailable? = when {
     !Userland.backend.isSupported -> Unavailable(
         "No Linux guest on this device",
@@ -1090,8 +1107,8 @@ internal fun unavailableReason(context: Context, layout: ProjectLayout?): Unavai
 
     !BuildRunner.tools.canCompile -> Unavailable(
         "The toolchain is not installed",
-        "The Solana toolchain is not installed yet. It is about 600 MB to download " +
-            "and 1.4 GB on disk, and it is what compiles a program to SBF.",
+        "The Solana toolchain is not installed yet. It is ${toolchainSize(context)}, " +
+            "and it is what compiles a program to SBF.",
         setup = true,
     )
 

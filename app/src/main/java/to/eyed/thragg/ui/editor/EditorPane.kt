@@ -88,6 +88,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -2747,10 +2748,18 @@ private fun EditorActionRow(
         onActed()
     }
 
+    // What the shell's toast band clears (ImeDock). Measured rather than
+    // assumed: the ⌄ expansion below adds two strips to this Column, and a
+    // band placed by the collapsed constant sat on the language-server row.
+    // Inside the keyboard's own padding, so it is the dock's height and not
+    // the keyboard's.
+    DisposableEffect(Unit) { onDispose { ImeDock.clear() } }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = with(density) { overlap.toDp() })
+            .onSizeChanged { ImeDock.report(with(density) { it.height.toDp() }) }
             .background(theme.color("status_bar.background")),
     ) {
         // The strips grow out of the row and shrink back into it. They sit

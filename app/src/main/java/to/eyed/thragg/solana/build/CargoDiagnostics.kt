@@ -108,8 +108,23 @@ class CargoDiagnostics(private val jsonDiagnostics: Boolean = true) {
     /** A mocha failure being collected across lines; see [feedMocha]. */
     private var mocha: MochaFailure? = null
 
-    fun feed(line: String): List<BuildLogEvent> {
+    fun feed(raw: String): List<BuildLogEvent> {
         val events = ArrayList<BuildLogEvent>(2)
+
+        // MATCH ON THE PLAIN TEXT, KEEP THE COLOURED LINE.
+        //
+        // Every pattern below is anchored at column zero, so one escape
+        // sequence in front of a header is enough to lose the diagnostic
+        // silently — the log would still look right, because AnsiText draws
+        // the colours, while the strip, the chip and the Problems rows
+        // counted nothing. Today nothing colours: the guest environment sets
+        // TERM=dumb and CARGO_TERM_COLOR=never, and a guest repro on the
+        // Seeker measured zero escape bytes in a failing build's output
+        // (2026-09-09). This is the guard for the day something does — a
+        // producer that is not cargo, or a driver that resets the term. The
+        // escapes come off for matching only; the row and `rendered` keep
+        // them.
+        val line = plainOf(raw)
 
         // A location for the header we are holding: attach and emit, and do
         // not print the line — the row the issue becomes already shows it.
@@ -159,13 +174,13 @@ class CargoDiagnostics(private val jsonDiagnostics: Boolean = true) {
                     severity = severity,
                     message = message,
                     code = code,
-                    rendered = line,
+                    rendered = raw,
                 )
                 return events
             }
             // A note, a help, or cargo's "could not compile … due to 1
             // previous error": real output, but not a problem of its own.
-            events += BuildLogEvent.Text(line)
+            events += BuildLogEvent.Text(raw)
             return events
         }
 
@@ -173,12 +188,12 @@ class CargoDiagnostics(private val jsonDiagnostics: Boolean = true) {
         val other = parseForeign(line)
         if (other != null) {
             events += BuildLogEvent.Issue(other)
-            events += BuildLogEvent.Text(line)
+            events += BuildLogEvent.Text(raw)
             return events
         }
 
         feedMocha(line)?.let { events += BuildLogEvent.Issue(it) }
-        events += BuildLogEvent.Text(line)
+        events += BuildLogEvent.Text(raw)
         return events
     }
 
@@ -274,6 +289,22 @@ class CargoDiagnostics(private val jsonDiagnostics: Boolean = true) {
 
         /** Cheap pre-test before the JSON parser is asked for an opinion. */
         private const val REASON = "\"reason\""
+
+        /**
+         * A terminal control sequence: `ESC [ … letter` (colour, cursor) and
+         * `ESC ] … BEL/ST` (the title and hyperlink strings a compiler emits
+         * for error codes). Everything a producer writes to a pty and nothing
+         * it writes to a pipe — which is what the guest gives it.
+         */
+        private val ANSI = Regex("""\u001B(?:\[[0-?]*[ -/]*[@-~]|][^\u0007\u001B]*(?:\u0007|\u001B\\)?)""")
+
+        /**
+         * [line] with its escapes removed, for matching. Returns the same
+         * string when there are none, which is the common case and the one
+         * that runs on every line of a build that prints tens of thousands.
+         */
+        internal fun plainOf(line: String): String =
+            if (line.indexOf('\u001B') < 0) line else ANSI.replace(line, "")
 
         /**
          * `Error: Unable to read keypair file`, `Error: failed to generate IDL`

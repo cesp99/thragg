@@ -37,13 +37,24 @@ class BuildFailureTest {
     }
 
     @Test
-    fun `blank lines and rustc escapes are not sentences`() {
-        // The card is Material prose; a paste of SGR bytes is not one, and the
-        // log island is where rendered rustc output belongs.
+    fun `blank lines go, and rustc escapes are stripped rather than dropped`() {
+        // The card is Material prose; a paste of SGR bytes is not one. But
+        // the line carrying them is usually the line the card wants, so the
+        // escapes come off and the sentence stays.
         assertEquals(
             "cargo build failed",
             BuildRunner.failureDetail(
                 listOf("  ", "\u001B[1;31merror[E0609]\u001B[0m", "cargo build failed", "")
+            ),
+        )
+        assertEquals(
+            "error[E0425]: cannot find value `zzz` in this scope",
+            BuildRunner.failureDetail(
+                listOf(
+                    "   Compiling r4-native v0.1.0",
+                    "\u001B[0m\u001B[1m\u001B[38;5;9merror[E0425]\u001B[0m\u001B[1m: " +
+                        "cannot find value `zzz` in this scope\u001B[0m",
+                )
             ),
         )
     }

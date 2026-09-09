@@ -699,7 +699,12 @@ private fun ComponentRowView(row: ComponentRow, now: Long, onRetry: () -> Unit) 
                     )
                 }
             }
-            if (state is ComponentState.Failed || state is ComponentState.Cancelled) {
+            // Failed only. A Cancelled row is a *paused* row, and the button
+            // under the list already says Resume — two controls for one action,
+            // one of them named as if something had gone wrong, made a pause
+            // read like a failure. The row keeps its line ("stopped — the
+            // bytes already fetched are kept") and its figure instead.
+            if (state is ComponentState.Failed) {
                 ThraggChip(
                     label = "Retry",
                     onClick = onRetry,
@@ -994,7 +999,14 @@ private fun Actions(
         phase == ToolchainPhase.Failed -> "Retry"
         metered -> "Download over mobile data (${formatBytes(remaining)})"
         complete -> "Install the rest"
-        ToolchainInstaller.rows.any { it.state !is ComponentState.Pending } -> "Resume"
+        // Resume means a run stopped part-way, so only a row that is *mid-run*
+        // counts. An Installed row does not: removing the toolchain forgets
+        // every Solana component but keeps the Debian rootfs (the terminal is
+        // useful without a compiler), and that one installed row used to make
+        // the button offer to resume an install the user had just deleted.
+        ToolchainInstaller.rows.any {
+            it.state !is ComponentState.Pending && it.state !is ComponentState.Installed
+        } -> "Resume"
         else -> "Start"
     }
 

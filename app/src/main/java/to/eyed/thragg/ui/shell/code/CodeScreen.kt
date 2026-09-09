@@ -27,7 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import to.eyed.thragg.ui.editor.IME_DOCK_HEIGHT
+import to.eyed.thragg.ui.editor.ImeDock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -1137,9 +1137,9 @@ fun CodeScreen(
                     // that hid undo (device, 2026-09-09). Reported from here,
                     // where both the pane and the shell are in scope, so the
                     // Zed half does not have to reach for shell state.
-                    val imeUp = WindowInsets.isImeVisible
-                    DisposableEffect(imeUp) {
-                        state.imeDockHeight = if (imeUp) IME_DOCK_HEIGHT else 0.dp
+                    val dock = ImeDock.height
+                    DisposableEffect(dock) {
+                        state.imeDockHeight = dock
                         onDispose { state.imeDockHeight = 0.dp }
                     }
                     EditorPane(

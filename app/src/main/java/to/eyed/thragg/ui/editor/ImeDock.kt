@@ -1,5 +1,9 @@
 package to.eyed.thragg.ui.editor
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** The fixed key row that rides the keyboard (EditorPane's action row). */
@@ -18,6 +22,37 @@ internal val CARET_READOUT_HEIGHT = 18.dp
  * to one of them and forgotten in the others.
  */
 internal val IME_DOCK_HEIGHT = CARET_READOUT_HEIGHT + ACTION_ROW_HEIGHT
+
+/**
+ * The dock as it is **drawn right now**, in the one place anything outside the
+ * editor can ask.
+ *
+ * [IME_DOCK_HEIGHT] is the collapsed posture and stays the editor's own
+ * arithmetic. It is not the whole story for anyone drawing *over* the pane:
+ * the ⌄ key opens two more scrolling strips, and a toast placed by the
+ * constant cleared the caret readout and the keys while covering the language
+ * server's row — the same defect one row up (device, 2026-09-09). So the row
+ * measures itself and reports it, and the value follows the expansion as it
+ * animates.
+ *
+ * Zero whenever no buffer is docked on the keyboard: the row clears it as it
+ * leaves the composition, which is also what happens when the keyboard goes
+ * or the editor does.
+ */
+internal object ImeDock {
+
+    /** Drawn height of the caret readout, the key row and any open strips. */
+    var height: Dp by mutableStateOf(0.dp)
+        private set
+
+    internal fun report(value: Dp) {
+        if (value != height) height = value
+    }
+
+    internal fun clear() {
+        height = 0.dp
+    }
+}
 
 /**
  * How much of a pane the soft keyboard covers, in pixels, given the
