@@ -210,11 +210,44 @@ object PowFaucet {
         "The deploy key holds ${Loader.lamportsToSol(balance)}, under the ${Loader.lamportsToSol(BOOTSTRAP_LAMPORTS)} a first claim needs up front"
     )
 
+    /** The sentence a dry faucet gets, everywhere it is said. */
+    const val EMPTY = "The devnet faucet is empty — top up from your wallet instead"
+
+    /**
+     * The faucet's source PDAs hold nothing left to pay with.
+     *
+     * MINING A DRY FAUCET COSTS THE MINER MONEY. Each claim makes the payer
+     * front [RECEIPT_RENT] for a receipt account and a fee for every signer,
+     * and it is paid back [CLAIM_LAMPORTS] *by the source* — so when the
+     * source cannot pay, every claim is a net loss of about 0.0009 SOL and
+     * the loop keeps making them. Measured on the phone 2026-09-09: a deploy
+     * key went 0.22 → 0.0008 SOL mining a devnet faucet that had been empty
+     * the whole time. Hence the read before the first claim and the re-read
+     * while it runs; neither changes the mining maths, they only stop it.
+     */
+    class FaucetEmpty : ChainException(EMPTY)
+
+    /** Whether a source PDA holding [lamports] can pay one claim. Pure, tested. */
+    fun canPayClaim(lamports: Long): Boolean = lamports >= CLAIM_LAMPORTS
+
+    /** Dry when no difficulty's source can pay a claim. Pure, tested. */
+    fun isDry(sourceBalances: List<Long>): Boolean = sourceBalances.none(::canPayClaim)
+
+    /** What each spec's source holds right now, in [specs] order. */
+    suspend fun sourceBalances(rpc: Rpc, pacer: RpcPacer): List<Long> =
+        specs.map { spec -> pacer.run { rpc.getBalance(spec.source.base58) } }
+
     /**
      * Mine until [payer] holds [target] lamports, and return what it holds.
-     * Throws [NeedsBootstrap] when it cannot start, [ChainException] when
-     * the endpoint refuses claims repeatedly or nothing lands for minutes,
-     * and lets cancellation through with whatever landed already in the key.
+     * Throws [FaucetEmpty] when the source cannot pay a claim — before a
+     * single one is submitted — [NeedsBootstrap] when the payer cannot start,
+     * [ChainException] when the endpoint refuses claims repeatedly or nothing
+     * lands for minutes, and lets cancellation through with whatever landed
+     * already in the key.
+     *
+     * The faucet is read BEFORE [NeedsBootstrap] is raised, so a dry key on a
+     * dry faucet is never bootstrapped from the wallet: that would spend the
+     * wallet's SOL to start a loop that can only lose it.
      */
     suspend fun mine(
         rpc: Rpc,
@@ -225,6 +258,7 @@ object PowFaucet {
     ): Long {
         val balance = pacer.run { rpc.getBalance(payer.publicKey.base58) }
         if (balance >= target) return balance
+        if (isDry(sourceBalances(rpc, pacer))) throw FaucetEmpty()
         if (balance < BOOTSTRAP_LAMPORTS) throw NeedsBootstrap(balance)
         val grinder = KeyGrinder()
         grinder.start()
@@ -240,6 +274,10 @@ object PowFaucet {
      * the ordinary faucet once, then [walletTransfer] for [BOOTSTRAP_ASK]
      * when there is one, and told what to do by hand when neither gives.
      * [onLine] narrates those steps; [onProgress] is the miner's.
+     *
+     * [FaucetEmpty] passes straight through: there is no bootstrap for a
+     * faucet with nothing in it, and the caller's answer to that is the
+     * wallet, not another claim.
      */
     suspend fun fund(
         rpc: Rpc,
@@ -359,13 +397,23 @@ object PowFaucet {
         private var lastRefusal: String? = null
         private val startedAt = System.currentTimeMillis()
 
+        /** [mine] read the source before building this; the next read is a minute out. */
+        private var sourceAt = 0L
+
         suspend fun run(initial: Long): Long {
             balance = initial
             balanceAt = startedAt
             landedAt = startedAt
+            sourceAt = startedAt
             while (true) {
                 coroutineContext.ensureActive()
                 val now = System.currentTimeMillis()
+                // A source that empties mid-run turns every further claim
+                // into a loss; one read a minute is cheap next to that.
+                if (now - sourceAt >= SOURCE_EVERY_MS) {
+                    sourceAt = now
+                    if (isDry(sourceBalances(rpc, pacer))) throw FaucetEmpty()
+                }
                 if (inFlight.isNotEmpty() && now - polledAt >= POLL_MS) settle()
                 if (inFlight.isEmpty() && balance + credited >= target) {
                     readBalance()
@@ -498,6 +546,7 @@ object PowFaucet {
     private const val POLL_MS = 4_000L
     private const val PROGRESS_MS = 2_000L
     private const val BALANCE_EVERY_MS = 30_000L
+    private const val SOURCE_EVERY_MS = 60_000L
     private const val BLOCKHASH_REUSE_MS = 30_000L
     private const val BLOCKHASH_LIFETIME = 150L
     private const val BOOTSTRAP_CONFIRM_MS = 30_000L

@@ -104,6 +104,20 @@ class DeployedCardTest {
     }
 
     @Test
+    fun `the gap the chip pre-fills is the gap the sentence names`() {
+        // 2.0 SOL estimated, 2.2 required.
+        assertNull(shortfallLamports(2_200_000_000L, estimate))
+        assertNull(shortfallLamports(null, estimate))
+        assertNull(shortfallLamports(2_200_000_000L, null))
+        assertEquals(1_000_000_000L, shortfallLamports(1_200_000_000L, estimate))
+        // One lamport short is short.
+        assertEquals(1L, shortfallLamports(2_199_999_999L, estimate))
+        // The sentence and the chip read the same number.
+        val gap = shortfallLamports(1_200_000_000L, estimate)!!
+        assertTrue(shortfallDetail(1_200_000_000L, estimate, Cluster.Devnet)!!.contains(Loader.lamportsToSol(gap)))
+    }
+
+    @Test
     fun `shortfall names the gap and each cluster's own remedy`() {
         val devnet = shortfallDetail(1_200_000_000L, estimate, Cluster.Devnet)!!
         assertTrue(devnet, devnet.startsWith("short by about 1 SOL"))
