@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -291,6 +292,35 @@ private fun spansIn(spans: List<HighlightSpan>, start: Int, end: Int): List<High
     }
     return sliced
 }
+
+/**
+ * Where buffer column [col] falls inside the piece of text a display row was
+ * measured with: the row shows `[startCol, startCol + layoutLength)` of its
+ * buffer row, and [TextLayoutResult.getHorizontalPosition] throws
+ * `IllegalArgumentException` on anything outside that.
+ *
+ * A column can outlive the text it was found in — a bracket-pair highlight,
+ * a fold chip or a stale caret is computed against one revision of a row and
+ * painted against the next, so after a "delete word back" the mark's column
+ * can sit past the end of the shortened line and kill the whole draw pass.
+ * Clamping here, in the one place every measurement passes through, is the
+ * invariant; clamping at each call site is a courtesy the next call site
+ * forgets.
+ */
+internal fun layoutOffsetOf(col: Int, startCol: Int, layoutLength: Int): Int =
+    (col - startCol).coerceIn(0, layoutLength.coerceAtLeast(0))
+
+/**
+ * Whether a pointer leaving the pane should take the hover card with it.
+ *
+ * Only a mouse: Zed's `hover_at` is about a pointer *resting* over a symbol,
+ * and the card it raises belongs to the pointer, so the card goes when the
+ * pointer does. A finger's exit is not "the pointer moved away" — it is the
+ * end of the very gesture that asked, and on a phone the long press is the
+ * only way to ask at all.
+ */
+internal fun exitClearsHover(pointerType: PointerType): Boolean =
+    pointerType == PointerType.Mouse
 
 /**
  * A two-finger pinch, reported as whole steps of the buffer font size.
@@ -584,6 +614,20 @@ fun EditorPane(
     // when the pane appears — the process restored with the IME open, Code
     // returned to with it up — animates nothing, and the row stayed buried.
     var paneBottomPx by remember { mutableFloatStateOf(-1f) }
+
+    // What is drawn over the pane's bottom: the keyboard and the row of keys
+    // riding on it. The canvas keeps its full height — the rows behind the
+    // keyboard are still painted, because it slides over them — but every
+    // decision about the viewport is taken against what is left, so the end
+    // of a file stays reachable with the keyboard up and a reveal does not
+    // scroll its target to a row the keyboard covers. Re-revealed when it
+    // changes: the keyboard coming up over the caret is exactly the moment
+    // the caret has to be brought back.
+    val bottomCoverPx = imeCoveredBottomPx(paneBottomPx)
+    LaunchedEffect(state, bottomCoverPx) {
+        state.bottomInsetPx = bottomCoverPx
+        state.ensureCursorVisible()
+    }
 
     // A pane activated from the keymap asks for the keyboard through its
     // state — see [EditorState.requestFocus].
@@ -1044,7 +1088,23 @@ fun EditorPane(
                                 PointerEventType.Exit -> {
                                     if (gutterHovered) gutterHovered = false
                                     if (hoveredChipRow >= 0) hoveredChipRow = -1
-                                    hover.clear()
+                                    // Only a pointer that can *rest* takes the
+                                    // card away with it. A finger is a pointer
+                                    // like any other here: it enters on touch
+                                    // down and exits on release, and that exit
+                                    // is delivered on the Initial pass — ahead
+                                    // of the long-press detector's own
+                                    // `onDragEnd` on the Main pass. Clearing
+                                    // for touch therefore cancelled the very
+                                    // question the same gesture had just
+                                    // asked, a few hundred milliseconds before
+                                    // the server answered: the card never
+                                    // appeared, and `onDragEnd` — finding
+                                    // nothing pending — raised the clipboard
+                                    // toolbar in its place. See
+                                    // [exitClearsHover].
+                                    val type = event.changes.firstOrNull()?.type
+                                    if (type != null && exitClearsHover(type)) hover.clear()
                                 }
                                 else -> {}
                             }
@@ -1195,10 +1255,15 @@ fun EditorPane(
 
             /**
              * The x of buffer column [col] on display row [i], relative to
-             * the row's left edge.
+             * the row's left edge. [col] is clamped to the segment this row
+             * was measured with — see [layoutOffsetOf]; no caller may hand a
+             * column that outlived its line into the layout.
              */
-            fun xOf(i: Int, col: Int): Float =
-                layoutOf(i).getHorizontalPosition(col - window.startCol(i), true)
+            fun xOf(i: Int, col: Int): Float {
+                val layout = layoutOf(i)
+                val offset = layoutOffsetOf(col, window.startCol(i), layout.layoutInput.text.length)
+                return layout.getHorizontalPosition(offset, true)
+            }
 
             /** Left edge of this display row's text, continuation indent included. */
             fun leftOf(i: Int): Float = textLeft + window.indentColumns(i) * state.charWidthPx
@@ -2541,6 +2606,32 @@ private fun imeOverlapPx(paneBottomPx: Float): Float {
 }
 
 /**
+ * How much of the pane's bottom is covered while the keyboard is up: the
+ * keyboard's own overlap plus the action row that rides on it — the same
+ * "first pixel a popup may not use" the popups measure, read for the
+ * viewport.
+ *
+ * Off the *animation target* rather than the animating inset, so this
+ * settles on the keyboard's final height in one recomposition instead of
+ * recomposing the canvas on every frame of the slide. Where the caret has
+ * to end up is a question about the keyboard that is coming, not about the
+ * one half way up.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun imeCoveredBottomPx(paneBottomPx: Float): Float {
+    if (!WindowInsets.isImeVisible) return 0f
+    val density = LocalDensity.current
+    val windowHeight = LocalWindowInfo.current.containerSize.height.toFloat()
+    val overlap = imeOverlap(
+        imeBottomPx = WindowInsets.imeAnimationTarget.getBottom(density).toFloat(),
+        windowHeightPx = windowHeight,
+        paneBottomPx = paneBottomPx,
+    )
+    return overlap + with(density) { ACTION_ROW_HEIGHT.toPx() }
+}
+
+/**
  * The commands a soft keyboard can't reach, on a strip that appears with the
  * IME and sits just above it.
  *
@@ -3298,14 +3389,6 @@ private fun editorActionHandlers(
         // Zed's `editor::Hover` — the keyboard's way to the card the pointer
         // gets by resting and a finger gets by holding.
         EditorAction.Hover to does { hover.invokeAt(state.cursorRow, state.cursorCol) },
-        EditorAction.MoveToPreviousWordStart to does { state.moveByWord(forward = false, extend = false) },
-        EditorAction.MoveToNextWordEnd to does { state.moveByWord(forward = true, extend = false) },
-        EditorAction.SelectToPreviousWordStart to does { state.moveByWord(forward = false, extend = true) },
-        EditorAction.SelectToNextWordEnd to does { state.moveByWord(forward = true, extend = true) },
-        EditorAction.MoveToBeginning to does { state.moveToDocumentStart(extend = false) },
-        EditorAction.MoveToEnd to does { state.moveToDocumentEnd(extend = false) },
-        EditorAction.SelectToBeginning to does { state.moveToDocumentStart(extend = true) },
-        EditorAction.SelectToEnd to does { state.moveToDocumentEnd(extend = true) },
         // Zed's syntax-aware selection (`alt-shift-right` / `alt-shift-left`,
         // default-linux.json:547-548) and the bracket jump (`ctrl-m`, :573).
         // Each returns false where the tree has nothing to say, leaving the
@@ -3399,6 +3482,22 @@ private fun editorActionHandlers(
             hadReferences || state.endSnippet() || codeActions.dismiss() || hover.clear() ||
                 signatureHelp.clear() || state.cancel() || state.collapseAllHunks()
         },
+    ) + editorTypingHandlers(state)
+}
+
+/**
+ * The half of the pane's actions that needs nothing but the buffer: typing,
+ * deleting, indenting and moving the caret.
+ *
+ * Split out of [editorActionHandlers] because it is the half a key press
+ * reaches ([editorKeyAction] resolves ⌫, ⏎, ⇥ and the arrows to these
+ * names) and the half that can be exercised off a device — every handler
+ * here is a call on [EditorState] and nothing else, so a test can build the
+ * table over a fake buffer and press the keys.
+ */
+internal fun editorTypingHandlers(state: EditorState): Map<String, () -> Boolean> {
+    fun does(block: () -> Unit): () -> Boolean = { block(); true }
+    return mapOf(
         EditorAction.Backspace to does { state.backspace() },
         // Zed's `editor::Delete`: the character in front of the caret, or
         // the selection.
@@ -3440,6 +3539,14 @@ private fun editorActionHandlers(
         EditorAction.MovePageDown to does { state.movePage(down = true, extend = false) },
         EditorAction.SelectPageUp to does { state.movePage(down = false, extend = true) },
         EditorAction.SelectPageDown to does { state.movePage(down = true, extend = true) },
+        EditorAction.MoveToPreviousWordStart to does { state.moveByWord(forward = false, extend = false) },
+        EditorAction.MoveToNextWordEnd to does { state.moveByWord(forward = true, extend = false) },
+        EditorAction.SelectToPreviousWordStart to does { state.moveByWord(forward = false, extend = true) },
+        EditorAction.SelectToNextWordEnd to does { state.moveByWord(forward = true, extend = true) },
+        EditorAction.MoveToBeginning to does { state.moveToDocumentStart(extend = false) },
+        EditorAction.MoveToEnd to does { state.moveToDocumentEnd(extend = false) },
+        EditorAction.SelectToBeginning to does { state.moveToDocumentStart(extend = true) },
+        EditorAction.SelectToEnd to does { state.moveToDocumentEnd(extend = true) },
     )
 }
 
@@ -3461,20 +3568,97 @@ private fun interceptReferencesKey(references: ReferencesState, event: KeyEvent)
 }
 
 /**
- * What is left of hardware-key editing once the keymap has had its turn:
- * typing.
+ * The editing keys, by the `editor::` action each one is — ⌫, forward
+ * delete, ⏎, ⇥ and the caret's own keys.
  *
- * Every chord — clipboard, motion, the multi-cursor and line commands,
- * undo and redo, the `ctrl-k` sequences — is resolved by the workspace's
- * key pass against the keymap's `Editor` context and runs through
- * [editorActionHandlers], and the completion menu's keys go through
- * [interceptCompletionKey] ahead of it. A key that reaches this handler is
- * one no binding claimed, and if it is a character it is text.
+ * These used to be resolved by a keymap pass above the pane; that pass is
+ * gone, and with it every caller of [EditorState.runAction], so a soft
+ * keyboard's ⌫ (GBoard sends `KEYCODE_DEL` through
+ * `InputConnection.sendKeyEvent` whenever its shadow looks empty) reached
+ * [handleEditorKey], carried no printable character, and was dropped: the
+ * line never changed while the suggestion strip believed it had. The names
+ * are resolved here, in one table, and run through the same handler map the
+ * action row and the palette use — there is one backspace in this app.
+ *
+ * Modifiers follow the platform: Ctrl (or Alt, which is where a phone's own
+ * keyboard puts it) makes a delete word-wise, Ctrl makes a motion word-wise
+ * or document-wise, and Shift makes any motion a selection.
+ */
+internal fun editorKeyAction(key: Key, ctrl: Boolean, shift: Boolean, alt: Boolean): String? {
+    val wordDelete = ctrl || alt
+    return when (key) {
+        Key.Backspace ->
+            if (wordDelete) EditorAction.DeleteToPreviousWordStart else EditorAction.Backspace
+        Key.Delete ->
+            if (wordDelete) EditorAction.DeleteToNextWordEnd else EditorAction.Delete
+        Key.Enter, Key.NumPadEnter -> when {
+            ctrl && shift -> EditorAction.NewlineAbove
+            ctrl -> EditorAction.NewlineBelow
+            else -> EditorAction.Newline
+        }
+        Key.Tab -> if (shift) EditorAction.Backtab else EditorAction.Tab
+        Key.DirectionLeft -> when {
+            ctrl && shift -> EditorAction.SelectToPreviousWordStart
+            ctrl -> EditorAction.MoveToPreviousWordStart
+            shift -> EditorAction.SelectLeft
+            else -> EditorAction.MoveLeft
+        }
+        Key.DirectionRight -> when {
+            ctrl && shift -> EditorAction.SelectToNextWordEnd
+            ctrl -> EditorAction.MoveToNextWordEnd
+            shift -> EditorAction.SelectRight
+            else -> EditorAction.MoveRight
+        }
+        Key.DirectionUp -> if (shift) EditorAction.SelectUp else EditorAction.MoveUp
+        Key.DirectionDown -> if (shift) EditorAction.SelectDown else EditorAction.MoveDown
+        Key.MoveHome -> when {
+            ctrl && shift -> EditorAction.SelectToBeginning
+            ctrl -> EditorAction.MoveToBeginning
+            shift -> EditorAction.SelectToBeginningOfLine
+            else -> EditorAction.MoveToBeginningOfLine
+        }
+        Key.MoveEnd -> when {
+            ctrl && shift -> EditorAction.SelectToEnd
+            ctrl -> EditorAction.MoveToEnd
+            shift -> EditorAction.SelectToEndOfLine
+            else -> EditorAction.MoveToEndOfLine
+        }
+        Key.PageUp -> if (shift) EditorAction.SelectPageUp else EditorAction.MovePageUp
+        Key.PageDown -> if (shift) EditorAction.SelectPageDown else EditorAction.MovePageDown
+        // Zed's `editor::Cancel`: the popups, then the extra carets, then
+        // the selection. It answers false with nothing to give up, so the
+        // key falls through to the shell's own back step.
+        Key.Escape -> EditorAction.Cancel
+        else -> null
+    }
+}
+
+/**
+ * Every key the pane answers: the popups' refusals first, then the editing
+ * keys, then plain typing.
+ *
+ * Order matters. A completion menu that is up owns ⏎ and ⇥ before the
+ * editor's newline and indent do ([interceptCompletionKey]), which is Zed's
+ * `showing_completions` context. What is left resolves through
+ * [editorKeyAction] to an `editor::` action, and only a key that names no
+ * action and carries a printable character is text.
  */
 private fun handleEditorKey(state: EditorState, event: KeyEvent): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
+    if (state.keyInterceptor?.invoke(event) == true) return true
+    val action = editorKeyAction(
+        key = event.key,
+        ctrl = event.isCtrlPressed,
+        shift = event.isShiftPressed,
+        alt = event.isAltPressed,
+    )
+    if (action != null && state.runAction(action)) return true
     val codePoint = event.utf16CodePoint
-    if (event.isAltPressed || codePoint < 32 || codePoint == 127) return false
+    // A chord that named no action is not text: `getUnicodeChar` hands back
+    // the bare letter of Ctrl+C, and typing a `c` is not what was asked for.
+    if (event.isAltPressed || event.isCtrlPressed || codePoint < 32 || codePoint == 127) {
+        return false
+    }
     val text = String(Character.toChars(codePoint))
     state.typeCharacter(text)
     // Report it for the completion menu. A character that opens a bracket

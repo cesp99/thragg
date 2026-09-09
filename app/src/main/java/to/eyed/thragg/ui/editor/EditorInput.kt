@@ -44,17 +44,25 @@ private data class EditorTextInputElement(
     override fun create() = EditorTextInputNode(state)
 
     override fun update(node: EditorTextInputNode) {
-        node.state = state
+        node.bindTo(state)
     }
 }
 
 internal class EditorTextInputNode(
-    var state: EditorState,
+    private var state: EditorState,
 ) : Modifier.Node(), PlatformTextInputModifierNode, FocusEventModifierNode {
 
     private var sessionJob: Job? = null
     private var sessionView: View? = null
     private var activeConnection: EditorInputConnection? = null
+
+    /**
+     * Identity of the session now running. Everything a session owns — the
+     * view, the connection, the cursor callback — is written and cleared
+     * under this token, because a session's `finally` can run *after* its
+     * successor has started and must not tidy the successor away.
+     */
+    private var sessionToken: Any? = null
 
     override fun onFocusEvent(focusState: FocusState) {
         if (focusState.isFocused) startSession() else stopSession()
@@ -64,12 +72,46 @@ internal class EditorTextInputNode(
         stopSession()
     }
 
+    /**
+     * The pane was handed another buffer's state — a tab switch, which
+     * recomposes this modifier in place without ever touching focus.
+     *
+     * Without this the session, the connection and
+     * [EditorState.onCursorChangedExternally] all stayed bound to the state
+     * they were started against: the first characters typed after the
+     * switch landed in the *previous* file, and because the new state's
+     * cursor callback was never set, no caret tap could restart the IME
+     * afterwards either. Rebinding is the whole fix; the `key()` around the
+     * pane is only belt and braces.
+     */
+    fun bindTo(next: EditorState) {
+        if (next === state) return
+        val wasRunning = sessionJob != null
+        stopSession()
+        // The outgoing state loses its reporter and its connection now,
+        // synchronously: the cancelled session's own cleanup arrives too
+        // late to stop a stale shadow being synced into the old buffer.
+        state.onCursorChangedExternally = null
+        activeConnection?.close()
+        activeConnection = null
+        sessionToken = null
+        sessionView = null
+        state = next
+        if (wasRunning) startSession()
+    }
+
     private fun startSession() {
         if (sessionJob != null) return
+        // The state this session speaks for, captured once: `state` can be
+        // swapped under a running session by [bindTo], and every line below
+        // must keep answering for the buffer it opened with.
+        val target = state
+        val token = Any()
+        sessionToken = token
         sessionJob = coroutineScope.launch {
             establishTextInputSession {
                 sessionView = view
-                state.onCursorChangedExternally = { restartInput() }
+                target.onCursorChangedExternally = { restartInput(token) }
                 try {
                     startInputMethod { outAttributes ->
                         outAttributes.inputType = EditorInfo.TYPE_CLASS_TEXT or
@@ -77,15 +119,15 @@ internal class EditorTextInputNode(
                             EditorInfo.TYPE_TEXT_FLAG_AUTO_CORRECT
                         outAttributes.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or
                             EditorInfo.IME_FLAG_NO_ENTER_ACTION
-                        val lineLength = state.currentLine().length
-                        val range = state.selectionRange()
+                        val lineLength = target.currentLine().length
+                        val range = target.selectionRange()
                         if (range != null && !range.isMultiLine) {
                             outAttributes.initialSelStart =
                                 range.startCol.coerceAtMost(lineLength)
                             outAttributes.initialSelEnd =
                                 range.endCol.coerceAtMost(lineLength)
                         } else {
-                            val col = state.cursorCol.coerceAtMost(lineLength)
+                            val col = target.cursorCol.coerceAtMost(lineLength)
                             outAttributes.initialSelStart = col
                             outAttributes.initialSelEnd = col
                         }
@@ -93,13 +135,18 @@ internal class EditorTextInputNode(
                         // connection after a restart; close it so a stale
                         // shadow can never clobber the buffer.
                         activeConnection?.close()
-                        EditorInputConnection(view, state).also { activeConnection = it }
+                        EditorInputConnection(view, target).also {
+                            if (sessionToken === token) activeConnection = it
+                        }
                     }
                 } finally {
-                    state.onCursorChangedExternally = null
-                    activeConnection?.close()
-                    activeConnection = null
-                    sessionView = null
+                    target.onCursorChangedExternally = null
+                    if (sessionToken === token) {
+                        activeConnection?.close()
+                        activeConnection = null
+                        sessionView = null
+                        sessionToken = null
+                    }
                 }
             }
         }
@@ -113,9 +160,11 @@ internal class EditorTextInputNode(
     /**
      * The cursor moved or the buffer changed outside the IME write path:
      * make the platform create a fresh input connection seeded from the new
-     * cursor line.
+     * cursor line. A report from a session that has already been replaced
+     * is dropped — it speaks for a buffer that is no longer on screen.
      */
-    private fun restartInput() {
+    private fun restartInput(token: Any) {
+        if (sessionToken !== token) return
         val view = sessionView ?: return
         activeConnection?.close()
         val imm = view.context.getSystemService(InputMethodManager::class.java)

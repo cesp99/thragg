@@ -403,8 +403,34 @@ class EditorState private constructor(
     private var viewportWidth = 0f
     private var viewportHeight = 0f
 
+    /**
+     * The pane's bottom that something else is drawn over — the soft
+     * keyboard and the row of keys riding on it, pushed in by the pane
+     * ([to.eyed.thragg.ui.editor.EditorPane]).
+     *
+     * The canvas keeps its full height: the rows behind the keyboard are
+     * still painted, because the keyboard slides over them and a strip that
+     * stopped being drawn would show through while it moves. What the inset
+     * changes is every *decision* about the viewport — how far the document
+     * can be scrolled and where a caret has to be to count as seen — so the
+     * last rows of a file stay reachable with the keyboard up, and a reveal
+     * does not scroll the target to a row the keyboard covers.
+     */
+    internal var bottomInsetPx: Float = 0f
+        set(value) {
+            field = value.coerceAtLeast(0f)
+        }
+
     /** The visible height, for anything drawing against the viewport. */
     internal val viewportHeightPx: Float get() = viewportHeight
+
+    /**
+     * The height the reader can actually see: the canvas less whatever is
+     * drawn over its bottom ([bottomInsetPx]). Never less than a row —
+     * a keyboard taller than the pane still leaves the caret's own line.
+     */
+    internal val visibleHeightPx: Float
+        get() = (viewportHeight - bottomInsetPx).coerceAtLeast(lineHeightPx)
 
     /** The same, across. */
     internal val viewportWidthPx: Float get() = viewportWidth
@@ -702,11 +728,34 @@ class EditorState private constructor(
 
         /**
          * How many times [ensureCursorVisible] will re-measure before it
-         * settles for what it has. Two is the most a jump has ever needed;
-         * the bound is there so a pathological file cannot turn a caret move
-         * into a walk of the document.
+         * settles for what it has.
+         *
+         * Each turn measures the document down to where the caret is
+         * currently believed to be, and every block it measures can only
+         * make the caret's row lower — so the next turn's target is that
+         * much further on, and the walk converges geometrically rather than
+         * a block at a time: a file whose rows wrap in two doubles its reach
+         * per turn. Sixteen is well past what any real jump needs (four is
+         * enough for a 2000-row file of two-row lines); the bound is there
+         * so a pathological file cannot turn a caret move into a walk of the
+         * document, and a jump that runs out of turns is short by a scroll,
+         * never wrong about where the caret is.
          */
-        const val MAX_SETTLE_TURNS = 4
+        const val MAX_SETTLE_TURNS = 16
+
+        /**
+         * Display rows kept between the caret and the edge of the viewport
+         * it is scrolled to — Zed's `vertical_scroll_margin`, whose default
+         * is 3 (crates/editor/src/editor_settings.rs).
+         */
+        const val VERTICAL_SCROLL_MARGIN = 3
+
+        /**
+         * How far down the viewport a jumped-to row lands: a third, which
+         * is what puts a definition or a goto-line target in the reading
+         * position rather than on the last row of the screen.
+         */
+        const val JUMP_REVEAL_FRACTION = 1f / 3f
     }
 
     /**
@@ -1718,9 +1767,18 @@ class EditorState private constructor(
      * Consume a vertical scrollable delta (positive = finger moving down,
      * which scrolls the content up). Returns the consumed amount.
      */
-    /** The largest [scrollY] the content allows — in display rows, not file rows. */
+    /**
+     * The largest [scrollY] the content allows — in display rows, not file
+     * rows, and against the height the reader can *see*.
+     *
+     * Against [visibleHeightPx] rather than the canvas: with the soft
+     * keyboard up the pane keeps its full height and the keyboard is drawn
+     * over its bottom third, so an extent measured against the canvas stops
+     * scrolling with the last rows of the file still behind the keyboard —
+     * the reachable range got smaller the moment you started typing.
+     */
     internal val maxScrollY: Float
-        get() = (displayMap.displayRowCount * lineHeightPx - viewportHeight).coerceAtLeast(0f)
+        get() = (displayMap.displayRowCount * lineHeightPx - visibleHeightPx).coerceAtLeast(0f)
 
     /** Put the viewport at [y], clamped — what dragging the scrollbar does. */
     internal fun scrollToY(y: Float) {
@@ -2987,24 +3045,70 @@ class EditorState private constructor(
      */
     fun ensureCursorVisible() {
         if (viewportHeight <= 0f) return
+        val height = visibleHeightPx
         var turns = 0
         while (true) {
             val display = displayRowOf(cursorRow, cursorCol)
             val top = display * lineHeightPx
             val bottom = top + lineHeightPx
-            if (top < scrollY) {
-                scrollY = top
-            } else if (bottom > scrollY + viewportHeight) {
-                scrollY = bottom - viewportHeight
+            // Already on screen: the keystroke path takes this exit, and it
+            // neither scrolls nor measures anything.
+            if (top >= scrollY && bottom <= scrollY + height) break
+            // Off screen, so the pane is about to scroll to the caret — and
+            // which display row it is drawn on depends on every row above
+            // it. A block nobody has measured is estimated at one display
+            // row per file row ([DisplayMap] `estimateOf`) and that estimate
+            // is a floor, so a jump into a wrapped file used to land the
+            // viewport short by exactly the wraps the estimate had missed:
+            // go-to-line 70 stopped at 64, one block's worth of them.
+            // Measuring the document down to the caret is what makes the
+            // arithmetic true, and it is paid only when the caret is not
+            // already in view — measuring can only push its row further
+            // down, so the walk settles in a turn or two.
+            if (!displayMap.isIdentity && turns < MAX_SETTLE_TURNS) {
+                displayMap.measureWindow(0, display + 1)
+                turns++
+                if (displayRowOf(cursorRow, cursorCol) != display) continue
             }
-            if (displayMap.isIdentity) break
-            val first = (scrollY / lineHeightPx).toInt().coerceAtLeast(0)
-            displayMap.measureWindow(first, first + viewportRows() + 2)
-            if (displayRowOf(cursorRow, cursorCol) == display) break
-            if (++turns >= MAX_SETTLE_TURNS) break
+            val margin = scrollMarginPx(height)
+            scrollY = when {
+                // A jump — a go-to-line, a definition, a search hit, typing
+                // after scrolling away — lands a third of the way down the
+                // viewport, the way Zed's `Autoscroll::center` does, so the
+                // target arrives with its surroundings rather than on the
+                // last row of the screen (where a keyboard or a card is
+                // most likely to be over it).
+                isJumpAway(top, height) -> top - height * JUMP_REVEAL_FRACTION
+                top - margin < scrollY -> top - margin
+                else -> bottom + margin - height
+            }
+            break
         }
         scrollY = scrollY.coerceIn(0f, maxScrollY)
     }
+
+    /**
+     * The margin kept between the caret and the edge it is scrolled to, in
+     * pixels — [VERTICAL_SCROLL_MARGIN] rows, less on a viewport too short
+     * to give them: the margin may never be so wide that the caret cannot
+     * sit inside it.
+     */
+    private fun scrollMarginPx(height: Float): Float {
+        val rows = (height / lineHeightPx).toInt()
+        return min(VERTICAL_SCROLL_MARGIN, (rows - 1).coerceAtLeast(0) / 2) * lineHeightPx
+    }
+
+    /**
+     * Is the caret's row so far outside the viewport that scrolling to its
+     * edge would be a worse answer than centring it?
+     *
+     * A full viewport of slack either way: a page motion moves the caret
+     * exactly one screen and must still scroll exactly one screen, while a
+     * jump to another part of the file has nothing on screen to relate to
+     * and reads better with its surroundings around it.
+     */
+    private fun isJumpAway(top: Float, height: Float): Boolean =
+        top < scrollY - height || top > scrollY + 2f * height
 
     /**
      * The buffer was edited from below — a workspace edit the engine applied
