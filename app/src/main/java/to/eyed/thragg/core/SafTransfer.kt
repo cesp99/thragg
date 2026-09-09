@@ -55,6 +55,15 @@ object SafTransfer {
                 copied++
                 onProgress(Progress(copied, fileName))
             }
+            if (copied == 0) {
+                // A grant the provider honoured and then read nothing through
+                // is indistinguishable, from here, from an empty folder — and
+                // either way an empty project appearing with no word said is
+                // the silent failure the import path was reported for (QA
+                // 0.0.23, G-24). Say it, and leave nothing behind.
+                SafeDelete.deleteTree(destination)
+                return Result.Failed("Nothing in $rootName could be read")
+            }
             ProjectsRoot.setLastOpened(context, name)
             Result.Imported(destination, copied)
         } catch (error: Exception) {

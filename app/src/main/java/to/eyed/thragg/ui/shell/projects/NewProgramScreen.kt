@@ -162,9 +162,11 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
             // "My Project" becoming `my_project` a decision the user watched
             // rather than one they find in Cargo.toml later. Set in the buffer
             // face, because all three of them are identifiers that will appear
-            // in a buffer. Asked of the framework, because Seahorse's program
-            // is Playground's `fizzbuzz` whatever the project is called
-            // (SolanaTemplates.kt, `seahorseProgram`).
+            // in a buffer. Still asked of the framework rather than derived
+            // here: the framework is what decides what a project's program is
+            // called, and this line is only right while it is the one asked
+            // (SolanaTemplates.kt, `programNames` — Seahorse used to answer
+            // `fizzbuzz` here whatever was typed, QA 0.0.23 r4).
             val names = framework.programNames(program)
             Text(
                 text = "crate ${names.crateName} · mod ${names.moduleName} · " +

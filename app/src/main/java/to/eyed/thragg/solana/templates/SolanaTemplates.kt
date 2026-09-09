@@ -179,15 +179,23 @@ enum class SolanaFramework(
     }
 
     /**
-     * The names the *program* inside a project for [project] gets — the
-     * project's own for Anchor and Native, Playground's `fizzbuzz` for
-     * Seahorse, where the file's stem is the program name (see
-     * `seahorseProgram`). The New program screen previews these.
+     * The names the *program* inside a project for [project] gets: the
+     * project's own, in all three frameworks. The New program screen previews
+     * them live, which is the reason this is asked of the framework rather
+     * than assumed — and the reason it now answers the same way three times.
+     *
+     * It did not always. Seahorse's scaffold was Playground's `fizzbuzz`
+     * whole, file name included, so a project typed as `r4_seahorse` was
+     * created with `programs_py/fizzbuzz.py` and a program called `fizzbuzz`
+     * while the form's own derivation line said so and nobody believed it
+     * (QA 0.0.23, r4). The Python file's stem *is* the program name in
+     * Seahorse — the compiler names the generated crate after it and passes
+     * that name to `anchor build -p` — which is an argument for naming the
+     * file after the project, not for naming the project's program after
+     * Playground's example. The example's *contents* are still Playground's,
+     * byte for byte (`seahorseFiles`).
      */
-    fun programNames(project: SolanaProgram): SolanaProgram = when (this) {
-        Anchor, Native -> project
-        Seahorse -> seahorseProgram(project)
-    }
+    fun programNames(project: SolanaProgram): SolanaProgram = project
 }
 
 // --- Anchor ------------------------------------------------------------------
@@ -623,22 +631,6 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
 // --- Seahorse ----------------------------------------------------------------
 
 /**
- * The program every Seahorse project here is born with: Playground's
- * `fizzbuzz`, whatever the project is called.
- *
- * Playground's Seahorse starter is `src/fizzbuzz.py`, and in Seahorse the
- * file's stem *is* the program: the compiler names the generated crate
- * directory after it and passes that name to `anchor build -p`, and
- * Playground's export (`seahorse/export.ts`) takes the program name from the
- * file name the same way. Renaming the file after the project would make the
- * account still called `FizzBuzz` and the seeds still `'fizzbuzz'` in a file
- * called something else — the program name is part of the program. The
- * project's own name is the directory it lives in and the README's title.
- */
-private fun seahorseProgram(program: SolanaProgram): SolanaProgram =
-    SolanaProgram.of("fizzbuzz", program.programId)
-
-/**
  * `seahorse init`, with Playground's program in it.
  *
  * The layout is the compiler's, not ours. Seahorse reads `programs_py/<name>.py`
@@ -646,9 +638,9 @@ private fun seahorseProgram(program: SolanaProgram): SolanaProgram =
  * manifest beside it is ours to write, exactly as `seahorse init` leaves the
  * one `anchor init` wrote. Two consequences shape this template:
  *
- *  - The program directory and the crate are named after the **module**
- *    (`fizzbuzz`), because Seahorse names the directory after the Python
- *    file's stem and passes that same name to `anchor build -p`.
+ *  - The program directory and the crate are named after the **module** — the
+ *    project's own module name — because Seahorse names the directory after
+ *    the Python file's stem and passes that same name to `anchor build -p`.
  *  - A placeholder `src/lib.rs` is scaffolded, and it is replaced wholesale on
  *    the first build. Without it the workspace has a member with no target,
  *    which breaks `cargo metadata` — and with it `anchor keys sync` and
@@ -659,9 +651,15 @@ private fun seahorseProgram(program: SolanaProgram): SolanaProgram =
  *
  * `seahorse build` then hands off to `anchor build`, so the `Anchor.toml` and
  * workspace `Cargo.toml` below are the same ones the Anchor template ships.
+ *
+ * The **file** is named after the project, as it is in the other two
+ * frameworks, and everything Seahorse derives from the file name follows it:
+ * the generated crate, the `programs/<name>/` directory, the `Anchor.toml`
+ * row and the IDL type. What is Playground's is the program's *text* — the
+ * `FizzBuzz` account, the `'fizzbuzz'` seeds, the two instructions — which is
+ * copied byte for byte and is what `SolanaTemplatesTest` pins.
  */
-private fun seahorseFiles(project: SolanaProgram, cluster: String): List<TemplateFile> {
-    val program = seahorseProgram(project)
+private fun seahorseFiles(program: SolanaProgram, cluster: String): List<TemplateFile> {
     return listOf(
         TemplateFile("Anchor.toml", anchorToml(program, cluster)),
         TemplateFile("Cargo.toml", ANCHOR_WORKSPACE_CARGO_TOML),
@@ -835,13 +833,14 @@ private fun seahorseFiles(project: SolanaProgram, cluster: String): List<Templat
         TemplateFile(
             "README.md",
             """
-            # ${project.displayName}
+            # ${program.displayName}
 
-            A Seahorse program — Solana Playground's `fizzbuzz` starter. The source
-            is `programs_py/fizzbuzz.py`; `programs/fizzbuzz/src` is generated from
-            it on every build and is not the place to edit. The program is named
-            after the file, as Seahorse requires, so it stays `fizzbuzz` whatever
-            the project is called.
+            A Seahorse program — Solana Playground's `fizzbuzz` starter, under this
+            project's own name. The source is `programs_py/${program.moduleName}.py`;
+            `programs/${program.moduleName}/src` is generated from it on every build
+            and is not the place to edit. In Seahorse the file's stem *is* the program
+            name — the compiler names the generated crate after it and passes that name
+            to `anchor build -p` — so renaming the file means renaming the program.
 
             ```
             seahorse build     # Python -> Rust -> .so, via anchor build

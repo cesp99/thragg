@@ -53,10 +53,12 @@ import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
 import to.eyed.thragg.core.AgentSessions
 import to.eyed.thragg.core.CoreBridge
+import to.eyed.thragg.core.GuestLinks
 import to.eyed.thragg.core.ProjectSession
 import to.eyed.thragg.core.ProjectSummary
 import to.eyed.thragg.core.ProjectsRoot
 import to.eyed.thragg.core.SafTransfer
+import to.eyed.thragg.core.SafeDelete
 import to.eyed.thragg.solana.chain.Base58
 import to.eyed.thragg.solana.chain.Cluster
 import to.eyed.thragg.solana.chain.ClusterStore
@@ -197,7 +199,20 @@ fun ProjectsSheet(
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        if (uri == null) {
+            // A refusal and a cancel come back as the same null, and this
+            // device only ever produces the refusal: the Seeker's DocumentsUI
+            // greys USE THIS FOLDER on every folder, including ones it has
+            // just made, and the app used to answer that with nothing at all
+            // (QA 0.0.23, G-24). So the sentence covers both and points at
+            // the way that works.
+            Notifications.info(
+                "No folder came back from the file app. Some builds of it refuse every " +
+                    "folder — use \"Files, into a new project\" instead.",
+                key = "projects",
+            )
+            return@rememberLauncherForActivityResult
+        }
         busy = "Importing…"
         ProjectWork.launch {
             val result = withContext(Dispatchers.IO) { SafTransfer.importAsProject(context, uri) }
@@ -206,6 +221,12 @@ fun ProjectsSheet(
             when (result) {
                 is SafTransfer.Result.Failed -> Notifications.error(result.message, key = "projects")
                 is SafTransfer.Result.Imported -> {
+                    Notifications.info(
+                        "Imported ${result.files} " +
+                            "${if (result.files == 1) "file" else "files"} into " +
+                            result.project.name,
+                        key = "projects",
+                    )
                     openProjectInShell(context, state, result.project.absolutePath)
                     onDismiss()
                 }
@@ -229,8 +250,23 @@ fun ProjectsSheet(
             busy = null
             revision++
             imported.fold(
-                onSuccess = { project ->
-                    openProjectInShell(context, state, project.absolutePath)
+                onSuccess = { done ->
+                    val count = "${done.files} ${if (done.files == 1) "file" else "files"}"
+                    if (done.skipped.isEmpty()) {
+                        Notifications.info(
+                            "Imported $count into ${done.project.name}",
+                            key = "projects",
+                        )
+                    } else {
+                        // Named, because "3 of 5" without the names is a
+                        // puzzle rather than a report.
+                        Notifications.warn(
+                            "Imported $count into ${done.project.name}. The file app " +
+                                "would not open ${done.skipped.joinToString(", ")}.",
+                            key = "projects",
+                        )
+                    }
+                    openProjectInShell(context, state, done.project.absolutePath)
                     onDismiss()
                 },
                 onFailure = {
@@ -259,11 +295,22 @@ fun ProjectsSheet(
             }
             busy = null
             written.fold(
-                onSuccess = { files ->
-                    Notifications.info(
-                        "Exported $files ${if (files == 1) "file" else "files"} to ${target.name}.zip",
-                        key = "projects",
-                    )
+                onSuccess = { done ->
+                    val count = "${done.files} ${if (done.files == 1) "file" else "files"}"
+                    if (done.keptGit) {
+                        Notifications.info(
+                            "Exported $count to ${target.name}.zip",
+                            key = "projects",
+                        )
+                    } else {
+                        // Said out loud rather than discovered by whoever
+                        // unzips it: this project's history cannot be copied.
+                        Notifications.warn(
+                            "Exported $count to ${target.name}.zip, without the git " +
+                                "history — its objects no longer resolve on this phone.",
+                            key = "projects",
+                        )
+                    }
                 },
                 onFailure = {
                     Notifications.error(
@@ -1232,38 +1279,83 @@ private val DotGap = 10.dp
  */
 private val ExportSkip = setOf("target", "node_modules")
 
+/** What a finished export wrote, and whether the history went with it. */
+private data class ExportResult(val files: Int, val keptGit: Boolean)
+
+/**
+ * The sentence the zip carries in place of a repository it could not make
+ * portable, and the one the notification says.
+ */
+private const val NO_HISTORY_NOTE_NAME = "GIT-HISTORY-NOT-INCLUDED.txt"
+private const val NO_HISTORY_SENTENCE =
+    "The .git directory was left out of this copy.\n\n" +
+        "Its objects were written by a git running under proot, which rewrites a hard " +
+        "link into a symbolic link naming an absolute path on the phone, and the ones " +
+        "in this project no longer point at anything — so a .git in this zip would be " +
+        "a repository git refuses to read. The working files are all here.\n"
+
 /**
  * Write [project] into [target] as a zip, and answer how many files went in.
  *
  * Symlinks are skipped rather than followed: a clone can hold one pointing
  * anywhere, and a zip that followed it would copy something outside the
  * project — the same rule [to.eyed.thragg.core.SafeDelete] follows for the
- * same reason.
+ * same reason. That rule is also what made the exported `.git` useless: every
+ * loose object a guest `git commit` wrote is one of those symlinks, so the zip
+ * shipped the hidden `.l2s.*` files and none of the object names git looks for
+ * (QA 0.0.23, G-24 findings). [to.eyed.thragg.core.GuestLinks.repair] turns
+ * them back into real files first — and if any of them cannot be repaired,
+ * because the project was moved before this build existed, the history is left
+ * out with [NO_HISTORY_NOTE_NAME] in its place rather than shipped broken.
  */
-private fun zipProject(context: Context, project: File, target: Uri): Result<Int> = runCatching {
+private fun zipProject(context: Context, project: File, target: Uri): Result<ExportResult> = runCatching {
+    // Before the walk, because the walk skips symlinks and these are the
+    // project's own files wearing a symlink's clothes.
+    val repair = runCatching { GuestLinks.repair(project) }.getOrNull()
+    val git = File(project, ".git")
+    // Both halves of "the history is portable": nothing under `.git` that the
+    // repair could not fix, and nothing left in it that cannot be followed.
+    val keepGit = repair?.unresolved.orEmpty().none { it.startsWith(".git/") } &&
+        !GuestLinks.hasDanglingDebris(git)
     var files = 0
     val stream = context.contentResolver.openOutputStream(target, "wt")
         ?: error("That file could not be opened for writing")
     stream.use { out ->
         java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(out)).use { zip ->
             project.walkTopDown()
-                .onEnter { dir -> dir.name !in ExportSkip && !isLink(dir) }
+                .onEnter { dir ->
+                    dir.name !in ExportSkip && !isLink(dir) &&
+                        (keepGit || dir != git)
+                }
                 .forEach { file ->
                     if (!file.isFile || isLink(file)) return@forEach
+                    // proot's stepping-stone files: the bytes are already in
+                    // the file the repair moved them to, and a copy of them
+                    // under a hidden name is confusing rather than useful.
+                    if (file.name.startsWith(GuestLinks.DEBRIS_PREFIX)) return@forEach
                     val relative = file.relativeToOrNull(project)?.path ?: return@forEach
                     zip.putNextEntry(java.util.zip.ZipEntry("${project.name}/$relative"))
                     file.inputStream().use { it.copyTo(zip) }
                     zip.closeEntry()
                     files++
                 }
+            if (!keepGit) {
+                zip.putNextEntry(java.util.zip.ZipEntry("${project.name}/$NO_HISTORY_NOTE_NAME"))
+                zip.write(NO_HISTORY_SENTENCE.toByteArray())
+                zip.closeEntry()
+                files++
+            }
         }
     }
-    files
+    ExportResult(files, keptGit = keepGit)
 }
 
 /** Whether [file] is a symbolic link, without java.nio's path arithmetic. */
 private fun isLink(file: File): Boolean =
     runCatching { file.canonicalFile != file.absoluteFile }.getOrDefault(true)
+
+/** A finished file import: where it went, and what did not make it. */
+private data class FileImport(val project: File, val files: Int, val skipped: List<String>)
 
 /**
  * Copy [uris] into a new project and return it.
@@ -1272,29 +1364,51 @@ private fun isLink(file: File): Boolean =
  * which is the only name the picker gives us — a tree grant would have had a
  * folder name, and this is the path taken when there is no tree grant to be
  * had.
+ *
+ * Every file the provider will not open is *named*, not skipped in silence:
+ * this is the fallback the device forces everybody onto (the Seeker's own
+ * DocumentsUI refuses every folder), so an import that quietly brought in two
+ * of the four files picked was the one failure nobody could see (QA 0.0.23,
+ * G-24 findings). A copy that dies half way takes its half-built project with
+ * it, as [SafTransfer.importAsProject] does, for the same reason: a project
+ * that opens and is quietly missing files is worse than none.
  */
-private fun importFiles(context: Context, uris: List<Uri>): Result<File> = runCatching {
+private fun importFiles(context: Context, uris: List<Uri>): Result<FileImport> = runCatching {
     val first = uris.firstOrNull()?.let { displayName(context, it) }
     val desired = first?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "imported"
     val project = ProjectsRoot.create(context, ProjectsRoot.uniqueName(context, desired))
         ?: error("A project for those files could not be made")
     var written = 0
-    for (uri in uris) {
-        val name = (displayName(context, uri) ?: "file")
-            .replace('/', '_')
-            .replace('\\', '_')
-            .trimStart('.')
-            .ifBlank { "file" }
-        val file = freeFile(project, name)
-        val input = context.contentResolver.openInputStream(uri) ?: continue
-        input.use { source -> file.outputStream().use { source.copyTo(it) } }
-        written++
+    val skipped = mutableListOf<String>()
+    try {
+        for (uri in uris) {
+            val name = (displayName(context, uri) ?: "file")
+                .replace('/', '_')
+                .replace('\\', '_')
+                .trimStart('.')
+                .ifBlank { "file" }
+            val file = freeFile(project, name)
+            val input = context.contentResolver.openInputStream(uri)
+            if (input == null) {
+                skipped += name
+                continue
+            }
+            input.use { source -> file.outputStream().use { source.copyTo(it) } }
+            written++
+        }
+    } catch (error: Exception) {
+        SafeDelete.deleteTree(project)
+        throw error
     }
     if (written == 0) {
-        project.delete()
-        error("Nothing could be read from those files")
+        SafeDelete.deleteTree(project)
+        error(
+            "Nothing could be read from ${if (uris.size == 1) "that file" else "those files"}. " +
+                "The file app would not open " +
+                (if (uris.size == 1) "it." else "any of them.")
+        )
     }
-    project
+    FileImport(project, written, skipped)
 }
 
 /** `name`, `name 2`, `name 3`… — the first one [dir] has not got. */

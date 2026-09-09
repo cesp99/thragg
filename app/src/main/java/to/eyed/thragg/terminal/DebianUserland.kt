@@ -82,9 +82,57 @@ private object DebianUserland : UserlandBackend {
         File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
 
     override fun state(context: Context): UserlandState {
-        adoptLegacyNames(rootfs(context))
-        return if (marker(context).isFile) UserlandState.Ready else UserlandState.NotInstalled
+        val root = rootfs(context)
+        adoptLegacyNames(root)
+        if (!marker(context).isFile) return UserlandState.NotInstalled
+        // Asked here, and not only from [inside], because the guest's git is
+        // spawned by three different things and only one of them comes
+        // through this file: the terminal and the build do, the *engine*
+        // builds its own proot line (engine/src/guest.rs) and the agent gets
+        // a third. This is the one call every one of them is behind — the
+        // shell asks for the state before handing the userland to the engine
+        // — and the write is one small read once per process.
+        seedGuestGitConfig(root)
+        return UserlandState.Ready
     }
+
+    /**
+     * Make the guest's git create loose objects by `rename`, not `link`.
+     *
+     * THE INVARIANT: **nothing inside a project may hold an absolute host
+     * path.** proot runs with `--link2symlink` everywhere (see [inside] and
+     * the engine's own invocation), and git's `finalize_object_file` writes
+     * `objects/XX/tmp_obj_??????` and hard-links it into place — so under the
+     * rewrite every object a commit writes becomes a symlink whose text is
+     * the absolute host path of a hidden `.l2s.*` file. Rename the project and
+     * the whole repository dangles; copy it and the copy is not a repository
+     * (QA 0.0.23, the `qa_git.zip` export had seven `.l2s.tmp_obj_*` files and
+     * not one real object name).
+     *
+     * `core.createObject = rename` is git's own answer for filesystems where
+     * linking is a bad idea: it renames the temporary file into place instead,
+     * which proot passes straight through. Seeded rather than forced — an
+     * existing setting of the user's is left alone — and appended, because the
+     * identity the commit sheet writes lives in the same file and git is happy
+     * with a repeated `[core]` section.
+     *
+     * [to.eyed.thragg.core.GuestLinks] repairs what earlier builds already
+     * wrote; this is what stops there being more.
+     */
+    private fun seedGuestGitConfig(root: File) {
+        if (!gitConfigSeeded.compareAndSet(false, true)) return
+        runCatching {
+            val file = File(root, "root/.gitconfig")
+            val existing = if (file.isFile) file.readText() else ""
+            if (existing.contains("createObject")) return@runCatching
+            file.parentFile?.mkdirs()
+            val section = "[core]\n\tcreateObject = rename\n"
+            file.writeText(if (existing.isBlank()) section else existing.trimEnd('\n') + "\n" + section)
+        }
+    }
+
+    /** [seedGuestGitConfig] is a per-process job; `state` is asked constantly. */
+    private val gitConfigSeeded = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * The two files above under the names they had before the app was
