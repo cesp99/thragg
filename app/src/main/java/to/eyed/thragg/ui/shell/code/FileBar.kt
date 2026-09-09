@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.components.HairlineDivider
+import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.ThraggIcon
@@ -143,6 +144,7 @@ fun FileBar(
                     FileChip(
                         name = file.name,
                         dirty = file.isDirty,
+                        diskChanged = file.hasDiskChange,
                         active = index == activeIndex,
                         onClick = { onSelect(index) },
                         onLongClick = {
@@ -195,6 +197,7 @@ fun FileBar(
 private fun FileChip(
     name: String,
     dirty: Boolean,
+    diskChanged: Boolean,
     active: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -234,9 +237,20 @@ private fun FileChip(
         // The dot, not a close button: closing is the long press, and a
         // tiny ✕ next to a tiny label on a 400dp row is two targets inside
         // one thumb.
+        // A dirty buffer whose file also moved on disk is the one state where
+        // pressing save asks a question instead of writing (QA G-04); the dot
+        // says so at a glance rather than waiting for the dialog. `removedInk`
+        // is the warning ink the Material half already uses in `CodeScreen`,
+        // so this reads no Zed colour.
         UnsavedDot(
             dirty = dirty,
             size = DirtyDotSize,
+            tint = if (dirty && diskChanged) {
+                LocalThraggColors.current.removedInk
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            contentDescription = if (dirty && diskChanged) "$name, changed on disk" else null,
             modifier = Modifier.padding(start = MD.space1),
         )
     }
@@ -253,7 +267,13 @@ private fun FileChip(
  * reduce-motion. No haptic: a save is not a commit in this app.
  */
 @Composable
-internal fun UnsavedDot(dirty: Boolean, size: Dp, modifier: Modifier = Modifier) {
+internal fun UnsavedDot(
+    dirty: Boolean,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.primary,
+    contentDescription: String? = null,
+) {
     val alpha by animateFloatAsState(
         targetValue = if (dirty) 1f else 0f,
         animationSpec = effectSpec(),
@@ -262,8 +282,8 @@ internal fun UnsavedDot(dirty: Boolean, size: Dp, modifier: Modifier = Modifier)
     if (dirty || alpha > 0f) {
         ThraggIcon(
             icon = R.drawable.ic_ui_dot,
-            contentDescription = if (dirty) "unsaved" else null,
-            tint = MaterialTheme.colorScheme.primary,
+            contentDescription = contentDescription ?: if (dirty) "unsaved" else null,
+            tint = tint,
             size = size,
             modifier = modifier.graphicsLayer { this.alpha = alpha },
         )

@@ -31,7 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1001,11 +1000,12 @@ fun CodeScreen(
             state.push(Route.Setup)
             return
         }
-        val runner = CodeBuildSeam.run
-        if (runner == null) {
-            Notifications.info("The build runner is not installed in this build.", key = "build")
-            return
-        }
+        // `CodeBuildSeam.run` is installed by `ShellBootstrap` before anything
+        // is drawn, so there is no frame on which it is null and no branch here
+        // that says so; what made this button dead was the runner having no
+        // layout until Build had been composed once, and that is fixed where a
+        // project is opened (QA G-01, B-10).
+        val runner = CodeBuildSeam.run ?: return
         scope.launch {
             saveAllDirty()
             runner(project)
@@ -1074,48 +1074,38 @@ fun CodeScreen(
                 // output in the same buffer (docs/VISUAL.md, "THE BOUNDARY,
                 // EXACTLY"). Nothing inside it was touched by this pass.
                 active != null && activeEditor != null -> ZedSurface {
-                    // `key(active.path)`: the pane's IME node holds the
-                    // `EditorState` it was created with, and an update in
-                    // place left the input connection bound to the tab you
-                    // just left — the first characters after a go-to-definition
-                    // landed in the *previous* file (QA 0.0.22, B-04). The real
-                    // fix is in ui/editor/EditorInput.kt; this is the belt and
-                    // braces the triage asks for, and it is cheap: a tab
-                    // switch already rebuilds every line of the canvas.
-                    key(active.path) {
-                        EditorPane(
-                            state = activeEditor,
-                            modifier = Modifier.fillMaxSize(),
-                            fileName = active.name,
-                            languageSettings = active.languageSettings.wrappedForAPhone(),
-                            onOpenDefinition = { target ->
-                                // The server answers in absolute paths and the project
-                                // opens by its own relative spelling; a target outside
-                                // the root — the standard library, a registry crate —
-                                // is dropped rather than opened as a path that does
-                                // not resolve (WorkspaceScreen.kt:2104).
-                                val open = project ?: return@EditorPane
-                                val relative = relativeTo(open, target.path)
-                                if (relative != target.path) {
-                                    openFile(relative) { opened ->
-                                        opened.editor?.revealDefinitionTarget(target)
-                                    }
+                    EditorPane(
+                        state = activeEditor,
+                        modifier = Modifier.fillMaxSize(),
+                        fileName = active.name,
+                        languageSettings = active.languageSettings.wrappedForAPhone(),
+                        onOpenDefinition = { target ->
+                            // The server answers in absolute paths and the project
+                            // opens by its own relative spelling; a target outside
+                            // the root — the standard library, a registry crate —
+                            // is dropped rather than opened as a path that does
+                            // not resolve (WorkspaceScreen.kt:2104).
+                            val open = project ?: return@EditorPane
+                            val relative = relativeTo(open, target.path)
+                            if (relative != target.path) {
+                                openFile(relative) { opened ->
+                                    opened.editor?.revealDefinitionTarget(target)
                                 }
-                            },
-                            onWorkspaceEditApplied = { receipt -> resyncAfterWorkspaceEdit(receipt) },
-                            onSaveBuffer = { save(active) },
-                            onBuild = { runBuild() },
-                            buildRunning = buildRunning,
-                            onFixWithAgent = { diagnostic ->
-                                fixWithAgent(state, active.path, diagnostic)
-                            },
-                            // Two strips docked on one keyboard would be 88dp of the
-                            // 454 the typing posture has; the find bar wins while it
-                            // is deployed, because it is the thing being typed into.
-                            showActionRow = searchDeploy == null,
-                            overlays = code.overlays,
-                        )
-                    }
+                            }
+                        },
+                        onWorkspaceEditApplied = { receipt -> resyncAfterWorkspaceEdit(receipt) },
+                        onSaveBuffer = { save(active) },
+                        onBuild = { runBuild() },
+                        buildRunning = buildRunning,
+                        onFixWithAgent = { diagnostic ->
+                            fixWithAgent(state, active.path, diagnostic)
+                        },
+                        // Two strips docked on one keyboard would be 88dp of the
+                        // 454 the typing posture has; the find bar wins while it
+                        // is deployed, because it is the thing being typed into.
+                        showActionRow = searchDeploy == null,
+                        overlays = code.overlays,
+                    )
                 }
                 // A 1.4 MB `.so` never reaches the text rope: MediaKind routed
                 // it away in `openFileInto`, and this is what it routed it to.

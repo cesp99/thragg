@@ -45,6 +45,8 @@ import to.eyed.thragg.core.AppSettings
 import to.eyed.thragg.core.Autosave
 import to.eyed.thragg.core.FormatOnSave
 import to.eyed.thragg.core.SpettroSetup
+import to.eyed.thragg.core.GitIdentity
+import to.eyed.thragg.core.GitSession
 import to.eyed.thragg.solana.build.BuildRunner
 import to.eyed.thragg.solana.build.BuildTasks
 import to.eyed.thragg.solana.build.ProgramTarget
@@ -176,6 +178,17 @@ fun SettingsScreen(
     }
     val cluster = chain?.cluster
     val localnet = chain?.localnet == true
+    // Who a commit will be attributed to. Two `git config --get` spawns
+    // through proot, so IO; re-asked when the project changes, which is the
+    // only thing that can change the answer while this screen is up (the
+    // sheet that sets it lives on Changes and closes this one).
+    val project = state.project
+    val identity by produceState<GitIdentity?>(initialValue = null, project) {
+        value = null
+        val open = project ?: return@produceState
+        value = withContext(Dispatchers.IO) { runCatching { GitSession(open).identity() }.getOrNull() }
+            ?: GitIdentity("", "")
+    }
     val wallet = SeedVaultWallet.address
     var clusterOpen by remember { mutableStateOf(false) }
     var walletOpen by remember { mutableStateOf(false) }
@@ -385,6 +398,31 @@ fun SettingsScreen(
                     onClick = { programOpen = true },
                 )
             }
+        }
+
+        SectionHeader("Git", modifier = Modifier.padding(top = MD.space4))
+        ThraggCard(modifier = Modifier.fillMaxWidth()) {
+            // Read-only, and on purpose. Until this pass nothing in the app
+            // ever showed who a commit would be attributed to, and git's own
+            // paragraph on the first commit was the only teacher (QA G-13).
+            // Setting it belongs to the sheet the commit raises, which is
+            // where the question is actually being asked; this row exists so
+            // the answer can be checked before there is anything to commit.
+            LinkRow(
+                label = "Commit identity",
+                detail = when {
+                    project == null -> "open a project"
+                    identity == null -> "…"
+                    identity?.isComplete == true -> identity!!.name
+                    else -> "not set"
+                },
+                description = when {
+                    project == null || identity == null -> null
+                    identity?.isComplete == true -> identity!!.email
+                    else -> "the first commit will ask"
+                },
+                onClick = null,
+            )
         }
 
         SectionHeader("Agent", modifier = Modifier.padding(top = MD.space4))

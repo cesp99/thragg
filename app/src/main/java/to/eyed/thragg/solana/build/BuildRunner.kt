@@ -24,6 +24,7 @@ import to.eyed.thragg.ui.shell.BuildState
 import to.eyed.thragg.ui.shell.Destination
 import to.eyed.thragg.ui.editor.DiagnosticSeverity
 import to.eyed.thragg.ui.shell.ShellState
+import to.eyed.thragg.ui.shell.build.ShellModes
 import to.eyed.thragg.ui.workspace.NotificationAction
 import to.eyed.thragg.ui.workspace.Notifications
 import java.io.File
@@ -451,10 +452,15 @@ object BuildRunner {
         // Seeker 2026-09-08: a fresh Seahorse scaffold's first build failed
         // with anchor's "Program ID mismatch" because nothing had synced
         // before the build generated the key — and it could not have.
+        // Every framework we can recognise, not only the two with an
+        // Anchor.toml: a Native program that carries a `declare_id!` — cloned,
+        // hand-written, or made by an older Thragg — disagrees with the
+        // keypair this build generates, and the Deploy sheet's "rebuild syncs
+        // them" was a lie until the sync was allowed to run for it (QA B-05).
+        // `ProgramIds.syncProgramIds` answers `emptyList()` for `Unknown`, so
+        // naming it here is belt and braces.
         val ourIds = idsAreOurs(project)
-        if (action == BuildAction.Build && !ourIds &&
-            (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
-        ) {
+        if (action == BuildAction.Build && !ourIds && project.framework != ProjectFramework.Unknown) {
             // Somebody else's repository, with somebody else's id committed in
             // it. Rewriting that id is a change to *their* source that nobody
             // asked for and that `git status` reports as your work — measured
@@ -469,9 +475,7 @@ object BuildRunner {
                 )
             )
         }
-        if (action == BuildAction.Build && ourIds &&
-            (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
-        ) {
+        if (action == BuildAction.Build && ourIds && project.framework != ProjectFramework.Unknown) {
             val synced = programIdsSync?.invoke(project).orEmpty()
             val (keypairs, named) = synced.partition { it.endsWith("-keypair.json") }
             if (keypairs.isNotEmpty()) {
@@ -757,7 +761,16 @@ object BuildRunner {
             Notifications.error(
                 message = "${action.label} failed" +
                     if (errors > 0) " · $errors ${plural(errors, "error")}" else "",
-                action = NotificationAction("Show output") { shell.show(Destination.Build) },
+                // The Build destination has two modes and the mode is
+                // remembered per project: a toast that only names the
+                // destination lands on the *terminal* whenever a `cargo
+                // install` or a `git` run left the user in Shell mode, which
+                // is not where the failing build's output is and on a fresh
+                // terminal is nothing at all (QA P-21). Name the mode too.
+                action = NotificationAction("Show output") {
+                    ShellModes.set(shell.project?.rootPath, false)
+                    shell.show(Destination.Build)
+                },
                 key = NOTIFICATION_KEY,
             )
         }
