@@ -230,7 +230,18 @@ object ProjectsRoot {
      * Both are best-effort: a rename that worked is not undone because a
      * bookkeeping file could not be rewritten.
      *
-     * **Blocking** — it moves a directory and runs the session bridge.
+     * What is *inside* the directory has to survive the move too, and one
+     * thing did not: proot's `--link2symlink` leaves **absolute** symlinks
+     * wherever a guest process hard-linked a file, which is every loose object
+     * `git commit` writes. Moving the directory left all of them naming the
+     * old path, and git could no longer read the repository (QA 0.0.23, G-17
+     * findings). [GuestLinks.repair] turns them back into real files *before*
+     * the move, so what is renamed holds no absolute path that can go stale.
+     * The invariant lives here rather than at the call site because a rename
+     * is the only thing in the app that moves a project directory.
+     *
+     * **Blocking** — it walks the tree, moves a directory and runs the session
+     * bridge.
      */
     fun rename(context: Context, from: String, to: String): File? {
         val trimmed = to.trim()
@@ -240,6 +251,7 @@ object ProjectsRoot {
         if (!source.isDirectory || source.parentFile != directory(context)) return null
         val target = projectDir(context, trimmed)
         val document = runCatching { CoreBridge.sessionLoad(source.absolutePath) }.getOrNull()
+        runCatching { GuestLinks.repair(source) }
         if (!source.renameTo(target)) return null
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val openedAt = prefs.getLong(openedKey(from), 0L)

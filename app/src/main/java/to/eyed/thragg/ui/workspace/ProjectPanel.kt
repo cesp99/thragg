@@ -697,6 +697,15 @@ fun ProjectPanel(
      * docs/ARCHITECTURE.md, "Where projects live"); the panel only asks.
      */
     onAddFolder: (() -> Unit)? = null,
+    /**
+     * Draw the context menu yourself, rather than letting the panel open its
+     * own popup — see [PanelMenuRequest] for why a host inside a sheet has to.
+     *
+     * The entries are the panel's own, closures and all: running one does
+     * exactly what the popup's row would have done, prompts included. The host
+     * is responsible for dismissing its surface afterwards.
+     */
+    onMenuRequested: ((PanelMenuRequest) -> Unit)? = null,
 ) {
     // The Zed theme, for exactly one thing: the version-control inks below.
     // Everything else in this panel is chrome and reads the Material scheme;
@@ -1339,14 +1348,18 @@ fun ProjectPanel(
                 // "Delete Permanently" is the one that cannot be undone
                 // (default-linux.json:996-1000).
                 add(
-                    PanelMenuEntry.Action("Move ${subject(entry.name)} to Trash…", "Del") {
-                        confirmDelete(marks, permanent = false)
-                    }
+                    PanelMenuEntry.Action(
+                        "Move ${subject(entry.name)} to Trash…",
+                        "Del",
+                        isDestructive = true,
+                    ) { confirmDelete(marks, permanent = false) }
                 )
                 add(
-                    PanelMenuEntry.Action("Delete Permanently…", "Shift Del") {
-                        confirmDelete(marks, permanent = true)
-                    }
+                    PanelMenuEntry.Action(
+                        "Delete Permanently…",
+                        "Shift Del",
+                        isDestructive = true,
+                    ) { confirmDelete(marks, permanent = true) }
                 )
                 if (undo != null) {
                     add(PanelMenuEntry.Action("Undo Trash", "Ctrl Z") { undoTrash() })
@@ -1376,6 +1389,24 @@ fun ProjectPanel(
             )
             add(PanelMenuEntry.Action("Expand All", "Ctrl →") { expandAll() })
             add(PanelMenuEntry.Action("Collapse All", "Ctrl ←") { reshape { tree.collapseAll() } })
+        }
+
+        /**
+         * Open the context menu for [row] — in the host's surface when there
+         * is one, else in the panel's own popup at [at].
+         *
+         * One function for all four ways in (a row, the header, a pinned
+         * sticky row, the keyboard's menu key), because "the menu opens
+         * somewhere you can see it" is not a property any one of them should
+         * be able to have on its own.
+         */
+        fun openMenu(row: ProjectTreeRow?, at: Offset, sticky: Boolean = false) {
+            val host = onMenuRequested
+            if (host == null) {
+                menu = PanelMenu(row, at, sticky)
+                return
+            }
+            host(PanelMenuRequest(row?.entry?.name ?: project.rootName, menuFor(row)))
         }
 
         /**
@@ -1568,7 +1599,7 @@ fun ProjectPanel(
                 Key.Menu, Key.F10 -> {
                     if (event.key == Key.F10 && !event.isShiftPressed) return false
                     // No pointer to place it under: it drops from the row's start.
-                    menu = PanelMenu(row, Offset.Zero)
+                    openMenu(row, Offset.Zero)
                     true
                 }
                 else -> false
@@ -1687,7 +1718,7 @@ fun ProjectPanel(
             iconColour = iconColour,
             isDropTarget = drag?.over == "",
             onClick = { reshape { tree.collapseAll() } },
-            onContextMenu = { at -> menu = PanelMenu(null, at) },
+            onContextMenu = { at -> openMenu(null, at) },
             // Zed's `workspace::AddFolderToProject`, as a button: the palette
             // and this are the two ways in, and one of them has to work with
             // no keyboard attached.
@@ -1831,7 +1862,7 @@ fun ProjectPanel(
                                         panelFocus.requestFocus()
                                         tree.select(row.key)
                                         if (!tree.isMarked(row.key)) tree.markOnly(row.key)
-                                        menu = PanelMenu(row, at)
+                                        openMenu(row, at)
                                     },
                                     // Long-press-drag moves entries between
                                     // folders. The row's own y is turned into a
@@ -1921,7 +1952,7 @@ fun ProjectPanel(
                                 // list: the autoscroll effect above leaves a
                                 // row that is pinned in the stack where it is.
                                 tree.select(pinnedRow.key)
-                                menu = PanelMenu(pinnedRow, at, sticky = true)
+                                openMenu(pinnedRow, at, sticky = true)
                             },
                             rowMenu = { pinnedRow ->
                                 val open = menu

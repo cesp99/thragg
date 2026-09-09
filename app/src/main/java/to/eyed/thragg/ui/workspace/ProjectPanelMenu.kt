@@ -58,9 +58,44 @@ sealed interface PanelMenuEntry {
         /** Shown greyed on the right, as in the title bar's menu. */
         val shortcut: String? = null,
         val enabled: Boolean = true,
+        /**
+         * Deletes something, so a host that has an ink for that uses it.
+         *
+         * The popup below does not — Zed's menu tints nothing — but the sheet
+         * the Files surface draws these in is a Material list, where the two
+         * deletes reading like Copy Path is exactly how one gets pressed on
+         * the way past ([PanelMenuRequest]).
+         */
+        val isDestructive: Boolean = false,
         val onClick: () -> Unit,
     ) : PanelMenuEntry
 }
+
+/**
+ * A context menu the panel is asking its host to draw, and what is on it.
+ *
+ * Why a host draws it at all: [ProjectContextMenu] is a `DropdownMenu`, which
+ * is a `Popup`, and a Popup's window is added with
+ * `composeView.applicationWindowToken` — the **activity's** token, not the
+ * window it was composed in (AndroidPopup.android.kt, `createLayoutParams`).
+ * The panel's only host in this app is the Files sheet, and a
+ * `ModalBottomSheet` is a `ComponentDialog` of its own
+ * (ModalBottomSheet.android.kt). So the popup is a sub-panel of the window
+ * *underneath* the sheet: it opens, it is drawn behind the sheet, and the long
+ * press reads as doing nothing at all — which is exactly what the device found
+ * ("the Files sheet's long press opens no menu", QA 0.0.23, G-07 not-reached).
+ *
+ * The host is given the entries instead and draws them in a surface it owns —
+ * for the Files sheet, a second sheet, the same way the Projects sheet has
+ * always drawn a project's long-press menu. Dialogs are unaffected and stay
+ * where they are: a `Dialog` is a window of its own, added after the sheet's,
+ * so the panel's rename and delete prompts appear over it.
+ */
+data class PanelMenuRequest(
+    /** What the menu is about: an entry's name, or the project's. */
+    val title: String,
+    val entries: List<PanelMenuEntry>,
+)
 
 /**
  * The context menu, in Zed's order: create, then move things about, then the
@@ -488,8 +523,12 @@ internal fun PanelTextAction(
 /**
  * Drop the separators that would render as a rule against nothing: the menu is
  * built by appending groups that each may turn out to be empty.
+ *
+ * Internal rather than private because the popup is no longer the only thing
+ * that draws these entries — see [PanelMenuRequest] — and a rule against
+ * nothing looks the same in a sheet.
  */
-private fun List<PanelMenuEntry>.withoutStraySeparators(): List<PanelMenuEntry> {
+internal fun List<PanelMenuEntry>.withoutStraySeparators(): List<PanelMenuEntry> {
     val kept = mutableListOf<PanelMenuEntry>()
     for (entry in this) {
         if (entry is PanelMenuEntry.Separator &&

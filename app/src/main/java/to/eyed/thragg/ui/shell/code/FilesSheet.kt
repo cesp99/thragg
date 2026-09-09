@@ -65,7 +65,10 @@ import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.touchTarget
 import to.eyed.thragg.ui.workspace.OpenFilesState
+import to.eyed.thragg.ui.workspace.PanelMenuEntry
+import to.eyed.thragg.ui.workspace.PanelMenuRequest
 import to.eyed.thragg.ui.workspace.ProjectPanel
+import to.eyed.thragg.ui.workspace.withoutStraySeparators
 
 /** Which question the one field is asking. */
 enum class FilesMode {
@@ -133,6 +136,16 @@ fun FilesSheet(
     var mode by remember { mutableStateOf(initialMode) }
     var query by remember { mutableStateOf(TextFieldValue("")) }
     val focus = remember { FocusRequester() }
+    /**
+     * The tree's context menu, waiting to be drawn — held HERE, beside the
+     * sheet rather than inside it, because that is what makes it visible.
+     * See [PanelMenuRequest]: the panel's own popup is a window parented to
+     * the activity, so inside a `ModalBottomSheet` it opens *behind* the
+     * sheet, and a long press on a file looked like it did nothing at all
+     * (QA 0.0.23, G-07 never reachable). A second sheet is what the Projects
+     * list has always used for the same gesture.
+     */
+    var menu by remember { mutableStateOf<PanelMenuRequest?>(null) }
 
     // The magnifier opened this sheet to search, so the keyboard comes with
     // it; the tree button opened it to browse, so it does not — a tree with
@@ -219,9 +232,61 @@ fun FilesSheet(
                 onOpenFile = onOpenFile,
                 onEntryRemoved = onEntryRemoved,
                 onEntryMoved = onEntryMoved,
+                onMenuRequested = { menu = it },
             )
             mode == FilesMode.Names -> NameResults(project, text, onOpenFile)
             else -> InFileResults(project, text, onOpenMatch)
+        }
+    }
+
+    val open = menu
+    if (open != null) {
+        EntryMenuSheet(shell = shell, request = open, onDismiss = { menu = null })
+    }
+}
+
+/**
+ * The tree's long-press menu, as a sheet.
+ *
+ * The entries are the panel's own — New File, Rename…, the two deletes, Copy
+ * Path and the rest — so what a row does here is what it has always done;
+ * only where it is drawn changed ([PanelMenuRequest]). Rows are the app's menu
+ * row: one line of `bodyMedium`, the destructive ones in `error`, no icons.
+ *
+ * Every action dismisses the sheet, including the ones that open a prompt:
+ * the panel raises those as `Dialog`s, which are windows of their own and
+ * appear above whatever is behind them — but a menu left standing under a
+ * rename dialog would be a second surface nobody asked for.
+ */
+@Composable
+private fun EntryMenuSheet(
+    shell: ShellState,
+    request: PanelMenuRequest,
+    onDismiss: () -> Unit,
+) {
+    SheetScaffold(state = shell, onDismiss = onDismiss, title = request.title) {
+        // Scrolls, unlike the Projects sheet's three-row menu: this one is the
+        // panel's whole menu — creates, the clipboard, the paths, the deletes,
+        // the tree commands — and [SheetScaffold] gives a body more than the
+        // sheet's height by CLIPPING it. Rename and the deletes are near the
+        // bottom of the list, which is exactly what would have been cut off.
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            for (entry in request.entries.withoutStraySeparators()) {
+                when (entry) {
+                    // The popup's rules with the sheet's ink: a run of
+                    // entries, ruled where the panel groups them.
+                    is PanelMenuEntry.Separator -> HairlineDivider()
+
+                    is PanelMenuEntry.Action -> MenuRow(
+                        label = entry.label,
+                        isDestructive = entry.isDestructive,
+                        enabled = entry.enabled,
+                    ) {
+                        onDismiss()
+                        entry.onClick()
+                    }
+                }
+            }
         }
     }
 }
@@ -241,6 +306,7 @@ private fun ColumnScope.BrowseBody(
     onOpenFile: (String) -> Unit,
     onEntryRemoved: (path: String) -> Unit,
     onEntryMoved: (from: String, to: String) -> Unit,
+    onMenuRequested: (PanelMenuRequest) -> Unit,
 ) {
     if (files.tabs.isNotEmpty()) {
         SectionHeader(
@@ -322,6 +388,8 @@ private fun ColumnScope.BrowseBody(
         // The two the panel has always raised and nobody ever caught.
         onEntryRemoved = onEntryRemoved,
         onEntryMoved = onEntryMoved,
+        // And the third: the long press, drawn where it can be seen.
+        onMenuRequested = onMenuRequested,
         modifier = Modifier.weight(1f, fill = true),
     )
 }
@@ -530,6 +598,42 @@ private fun SheetAction(@DrawableRes icon: Int, label: String, onClick: () -> Un
         )
     }
 }
+
+/**
+ * One line of [EntryMenuSheet].
+ *
+ * The Projects sheet's row with one addition: a disabled state. The panel's
+ * menu has entries that are only sometimes live — Paste with nothing cut,
+ * Reveal Active File with no file open — and a row that answers a tap by
+ * doing nothing is worse than one that says it cannot.
+ */
+@Composable
+private fun MenuRow(
+    label: String,
+    isDestructive: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = when {
+            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = DisabledAlpha)
+            isDestructive -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.onSurface
+        },
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = MD.rowMin)
+            .padding(horizontal = MD.space4, vertical = MD.space3),
+    )
+}
+
+/** Material's own disabled content alpha, which the theme does not restate. */
+private const val DisabledAlpha = 0.38f
 
 private val OpenListMaxHeight = 176.dp
 
