@@ -134,6 +134,7 @@ import to.eyed.thragg.ui.theme.touchTarget
 import to.eyed.thragg.ui.theme.pressedFill
 import to.eyed.thragg.ui.theme.spatialSpec
 import to.eyed.thragg.ui.theme.thraggSpring
+import to.eyed.thragg.ui.theme.TabularNums
 import to.eyed.thragg.ui.theme.ThemeStore
 import to.eyed.thragg.core.GitHunk
 import to.eyed.thragg.core.AppSettings
@@ -174,6 +175,30 @@ private const val RUNNABLES_SETTLE_MILLIS = 250L
  * because both hide while the keyboard is up.
  */
 private val ACTION_ROW_HEIGHT = 44.dp
+
+/**
+ * The caret readout that rides on top of the action row while the IME is up.
+ *
+ * `Ln 79, Col 12` was drawn only in [
+ * to.eyed.thragg.ui.shell.code.CodeScreen]'s status line, which hides with
+ * the keyboard along with the file bar — so the one posture in which the
+ * number changes under your fingers was the one posture that did not print
+ * it (QA 0.0.23, G-08). 18dp because it is a readout and not a target: no
+ * part of it is pressable, and the arithmetic it costs the buffer is counted
+ * in [IME_DOCK_HEIGHT] rather than left for the caret to fall behind.
+ */
+private val CARET_READOUT_HEIGHT = 18.dp
+
+/**
+ * Everything the keyboard's dock puts between the buffer and the keys — the
+ * readout and the fixed key row.
+ *
+ * The one number for "the first pixel of the pane a popup, or the caret, may
+ * not use": the reveal arithmetic and the popup placement both read it, so a
+ * band added to the dock cannot be added to one of them and forgotten in the
+ * other.
+ */
+private val IME_DOCK_HEIGHT = CARET_READOUT_HEIGHT + ACTION_ROW_HEIGHT
 
 /**
  * How far a diagnostic fades once the buffer has moved under it.
@@ -698,6 +723,13 @@ fun EditorPane(
     // A long press that finds nothing to say was an ordinary long press, and
     // an ordinary long press ends with the clipboard toolbar.
     hover.onNothingToSay = { actions.showToolbar() }
+    // What the end of a long press does, whichever of the two ends the
+    // gesture detector reports (see the pointer input below). Remembered
+    // against the two objects it reads so the pointer loop that captures it
+    // is not restarted by a recomposition.
+    val endLongPress: () -> Unit = remember(hover, actions) {
+        { if (!hover.isShowing && !hover.isPending) actions.showToolbar() }
+    }
     // Typing is what opens the completion menu and the signature help, and
     // only the state knows what was typed — a keystroke reaches the buffer
     // through three doors (hardware key, IME commit, IME pair character)
@@ -1134,13 +1166,28 @@ fun EditorPane(
                             hover.clear()
                             state.extendSelectionTo(change.position, layoutForLine)
                         },
-                        onDragEnd = {
-                            if (!hover.isShowing && !hover.isPending) actions.showToolbar()
-                        },
-                        onDragCancel = {
-                            hover.clear()
-                            actions.showToolbar()
-                        },
+                        // BOTH ENDS MEAN THE SAME THING, AND THE RELEASE OF A
+                        // LONG PRESS COMES THROUGH THE *CANCEL* ONE.
+                        //
+                        // `detectTapGestures` below fires its own long press
+                        // at the same 500 ms and then `consumeUntilUp()`s
+                        // (TapGestureDetector.kt) — it is the inner pointer
+                        // node, so it consumes the up before this detector
+                        // sees it, `awaitDragOrCancellation` reads a consumed
+                        // change, `drag()` returns false and this reports a
+                        // cancel. `onDragEnd` therefore never ran at all, and
+                        // the cancel branch cleared the card and put the
+                        // clipboard toolbar over it the instant the finger
+                        // lifted — so the card lived only while the finger
+                        // was down and its four links could not be tapped
+                        // (QA 0.0.23, G-10).
+                        //
+                        // A drag has already cleared the card itself, so
+                        // "nothing is showing and nothing is pending" is
+                        // exactly "this press asked no question", which is
+                        // the one case that ends in the toolbar.
+                        onDragEnd = { endLongPress() },
+                        onDragCancel = { endLongPress() },
                     )
                 }
                 .pointerInput(state) {
@@ -2437,7 +2484,7 @@ private fun EditorPopups(
     // the row of keys riding above it. See [placeMenuAtCaret], which is where
     // the one mandatory deviation from Zed's placement lives.
     val covered = imeOverlapPx(paneBottomPx) +
-        if (WindowInsets.isImeVisible) with(density) { ACTION_ROW_HEIGHT.toPx() } else 0f
+        if (WindowInsets.isImeVisible) with(density) { IME_DOCK_HEIGHT.toPx() } else 0f
     val areaBottom = (paneHeight - covered).coerceAtLeast(0f)
 
     if (menu.isOpen) {
@@ -2628,7 +2675,7 @@ private fun imeCoveredBottomPx(paneBottomPx: Float): Float {
         windowHeightPx = windowHeight,
         paneBottomPx = paneBottomPx,
     )
-    return overlap + with(density) { ACTION_ROW_HEIGHT.toPx() }
+    return overlap + with(density) { IME_DOCK_HEIGHT.toPx() }
 }
 
 /**
@@ -2785,6 +2832,7 @@ private fun EditorActionRow(
             }
           }
         }
+        CaretReadout(state)
         Row(
             modifier = Modifier.fillMaxWidth().height(ACTION_ROW_HEIGHT),
             verticalAlignment = Alignment.CenterVertically,
@@ -2830,6 +2878,41 @@ private fun EditorActionRow(
                 iconRotation = { chevronAngle },
             )
         }
+    }
+}
+
+/**
+ * `Ln 79, Col 12` — where the caret is, while you are typing.
+ *
+ * Its own composable, and that is the whole reason it can exist: `cursorRow`
+ * and `cursorCol` are snapshot state, so reading them here recomposes 18dp of
+ * text per keystroke instead of the strip of nine keys above the keyboard —
+ * the same rule [to.eyed.thragg.ui.shell.code.CodeScreen]'s status line
+ * keeps, and the same tabular figures, so the row does not jitter as a `1`
+ * becomes a `0`.
+ *
+ * It says the position and nothing else. The language and the problem count
+ * belong to the file rather than to the keystroke, and they are still in the
+ * status line the moment the keyboard goes.
+ */
+@Composable
+private fun CaretReadout(state: EditorState) {
+    val theme = LocalZedTheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(CARET_READOUT_HEIGHT)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Ln ${state.cursorRow + 1}, Col ${state.cursorCol + 1}",
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+            // Raw, with no Material fallback: this row is inside the seam and
+            // has to read against `status_bar.background` beside it (SeamTest).
+            color = theme.color("text.muted"),
+            maxLines = 1,
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 package to.eyed.thragg.core
 
+import org.json.JSONArray
 import org.json.JSONObject
 import to.eyed.thragg.ui.editor.CurrentLineHighlight
 import to.eyed.thragg.ui.editor.EditorCursorShape
@@ -116,7 +117,21 @@ enum class ThemeMode(val key: String) {
  * `reportLocalSettings` does for the project's own file, which had this and
  * the global one did not (QA 0.0.22, G-11).
  */
-data class Loaded(val settings: AppSettings, val problem: String?)
+data class Loaded(
+    val settings: AppSettings,
+    val problem: String?,
+    /**
+     * The engine refused the file but this side could read it, so [settings]
+     * are the user's own and not the built-ins.
+     *
+     * The difference is the agent: `agent_servers` is in that object, and a
+     * file the engine would not take used to hand every reader the defaults
+     * — so one bad key logged you out of Spettro and the notice about it said
+     * every setting was a default, which was true and was also the bug (QA
+     * 0.0.23, G-11). The notice's own sentence turns on this.
+     */
+    val recovered: Boolean = false,
+)
 
 sealed class Autosave {
     data object Off : Autosave()
@@ -419,25 +434,207 @@ data class AppSettings(
             // and can be the one that refused it; the JSON reaching us then
             // parses perfectly and is simply not what the file says.
             val engineAccepted = runCatching { CoreBridge.settingsAreValid() }.getOrDefault(true)
-            return checkedFrom(text, engineAccepted)
+            // Only when the engine refused: the raw file is what says WHICH
+            // key it refused, and it is what this side reads instead so the
+            // agent, the theme and the terminal survive one bad line.
+            val fileText = if (engineAccepted) {
+                ""
+            } else {
+                runCatching { CoreBridge.settingsText() }.getOrDefault("")
+            }
+            return checkedFrom(text, engineAccepted, fileText)
         }
 
-        /** [loadChecked] without the bridge — the part worth a host test. */
-        fun checkedFrom(json: String, engineAccepted: Boolean): Loaded {
+        /**
+         * [loadChecked] without the bridge — the part worth a host test.
+         *
+         * [json] is what the engine RESOLVED (its defaults, when it refused
+         * the file); [fileText] is the file itself, and it is only passed
+         * when the engine refused, because it is only then that the two
+         * differ. Two things come out of the file that could not come out of
+         * the engine's answer:
+         *
+         *  - **the key.** The engine says yes or no and nothing else, so the
+         *    notice used to be the fixed sentence "it is not valid JSON" for
+         *    every cause, including a duplicated key org.json names outright
+         *    and a value of the wrong type ([offendingKeys] finds those). The
+         *    device saw both and was told neither (QA 0.0.23, G-11).
+         *  - **the settings.** A file the engine will not take is usually a
+         *    file this side reads perfectly, and reading it is what keeps the
+         *    agent connected. What is lost either way is the engine's half —
+         *    tab size, formatters, the language table — and the notice says
+         *    so rather than claiming everything went.
+         */
+        fun checkedFrom(json: String, engineAccepted: Boolean, fileText: String = ""): Loaded {
             // No engine, or no settings file yet: the defaults are the truth,
             // not a fallback from a failure, and there is nothing to report.
             if (json.isBlank()) return Loaded(AppSettings(), null)
-            val parsed = runCatching { parseOrThrow(json) }
-            val problem = when {
-                !engineAccepted -> "it is not valid JSON"
-                parsed.isFailure -> parsed.exceptionOrNull()
-                    ?.message
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "it could not be read"
-                else -> null
+            val resolved = runCatching { parseOrThrow(json) }
+            if (engineAccepted && resolved.isSuccess) {
+                return Loaded(resolved.getOrDefault(AppSettings()), null)
             }
-            return Loaded(parsed.getOrDefault(AppSettings()), problem)
+            // Whatever names the file: the file itself when we were given it,
+            // and otherwise the only text there is.
+            val source = withoutComments(fileText.takeIf { it.isNotBlank() } ?: json)
+            val fromFile = runCatching { parseOrThrow(source) }
+            val named = if (fromFile.isFailure) {
+                // org.json's own words, which name the key on the case that
+                // reaches this most: `Duplicate key "tab_size"`.
+                fromFile.exceptionOrNull()?.message?.takeIf { it.isNotBlank() }
+            } else {
+                offendingKeys(source)
+            }
+            val problem = named
+                ?: if (engineAccepted) "it could not be read" else "it is not valid JSON"
+            val recovered = !engineAccepted && fromFile.isSuccess && fileText.isNotBlank()
+            return Loaded(
+                settings = when {
+                    recovered -> fromFile.getOrDefault(AppSettings())
+                    else -> resolved.getOrDefault(AppSettings())
+                },
+                problem = problem,
+                recovered = recovered,
+            )
         }
+
+        /**
+         * The keys in [json] whose values are not the shape that setting
+         * takes, as a phrase, or null when nothing here can be blamed.
+         *
+         * This is the half of "why did the engine refuse it" that the bridge
+         * cannot answer: `settingsAreValid()` is a boolean. serde refuses a
+         * value of the wrong type outright — `"theme": 12345` is the case the
+         * device injected — and every such key is one this table knows, so
+         * naming it is a matter of comparing what is there against what that
+         * key takes. A key this table has never heard of is never blamed: Zed
+         * settings this app does not read are still settings, and guessing at
+         * one would be worse than the sentence it replaces.
+         *
+         * Sorted rather than in file order, because a `JSONObject`'s key
+         * order is the implementation's and a notice must read the same twice.
+         * Pure.
+         */
+        internal fun offendingKeys(json: String): String? {
+            val root = runCatching { JSONObject(withoutComments(json)) }.getOrNull() ?: return null
+            val wrong = sortedSetOf<String>()
+            for (key in root.keys()) {
+                val shape = SETTING_SHAPES[key] ?: continue
+                val value = root.opt(key) ?: continue
+                if (value === JSONObject.NULL) continue
+                if (!shape(value)) wrong.add(key)
+            }
+            return when (wrong.size) {
+                0 -> null
+                1 -> "`${wrong.first()}` is not a value that setting takes"
+                else -> wrong.joinToString(", ") { "`$it`" } +
+                    " are not values those settings take"
+            }
+        }
+
+        /**
+         * [text] with its `//` and `/* */` comments taken out, strings left
+         * alone.
+         *
+         * The settings file is **JSONC** — it ships with a comment on its
+         * first line and the user's own beside their keys — and the two
+         * `org.json`s disagree about that: Android's `JSONTokener` skips
+         * comments, the reference one on the host does not. Reading the raw
+         * file is what keeps the agent alive when the engine refuses it, so
+         * that path cannot behave differently on the device from the way it
+         * behaves in this test suite. Newlines are kept, so a parse error
+         * still reports the line it is on, and a `//` inside a string — every
+         * URL in the file — is not a comment.
+         *
+         * Pure.
+         */
+        internal fun withoutComments(text: String): String {
+            if ("/" !in text && "#" !in text) return text
+            val out = StringBuilder(text.length)
+            var index = 0
+            var inString = false
+            while (index < text.length) {
+                val char = text[index]
+                if (inString) {
+                    out.append(char)
+                    if (char == '\\' && index + 1 < text.length) {
+                        out.append(text[index + 1])
+                        index += 2
+                        continue
+                    }
+                    if (char == '"') inString = false
+                    index++
+                    continue
+                }
+                val next = text.getOrNull(index + 1)
+                when {
+                    char == '"' -> {
+                        inString = true
+                        out.append(char)
+                        index++
+                    }
+                    char == '/' && next == '/' -> {
+                        while (index < text.length && text[index] != '\n') index++
+                    }
+                    char == '/' && next == '*' -> {
+                        index += 2
+                        while (index + 1 < text.length &&
+                            !(text[index] == '*' && text[index + 1] == '/')
+                        ) {
+                            index++
+                        }
+                        index = (index + 2).coerceAtMost(text.length)
+                    }
+                    else -> {
+                        out.append(char)
+                        index++
+                    }
+                }
+            }
+            return out.toString()
+        }
+
+        /**
+         * What each setting this app reads may be, as JSON.
+         *
+         * Only the top level, and only the keys [parseOrThrow] and the
+         * appearance reader actually consume — see [offendingKeys] for why
+         * the table is deliberately not exhaustive over Zed's schema.
+         */
+        private val SETTING_SHAPES: Map<String, (Any) -> Boolean> = mapOf(
+            "theme" to { it: Any -> it is String || it is JSONObject },
+            "theme_overrides" to { it: Any -> it is JSONObject },
+            "buffer_font_family" to { it: Any -> it is String },
+            "buffer_font_fallbacks" to { it: Any -> it is JSONArray },
+            "buffer_font_features" to { it: Any -> it is JSONObject },
+            "buffer_font_weight" to { it: Any -> it is Number },
+            "buffer_font_size" to { it: Any -> it is Number },
+            "buffer_line_height" to { it: Any -> it is String || it is Number || it is JSONObject },
+            "ui_font_family" to { it: Any -> it is String },
+            "ui_font_size" to { it: Any -> it is Number },
+            "tab_size" to { it: Any -> it is Number },
+            "hard_tabs" to { it: Any -> it is Boolean },
+            "soft_wrap" to { it: Any -> it is String },
+            "preferred_line_length" to { it: Any -> it is Number },
+            "format_on_save" to { it: Any -> it is String || it is Boolean || it is JSONArray },
+            "autosave" to { it: Any -> it is String || it is JSONObject },
+            "project_panel" to { it: Any -> it is JSONObject },
+            "agent_servers" to { it: Any -> it is JSONObject },
+            "agent" to { it: Any -> it is JSONObject },
+            "terminal" to { it: Any -> it is JSONObject },
+            "context_servers" to { it: Any -> it is JSONObject },
+            "reduce_motion" to { it: Any -> it is String },
+            "show_whitespaces" to { it: Any -> it is String },
+            "remove_trailing_whitespace_on_save" to { it: Any -> it is Boolean },
+            "ensure_final_newline_on_save" to { it: Any -> it is Boolean },
+            "relative_line_numbers" to { it: Any -> it is String || it is Boolean },
+            "gutter" to { it: Any -> it is JSONObject },
+            "current_line_highlight" to { it: Any -> it is String },
+            "cursor_shape" to { it: Any -> it is String },
+            "cursor_blink" to { it: Any -> it is Boolean },
+            "diagnostics" to { it: Any -> it is JSONObject },
+            "languages" to { it: Any -> it is JSONObject },
+            "lsp" to { it: Any -> it is JSONObject },
+        )
 
         fun parse(json: String): AppSettings =
             runCatching { parseOrThrow(json) }.getOrDefault(AppSettings())
@@ -609,8 +806,17 @@ data class AppSettings(
             }.sortedBy { it.name }.toList()
         }
 
-        /** Read the current settings. **Blocking** — call it off the main thread. */
-        fun load(): AppSettings = parse(CoreBridge.settings())
+        /**
+         * Read the current settings. **Blocking** — call it off the main
+         * thread.
+         *
+         * Through [loadChecked], so that a file the engine refuses is still
+         * read on this side when it can be: `agent_servers` lives in it, and
+         * handing back the built-in defaults is what disconnected the agent
+         * over one bad key (QA G-11). One extra bridge call, and only on the
+         * path where something is already wrong.
+         */
+        fun load(): AppSettings = loadChecked().settings
 
         /**
          * Write one setting and return the new resolved settings, or null if

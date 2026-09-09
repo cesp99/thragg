@@ -103,6 +103,7 @@ import to.eyed.thragg.ui.shell.projects.ProjectsSheet
 import to.eyed.thragg.ui.components.EmptyState
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.ThraggTopBar
+import to.eyed.thragg.ui.shell.changes.countFileProblems
 import to.eyed.thragg.ui.theme.IconSize
 import to.eyed.thragg.ui.theme.LocalThraggColors
 import to.eyed.thragg.ui.theme.MD
@@ -644,14 +645,25 @@ fun CodeScreen(
     // in complete silence (QA 0.0.22, G-11). Same shape as the local one: one
     // keyed notice, taken back the moment the file parses again.
     LaunchedEffect(settings, settingsPath) {
-        val problem = withContext(Dispatchers.IO) { AppSettings.loadChecked().problem }
+        val loaded = withContext(Dispatchers.IO) { AppSettings.loadChecked() }
+        val problem = loaded.problem
         val path = settingsPath
         if (problem == null) {
             Notifications.dismissKey(GLOBAL_SETTINGS_NOTIFICATION)
         } else {
+            // Two sentences, and which one is true depends on how far the
+            // file got. `recovered` means this side read it even though the
+            // engine would not — the theme, the agent and the terminal are
+            // the user's, the editor's own settings are not — and saying
+            // "every setting is the built-in default" there would be the
+            // notice contradicting the app in front of it (QA G-11).
+            val consequence = if (loaded.recovered) {
+                "The editor's own settings are the built-in defaults until it is fixed."
+            } else {
+                "Every setting is the built-in default until it is fixed."
+            }
             Notifications.error(
-                "settings.json is not in effect: $problem. " +
-                    "Every setting is the built-in default until it is fixed.",
+                "settings.json is not in effect: $problem. $consequence",
                 action = path?.let { NotificationAction("Open") { state.openPath?.invoke(it) } },
                 key = GLOBAL_SETTINGS_NOTIFICATION,
             )
@@ -843,7 +855,29 @@ fun CodeScreen(
                     // anchor and line count named a file that was gone, and a
                     // keystroke or an IME commit in that quarter second was
                     // an edit against text the buffer no longer had.
-                    if (reloaded) file.editor?.noteExternalEdit()
+                    //
+                    // `noteExternalReload`, not `noteExternalEdit`: this
+                    // reload is the one NOBODY ASKED FOR, and the engine's
+                    // history keeps it as an undoable transaction. Undoing it
+                    // puts the file as it was before the other writer back in
+                    // a buffer that then autosaves over the newer file — the
+                    // agent's rewrite, `seahorse build`'s regeneration or a
+                    // `git checkout` silently lost. The floor stops undo
+                    // there; the user-chosen Reload in [saveNow] deliberately
+                    // does not set one, because there the text below it is
+                    // the user's own unsaved work.
+                    if (reloaded) file.editor?.let { editor ->
+                        // Said where the tap was, because an undo that does
+                        // nothing and says nothing reads as a broken button.
+                        editor.onUndoStoppedAtReload = {
+                            Notifications.warn(
+                                "${file.name} was reloaded from disk, so there is " +
+                                    "nothing before that left to undo.",
+                                key = "undofloor:${file.path}",
+                            )
+                        }
+                        editor.noteExternalReload()
+                    }
                     file.refreshStatus()
                 }
                 // A *dirty* buffer whose file moved is the one case the app
@@ -1046,8 +1080,13 @@ fun CodeScreen(
         CodeTopBar(
             projectName = project?.let { File(it.rootPath).name },
             file = active,
-            errorCount = activeEditor?.diagnostics?.rows?.count {
-                it.severity == DiagnosticSeverity.Error
+            // ONE COUNT, from [countFileProblems] — the same merge and the
+            // same dedupe the Problems route lists, scoped to this file. The
+            // badge used to count rust-analyzer's rows alone, so a build's
+            // errors in the open file were not in it and the number it showed
+            // could not agree with the screen it opens (QA G-19).
+            errorCount = activeEditor?.let {
+                countFileProblems(active?.absolutePath, it.diagnostics.rows).errors
             } ?: 0,
             onFind = {
                 val editor = activeEditor ?: return@CodeTopBar
@@ -1395,6 +1434,13 @@ private fun ProblemsAction(errorCount: Int, onClick: () -> Unit) {
  * 44dp file bar give their space back (docs/UI.md, "Code with the soft
  * keyboard up"), and a row that stayed would quietly spend 28dp of it. This is
  * the only band this destination gained, so it is the only one that could.
+ *
+ * The half of it that changes while you type does NOT go with it: the caret's
+ * position is drawn on the keyboard's own dock instead, 18dp above the action
+ * row, where it is read without spending the buffer's height twice (G-08 —
+ * with the IME up this row was the only thing printing Ln/Col, so with the
+ * IME up nothing did). The language and the problem count stay here; neither
+ * moves under a keystroke.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1404,7 +1450,9 @@ private fun EditorStatusLine(editor: EditorState, file: OpenFile) {
     LaunchedEffect(file) {
         language = withContext(Dispatchers.IO) { runCatching { file.session?.language }.getOrNull() }
     }
-    val problems = editor.diagnostics.rows.size
+    // The same count the ✕ badge and the Problems route take, for this file:
+    // the server's rows and the last build's, each problem once.
+    val problems = countFileProblems(file.absolutePath, editor.diagnostics.rows).total
     val position = "Ln ${editor.cursorRow + 1}, Col ${editor.cursorCol + 1}"
     val text = listOfNotNull(
         position,

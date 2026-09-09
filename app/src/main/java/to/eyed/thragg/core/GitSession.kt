@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
+import to.eyed.thragg.ui.workspace.Notifications
 
 /**
  * The git side of a project: what has changed, what is staged, and the four
@@ -21,7 +22,7 @@ import org.json.JSONObject
  * there (`isGitPanelSupported`), because an editor should not show a git panel
  * it can never fill.
  */
-class GitSession(private val project: ProjectSession) {
+class GitSession(internal val project: ProjectSession) {
     /**
      * Staleness token, of the same shape as [ProjectSession.version]: it moves
      * whenever anything git says about the project changes, staging included.
@@ -670,9 +671,24 @@ object GitIdentityPrompt {
         pending = Request(session, current, retry)
     }
 
-    /** The identity is there; stop asking git about it. */
+    /**
+     * The identity is there; stop asking git about it.
+     *
+     * And take back the card that said it was not. [GitSession.commit]
+     * answers a commit it cannot attribute with [GitSession.NO_IDENTITY],
+     * which the git funnel raises as a *persistent* error toast keyed on the
+     * project — errors are never on a clock, deliberately. Nothing retracted
+     * it: the sheet then saved the identity and the retried commit landed in
+     * `.git/logs/HEAD`, and the only thing on screen still read "git does not
+     * know who you are yet", which is the opposite of what had just happened
+     * (QA 0.0.23). It knows now, so the sentence goes with the reason for it.
+     *
+     * The key is the funnel's own (`GitOps.run`, `"git:<project>"`) — one
+     * string in two files, and the comment on each names the other.
+     */
     fun remember() {
         known = true
+        pending?.session?.project?.id?.let { Notifications.dismissKey("git:$it") }
         pending = null
     }
 

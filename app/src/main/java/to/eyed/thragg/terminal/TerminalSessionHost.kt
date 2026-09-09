@@ -3,6 +3,8 @@ package to.eyed.thragg.terminal
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -11,6 +13,7 @@ import androidx.compose.runtime.setValue
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
+import java.io.File
 import to.eyed.thragg.core.TaskSpec
 
 /**
@@ -152,7 +155,7 @@ class TerminalSessionHost(
     /** Run the shell again in the same directory, reusing this session slot. */
     fun restart() {
         pendingRerun = null
-        session.finishIfRunning()
+        stopSessionTree()
         exitStatus = null
         shellTitle = null
         bells = 0
@@ -190,7 +193,28 @@ class TerminalSessionHost(
     }
 
     fun finish() {
-        session.finishIfRunning()
+        stopSessionTree()
+    }
+
+    /**
+     * End this session and everything it started.
+     *
+     * `TerminalSession.finishIfRunning` sends **SIGKILL** to the one pid it
+     * knows, which is proot's. proot is started with `--kill-on-exit`, and
+     * that path is code proot has to *run*: SIGKILL is the one signal it can
+     * never run anything for. The kernel detaches its tracees, and the guest
+     * `bash` and whatever it was running are reparented to init and keep
+     * going — on the device, deleting the open project left `bash --login`
+     * and its `sleep` alive with `cwd -> …/projects/qa_git2 (deleted)` a
+     * full minute later (QA 0.0.23, G-18).
+     *
+     * So the session's whole process group goes, the way
+     * `GitClone.GuestProcess.terminate` already does it: the polite signal
+     * first, so a `git` or a `dpkg` mid-write is given its own chance to
+     * stop, then the sure one for whatever is left.
+     */
+    private fun stopSessionTree() {
+        if (!GuestSessionReaper.terminate(session.pid)) session.finishIfRunning()
     }
 
     /** Type text into the shell, as the paste action and the extra keys do. */
@@ -316,5 +340,106 @@ class TerminalSessionHost(
             val overridden = extra.map { it.substringBefore('=') }.toSet()
             return base.filter { it.substringBefore('=') !in overridden } + extra
         }
+    }
+}
+
+/**
+ * Everything one terminal session started, stopped — not the one pid the pty
+ * happens to hold.
+ *
+ * The vendored emulator forks with `setsid()`, so the process it starts —
+ * proot — is a **session leader**, and every guest process under it inherits
+ * that session id however many process groups job control makes on the way
+ * down. `/proc/<pid>/stat` names it, and Android mounts `/proc` with
+ * `hidepid=2`, so the scan sees this app's own processes and nothing else:
+ * it is a handful of entries, not a machine's worth.
+ *
+ * The two signals are `GitClone.GuestProcess.terminate`'s, for its reasons.
+ * SIGQUIT first, to everything at once, because proot can only run its
+ * `--kill-on-exit` cleanup for a signal it is allowed to handle and a `git`
+ * or a `dpkg` in the middle of a write deserves the same courtesy. SIGKILL
+ * after the grace, to whatever answered the first with nothing — an
+ * interactive `bash` ignores SIGQUIT by design, and it is reached by pid
+ * here rather than through the tracer that is already gone.
+ *
+ * The second pass **re-reads** the session rather than reusing the first
+ * list: by then the leader may have exited, and a pid the kernel has since
+ * handed to somebody else is not in this session any more, so it cannot be
+ * signalled by mistake.
+ */
+internal object GuestSessionReaper {
+
+    private const val TAG = "thragg-term"
+
+    /** How long the polite signal is given before the sure one. */
+    const val QUIT_GRACE_MS = 400L
+
+    /**
+     * Stop the session led by [leader]. False when this is not a session
+     * leader at all — an emulator that did not `setsid`, or a pid that has
+     * already gone — in which case the caller falls back to what it did
+     * before rather than this scanning for a session that is not there.
+     */
+    fun terminate(leader: Int, proc: File = File("/proc")): Boolean {
+        if (leader <= 0) return false
+        if (sessionIdOf(leader, proc) != leader) return false
+        val doomed = sessionPids(leader, proc)
+        if (doomed.isEmpty()) return false
+        for (pid in doomed) signal(pid, OsConstants.SIGQUIT)
+        // The sweep waits, so it cannot be done on the thread that asked:
+        // closing a project is a main-thread call and 400 ms of sleep on it
+        // is a frame budget spent 24 times over. A daemon thread, because
+        // nothing should keep the process alive for it.
+        val sweep = Thread({
+            runCatching { Thread.sleep(QUIT_GRACE_MS) }
+            for (pid in sessionPids(leader, proc)) signal(pid, OsConstants.SIGKILL)
+        }, "thragg-session-reaper")
+        sweep.isDaemon = true
+        sweep.start()
+        return true
+    }
+
+    private fun signal(pid: Int, sig: Int) {
+        if (pid <= 0 || pid == Os.getpid()) return
+        runCatching { Os.kill(pid, sig) }
+            .onFailure { Log.w(TAG, "signal $sig to $pid failed: ${it.message}") }
+    }
+
+    /**
+     * Every live pid in the session led by [leader], the leader last.
+     *
+     * Leader last so the polite pass reaches the tracees while their tracer
+     * is still there to let the signal through.
+     */
+    fun sessionPids(leader: Int, proc: File = File("/proc")): List<Int> {
+        val names = proc.list() ?: return emptyList()
+        val found = ArrayList<Int>()
+        for (name in names) {
+            val pid = name.toIntOrNull() ?: continue
+            if (pid == leader) continue
+            if (sessionIdOf(pid, proc) == leader) found.add(pid)
+        }
+        found.sortDescending()
+        if (sessionIdOf(leader, proc) == leader) found.add(leader)
+        return found
+    }
+
+    private fun sessionIdOf(pid: Int, proc: File): Int? =
+        runCatching { File(proc, "$pid/stat").readText() }.getOrNull()?.let(::sessionIdIn)
+
+    /**
+     * The session id in one `/proc/<pid>/stat` line.
+     *
+     * Read from the LAST `)` forward, never by splitting the whole line: the
+     * second field is the executable's name in parentheses and it may hold
+     * spaces and parentheses of its own — `(anchor build)` would move every
+     * field after it. After that comes state, ppid, pgrp and then session.
+     * Pure, for the test.
+     */
+    fun sessionIdIn(stat: String): Int? {
+        val afterComm = stat.lastIndexOf(')').takeIf { it >= 0 } ?: return null
+        val fields = stat.substring(afterComm + 1).trim().split(' ')
+        // state(0) ppid(1) pgrp(2) session(3)
+        return fields.getOrNull(3)?.toIntOrNull()
     }
 }
