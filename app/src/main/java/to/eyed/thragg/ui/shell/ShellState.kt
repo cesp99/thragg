@@ -132,6 +132,11 @@ class ShellState {
     fun pop(): Boolean {
         val stack = currentStack
         if (stack.isEmpty) return false
+        // Popping the gate *is* being let through it: the one control that
+        // can do it is the gate's own Continue, and a gate that stayed armed
+        // after that would re-arm itself the next time Setup was opened from
+        // Settings.
+        if (isGated) passGate()
         routes = routes.with(destination, stack.pop())
         return true
     }
@@ -175,14 +180,44 @@ class ShellState {
     var toolchainReady: Boolean by mutableStateOf(false)
 
     /**
-     * Whether the Setup takeover on top of the current stack is the *gate* —
-     * the mandatory first-run one — rather than the toolchain page reached
-     * from Settings after the install. It is the same route; what makes it a
-     * gate is only that the toolchain is not in. The back handler and the
-     * screen's own actions both read this, so a Setup reached from Settings
-     * with everything installed still has a Close and a back arrow.
+     * Whether **this** Setup route is the gate — the mandatory first-run
+     * takeover the bootstrap put up ([gate]) — rather than the toolchain page
+     * reached from Settings or from Build's overflow.
+     *
+     * It is an explicit flag and not a question about the toolchain, and that
+     * is the whole of two defects:
+     *
+     *  - Settings → Toolchain → "Remove the toolchain" wrote
+     *    `toolchainReady = false` while its own Setup page was on top, so a
+     *    rule reading the toolchain flipped that drill page into a gate in the
+     *    same snapshot: the back arrow, Close and the remove link (all drawn
+     *    behind `!gated`) vanished, the nav bar was already hidden because
+     *    Setup is the one route with `hidesNavBar`, and back resolved to
+     *    `LeaveApp`. The screen became a trap whose only control re-downloaded
+     *    the 1.4 GB just deleted.
+     *  - The other way round, the gate stopped being a gate the instant the
+     *    install finished, and the first screen a new phone ever shows
+     *    re-rendered as the drill page — with Remove one tap under Close.
+     *
+     * A gate is a gate until the user is let through it, and a page pushed
+     * from Settings is never one. Both facts are now written down rather than
+     * inferred. The depth check is a second belt: the gate is only ever the
+     * bottom route of Code's own stack.
      */
-    val isGated: Boolean get() = currentStack.top is Route.Setup && !toolchainReady
+    val isGated: Boolean
+        get() = gateActive &&
+            destination == Destination.Code &&
+            currentStack.depth == 1 &&
+            currentStack.top is Route.Setup
+
+    /**
+     * Set by [gate], cleared by [passGate] and by [reset]. Not `private`
+     * because [isGated] is the only reader that matters and it is right here;
+     * `private set` because nothing outside this class may put the app into
+     * a takeover it cannot leave.
+     */
+    var gateActive: Boolean by mutableStateOf(false)
+        private set
 
     /**
      * Put the gate up: Setup on top of Code, and Code selected. Called by the
@@ -192,6 +227,15 @@ class ShellState {
     fun gate() {
         if (destination != Destination.Code) show(Destination.Code)
         if (currentStack.top !is Route.Setup) push(Route.Setup, on = Destination.Code)
+        gateActive = true
+    }
+
+    /**
+     * The user has been let through: the gate's Continue was pressed. Called
+     * by [pop] for the route itself, so no screen has to remember to do it.
+     */
+    private fun passGate() {
+        gateActive = false
     }
 
     /**
@@ -279,6 +323,8 @@ class ShellState {
         build = BuildState.Idle
         agentAttention = false
         project = null
+        // The routes went with it, so the gate's route did too.
+        gateActive = false
     }
 
     companion object {

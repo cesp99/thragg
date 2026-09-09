@@ -390,7 +390,7 @@ internal fun starterPrompts(projectName: String?): List<String> {
 internal fun showsSecondaryBands(imeVisible: Boolean): Boolean = !imeVisible
 
 /** Which modal surface the destination has up. */
-private sealed interface AgentSheet {
+internal sealed interface AgentSheet {
     data object Projects : AgentSheet
     data object Config : AgentSheet
     data object Overflow : AgentSheet
@@ -402,6 +402,51 @@ private sealed interface AgentSheet {
     data object PermissionChoice : AgentSheet
     data class Approval(val key: String) : AgentSheet
     data class Form(val id: String) : AgentSheet
+}
+
+/**
+ * The two things about the destination's modal that must **outlive its
+ * composition**, held beside the shell's own state and for the same reason
+ * ([ShellState]): leaving the Agent tab or rotating the phone removes this
+ * screen from the composition, and everything in a `remember` goes with it.
+ *
+ * What was lost was not a cached value. `dismissed` is the record of which
+ * parked requests the user has put away — dismissing is *not* answering, so
+ * the request stays parked — and losing it meant the auto-raise rule below
+ * found no answer and shoved the same permission sheet back up on every
+ * single return to the tab, and on every rotation, for ever. `sheet` is the
+ * modal that is open, which docs/UI.md ("Orientation") names in as many
+ * words as something rotation must not lose.
+ *
+ * Process-wide, like [ShellState.current]: there is one agent panel.
+ */
+internal class AgentPanelState {
+
+    /** The modal that is up, or null. */
+    var sheet: AgentSheet? by mutableStateOf(null)
+
+    /**
+     * Requests whose sheet the user put away, by request key. Emptied when
+     * the thread changes — the keys are that session's calls, and a new
+     * thread's questions have never been answered by anybody.
+     */
+    val dismissed = mutableStateMapOf<String, Boolean>()
+
+    private var session: Long? = null
+
+    /**
+     * Point the holder at [sessionId]. Called from an effect rather than
+     * from composition: it writes state that the same composition reads.
+     */
+    fun follow(sessionId: Long?) {
+        if (session == sessionId) return
+        session = sessionId
+        dismissed.clear()
+    }
+
+    companion object {
+        val current = AgentPanelState()
+    }
 }
 
 /**
@@ -514,11 +559,16 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     // scrolls off, so a card the user opened would forget it and a running
     // command would be one grey line for its whole life.
     val expanded = remember(sessionId) { mutableStateMapOf<String, Boolean>() }
-    var sheet by remember { mutableStateOf<AgentSheet?>(null) }
+    // Both retained outside the composition — see [AgentPanelState]. A
+    // `remember` here is what made a dismissed permission sheet come back on
+    // every return to the tab and on every rotation.
+    val panel = AgentPanelState.current
+    var sheet by panel::sheet
     // Requests whose sheet the user put away. Dismissing is not answering, so
     // the request stays parked; what this stops is the sheet coming straight
     // back up on the next poll.
-    val dismissed = remember(sessionId) { mutableStateMapOf<String, Boolean>() }
+    val dismissed = panel.dismissed
+    LaunchedEffect(sessionId) { panel.follow(sessionId) }
     var sessionQuery by remember { mutableStateOf("") }
     var sessionScope by remember { mutableStateOf(SessionScope.PROJECT) }
     var lockedNotice by remember { mutableStateOf<String?>(null) }

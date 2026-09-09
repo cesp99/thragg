@@ -114,6 +114,16 @@ object ToolchainInstaller {
     @Volatile
     private var aborting = false
 
+    /**
+     * Which of the two [aborting] is: the user pressed Pause, or a lane
+     * failed and took the other down with it. The rows differ — a cancelled
+     * row keeps its "the bytes already fetched are kept" line, an aborted one
+     * goes back to Pending because it did nothing wrong — and without this
+     * the two were indistinguishable by the time the exception arrived.
+     */
+    @Volatile
+    private var cancelledByUser = false
+
     /** One row per component, in manifest order. Empty until [refresh]. */
     var rows: List<ComponentRow> by mutableStateOf(emptyList())
         private set
@@ -132,6 +142,32 @@ object ToolchainInstaller {
      */
     var runStartedAt: Long? by mutableStateOf(null)
         private set
+
+    /**
+     * What earlier runs of this same install already spent, so the elapsed
+     * figure does not restart at 0:01 every time the user pauses and
+     * resumes. Cleared when the install finishes and when there is nothing
+     * left part-done to count against ([refresh]).
+     */
+    var elapsedBefore: Long by mutableStateOf(0L)
+        private set
+
+    /**
+     * How long this install has been running, counting the runs that were
+     * paused — the number the Setup screen prints. Null when nothing has run
+     * at all.
+     */
+    fun elapsedMs(now: Long): Long? {
+        val started = runStartedAt ?: return elapsedBefore.takeIf { it > 0L }
+        return elapsedBefore + (now - started).coerceAtLeast(0L)
+    }
+
+    /** Stop the clock and bank what this run spent. */
+    private fun bankElapsed() {
+        val started = runStartedAt ?: return
+        elapsedBefore += (now() - started).coerceAtLeast(0L)
+        runStartedAt = null
+    }
 
     val isRunning: Boolean get() = phase == ToolchainPhase.Running
 
@@ -193,6 +229,9 @@ object ToolchainInstaller {
                 )
             }
             phase = if (isComplete) ToolchainPhase.Complete else ToolchainPhase.Idle
+            // Nothing on screen is mid-install any more, so there is no run
+            // for a banked figure to belong to.
+            if (isComplete) elapsedBefore = 0L
         }
     }
 
@@ -233,8 +272,19 @@ object ToolchainInstaller {
      * whole design exists to avoid.
      */
     fun cancel() {
+        // FIRST, before a single process is killed. Everything downstream
+        // asks [isStopped] whether the exception it is holding is the user's
+        // doing, and the old order — cancel the job, null it, *then* kill tar
+        // — answered no: a null job is not an inactive one, so the `EPIPE`
+        // the killed tar handed its writer took the failure branch in
+        // [guard]. A Pause was reported as "The install stopped · write
+        // failed: EPIPE (Broken pipe)" with a Retry button, over bytes that
+        // were never lost (measured on the Seeker, s1, 2026-09-07).
+        aborting = true
+        cancelledByUser = true
         job?.cancel()
         job = null
+        bankElapsed()
         terminateProcesses()
         updateRows { row ->
             when (row.state) {
@@ -258,6 +308,7 @@ object ToolchainInstaller {
         val app = context.applicationContext
         lastError = null
         aborting = false
+        cancelledByUser = false
         runStartedAt = now()
         phase = ToolchainPhase.Running
         job = scope.launch {
@@ -292,13 +343,16 @@ object ToolchainInstaller {
             // it from here would leave that one uncancellable.
             if (job === self) {
                 job = null
-                runStartedAt = null
+                bankElapsed()
             }
             phase = when {
                 isComplete || ok -> ToolchainPhase.Complete
                 lastError != null -> ToolchainPhase.Failed
                 else -> ToolchainPhase.Idle
             }
+            // Finished: the next run — an update, or the optional rows — is a
+            // new install and starts its clock at zero.
+            if (phase == ToolchainPhase.Complete) elapsedBefore = 0L
             // NonCancellable, because the whole point of this block is to give
             // the foreground notification back — and a cancel is exactly when
             // it must be given back. Without it, pressing Pause leaves the
@@ -380,9 +434,16 @@ object ToolchainInstaller {
     /**
      * Everything that comes over the network, in turn, and into the rootfs.
      *
-     * Largest first, deliberately: platform-tools is the one download whose
-     * unpack can outlast the guest lane's userland-plus-apt, and nothing on
-     * that lane needs any of the small ones before apt is done. Unpacking
+     * **Smallest first**, which is what docs/SOLANA.md specifies and what the
+     * two-lane measurement was made with: rustup is 19 MB, Spettro 14 MB,
+     * cargo-build-sbf 5 MB and Anchor 11 MB, and every one of them is a row
+     * the guest lane can install *in under a second* once its bytes are
+     * there. Fetching the 528 MB first put all four behind it — the guest
+     * lane finished apt and then sat idle for about three and a half minutes
+     * waiting for a 19 MB file (measured on the Seeker, s1). The gigabyte
+     * pays at most the ~30 s the small ones take, and it pays it against
+     * apt's two minutes, which is time it was going to spend waiting anyway.
+     * Unpacking
      * does not wait for the rootfs either: the userland install starts by
      * wiping its directory, so every archive is unpacked into a *staging*
      * directory beside it and moved in with a rename — O(1) for a directory
@@ -398,7 +459,7 @@ object ToolchainInstaller {
         landed: Map<String, CompletableDeferred<Unit>>,
     ) {
         val userland = queue.firstOrNull { it.method == InstallMethod.Userland }
-        for (component in queue.filter { it.url != null }.sortedByDescending { it.downloadBytes }) {
+        for (component in fetchOrder(queue)) {
             ensureActive()
             // Already in the rootfs from a run that was interrupted after this
             // unpack: nothing to fetch, and above all nothing to fetch *again*.
@@ -427,6 +488,17 @@ object ToolchainInstaller {
             staged.getValue(component.id).complete(Unit)
         }
     }
+
+    /**
+     * The order [fetchLane] pulls [queue] in: everything with a URL,
+     * smallest first.
+     *
+     * Its own function so the ordering is a property a host test pins against
+     * the shipped manifest — rustup, Spettro, cargo-build-sbf and Anchor all
+     * ahead of the 528 MB — rather than a `sortedBy` nobody looks at again.
+     */
+    internal fun fetchOrder(queue: List<ToolchainComponent>): List<ToolchainComponent> =
+        queue.filter { it.url != null }.sortedBy { it.downloadBytes }
 
     /**
      * Whether a tarball can be unpacked *as it downloads*.
@@ -498,9 +570,13 @@ object ToolchainInstaller {
         processes.add(process)
         val digest = MessageDigest.getInstance("SHA-256")
         var received = 0L
-        var lastReport = 0L
         var windowBytes = 0L
         var windowStart = now()
+        // Seeded with the window's own start, not with zero: a `lastReport`
+        // of 0 makes the *first* buffer read satisfy the interval test, and
+        // 64 KB over the two milliseconds since the loop began is where the
+        // row's "19 MB/s" came from (s1). See [downloadRate].
+        var lastReport = windowStart
         try {
             connection.inputStream.use { source ->
                 FileOutputStream(partial).use { sink ->
@@ -523,7 +599,7 @@ object ToolchainInstaller {
                                     ComponentState.Downloading(
                                         received = received,
                                         total = total,
-                                        bytesPerSecond = if (elapsed > 0L) windowBytes * 1000L / elapsed else null,
+                                        bytesPerSecond = downloadRate(windowBytes, elapsed),
                                     ),
                                 )
                                 lastReport = stamp
@@ -648,8 +724,11 @@ object ToolchainInstaller {
             setState(component.id, ComponentState.Cancelled)
             throw cancelled
         } catch (error: Throwable) {
-            if (aborting || job?.isActive == false) {
-                setState(component.id, ComponentState.Pending)
+            if (isStopped) {
+                setState(
+                    component.id,
+                    if (cancelledByUser) ComponentState.Cancelled else ComponentState.Pending,
+                )
                 throw ToolchainCancelled()
             }
             aborting = true
@@ -737,7 +816,7 @@ object ToolchainInstaller {
         val total = component.downloadBytes
         val result = Userland.backend.install(
             app,
-            isActive = { job?.isActive != false && !aborting },
+            isActive = { !isStopped },
             onProgress = { step, fraction ->
                 setState(
                     component.id,
@@ -1100,9 +1179,9 @@ object ToolchainInstaller {
         val total = if (remaining > 0L) offset + remaining else component.downloadBytes
 
         var received = offset
-        var lastReport = 0L
         var windowBytes = 0L
         var windowStart = now()
+        var lastReport = windowStart
         connection.inputStream.use { source ->
             FileOutputStream(into, resuming).use { sink ->
                 val buffer = ByteArray(BUFFER)
@@ -1121,8 +1200,7 @@ object ToolchainInstaller {
                             ComponentState.Downloading(
                                 received = received,
                                 total = total,
-                                bytesPerSecond =
-                                    if (elapsed > 0L) windowBytes * 1000L / elapsed else null,
+                                bytesPerSecond = downloadRate(windowBytes, elapsed),
                             ),
                         )
                         lastReport = stamp
@@ -1233,10 +1311,41 @@ object ToolchainInstaller {
     }
 
     private fun ensureActive() {
-        if (job?.isActive == false || aborting) throw ToolchainCancelled()
+        if (isStopped) throw ToolchainCancelled()
     }
 
+    /**
+     * Whether this run has been stopped — by [cancel], or by the other lane
+     * failing. The one place the question is answered, so no caller can ask
+     * it with half the conditions again.
+     *
+     * `job?.isActive == false` and not `!= true`: `launchRun` assigns `job`
+     * *after* `scope.launch` has already begun running the body, so a null
+     * job means "starting", never "stopped".
+     */
+    private val isStopped: Boolean get() = aborting || job?.isActive == false
+
     private fun now(): Long = System.currentTimeMillis()
+
+    /**
+     * What a row may claim as its speed: [windowBytes] over [elapsedMs], or
+     * **null** when the window is too short to hold a measurement.
+     *
+     * A rate is an average over a window, and a window shorter than the
+     * report interval is not one. Without the floor the first tick of every
+     * download published one buffer over the millisecond or two since the
+     * loop started — 19 MB/s on a phone whose real throughput was a
+     * twentieth of that, printed most visibly after a Retry, where it sat
+     * beside a row that was resuming from a local `.part` (s1). A row with
+     * no rate prints its percentage alone, which is the honest answer while
+     * there is nothing to average.
+     */
+    internal fun downloadRate(windowBytes: Long, elapsedMs: Long): Long? =
+        if (elapsedMs >= PROGRESS_INTERVAL_MS && windowBytes > 0L) {
+            windowBytes * 1000L / elapsedMs
+        } else {
+            null
+        }
 
     private fun chmodExecutable(file: File) {
         try {

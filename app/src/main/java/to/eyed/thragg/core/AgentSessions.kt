@@ -929,13 +929,21 @@ object AgentSessions {
     // is on screen — it is exactly the case the panel cannot cover that it
     // exists for.
 
-    /** Whether the agent panel is composed and showing. Set by the panel. */
-    @Volatile
-    var panelVisible: Boolean = false
+    /**
+     * Whether the agent panel is composed and showing. Set by the panel.
+     *
+     * Snapshot state, not a `@Volatile` field, and the difference is a bug
+     * that was measured: the panel keys effects on these two, and a plain
+     * field written from `onStop` schedules **no recomposition**, so the
+     * effect that raises the parked-permission notification never re-ran
+     * when the app went to the background. Written from the main thread,
+     * read from the watcher below on IO — which is exactly what the global
+     * snapshot is for.
+     */
+    var panelVisible: Boolean by mutableStateOf(false)
 
     /** Whether the app has a visible activity. Set by `MainActivity`. */
-    @Volatile
-    var appInForeground: Boolean = true
+    var appInForeground: Boolean by mutableStateOf(true)
 
     /** Zed's `agent.notify_when_agent_waiting`, kept current by the workspace. */
     @Volatile
@@ -1043,7 +1051,11 @@ object AgentSessions {
             // not a session event, so a permission raised while the phone was
             // in the hand and then pocketed would otherwise never be spoken.
             // `raised` keeps it to one call per edge rather than two a second.
-            val wants = !panelVisible && needed > 0 && !appInForeground
+            val wants = notifiesWaiting(
+                panelVisible = panelVisible,
+                needed = needed,
+                appInForeground = appInForeground,
+            )
             if (wants != raised) {
                 raised = wants
                 if (wants) {
@@ -1055,6 +1067,21 @@ object AgentSessions {
             delay(WATCH_MS)
         }
     }
+
+    /**
+     * Whether the parked-request notification should be up: a request is
+     * waiting, the panel that would show it is not composed, and the app has
+     * no window on screen to show it in.
+     *
+     * A value function so the one rule the background watcher exists for is
+     * a thing a host test pins, rather than three `&&`s inside a `while
+     * (true)` that only a phone in a pocket can exercise.
+     */
+    internal fun notifiesWaiting(
+        panelVisible: Boolean,
+        needed: Int,
+        appInForeground: Boolean,
+    ): Boolean = needed > 0 && !panelVisible && !appInForeground
 
     /**
      * Say it, in the shape the moment calls for: nothing while the panel is

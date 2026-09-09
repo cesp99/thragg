@@ -51,6 +51,7 @@ import to.eyed.thragg.R
 import to.eyed.thragg.solana.toolchain.ComponentRow
 import to.eyed.thragg.solana.toolchain.ComponentState
 import to.eyed.thragg.solana.toolchain.SolanaToolchain
+import to.eyed.thragg.solana.toolchain.ToolchainComponent
 import to.eyed.thragg.solana.toolchain.ToolchainInstaller
 import to.eyed.thragg.solana.toolchain.ToolchainManifest
 import to.eyed.thragg.solana.toolchain.ToolchainPhase
@@ -238,7 +239,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
             )
-            val timeLine = timeLine(phase, estimate, ToolchainInstaller.runStartedAt, now)
+            val timeLine = timeLine(phase, estimate, ToolchainInstaller.elapsedMs(now))
                 ?: manifest?.takeIf { !gated }?.let { "Toolchain manifest of ${it.released}." }
             if (timeLine != null) {
                 Spacer(Modifier.height(MD.space1))
@@ -285,8 +286,14 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 NoticeCard(
                     severity = Severity.Info,
                     title = null,
+                    // No promise of a notification: at targetSdk 28 Android
+                    // will not offer this app the POST_NOTIFICATIONS prompt
+                    // at all (MainActivity.requestNotificationPermission), so
+                    // on a phone that has never been to system settings there
+                    // is nothing to see. The install really does keep running
+                    // — that part is the foreground service and it is true.
                     body = "You can lock the phone or switch apps — the install keeps " +
-                        "going under its notification and this screen picks up where " +
+                        "going in the background and this screen picks up where " +
                         "it was. Keep it on Wi-Fi: most of this is a download.",
                 )
             }
@@ -457,8 +464,9 @@ private fun ExpectPage(manifest: ToolchainManifest?, estimateSeconds: Long?) {
                     "over the network and a few minutes of unpacking. Plug in. On mobile " +
                     "data the button says what it costs."),
             R.drawable.ic_ui_lock to ("You can leave" to
-                "It runs under a notification. Lock the phone, switch apps, come back — " +
-                    "the list is where you left it. Pause keeps every byte already fetched."),
+                "It keeps running in the background. Lock the phone, switch apps, come " +
+                    "back — the list is where you left it. Pause keeps every byte " +
+                    "already fetched."),
             R.drawable.ic_ui_rotate_ccw to ("If a part fails" to
                 "Its row gets a Retry. Nothing already installed is downloaded again, " +
                     "and a half-finished download resumes from where it stopped."),
@@ -579,11 +587,11 @@ private fun costLine(supported: Boolean, manifest: ToolchainManifest?): String {
  * estimate alone before, nothing after — a finished install has no time left
  * to talk about.
  */
-private fun timeLine(phase: ToolchainPhase, estimateSeconds: Long?, startedAt: Long?, now: Long): String? {
+private fun timeLine(phase: ToolchainPhase, estimateSeconds: Long?, elapsedMs: Long?): String? {
     val minutes = estimateSeconds?.let { minutesFor(it) }
     return when {
-        phase == ToolchainPhase.Running && startedAt != null ->
-            "${elapsedFrom(startedAt, now)} elapsed" +
+        phase == ToolchainPhase.Running && elapsedMs != null ->
+            "${elapsedOf(elapsedMs)} elapsed" +
                 (minutes?.let { " · usually about $it min on a Seeker" } ?: "")
         phase == ToolchainPhase.Idle || phase == ToolchainPhase.Failed ->
             minutes?.let { "Usually about $it minutes on a Seeker." }
@@ -771,9 +779,15 @@ private fun Bar(fraction: Float? = null) {
  *
  * A pending row draws an empty circle at half strength — "not yet" has a
  * shape, and the middle dot that used to sit there was a glyph carrying no
- * meaning a screen reader could read. A staged row — bytes in, waiting for
- * the guest lane — draws the dotted circle: further along than pending,
- * and standing still.
+ * meaning a screen reader could read. It reads a little like an unchecked
+ * radio button and the rows are not selectable (s1, P-01); it stays a circle
+ * anyway, because an empty circle is *already* this app's mark for queued
+ * (LiveRunPeek.kt, SessionPicker.kt) and a filled dot is already its mark
+ * for done — inverting that here to answer one screen would cost more than
+ * it bought. What the parts list was actually missing is which rows are
+ * optional, and that is now said in words: see [rowSummary]. A staged row —
+ * bytes in, waiting for the guest lane — draws the dotted circle: further
+ * along than pending, and standing still.
  */
 @Composable
 private fun StateMark(state: ComponentState) {
@@ -861,12 +875,28 @@ private fun detail(row: ComponentRow, now: Long): String = when (val state = row
     is ComponentState.Outdated -> "installed · update available"
     is ComponentState.Failed -> state.message
     is ComponentState.Cancelled -> "stopped — the bytes already fetched are kept"
-    else -> row.component.summary
+    else -> rowSummary(row.component)
 }
 
+/**
+ * A component's own line, with the optional ones saying so.
+ *
+ * Anchor, Seahorse, Node, Spettro and the editor toolchain are optional in
+ * the manifest — the gate opens without them and the button says so — but
+ * the list drew them exactly like the four rows Build cannot start without,
+ * so the only way to know which 700 MB was compulsory was to read the
+ * manifest (s1, P-01). The word goes first, because that is the part that
+ * changes what the row means.
+ */
+internal fun rowSummary(component: ToolchainComponent): String =
+    if (component.required) component.summary else "Optional — ${component.summary}"
+
 /** Elapsed as `m:ss`, recomputed against the screen's one-second tick. */
-private fun elapsedFrom(startedAt: Long, now: Long): String {
-    val seconds = ((now - startedAt).coerceAtLeast(0L)) / 1000L
+private fun elapsedFrom(startedAt: Long, now: Long): String = elapsedOf(now - startedAt)
+
+/** The same, for a duration that has already been summed across pauses. */
+private fun elapsedOf(millis: Long): String {
+    val seconds = millis.coerceAtLeast(0L) / 1000L
     return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }
 
