@@ -114,6 +114,20 @@ fun FilesSheet(
      * that question. The host owns the sheet slot, so it does the swap.
      */
     onOpenProjects: () -> Unit,
+    /**
+     * A path in the tree stopped existing — deleted, or trashed.
+     *
+     * [ProjectPanel] has raised this since it was written and this sheet, its
+     * one call site in the app, passed neither it nor [onEntryMoved]: a file
+     * renamed or deleted from the long-press menu left its tab open over an
+     * engine buffer still bound to the old path, so the next autosave wrote
+     * the old file back and the project ended up with both names — or with a
+     * deleted file resurrected (QA 0.0.22, G-07). The host answers, because
+     * only the host can close a tab and reopen one.
+     */
+    onEntryRemoved: (path: String) -> Unit = {},
+    /** A path that moved: renamed, or cut and pasted somewhere else. */
+    onEntryMoved: (from: String, to: String) -> Unit = { _, _ -> },
     onDismiss: () -> Unit,
 ) {
     var mode by remember { mutableStateOf(initialMode) }
@@ -199,7 +213,13 @@ fun FilesSheet(
         }
         val text = query.text
         when {
-            text.isBlank() -> BrowseBody(project, files, onOpenFile)
+            text.isBlank() -> BrowseBody(
+                project = project,
+                files = files,
+                onOpenFile = onOpenFile,
+                onEntryRemoved = onEntryRemoved,
+                onEntryMoved = onEntryMoved,
+            )
             mode == FilesMode.Names -> NameResults(project, text, onOpenFile)
             else -> InFileResults(project, text, onOpenMatch)
         }
@@ -219,6 +239,8 @@ private fun ColumnScope.BrowseBody(
     project: ProjectSession,
     files: OpenFilesState,
     onOpenFile: (String) -> Unit,
+    onEntryRemoved: (path: String) -> Unit,
+    onEntryMoved: (from: String, to: String) -> Unit,
 ) {
     if (files.tabs.isNotEmpty()) {
         SectionHeader(
@@ -297,6 +319,9 @@ private fun ColumnScope.BrowseBody(
         project = project,
         onOpenFile = { entry: ProjectEntry, _ -> if (!entry.isDir) onOpenFile(entry.path) },
         openedPath = files.active?.path,
+        // The two the panel has always raised and nobody ever caught.
+        onEntryRemoved = onEntryRemoved,
+        onEntryMoved = onEntryMoved,
         modifier = Modifier.weight(1f, fill = true),
     )
 }
