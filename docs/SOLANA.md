@@ -399,12 +399,57 @@ squiggle in the editor and a row in the Problems tab, not just text.
 ## Projects
 
 The new-project dialog mirrors Solana Playground's: a name and a framework.
+So do the programs it writes — since 2026-09-08 the three starters are
+Playground's own, because the people who pick one arrive from
+playground.solana.com and should open the file they already know.
 
 | Framework | What it scaffolds |
 |---|---|
-| **Anchor (Rust)** | `Anchor.toml`, `programs/<name>/src/lib.rs`, `tests/` |
-| **Native (Rust)** | `Cargo.toml` against `solana-program`, `src/lib.rs` |
-| **Seahorse (Python)** | `programs_py/<name>.py`, `tests/`, the crate manifest and a placeholder `lib.rs` under `programs/<name>/` that `seahorse build` regenerates, and the same `Anchor.toml` — Seahorse *is* an Anchor project |
+| **Anchor (Rust)** | `Anchor.toml`, `programs/<name>/src/lib.rs` (Playground's `hello_anchor`), `tests/anchor.test.ts`, `client/client.ts` |
+| **Native (Rust)** | `Cargo.toml` against `solana-program` + `borsh`, `src/lib.rs` (Playground's greeting counter) |
+| **Seahorse (Python)** | `programs_py/fizzbuzz.py` (Playground's), `tests/seahorse.test.ts`, `client/client.ts`, the crate manifest and a placeholder `lib.rs` under `programs/fizzbuzz/` that `seahorse build` regenerates, and the same `Anchor.toml` — Seahorse *is* an Anchor project |
+
+### Playground parity
+
+Playground's templates live at `client/src/frameworks/<framework>/files/` in
+[its repository](https://github.com/solana-playground/solana-playground):
+`src/lib.rs` (or `src/fizzbuzz.py`), `tests/<framework>.test.ts`,
+`client/client.ts`. Thragg's program sources are those files byte for byte,
+and `SolanaTemplatesTest` holds a copy of each under
+`app/src/test/resources/playground/` and fails if the rendered source drifts.
+Two substitutions only:
+
+- `declare_id!` / `declare_id(...)` holds the id sync's placeholder rather
+  than Playground's `1111…`; the first build replaces it (`syncProgramIds` in chain/ProgramIds.kt, run before every Anchor build).
+- Anchor's `#[program]` module is the project's name (`anchor init` semantics;
+  Playground's own export renames `hello_anchor` the same way). Seahorse's
+  program stays `fizzbuzz` whatever the project is called: in Seahorse the
+  file stem *is* the program name, and Playground's export takes it from the
+  file too. The New program screen previews the names the framework will use.
+
+Deliberately not Playground's:
+
+- **Versions.** `anchor-lang` 0.31.1 / anchor-cli 1.1.2 and `solana-program`
+  2.2 are what builds on the phone; Playground's are its build server's.
+  Native adds `borsh = { version = "1.5", features = ["derive"] }` because
+  the starter derives Borsh and borsh 1 no longer enables `derive` by default.
+- **Tests.** Playground's tests use its `pg.program`, `pg.wallet`,
+  `pg.connection` globals and an `async describe` (mocha would register no
+  tests). Thragg's tests are the same tests — same names, steps, asserts and
+  `console.log`s — with the imports Playground's export adds,
+  `anchor.workspace` for `pg.program`, the `AnchorProvider.env()` wallet and
+  connection, `findProgramAddressSync`, and `.accountsPartial` where
+  Playground writes `.accounts` (Anchor 0.30+'s typed `accounts()` rejects
+  the resolvable `systemProgram` and PDA entries Playground passes). Each
+  file says so in its first comment.
+- **Native tests.** Playground's `tests/native.test.ts` is a TypeScript client
+  test; Thragg's Native Test is `cargo test`, so it is not written. The
+  Native `src/lib.rs` has no `declare_id!` (Playground's does not either);
+  the program's id comes from its keypair.
+- **Layout.** Playground's tree is flat; the Cargo workspace, `Anchor.toml`,
+  `package.json`, `tsconfig.json` and `.gitignore` are what Playground's own
+  Export writes around the three files, minus `migrations/` and
+  `.prettierignore`. `[scripts] client` is kept so `anchor run client` works.
 
 Seahorse's compiler is the one component that compiles on the phone: nobody
 publishes `seahorse-dev` for arm64, and at two minutes it is not worth a

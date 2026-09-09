@@ -100,13 +100,23 @@ data class SolanaProgram(
  * offers and the one people arrive expecting; anything else is a repository to
  * clone, not a template to pick from a dialog. docs/SOLANA.md, "Projects".
  *
- * Every template here is a project that *builds* — real manifests at real
- * versions, a program with working accounts, an Anchor test that runs. A
- * scaffold with `// TODO` in it teaches nothing and, on a phone, costs the
- * several minutes of SBF build time it takes to find out it was never going to
- * work. The versions are pinned loosely (`"0.31.1"`, `"2.2"`) so cargo and npm
- * pick up patch releases without the template being wrong the week after it
- * was written.
+ * The programs are Solana Playground's own starters — `hello_anchor`, the
+ * native greeting counter, Seahorse's `fizzbuzz` — copied from
+ * `client/src/frameworks/<framework>/files/` in its repository, because the
+ * people who pick one of these arrive from playground.solana.com and should
+ * open the same file they know. Only the program id (the id sync's placeholder)
+ * and, for Anchor, the module name (the project's, as `anchor init` gives it)
+ * are substituted; `SolanaTemplatesTest` checks the rest byte for byte against
+ * a copy of Playground's files. Playground's tests lean on its `pg.*` globals,
+ * which exist only on the website, so the tests here are the same tests said
+ * with `anchor.workspace` and the provider — the mapping Playground's own
+ * export applies (`export.ts`).
+ *
+ * Around those files sits a project that *builds*: real manifests at the
+ * versions that build on this phone (`anchor-lang` 0.31, `solana-program` 2.2 —
+ * not Playground's, which are its build server's), pinned loosely so cargo and
+ * npm pick up patch releases without the template being wrong the week after
+ * it was written.
  */
 enum class SolanaFramework(
     @param:StringRes val labelRes: Int,
@@ -165,46 +175,45 @@ enum class SolanaFramework(
     fun entryPath(program: SolanaProgram): String = when (this) {
         Anchor -> "programs/${program.crateName}/src/lib.rs"
         Native -> "src/lib.rs"
-        Seahorse -> "programs_py/${program.moduleName}.py"
+        Seahorse -> "programs_py/${programNames(program).moduleName}.py"
+    }
+
+    /**
+     * The names the *program* inside a project for [project] gets — the
+     * project's own for Anchor and Native, Playground's `fizzbuzz` for
+     * Seahorse, where the file's stem is the program name (see
+     * `seahorseProgram`). The New program screen previews these.
+     */
+    fun programNames(project: SolanaProgram): SolanaProgram = when (this) {
+        Anchor, Native -> project
+        Seahorse -> seahorseProgram(project)
     }
 }
 
 // --- Anchor ------------------------------------------------------------------
 
 /**
- * `anchor init` at 0.31, with the pieces that assume a workstation left out:
- * no `migrations/deploy.ts` (there is nothing to migrate on a fresh program)
- * and no `.prettierignore`.
+ * Solana Playground's Anchor starter, in the layout `anchor init` writes.
  *
- * The program is a counter rather than the usual empty `initialize` because an
- * empty instruction exercises none of the three things an Anchor beginner has
- * to meet on the first day — a PDA, an account with state, and a constraint
- * that rejects the wrong signer — and the test is the only place those are
- * ever shown working.
+ * The program is Playground's `src/lib.rs` byte for byte (`hello_anchor`: one
+ * `initialize` that stores a `u64`), because the people creating a project here
+ * arrive from playground.solana.com and expect to open the same file — the
+ * comments they read there are the comments they read here. Two things are
+ * substituted and nothing else: the `#[program]` module takes the project's
+ * name, as `anchor init <name>` would give it (Playground itself renames it on
+ * export), and `declare_id!` holds [SolanaProgram.PLACEHOLDER_ID] so the id sync
+ * in `chain/ProgramIds.kt` can find and replace it on the first build.
+ *
+ * Playground's tree is flat (`src/`, `client/`, `tests/`); the rest of this
+ * file set — the Cargo workspace, Anchor.toml, package.json, tsconfig — is
+ * what Playground's own "Export" writes around those three files
+ * (`client/src/frameworks/anchor/export.ts`), at the versions that build on
+ * this phone. Left out: `migrations/deploy.ts` (nothing to migrate on a fresh
+ * program) and `.prettierignore`.
  */
 private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateFile> = listOf(
     TemplateFile("Anchor.toml", anchorToml(program, cluster)),
-    TemplateFile(
-        "Cargo.toml",
-        """
-        [workspace]
-        members = ["programs/*"]
-        resolver = "2"
-
-        # Anchor's release profile. `overflow-checks` is not a nicety on chain:
-        # a silent wrap in a balance is how programs lose money, and the cost
-        # of the check is nothing next to the transaction it is inside.
-        [profile.release]
-        overflow-checks = true
-        lto = "fat"
-        codegen-units = 1
-
-        [profile.release.build-override]
-        opt-level = 3
-        incremental = false
-        codegen-units = 1
-        """.trimIndent() + "\n",
-    ),
+    TemplateFile("Cargo.toml", ANCHOR_WORKSPACE_CARGO_TOML),
     TemplateFile(
         "programs/${program.crateName}/Cargo.toml",
         """
@@ -232,136 +241,102 @@ private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateF
         anchor-lang = "0.31.1"
         """.trimIndent() + "\n",
     ),
+    // Playground: client/src/frameworks/anchor/files/src/lib.rs
     TemplateFile(
         "programs/${program.crateName}/src/lib.rs",
         """
         use anchor_lang::prelude::*;
 
-        // Replaced by `anchor keys sync` with the address of the keypair in
-        // target/deploy the first time this program is built.
+        // This is your program's public key and it will update
+        // automatically when you build the project.
         declare_id!("${program.programId}");
 
         #[program]
-        pub mod ${program.moduleName} {
+        mod ${program.moduleName} {
             use super::*;
-
-            /// Create this signer's counter and set its starting value.
-            pub fn initialize(ctx: Context<Initialize>, start: u64) -> Result<()> {
-                let counter = &mut ctx.accounts.counter;
-                counter.authority = ctx.accounts.payer.key();
-                counter.count = start;
-                msg!("counter created at {}", counter.count);
-                Ok(())
-            }
-
-            /// Add one, refusing to wrap.
-            pub fn increment(ctx: Context<Increment>) -> Result<()> {
-                let counter = &mut ctx.accounts.counter;
-                counter.count = counter
-                    .count
-                    .checked_add(1)
-                    .ok_or(CounterError::Overflow)?;
-                msg!("counter is now {}", counter.count);
+            pub fn initialize(ctx: Context<Initialize>, data: u64) -> Result<()> {
+                ctx.accounts.new_account.data = data;
+                msg!("Changed data to: {}!", data); // Message will show up in the tx logs
                 Ok(())
             }
         }
 
         #[derive(Accounts)]
         pub struct Initialize<'info> {
-            // A PDA seeded by the payer, so every wallet gets its own counter
-            // and the client can find it again without storing an address.
-            #[account(
-                init,
-                payer = payer,
-                space = 8 + Counter::INIT_SPACE,
-                seeds = [b"counter", payer.key().as_ref()],
-                bump,
-            )]
-            pub counter: Account<'info, Counter>,
+            // We must specify the space in order to initialize an account.
+            // First 8 bytes are default account discriminator,
+            // next 8 bytes come from NewAccount.data being type u64.
+            // (u64 = 64 bits unsigned integer = 8 bytes)
+            #[account(init, payer = signer, space = 8 + 8)]
+            pub new_account: Account<'info, NewAccount>,
             #[account(mut)]
-            pub payer: Signer<'info>,
+            pub signer: Signer<'info>,
             pub system_program: Program<'info, System>,
         }
 
-        #[derive(Accounts)]
-        pub struct Increment<'info> {
-            // `has_one` is the constraint that makes this safe: without it,
-            // anyone could pass someone else's counter and increment it.
-            #[account(
-                mut,
-                seeds = [b"counter", authority.key().as_ref()],
-                bump,
-                has_one = authority,
-            )]
-            pub counter: Account<'info, Counter>,
-            pub authority: Signer<'info>,
-        }
-
-        // `InitSpace` derives the byte count the `space` above adds to the
-        // 8-byte discriminator, so growing this struct cannot silently
-        // under-allocate the account.
         #[account]
-        #[derive(InitSpace)]
-        pub struct Counter {
-            pub authority: Pubkey,
-            pub count: u64,
-        }
-
-        #[error_code]
-        pub enum CounterError {
-            #[msg("The counter cannot go any higher")]
-            Overflow,
+        pub struct NewAccount {
+            data: u64
         }
         """.trimIndent() + "\n",
     ),
+    // Playground: client/src/frameworks/anchor/files/tests/anchor.test.ts
     TemplateFile(
-        "tests/${program.crateName}.ts",
+        "tests/anchor.test.ts",
         """
+        // Mirrors Solana Playground's default Anchor test (tests/anchor.test.ts).
+        // Playground has web3, anchor, BN, assert and pg as globals; outside the
+        // website they are imports, pg.program is anchor.workspace, and
+        // pg.wallet / pg.connection are the provider Anchor.toml configures.
         import * as anchor from "@coral-xyz/anchor";
-        import { Program } from "@coral-xyz/anchor";
+        import { BN, web3 } from "@coral-xyz/anchor";
         import { assert } from "chai";
-        import { ${program.typeName} } from "../target/types/${program.moduleName}";
+        import type { ${program.typeName} } from "../target/types/${program.moduleName}";
 
-        describe("${program.crateName}", () => {
+        describe("Test", () => {
+          // Configure the client to use the cluster in Anchor.toml
           const provider = anchor.AnchorProvider.env();
           anchor.setProvider(provider);
 
-          const program = anchor.workspace.${program.typeName} as Program<${program.typeName}>;
+          const program = anchor.workspace.${program.typeName} as anchor.Program<${program.typeName}>;
 
-          // The same PDA the program derives; deriving it here rather than
-          // storing it is the point of seeding it by the wallet.
-          const [counter] = anchor.web3.PublicKey.findProgramAddressSync(
-            [Buffer.from("counter"), provider.publicKey.toBuffer()],
-            program.programId
-          );
+          it("initialize", async () => {
+            // Generate keypair for the new account
+            const newAccountKp = new web3.Keypair();
 
-          it("creates a counter", async () => {
-            await program.methods
-              .initialize(new anchor.BN(0))
+            // Send transaction
+            const data = new BN(42);
+            // accountsPartial, not accounts: Anchor 0.30+'s typed accounts()
+            // refuses accounts the client resolves itself (system_program),
+            // and Playground's test names every account.
+            const txHash = await program.methods
+              .initialize(data)
               .accountsPartial({
-                counter,
-                payer: provider.publicKey,
-                systemProgram: anchor.web3.SystemProgram.programId,
+                newAccount: newAccountKp.publicKey,
+                signer: provider.publicKey,
+                systemProgram: web3.SystemProgram.programId,
               })
+              .signers([newAccountKp])
               .rpc();
+            console.log(`Use 'solana confirm -v ${'$'}{txHash}' to see the logs`);
 
-            const account = await program.account.counter.fetch(counter);
-            assert.equal(account.count.toNumber(), 0);
-            assert.isTrue(account.authority.equals(provider.publicKey));
-          });
+            // Confirm transaction
+            await provider.connection.confirmTransaction(txHash);
 
-          it("increments it", async () => {
-            await program.methods
-              .increment()
-              .accountsPartial({ counter, authority: provider.publicKey })
-              .rpc();
+            // Fetch the created account
+            const newAccount = await program.account.newAccount.fetch(
+              newAccountKp.publicKey
+            );
 
-            const account = await program.account.counter.fetch(counter);
-            assert.equal(account.count.toNumber(), 1);
+            console.log("On-chain data is:", newAccount.data.toString());
+
+            // Check whether the data on-chain is equal to local 'data'
+            assert(data.eq(newAccount.data));
           });
         });
         """.trimIndent() + "\n",
     ),
+    TemplateFile("client/client.ts", anchorClient()),
     TemplateFile("package.json", anchorPackageJson(program)),
     TemplateFile("tsconfig.json", ANCHOR_TSCONFIG),
     TemplateFile(".gitignore", ANCHOR_GITIGNORE),
@@ -378,6 +353,9 @@ private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateF
  * The section stays `localnet` whatever [cluster] says — it is the map of
  * program name to address, and Anchor writes the deployed addresses of the
  * other clusters into their own sections as they happen.
+ *
+ * `[scripts] client` is what Playground's export writes so `anchor run client`
+ * runs `client/client.ts`, the third file of its default tree.
  */
 private fun anchorToml(program: SolanaProgram, cluster: String): String =
     """
@@ -399,6 +377,55 @@ private fun anchorToml(program: SolanaProgram, cluster: String): String =
 
     [scripts]
     test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+    client = "yarn run ts-node client/*.ts"
+    """.trimIndent() + "\n"
+
+/**
+ * Playground's `client/client.ts` — the same four lines for all three
+ * frameworks — with its globals spelled out. Wrapped in an async function
+ * because the tsconfig Playground exports (`module: commonjs`) has no
+ * top-level `await`.
+ */
+private fun anchorClient(): String =
+    """
+    // Mirrors Solana Playground's default client (client/client.ts); run it with
+    // `anchor run client`. pg.wallet and pg.connection are Playground globals —
+    // here they are the provider Anchor.toml configures.
+    import * as anchor from "@coral-xyz/anchor";
+
+    const provider = anchor.AnchorProvider.env();
+    anchor.setProvider(provider);
+
+    // Client
+    (async () => {
+      console.log("My address:", provider.publicKey.toString());
+      const balance = await provider.connection.getBalance(provider.publicKey);
+      console.log(`My balance: ${'$'}{balance / anchor.web3.LAMPORTS_PER_SOL} SOL`);
+    })();
+    """.trimIndent() + "\n"
+
+/**
+ * The workspace manifest Playground's export writes (and `anchor init` writes),
+ * with `resolver = "2"`, which edition-2021 members want anyway.
+ */
+private val ANCHOR_WORKSPACE_CARGO_TOML =
+    """
+    [workspace]
+    members = ["programs/*"]
+    resolver = "2"
+
+    # Anchor's release profile. `overflow-checks` is not a nicety on chain:
+    # a silent wrap in a balance is how programs lose money, and the cost
+    # of the check is nothing next to the transaction it is inside.
+    [profile.release]
+    overflow-checks = true
+    lto = "fat"
+    codegen-units = 1
+
+    [profile.release.build-override]
+    opt-level = 3
+    incremental = false
+    codegen-units = 1
     """.trimIndent() + "\n"
 
 private fun anchorPackageJson(program: SolanaProgram): String =
@@ -442,26 +469,43 @@ private val ANCHOR_TSCONFIG =
     """.trimIndent() + "\n"
 
 /**
- * Anchor's own ignores plus `test-ledger`, the several-hundred-megabyte
- * directory `anchor test` leaves behind — on a phone that is not a detail.
+ * The ignores Playground's export and `anchor init` both write. `test-ledger`
+ * matters more here than on a laptop: it is the several-hundred-megabyte
+ * directory `anchor test` leaves behind.
  */
 private val ANCHOR_GITIGNORE =
     """
     .anchor
+    .DS_Store
     target
+    **/*.rs.bk
     node_modules
     test-ledger
-    **/*.rs.bk
+    .yarn
     """.trimIndent() + "\n"
 
 // --- Native ------------------------------------------------------------------
 
 /**
- * The smallest thing that deploys: one crate, one entrypoint, no framework.
+ * Solana Playground's Native starter: the hello-world greeting counter.
  *
- * This is the template that already built on the device in 1 min 11 s
- * (docs/SOLANA.md, "What we verified on the device first"), so it is also the
- * fastest way to find out whether a toolchain install worked.
+ * `src/lib.rs` is Playground's byte for byte — an account owned by the
+ * program whose Borsh-encoded `u32` is incremented every time it is greeted.
+ * There is no `declare_id!` in it, and none is added: Playground's Native
+ * program has none, and `chain/ProgramIds.kt` reads a Native program's id
+ * from its keypair (id sync is an Anchor-only step there).
+ *
+ * The manifest is the one Playground's export writes (`native/export.ts`) at
+ * the versions that build here: `solana-program` 2.2 and `borsh` 1 with
+ * `derive`, which the two `#[derive]`s need and borsh 1 no longer turns on
+ * by default. Playground's `tests/native.test.ts` and `client/client.ts` are
+ * TypeScript against `@solana/web3.js`; this scaffold's Test is `cargo test`
+ * (docs/SOLANA.md, "How tests run"), so they are not written — a Node test
+ * with nothing to run it would be a file that cannot pass.
+ *
+ * This is also the fastest build there is (1 min 11 s on the device,
+ * docs/SOLANA.md), so it is the quickest way to find out whether a toolchain
+ * install worked.
  */
 private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
     TemplateFile(
@@ -470,6 +514,7 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
         [package]
         name = "${program.crateName}"
         version = "0.1.0"
+        description = "Native Solana Program"
         edition = "2021"
 
         [lib]
@@ -484,6 +529,7 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
         no-entrypoint = []
 
         [dependencies]
+        borsh = { version = "1.5", features = ["derive"] }
         solana-program = "2.2"
 
         [profile.release]
@@ -492,50 +538,56 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
         codegen-units = 1
         """.trimIndent() + "\n",
     ),
+    // Playground: client/src/frameworks/native/files/src/lib.rs
     TemplateFile(
         "src/lib.rs",
         """
+        use borsh::{BorshDeserialize, BorshSerialize};
         use solana_program::{
             account_info::{next_account_info, AccountInfo},
-            declare_id,
             entrypoint,
             entrypoint::ProgramResult,
             msg,
+            program_error::ProgramError,
             pubkey::Pubkey,
         };
 
-        // Replaced by the address of target/deploy/${program.moduleName}-keypair.json
-        // once `cargo build-sbf` has generated it.
-        declare_id!("${program.programId}");
+        /// Define the type of state stored in accounts
+        #[derive(BorshSerialize, BorshDeserialize, Debug)]
+        pub struct GreetingAccount {
+            /// number of greetings
+            pub counter: u32,
+        }
 
-        #[cfg(not(feature = "no-entrypoint"))]
+        // Declare and export the program's entrypoint
         entrypoint!(process_instruction);
 
-        /// Every native program is this one function: the runtime hands it the
-        /// program's own address, the accounts the transaction named, and the
-        /// instruction's bytes, and anything it wants to say goes to the
-        /// transaction log through `msg!`.
+        // Program entrypoint's implementation
         pub fn process_instruction(
-            program_id: &Pubkey,
-            accounts: &[AccountInfo],
-            instruction_data: &[u8],
+            program_id: &Pubkey, // Public key of the account the hello world program was loaded into
+            accounts: &[AccountInfo], // The account to say hello to
+            _instruction_data: &[u8], // Ignored, all helloworld instructions are hellos
         ) -> ProgramResult {
-            msg!("${program.crateName}: {} byte(s) of instruction data", instruction_data.len());
-            msg!("program {} called with {} account(s)", program_id, accounts.len());
+            msg!("Hello World Rust program entrypoint");
 
-            // `next_account_info` is how a program walks the slice: it returns
-            // NotEnoughAccountKeys rather than panicking when the client sent
-            // fewer accounts than the instruction needs.
+            // Iterating accounts is safer than indexing
             let accounts_iter = &mut accounts.iter();
-            if let Ok(first) = next_account_info(accounts_iter) {
-                msg!(
-                    "first account {} — signer: {}, writable: {}, {} lamports",
-                    first.key,
-                    first.is_signer,
-                    first.is_writable,
-                    first.lamports()
-                );
+
+            // Get the account to say hello to
+            let account = next_account_info(accounts_iter)?;
+
+            // The account must be owned by the program in order to modify its data
+            if account.owner != program_id {
+                msg!("Greeted account does not have the correct program id");
+                return Err(ProgramError::IncorrectProgramId);
             }
+
+            // Increment and store the number of times the account has been greeted
+            let mut greeting_account = GreetingAccount::try_from_slice(&account.data.borrow())?;
+            greeting_account.counter += 1;
+            greeting_account.serialize(&mut *account.data.borrow_mut())?;
+
+            msg!("Greeted {} time(s)!", greeting_account.counter);
 
             Ok(())
         }
@@ -544,8 +596,10 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
     TemplateFile(
         ".gitignore",
         """
+        .DS_Store
         target
         **/*.rs.bk
+        node_modules
         test-ledger
         """.trimIndent() + "\n",
     ),
@@ -554,7 +608,23 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
 // --- Seahorse ----------------------------------------------------------------
 
 /**
- * `seahorse init`: an Anchor project whose program is written in Python.
+ * The program every Seahorse project here is born with: Playground's
+ * `fizzbuzz`, whatever the project is called.
+ *
+ * Playground's Seahorse starter is `src/fizzbuzz.py`, and in Seahorse the
+ * file's stem *is* the program: the compiler names the generated crate
+ * directory after it and passes that name to `anchor build -p`, and
+ * Playground's export (`seahorse/export.ts`) takes the program name from the
+ * file name the same way. Renaming the file after the project would make the
+ * account still called `FizzBuzz` and the seeds still `'fizzbuzz'` in a file
+ * called something else — the program name is part of the program. The
+ * project's own name is the directory it lives in and the README's title.
+ */
+private fun seahorseProgram(program: SolanaProgram): SolanaProgram =
+    SolanaProgram.of("fizzbuzz", program.programId)
+
+/**
+ * `seahorse init`, with Playground's program in it.
  *
  * The layout is the compiler's, not ours. Seahorse reads `programs_py/<name>.py`
  * and *generates* `programs/<name>/src/` from it — only `src/`: the crate
@@ -562,9 +632,8 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
  * one `anchor init` wrote. Two consequences shape this template:
  *
  *  - The program directory and the crate are named after the **module**
- *    (`my_project`), not the crate spelling (`my-project`) the Anchor template
- *    uses, because Seahorse names the directory after the Python file's stem
- *    and passes that same name to `anchor build -p`.
+ *    (`fizzbuzz`), because Seahorse names the directory after the Python
+ *    file's stem and passes that same name to `anchor build -p`.
  *  - A placeholder `src/lib.rs` is scaffolded, and it is replaced wholesale on
  *    the first build. Without it the workspace has a member with no target,
  *    which breaks `cargo metadata` — and with it `anchor keys sync` and
@@ -576,187 +645,202 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
  * `seahorse build` then hands off to `anchor build`, so the `Anchor.toml` and
  * workspace `Cargo.toml` below are the same ones the Anchor template ships.
  */
-private fun seahorseFiles(program: SolanaProgram, cluster: String): List<TemplateFile> = listOf(
-    TemplateFile("Anchor.toml", anchorToml(program, cluster)),
-    TemplateFile(
-        "Cargo.toml",
-        """
-        # programs/${program.moduleName}/src is generated by `seahorse build`
-        # from programs_py/${program.moduleName}.py; the manifest beside it is not.
-        [workspace]
-        members = ["programs/*"]
-        resolver = "2"
+private fun seahorseFiles(project: SolanaProgram, cluster: String): List<TemplateFile> {
+    val program = seahorseProgram(project)
+    return listOf(
+        TemplateFile("Anchor.toml", anchorToml(program, cluster)),
+        TemplateFile("Cargo.toml", ANCHOR_WORKSPACE_CARGO_TOML),
+        TemplateFile(
+            "programs/${program.moduleName}/Cargo.toml",
+            """
+            # The crate `seahorse build` fills in: it regenerates src/ from
+            # programs_py/${program.moduleName}.py on every build and leaves this file alone.
+            [package]
+            name = "${program.moduleName}"
+            version = "0.1.0"
+            description = "Created with Thragg"
+            edition = "2021"
 
-        [profile.release]
-        overflow-checks = true
-        lto = "fat"
-        codegen-units = 1
+            [lib]
+            crate-type = ["cdylib", "lib"]
+            name = "${program.moduleName}"
 
-        [profile.release.build-override]
-        opt-level = 3
-        incremental = false
-        codegen-units = 1
-        """.trimIndent() + "\n",
-    ),
-    TemplateFile(
-        "programs/${program.moduleName}/Cargo.toml",
-        """
-        # The crate `seahorse build` fills in: it regenerates src/ from
-        # programs_py/${program.moduleName}.py on every build and leaves this file alone.
-        [package]
-        name = "${program.moduleName}"
-        version = "0.1.0"
-        description = "Created with Thragg"
-        edition = "2021"
+            [features]
+            default = []
+            cpi = ["no-entrypoint"]
+            no-entrypoint = []
+            no-idl = []
+            no-log-ix-name = []
+            idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
-        [lib]
-        crate-type = ["cdylib", "lib"]
-        name = "${program.moduleName}"
+            [dependencies]
+            anchor-lang = "0.31.1"
+            anchor-spl = "0.31.1"
+            """.trimIndent() + "\n",
+        ),
+        TemplateFile(
+            "programs/${program.moduleName}/src/lib.rs",
+            """
+            // Replaced by `seahorse build`, which generates this whole directory from
+            // programs_py/${program.moduleName}.py. Until then it only gives cargo a
+            // target, so the workspace loads and `anchor keys sync` can run.
+            use anchor_lang::prelude::*;
 
-        [features]
-        default = []
-        cpi = ["no-entrypoint"]
-        no-entrypoint = []
-        no-idl = []
-        no-log-ix-name = []
-        idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+            declare_id!("${program.programId}");
+            """.trimIndent() + "\n",
+        ),
+        // Playground: client/src/frameworks/seahorse/files/src/fizzbuzz.py,
+        // byte for byte but for the id. Seahorse reads `declare_id` from the
+        // Python, so this is the copy the id sync rewrites (chain/ProgramIds.kt).
+        TemplateFile(
+            "programs_py/${program.moduleName}.py",
+            """
+            # fizzbuzz
+            # Built with Seahorse v0.2.0
+            #
+            # On-chain, persistent FizzBuzz!
 
-        [dependencies]
-        anchor-lang = "0.31.1"
-        anchor-spl = "0.31.1"
-        """.trimIndent() + "\n",
-    ),
-    TemplateFile(
-        "programs/${program.moduleName}/src/lib.rs",
-        """
-        // Replaced by `seahorse build`, which generates this whole directory from
-        // programs_py/${program.moduleName}.py. Until then it only gives cargo a
-        // target, so the workspace loads and `anchor keys sync` can run.
-        use anchor_lang::prelude::*;
+            from seahorse.prelude import *
 
-        declare_id!("${program.programId}");
-        """.trimIndent() + "\n",
-    ),
-    TemplateFile(
-        "programs_py/${program.moduleName}.py",
-        """
-        # ${program.displayName}
-        #
-        # A Seahorse program: Python that the Seahorse compiler turns into the
-        # Anchor program under programs/${program.moduleName}/src. Build runs
-        # `seahorse build`, which regenerates that directory and then compiles it.
+            # This is your program's public key and it will update
+            # automatically when you build the project.
+            declare_id('${program.programId}')
 
-        from seahorse.prelude import *
+            class FizzBuzz(Account):
+              fizz: bool
+              buzz: bool
+              n: u64
 
-        declare_id('${program.programId}')
+            @instruction
+            def init(owner: Signer, fizzbuzz: Empty[FizzBuzz]):
+              fizzbuzz.init(payer = owner, seeds = ['fizzbuzz', owner])
 
+            @instruction
+            def do_fizzbuzz(fizzbuzz: FizzBuzz, n: u64):
+              fizzbuzz.fizz = n % 3 == 0
+              fizzbuzz.buzz = n % 5 == 0
+              if not fizzbuzz.fizz and not fizzbuzz.buzz:
+                fizzbuzz.n = n
+              else:
+                fizzbuzz.n = 0
+            """.trimIndent() + "\n",
+        ),
+        TemplateFile("programs_py/seahorse/prelude.py", SEAHORSE_PRELUDE),
+        // Playground: client/src/frameworks/seahorse/files/tests/seahorse.test.ts.
+        // Anchor.toml's `[scripts] test` runs tests/**/*.ts, and mocha with
+        // nothing to match is a failing run, so the suite ships with the
+        // Python. The PDA is derived synchronously: Playground's `async
+        // describe` registers its `it`s after mocha has stopped listening.
+        TemplateFile(
+            "tests/seahorse.test.ts",
+            """
+            // Mirrors Solana Playground's default Seahorse test (tests/seahorse.test.ts).
+            // Playground has web3, anchor, BN, assert and pg as globals; outside the
+            // website they are imports, pg.program is anchor.workspace, and
+            // pg.wallet / pg.connection are the provider Anchor.toml configures.
+            import * as anchor from "@coral-xyz/anchor";
+            import { BN, web3 } from "@coral-xyz/anchor";
+            import { assert } from "chai";
+            import type { ${program.typeName} } from "../target/types/${program.moduleName}";
 
-        class Counter(Account):
-            owner: Pubkey
-            count: u64
+            describe("FizzBuzz", () => {
+              // Configure the client to use the cluster in Anchor.toml
+              const provider = anchor.AnchorProvider.env();
+              anchor.setProvider(provider);
 
+              const program = anchor.workspace.${program.typeName} as anchor.Program<${program.typeName}>;
 
-        @instruction
-        def initialize(owner: Signer, counter: Empty[Counter]):
-            # `Empty[...]` is an account that does not exist yet; `init` creates
-            # it as a PDA at these seeds, paid for by the signer.
-            counter = counter.init(payer = owner, seeds = ['counter', owner])
-            counter.owner = owner.key()
-            counter.count = 0
+              // Generate the fizzbuzz account public key from its seeds
+              const [fizzBuzzAccountPk] = web3.PublicKey.findProgramAddressSync(
+                [Buffer.from("fizzbuzz"), provider.publicKey.toBuffer()],
+                program.programId
+              );
 
+              it("init", async () => {
+                // Send transaction
+                // accountsPartial, not accounts: Anchor 0.30+'s typed accounts()
+                // refuses accounts the client resolves itself (the PDA, the
+                // system program), and Playground's test names them.
+                const txHash = await program.methods
+                  .init()
+                  .accountsPartial({
+                    fizzbuzz: fizzBuzzAccountPk,
+                    owner: provider.publicKey,
+                    systemProgram: web3.SystemProgram.programId,
+                  })
+                  .rpc();
+                console.log(`Use 'solana confirm -v ${'$'}{txHash}' to see the logs`);
 
-        @instruction
-        def increment(owner: Signer, counter: Counter):
-            # An assert is Seahorse's constraint: it becomes a require! in the
-            # generated Rust, and the transaction fails with this message.
-            assert counter.owner == owner.key(), 'This counter is not yours'
-            counter.count += 1
-        """.trimIndent() + "\n",
-    ),
-    TemplateFile("programs_py/seahorse/prelude.py", SEAHORSE_PRELUDE),
-    // The same `[scripts] test` as Anchor's runs `tests/**/*.ts`, and mocha
-    // with nothing to match is a failing run ("No test files found") — so the
-    // scaffold ships the suite for the program above. Seahorse's own `init`
-    // writes one too. The accounts are the instruction's parameters by name;
-    // the system program and rent the generated Rust adds carry fixed
-    // addresses in the IDL, so the client fills them in.
-    TemplateFile(
-        "tests/${program.crateName}.ts",
-        """
-        import * as anchor from "@coral-xyz/anchor";
-        import { Program } from "@coral-xyz/anchor";
-        import { assert } from "chai";
-        import { ${program.typeName} } from "../target/types/${program.moduleName}";
+                // Confirm transaction
+                await provider.connection.confirmTransaction(txHash);
 
-        describe("${program.crateName}", () => {
-          const provider = anchor.AnchorProvider.env();
-          anchor.setProvider(provider);
+                // Fetch the created account
+                const fizzBuzzAccount = await program.account.fizzBuzz.fetch(
+                  fizzBuzzAccountPk
+                );
 
-          const program = anchor.workspace.${program.typeName} as Program<${program.typeName}>;
+                console.log("Fizz:", fizzBuzzAccount.fizz);
+                console.log("Buzz:", fizzBuzzAccount.buzz);
+                console.log("N:", fizzBuzzAccount.n.toString());
+              });
 
-          // The PDA `counter.init(seeds = ['counter', owner])` derives in
-          // programs_py/${program.moduleName}.py, derived here the same way.
-          const [counter] = anchor.web3.PublicKey.findProgramAddressSync(
-            [Buffer.from("counter"), provider.publicKey.toBuffer()],
-            program.programId
-          );
+              it("doFizzbuzz", async () => {
+                // Send transaction
+                const txHash = await program.methods
+                  .doFizzbuzz(new BN(6000))
+                  .accountsPartial({
+                    fizzbuzz: fizzBuzzAccountPk,
+                  })
+                  .rpc();
 
-          it("creates a counter", async () => {
-            await program.methods
-              .initialize()
-              .accountsPartial({ owner: provider.publicKey, counter })
-              .rpc();
+                // Confirm transaction
+                await provider.connection.confirmTransaction(txHash);
 
-            const account = await program.account.counter.fetch(counter);
-            assert.equal(account.count.toNumber(), 0);
-            assert.isTrue(account.owner.equals(provider.publicKey));
-          });
+                // Fetch the fizzbuzz account
+                const fizzBuzzAccount = await program.account.fizzBuzz.fetch(
+                  fizzBuzzAccountPk
+                );
 
-          it("increments it", async () => {
-            await program.methods
-              .increment()
-              .accountsPartial({ owner: provider.publicKey, counter })
-              .rpc();
+                console.log("Fizz:", fizzBuzzAccount.fizz);
+                assert(fizzBuzzAccount.fizz);
 
-            const account = await program.account.counter.fetch(counter);
-            assert.equal(account.count.toNumber(), 1);
-          });
-        });
-        """.trimIndent() + "\n",
-    ),
-    TemplateFile("package.json", anchorPackageJson(program)),
-    TemplateFile("tsconfig.json", ANCHOR_TSCONFIG),
-    TemplateFile(
-        ".gitignore",
-        """
-        .anchor
-        target
-        node_modules
-        test-ledger
-        **/*.rs.bk
-        __pycache__
-        """.trimIndent() + "\n",
-    ),
-    TemplateFile(
-        "README.md",
-        """
-        # ${program.displayName}
+                console.log("Buzz:", fizzBuzzAccount.buzz);
+                assert(fizzBuzzAccount.buzz);
 
-        A Seahorse program. The source is `programs_py/${program.moduleName}.py`;
-        `programs/${program.moduleName}/src` is generated from it on every build
-        and is not the place to edit.
+                console.log("N:", fizzBuzzAccount.n.toString());
+                assert.equal(fizzBuzzAccount.n, 0);
+              });
+            });
+            """.trimIndent() + "\n",
+        ),
+        TemplateFile("client/client.ts", anchorClient()),
+        TemplateFile("package.json", anchorPackageJson(program)),
+        TemplateFile("tsconfig.json", ANCHOR_TSCONFIG),
+        TemplateFile(".gitignore", ANCHOR_GITIGNORE.trimEnd() + "\n__pycache__\n"),
+        TemplateFile(
+            "README.md",
+            """
+            # ${project.displayName}
 
-        ```
-        seahorse build     # Python -> Rust -> .so, via anchor build
-        anchor test
-        ```
+            A Seahorse program — Solana Playground's `fizzbuzz` starter. The source
+            is `programs_py/fizzbuzz.py`; `programs/fizzbuzz/src` is generated from
+            it on every build and is not the place to edit. The program is named
+            after the file, as Seahorse requires, so it stays `fizzbuzz` whatever
+            the project is called.
 
-        `programs_py/seahorse/prelude.py` is only there so the editor can
-        resolve the names — the compiler reads your program's syntax tree and
-        never imports it.
-        """.trimIndent() + "\n",
-    ),
-)
+            ```
+            seahorse build     # Python -> Rust -> .so, via anchor build
+            anchor test
+            anchor run client
+            ```
+
+            `programs_py/seahorse/prelude.py` is only there so the editor can
+            resolve the names — the compiler reads your program's syntax tree and
+            never imports it.
+            """.trimIndent() + "\n",
+        ),
+    )
+}
 
 /**
  * Type stubs for the names a Seahorse program uses.

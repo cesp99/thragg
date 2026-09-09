@@ -162,10 +162,13 @@ fun NewProgramScreen(state: ShellState, modifier: Modifier = Modifier) {
             // "My Project" becoming `my_project` a decision the user watched
             // rather than one they find in Cargo.toml later. Set in the buffer
             // face, because all three of them are identifiers that will appear
-            // in a buffer.
+            // in a buffer. Asked of the framework, because Seahorse's program
+            // is Playground's `fizzbuzz` whatever the project is called
+            // (SolanaTemplates.kt, `seahorseProgram`).
+            val names = framework.programNames(program)
             Text(
-                text = "crate ${program.crateName} · mod ${program.moduleName} · " +
-                    "type ${program.typeName}",
+                text = "crate ${names.crateName} · mod ${names.moduleName} · " +
+                    "type ${names.typeName}",
                 style = MonoSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = MD.space2),

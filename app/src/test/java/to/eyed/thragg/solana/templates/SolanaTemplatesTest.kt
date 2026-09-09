@@ -95,16 +95,121 @@ class SolanaTemplatesTest {
         val anchorToml = files.getValue("Anchor.toml").contents
         val manifest = files.getValue("programs/my-project/Cargo.toml").contents
         val lib = files.getValue("programs/my-project/src/lib.rs").contents
-        val test = files.getValue("tests/my-project.ts").contents
+        val test = files.getValue("tests/anchor.test.ts").contents
 
         assertTrue(anchorToml.contains("my_project = \"${SolanaProgram.PLACEHOLDER_ID}\""))
         assertTrue(manifest.contains("name = \"my-project\""))
         assertTrue(manifest.contains("name = \"my_project\""))
         assertTrue(lib.contains("declare_id!(\"${SolanaProgram.PLACEHOLDER_ID}\")"))
-        assertTrue(lib.contains("pub mod my_project {"))
+        assertTrue(lib.contains("mod my_project {"))
         assertTrue(test.contains("anchor.workspace.MyProject"))
         assertTrue(test.contains("from \"../target/types/my_project\""))
     }
+
+    /**
+     * The point of the templates: a user arriving from Solana Playground opens
+     * the program they know. The files under src/test/resources/playground are
+     * Playground's `client/src/frameworks/<framework>/files/src/` as fetched
+     * on 2026-09-08 (URLs in the docs); the rendered source must equal them
+     * but for the program id and, for Anchor, the module name.
+     */
+    @Test
+    fun programSourcesArePlaygroundsByteForByte() {
+        val anchor = SolanaFramework.Anchor.files(program)
+            .first { it.path == "programs/my-project/src/lib.rs" }.contents
+        assertEquals(
+            playground("anchor-lib.rs")
+                .replace("11111111111111111111111111111111", SolanaProgram.PLACEHOLDER_ID)
+                .replace("mod hello_anchor {", "mod my_project {"),
+            anchor,
+        )
+
+        val native = SolanaFramework.Native.files(program)
+            .first { it.path == "src/lib.rs" }.contents
+        assertEquals(playground("native-lib.rs"), native)
+
+        val seahorse = SolanaFramework.Seahorse.files(program)
+            .first { it.path == "programs_py/fizzbuzz.py" }.contents
+        assertEquals(
+            playground("fizzbuzz.py")
+                .replace("11111111111111111111111111111111", SolanaProgram.PLACEHOLDER_ID),
+            seahorse,
+        )
+    }
+
+    /**
+     * The id sync (chain/ProgramIds.kt) finds `declare_id` by regex and the
+     * Anchor.toml row by the placeholder, so every id the templates write has
+     * to be the one it looks for — Playground's `1111…` would be left alone.
+     */
+    @Test
+    fun everyIdTheTemplatesWriteIsTheSyncsPlaceholder() {
+        for (framework in SolanaFramework.entries) {
+            for (file in framework.files(program)) {
+                assertTrue(file.path, !file.contents.contains("11111111111111111111111111111111"))
+            }
+        }
+    }
+
+    /**
+     * Playground's tests are the model, but its `pg.*` globals and `async
+     * describe` do not exist under mocha; the scaffolded tests must say the
+     * same thing in standard Anchor. This pins the shape the device run
+     * verified (docs/SOLANA.md, "How tests run").
+     */
+    @Test
+    fun testsMirrorPlaygroundsWithoutItsGlobals() {
+        val anchor = SolanaFramework.Anchor.files(program)
+            .first { it.path == "tests/anchor.test.ts" }.contents
+        val seahorse = SolanaFramework.Seahorse.files(program)
+            .first { it.path == "tests/seahorse.test.ts" }.contents
+        for ((name, test) in listOf("anchor" to anchor, "seahorse" to seahorse)) {
+            assertTrue(name, test.startsWith("// Mirrors Solana Playground's default"))
+            assertTrue(name, test.codeLines().none { "pg." in it })
+            assertTrue(name, test.contains("anchor.AnchorProvider.env()"))
+            assertTrue(name, test.contains("import { assert } from \"chai\""))
+            // Playground's `.accounts({...})` names resolvable accounts, which
+            // Anchor 0.30+'s typed accounts() refuses.
+            assertTrue(name, !test.contains(".accounts({"))
+            assertTrue(name, test.contains(".accountsPartial({"))
+            assertTrue(name, test.contains("Use 'solana confirm -v \${txHash}' to see the logs"))
+        }
+        assertTrue(anchor.contains("describe(\"Test\""))
+        assertTrue(anchor.contains("it(\"initialize\""))
+        assertTrue(anchor.contains("new BN(42)"))
+        assertTrue(anchor.contains("assert(data.eq(newAccount.data));"))
+        assertTrue(seahorse.contains("describe(\"FizzBuzz\", () => {"))
+        assertTrue(seahorse.contains("findProgramAddressSync("))
+        assertTrue(seahorse.contains("it(\"init\""))
+        assertTrue(seahorse.contains("it(\"doFizzbuzz\""))
+        assertTrue(seahorse.contains(".doFizzbuzz(new BN(6000))"))
+        assertTrue(seahorse.contains("assert.equal(fizzBuzzAccount.n, 0);"))
+    }
+
+    /** Playground's third default file, runnable through Anchor.toml's `[scripts] client`. */
+    @Test
+    fun theClientScriptShipsWithAScriptToRunIt() {
+        for (framework in listOf(SolanaFramework.Anchor, SolanaFramework.Seahorse)) {
+            val files = framework.files(program).associateBy { it.path }
+            val client = files.getValue("client/client.ts").contents
+            assertTrue(framework.name, client.contains("console.log(\"My address:\""))
+            assertTrue(framework.name, client.contains("LAMPORTS_PER_SOL"))
+            assertTrue(framework.name, client.codeLines().none { "pg." in it })
+            assertTrue(
+                framework.name,
+                files.getValue("Anchor.toml").contents.contains("client = \"yarn run ts-node client/*.ts\""),
+            )
+        }
+    }
+
+    /** The lines that run — the header comments are allowed to name `pg.*`. */
+    private fun String.codeLines(): List<String> =
+        lines().filter { !it.trimStart().startsWith("//") }
+
+    private fun playground(name: String): String =
+        checkNotNull(javaClass.getResourceAsStream("/playground/$name")) { "missing test resource $name" }
+            .bufferedReader().use { it.readText() }
+            .let { if (it.endsWith("\n")) it else it + "\n" }
 
     /** cdylib is the deployable `.so`; the plain lib is what a test links against. */
     @Test
@@ -116,12 +221,16 @@ class SolanaTemplatesTest {
         for (manifest in listOf(anchor, native)) {
             assertTrue(manifest.contains("""crate-type = ["cdylib", "lib"]"""))
         }
-        // The native program is the one verified on the device (docs/SOLANA.md):
-        // solana-program, an entrypoint, and nothing else.
+        // Playground's native starter derives Borsh, and borsh 1 no longer
+        // turns `derive` on by default — a manifest without it is a build
+        // that fails after the toolchain download.
         assertTrue(native.contains("solana-program = "))
+        assertTrue(native.contains("borsh = { version = \"1.5\", features = [\"derive\"] }"))
         val lib = SolanaFramework.Native.files(program).first { it.path == "src/lib.rs" }.contents
         assertTrue(lib.contains("entrypoint!(process_instruction);"))
-        assertTrue(lib.contains("declare_id!(\"${SolanaProgram.PLACEHOLDER_ID}\")"))
+        // No declare_id!, as in Playground: ProgramIds reads a Native id from
+        // the keypair and never syncs a Native lib.rs.
+        assertTrue(!lib.contains("declare_id!"))
     }
 
     /** A silent wrap in a balance is how programs lose money. */
@@ -168,31 +277,40 @@ class SolanaTemplatesTest {
      * Seahorse writes the program's `src/` itself and nothing else, so the
      * scaffold ships the Python, the crate manifest Seahorse never writes,
      * and a placeholder `lib.rs` that gives cargo a target until the first
-     * build replaces it. The directory is the *module* name: Seahorse names
-     * it after the `.py` file's stem, and `anchor build -p` gets that name.
+     * build replaces it. The program is Playground's `fizzbuzz` whatever the
+     * project is called — the `.py` stem *is* the program name in Seahorse,
+     * and the directory, the crate and the Anchor.toml row all follow it.
      */
     @Test
-    fun seahorseScaffoldsPythonAndTheCrateAroundIt() {
+    fun seahorseScaffoldsPlaygroundsFizzbuzzAndTheCrateAroundIt() {
         val files = SolanaFramework.Seahorse.files(program)
         val paths = files.map { it.path }
-        assertTrue("programs_py/my_project.py" in paths)
-        assertTrue("programs/my_project/Cargo.toml" in paths)
-        assertTrue("programs/my_project/src/lib.rs" in paths)
-        assertTrue(paths.none { it.startsWith("programs/my-project/") })
+        assertTrue("programs_py/fizzbuzz.py" in paths)
+        assertTrue("programs/fizzbuzz/Cargo.toml" in paths)
+        assertTrue("programs/fizzbuzz/src/lib.rs" in paths)
+        assertTrue(paths.none { it.contains("my_project") || it.contains("my-project") })
+        assertEquals("programs_py/fizzbuzz.py", SolanaFramework.Seahorse.entryPath(program))
+        assertEquals("fizzbuzz", SolanaFramework.Seahorse.programNames(program).moduleName)
+        assertEquals("my_project", SolanaFramework.Anchor.programNames(program).moduleName)
 
-        val manifest = files.first { it.path == "programs/my_project/Cargo.toml" }.contents
-        assertTrue(manifest.contains("name = \"my_project\""))
+        val manifest = files.first { it.path == "programs/fizzbuzz/Cargo.toml" }.contents
+        assertTrue(manifest.contains("name = \"fizzbuzz\""))
         assertTrue(manifest.contains("anchor-spl"))
         assertTrue(manifest.contains("idl-build"))
-        val lib = files.first { it.path == "programs/my_project/src/lib.rs" }.contents
+        val lib = files.first { it.path == "programs/fizzbuzz/src/lib.rs" }.contents
         assertTrue(lib.contains("declare_id!(\"${SolanaProgram.PLACEHOLDER_ID}\")"))
         assertTrue(lib.contains("Replaced by `seahorse build`"))
+        // The id sync rewrites this row and the Python's declare_id together.
+        val toml = files.first { it.path == "Anchor.toml" }.contents
+        assertTrue(toml.contains("fizzbuzz = \"${SolanaProgram.PLACEHOLDER_ID}\""))
         // Anchor.toml's `[scripts] test` runs tests/**/*.ts; an empty glob is a
         // failing `anchor test`, so the suite ships with the Python.
-        val suite = files.first { it.path == "tests/my-project.ts" }.contents
-        assertTrue(suite.contains("../target/types/my_project"))
-        assertTrue(suite.contains(".initialize()"))
+        val suite = files.first { it.path == "tests/seahorse.test.ts" }.contents
+        assertTrue(suite.contains("../target/types/fizzbuzz"))
+        assertTrue(suite.contains("anchor.workspace.Fizzbuzz"))
         assertTrue(suite.contains("owner: provider.publicKey"))
+        // The project's own name survives where it is a title, not an identifier.
+        assertTrue(files.first { it.path == "README.md" }.contents.startsWith("# My Project\n"))
     }
 
     /** Interpolating a user-supplied name into a path must not escape the project. */
