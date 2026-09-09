@@ -38,6 +38,13 @@ import to.eyed.thragg.ui.shell.SessionRestore
 import to.eyed.thragg.ui.shell.ShellState
 import to.eyed.thragg.ui.shell.ThraggShell
 import to.eyed.thragg.ui.shell.code.CodeState
+import to.eyed.thragg.ui.workspace.Notifications
+
+/**
+ * One key for every agent failure the watcher reports, so a thread that fails
+ * twice replaces its own toast rather than stacking a second one.
+ */
+private const val AGENT_PROBLEM_KEY = "agent-problem"
 
 class MainActivity : ComponentActivity() {
 
@@ -87,6 +94,19 @@ class MainActivity : ComponentActivity() {
         // notification visible. Cheap, and idempotent.
         TerminalService.ensureChannel(this)
         AgentNotifier.ensureChannel(this)
+        // The agent's background watcher, and the only place it can be
+        // started from: it has to outlive the Agent destination's
+        // composition, because the case it exists for is a permission parked
+        // while the panel is *not* on screen (AgentSessions.watch). Started
+        // here and never stopped — it is one 500 ms poll on the sessions'
+        // own IO scope, and it is a no-op with no active thread. Without this
+        // call the whole watcher was dead code and a blocked turn notified
+        // nobody, indefinitely (measured 2026-09-08).
+        AgentSessions.watch(applicationContext)
+        // …and where the failures it sees go. `core` cannot import the
+        // workspace's toast stack, so the hook is filled from here, once, for
+        // the same reason the seams below are.
+        AgentSessions.onProblem = { message -> Notifications.error(message, key = AGENT_PROBLEM_KEY) }
         // The Agent destination's seams — `[ Fix with agent ]` on a failed
         // build and New program's "open a thread afterwards". Both are checked
         // by *other* screens before they navigate to Agent, so registering

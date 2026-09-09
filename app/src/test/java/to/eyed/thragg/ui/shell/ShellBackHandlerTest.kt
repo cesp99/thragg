@@ -52,16 +52,35 @@ class ShellBackHandlerTest {
         assertEquals(BackStep.HideIme, backStep(gate.copy(imeVisible = true)))
     }
 
-    /** The shell reads the gate off its own state: Setup on top, toolchain out. */
+    /**
+     * The shell reads the gate off its own state — and the state is the
+     * *takeover the bootstrap put up*, not a question about the toolchain.
+     *
+     * This assertion changed on 2026-09-09 and the old one is the bug (B-09,
+     * P-02): while the gate was `Setup on top && !toolchainReady`, removing
+     * the toolchain from Settings → Toolchain flipped that page into a gate
+     * with the user standing on it — no back arrow, no Close, no nav bar,
+     * back resolving to LeaveApp — and, the other way round, the gate stopped
+     * being a gate the instant the install finished, re-rendering a new
+     * phone's first screen as a drill page with Remove under Close.
+     */
     @Test
-    fun `the gate is Setup on top with no toolchain, and nothing else`() {
+    fun `the gate is the takeover the bootstrap put up, and nothing else`() {
         val state = ShellState()
         assertFalse(state.isGated)
         state.gate()
         assertTrue(state.isGated)
         assertEquals(BackStep.LeaveApp, backStep(state.backContext(imeVisible = false)))
-        // The same route with the toolchain in is a page like any other.
+        // Finishing the install does not open the gate; pressing Continue does.
         state.toolchainReady = true
+        assertTrue(state.isGated)
+        assertTrue(state.pop())
+        assertFalse(state.isGated)
+        // And the same route reached from Settings is a page like any other,
+        // with or without a toolchain behind it.
+        state.push(Route.Settings)
+        state.push(Route.Setup)
+        state.toolchainReady = false
         assertFalse(state.isGated)
         assertEquals(BackStep.PopRoute, backStep(state.backContext(imeVisible = false)))
     }

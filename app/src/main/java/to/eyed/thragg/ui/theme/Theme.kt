@@ -1,14 +1,22 @@
 package to.eyed.thragg.ui.theme
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.core.AppSettings
@@ -89,6 +97,28 @@ fun ThraggTheme(
     // MaterialBridge.kt, where a host test can walk all eleven bundled themes
     // through them without a Compose runtime.
     val palette = remember(theme) { theme.palette() }
+    // The status bar and the gesture handle are drawn by the *system*, over
+    // our background, and nothing was telling it which way round that
+    // background is. `enableEdgeToEdge()` runs once in `MainActivity` with
+    // the default auto style, which follows the SYSTEM's dark mode — so on a
+    // phone in dark mode showing Ayu Light the clock and the icons stayed
+    // white on white and simply disappeared (measured over the clock strip:
+    // min 252 / max 255, against 40 / 255 on a dark theme; s5).
+    //
+    // Driven from the resolved theme instead, in a SideEffect so the window
+    // is touched after the frame that changed the theme has been applied and
+    // never during composition.
+    val view = LocalView.current
+    val darkIcons = usesDarkSystemBarIcons(palette.scheme.background)
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = view.context.activity()?.window ?: return@SideEffect
+            WindowInsetsControllerCompat(window, view).apply {
+                isAppearanceLightStatusBars = darkIcons
+                isAppearanceLightNavigationBars = darkIcons
+            }
+        }
+    }
     // Zed's `reduce_motion`, answered once for every widget that moves —
     // reading the system's animator scale per animation would be a
     // ContentResolver query per frame and could disagree with itself.
@@ -138,4 +168,33 @@ fun ThraggTheme(
             content = content,
         )
     }
+}
+
+/**
+ * Whether the system bars must draw their icons **dark** — that is, whether
+ * the app's own background behind them is light.
+ *
+ * A pure function over the one colour the bars sit on, so the rule is a thing
+ * a host test pins across all eleven bundled themes rather than a boolean
+ * buried in a SideEffect. The threshold is relative luminance at 0.5, and no
+ * bundled theme is anywhere near it — SystemBarIconsTest pins both halves:
+ * every theme asks for the icons its own appearance needs, and every one of
+ * them sits clear of the line.
+ */
+internal fun usesDarkSystemBarIcons(background: Color): Boolean = background.luminance() > 0.5f
+
+/**
+ * The activity behind a composition's context.
+ *
+ * `LocalView.current.context` is not the activity: Compose hands out a
+ * `ContextThemeWrapper` around it, so the obvious cast is null at run time and
+ * the bars would never be told anything. Walked rather than cast.
+ */
+private fun Context.activity(): Activity? {
+    var context: Context? = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
 }
