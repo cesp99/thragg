@@ -29,7 +29,12 @@ import kotlin.coroutines.coroutineContext
  *
  *  1. **Inspect** the program id. Fresh, upgrade, or one of the three ways
  *     an id is unusable — closed ids are the one that would otherwise cost a
- *     buffer's rent to discover.
+ *     buffer's rent to discover. Then, for an upgrade the *wallet* has to
+ *     sign, **ask Seed Vault to authorize before anything is spent**, and
+ *     **adopt** the buffer an earlier attempt left, when its bytes are this
+ *     artifact's: the two failure modes that cost the most are a nine-minute
+ *     upload thrown away because the wallet said no at the end, and a retry
+ *     that pays for the same upload twice.
  *  2. **Fund the deploy key.** Every buffer write is a signature, and Mobile
  *     Wallet Adapter prompts for every signing round, so a few hundred writes
  *     cannot be the wallet's. They are the deploy key's, and the deploy key
@@ -47,10 +52,11 @@ import kotlin.coroutines.coroutineContext
  *     which is what makes that safe.
  *  5. **Deploy or upgrade.** A fresh deploy creates the 36-byte program
  *     account and deploys into it in one transaction (the loader does not
- *     create it), reserving twice the ELF as `max_data_len` so the next
- *     build has room; an upgrade that has outgrown its programdata extends
- *     it first. A fresh deploy and an upgrade owned by the deploy key are
- *     signed locally. An upgrade whose authority is the wallet hands the
+ *     create it), reserving the ELF's own length as `max_data_len`
+ *     ([Loader.MAX_DATA_LEN_FACTOR] is 1, as the CLI's default is today); an
+ *     upgrade that has outgrown its programdata extends it first, and pays
+ *     the extension's rent, which the estimate now names. A fresh deploy and
+ *     an upgrade owned by the deploy key are signed locally. An upgrade whose authority is the wallet hands the
  *     buffer to the wallet first, then asks it to sign the Upgrade — the
  *     wallet first, the deploy key after, our RPC sends.
  *  6. **Hand the upgrade authority to Seed Vault** when it is connected, so
@@ -117,9 +123,24 @@ private class DeploySession private constructor(
     private val programId: Pubkey get() = programKeypair.publicKey
     private val chunks: List<Pair<Int, ByteArray>> by lazy { Loader.chunks(elf) }
 
-    /** Set the moment the create-buffer transaction is signed; cleared once the buffer has been drained. */
+    /**
+     * The buffer this deploy is uploading into: set the moment the
+     * create-buffer transaction is signed, or the moment an earlier attempt's
+     * buffer is adopted ([adoptBuffer]). A [Pubkey] and not the [Keypair],
+     * because the buffer's key signs exactly one transaction — its own
+     * CreateAccount — and every later instruction is signed by the buffer's
+     * *authority*. That is what makes a resume possible at all: the key that
+     * was generated in memory nine minutes ago is not needed to finish the
+     * job it started.
+     */
     @Volatile
-    private var buffer: Keypair? = null
+    private var bufferKey: Pubkey? = null
+
+    /** Who may write to [bufferKey] and hand it on: the deploy key, or the wallet after step 5. */
+    private var bufferAuthority: Pubkey? = null
+
+    /** Chunks already on the adopted buffer, byte for byte; null when the buffer is this run's. */
+    private var alreadyWritten: BooleanArray? = null
 
     @Volatile
     private var bufferDrained = false
@@ -152,7 +173,9 @@ private class DeploySession private constructor(
             }
         )
         val mode = inspect()
-        fund(mode)
+        authorizeUpfront(mode)
+        val resumed = adoptBuffer(mode)
+        fund(mode, resumed)
         createBuffer()
         writeChunks()
         val (signature, authority) = finalise(mode)
@@ -168,15 +191,21 @@ private class DeploySession private constructor(
                 projectRoot = project.root,
             ),
         )
-        buffer?.let { OpenBuffers.remove(app, it.publicKey.base58) }
+        bufferKey?.let { OpenBuffers.remove(app, it.base58) }
         sweep()
         return "Program Id: ${programId.base58} · signature $signature · ${cluster.explorerAddress(programId.base58)}"
     }
 
-    /** The line a failure or a cancellation appends once a buffer exists and has not been drained. */
+    /**
+     * The line a failure or a cancellation appends once a buffer exists and
+     * has not been drained. It says the upload is not lost: the next deploy
+     * of the same artifact adopts this buffer ([adoptBuffer]) instead of
+     * paying its rent and its nine minutes again.
+     */
     fun bufferNote(): String? {
-        val open = buffer?.takeUnless { bufferDrained } ?: return null
-        return "Buffer ${open.publicKey.base58} holds ${sol(bufferRent)} — Settings > Wallet can reclaim it"
+        val open = bufferKey?.takeUnless { bufferDrained } ?: return null
+        return "Buffer ${open.base58} holds ${sol(bufferRent)} — deploying this artifact again reuses it " +
+            "rather than uploading afresh; Settings > Wallet can reclaim it instead"
     }
 
     // ---- 1. inspect ---------------------------------------------------------------
@@ -226,27 +255,154 @@ private class DeploySession private constructor(
         }
     }
 
+    // ---- 1b. authorize, before anything is spent ------------------------------------
+
+    /**
+     * A wallet-authority upgrade asks Seed Vault to authorize **now**, before
+     * the buffer and its nine minutes of writes.
+     *
+     * Measured twice on the Seeker 2026-09-08: both upgrades wrote all 186
+     * chunks (8m38s and 9m20s) and only then said "Asking Seed Vault to sign
+     * the upgrade" — one failed because the dApp Store was updating the
+     * wallet app, the other because the prompt was not answered in time, and
+     * each left a 0.9532 SOL buffer behind (QA G-20). The authorization is
+     * knowable in seconds and it is the one precondition the upload cannot
+     * supply, so it is checked first. With a live auth token this is silent
+     * (MWA re-authorizes without a prompt); without one it raises the connect
+     * sheet here, where nothing has been spent yet.
+     *
+     * A deploy or an upgrade the deploy key signs needs no wallet, and asks
+     * for none.
+     */
+    private suspend fun authorizeUpfront(mode: Mode) {
+        val upgrade = mode as? Mode.Upgrade ?: return
+        if (!upgrade.byWallet) return
+        val expected = upgrade.authority
+        onLine(
+            "Checking Seed Vault ${short(expected)} still authorizes Thragg on ${cluster.display} " +
+                "before uploading · keep Thragg on screen if it asks"
+        )
+        val answered = withContext(Dispatchers.Main) { SeedVaultWallet.connect(app, cluster) }
+        val address = answered.getOrElse { why ->
+            throw ChainException(
+                "${ChainSigning.readable(why)} — only Seed Vault ${short(expected)} can sign this upgrade, " +
+                    "so nothing was uploaded and nothing was spent. Reconnect it in Settings, under Wallet, and deploy again.",
+                why,
+            )
+        }
+        if (address != expected.base58) {
+            throw ChainException(
+                "Seed Vault is connected as ${Base58.short(address)}, but ${short(programId)} on ${cluster.display} " +
+                    "can only be upgraded by ${short(expected)} — nothing was uploaded. " +
+                    "Switch the wallet's account, or deploy under a new id."
+            )
+        }
+        onLine("Seed Vault ${short(expected)} authorizes Thragg on ${cluster.display}")
+    }
+
+    // ---- 1c. adopt an earlier attempt's buffer ---------------------------------------
+
+    /** A buffer from an earlier attempt that this run can finish instead of re-uploading. */
+    private class Resumable(
+        val key: Pubkey,
+        val authority: Pubkey,
+        val lamports: Long,
+        /** Per chunk: whether the buffer already holds exactly those bytes. */
+        val written: BooleanArray,
+    ) {
+        val done: Int get() = written.count { it }
+        val whole: Boolean get() = written.all { it }
+    }
+
+    /**
+     * The buffer an earlier attempt left for this program, when its bytes are
+     * this artifact's.
+     *
+     * A failed upgrade used to strand its rent AND its upload: the record in
+     * `OpenBuffers` was only ever read by Settings, so the retry created a
+     * second buffer and wrote all 186 chunks again — 0.95 SOL and nine
+     * minutes each time (QA G-20). Nothing about the buffer needs the keypair
+     * that created it, so a later run can simply continue: it is the
+     * *authority* that writes, hands the buffer over and upgrades, and that
+     * is the deploy key or the wallet, both of which are still here.
+     *
+     * The account is compared, not trusted: same owner, same size, same
+     * bytes. Chunks that already match are not written again, and a buffer
+     * whose authority has already moved to the wallet — the state the two
+     * failed upgrades ended in — is adopted only when it is whole, because
+     * from that point this phone cannot write to it. Anything else is left
+     * alone for Reclaim; a record whose account is gone is forgotten.
+     */
+    private suspend fun adoptBuffer(mode: Mode): Resumable? {
+        val records = runCatching { OpenBuffers.all(app) }.getOrDefault(emptyList())
+            .filter { it.cluster == cluster && it.programId == programId.base58 }
+        if (records.isEmpty()) return null
+        val walletAuthority = (mode as? Mode.Upgrade)?.takeIf { it.byWallet }?.authority
+        val space = (Loader.BUFFER_HEADER + elf.size).toLong()
+        for (record in records.asReversed()) {
+            coroutineContext.ensureActive()
+            val key = Pubkey.ofOrNull(record.address) ?: continue
+            val read = runCatching { pacer.run { rpc.getAccountInfo(record.address) } }
+            val info = read.getOrNull()
+            if (info == null) {
+                // A read that succeeded and found nothing is a record for an
+                // account that is gone; a read that failed says nothing.
+                if (read.isSuccess) runCatching { OpenBuffers.remove(app, record.address) }
+                continue
+            }
+            if (info.owner != Loader.PROGRAM_ID || info.space != space) continue
+            val authority = (Loader.parse(info.data) as? Loader.State.Buffer)?.authority ?: continue
+            val ours = authority == payer
+            val theirs = walletAuthority != null && authority == walletAuthority
+            if (!ours && !theirs) continue
+            val written = Loader.writtenChunks(info.data, chunks)
+            if (!ours && !written.all { it }) continue
+            val resumable = Resumable(key, authority, info.lamports, written)
+            bufferKey = key
+            bufferAuthority = authority
+            alreadyWritten = written
+            bufferRent = info.lamports
+            onLine(
+                when {
+                    resumable.whole ->
+                        "Buffer ${short(key)} from an earlier attempt already holds this artifact — " +
+                            "reusing it, ${sol(info.lamports)} of rent and ${chunks.size} writes saved"
+                    resumable.done > 0 ->
+                        "Buffer ${short(key)} from an earlier attempt holds ${resumable.done} of ${chunks.size} " +
+                            "chunks of this artifact — reusing it and writing the rest"
+                    else ->
+                        "Buffer ${short(key)} from an earlier attempt is the right size and still this phone's to " +
+                            "write — reusing it, ${sol(info.lamports)} of rent saved"
+                }
+            )
+            return resumable
+        }
+        return null
+    }
+
     // ---- 2. fund ------------------------------------------------------------------
 
-    private suspend fun fund(mode: Mode) {
+    private suspend fun fund(mode: Mode, resumed: Resumable?) {
         val upgrade = mode is Mode.Upgrade
-        bufferRent = rent(Loader.BUFFER_HEADER + elf.size)
-        // Fresh: the programdata at its reserved size. Upgrade: only what an
-        // extension adds — the rent the grown account needs, less what the
-        // account already holds — and nothing when the ELF fits.
-        val programDataRent = when (mode) {
-            Mode.Fresh -> rent((Loader.PROGRAMDATA_HEADER + Loader.maxDataLen(elf.size)).toInt())
-            is Mode.Upgrade ->
-                if (mode.grow > 0) (rent(Loader.PROGRAMDATA_HEADER + elf.size) - mode.status.reclaimable).coerceAtLeast(0L) else 0L
-        }
-        programRent = if (upgrade) 0L else rent(Loader.PROGRAM_SIZE)
-        val estimate = Loader.CostEstimate(
-            bufferRent = bufferRent,
-            programDataRent = programDataRent,
-            programRent = programRent,
-            fees = Loader.LAMPORTS_PER_SIGNATURE * (chunks.size + 5),
+        // The account the cluster already has, so an upgrade's ExtendProgram
+        // is priced here exactly as the Deploy sheet prices it: one
+        // [Loader.estimateDeploy] for both, quoted over the cluster's own
+        // rent for the sizes it names (QA G-21 — this used to be inline
+        // arithmetic here and a zero on the sheet).
+        val existing = (mode as? Mode.Upgrade)?.let { Loader.Existing(it.status.dataLen, it.status.reclaimable) }
+        val quotes = HashMap<Int, Long>()
+        for (size in Loader.rentSizes(elf.size, upgrade, existing)) quotes[size] = rent(size)
+        val estimate = Loader.estimateDeploy(elf.size, upgrade, { quotes.getValue(it) }, existing)
+        bufferRent = resumed?.lamports ?: estimate.bufferRent
+        programRent = estimate.programRent
+        // What an earlier attempt already paid for is not asked for twice:
+        // the buffer's rent is on chain, and so are the writes that landed.
+        val outstanding = Loader.outstanding(
+            estimate,
+            bufferAlreadyPaid = resumed != null,
+            writesAlreadyLanded = resumed?.done ?: 0,
         )
-        val required = estimate.total + estimate.total / 10
+        val required = Loader.withMargin(outstanding)
         var balance = balanceOf(payer)
         if (balance >= required) {
             onLine("Deploy key ${short(payer)} holds ${sol(balance)} · needs about ${sol(required)}")
@@ -368,26 +524,63 @@ private class DeploySession private constructor(
             // deploy key money (PowFaucet.FaucetEmpty). The wallet is the
             // remedy on devnet too, and it is one prompt: ask for the whole
             // gap rather than the miner's bootstrap.
-            val gap = (required - balanceOf(payer)).coerceAtLeast(0L)
-            if (gap == 0L) return
-            if (from == null) {
-                throw ChainException(
-                    "${PowFaucet.EMPTY} Connect Seed Vault in Settings, under Wallet, and top up the deploy key " +
-                        "${payer.base58} with ${sol(gap)}.",
-                    e,
-                )
-            }
-            onLine("${PowFaucet.EMPTY} Asking Seed Vault for the difference instead")
-            walletTransfer(from, gap)
-            onLine("Deploy key now holds ${sol(balanceOf(payer))}")
+            askWallet(from, required, balance, PowFaucet.EMPTY, e)
         } catch (e: Exception) {
-            val held = runCatching { balanceOf(payer) }.getOrDefault(balance)
-            throw ChainException(
-                "Deploy key ${payer.base58} holds ${sol(held)} and needs ${sol(required)} on ${cluster.display}. " +
-                    "${ChainSigning.readable(e)} Send ${sol((required - held).coerceAtLeast(0L))} to ${payer.base58} and deploy again.",
-                e,
-            )
+            // Anything else the miner ended on — the endpoint refusing claims,
+            // nothing landing for minutes — leaves the key wherever it got to,
+            // and the wallet is still the way to close the gap. Devnet used to
+            // be the one cluster whose funding step had no wallet fallback at
+            // all (QA B-07); it now has the same one testnet does.
+            askWallet(from, required, balance, "Mining did not finish: ${ChainSigning.readable(e)}", e)
         }
+    }
+
+    /**
+     * Close what is left of the gap from the wallet, or fail saying what the
+     * miner said and what to send by hand. Returns quietly when the key is
+     * already covered — a mining session that ended badly may still have
+     * landed everything that was needed.
+     */
+    private suspend fun askWallet(from: Pubkey?, required: Long, fallback: Long, why: String, cause: Exception) {
+        // A balance read that fails falls back to the last one known rather
+        // than to zero: asking the wallet for the whole requirement when the
+        // key may already hold most of it is real money on the wrong cluster.
+        val held = runCatching { balanceOf(payer) }.getOrDefault(fallback)
+        val gap = (required - held).coerceAtLeast(0L)
+        if (gap == 0L) {
+            onLine("$why · the deploy key already holds ${sol(held)}")
+            return
+        }
+        var walletNote = ""
+        if (from != null) {
+            onLine("$why Asking Seed Vault for the difference instead")
+            try {
+                walletTransfer(from, gap)
+                val now = balanceOf(payer)
+                onLine("Deploy key now holds ${sol(now)}")
+                if (now >= required) return
+                walletNote = " Seed Vault sent less than the gap."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val note = ChainSigning.readable(e)
+                onLine("The wallet transfer failed: $note")
+                walletNote = " Seed Vault: $note."
+            }
+        }
+        throw ChainException(
+            "Deploy key ${payer.base58} holds ${sol(held)} and needs ${sol(required)} on ${cluster.display}. " +
+                "$why$walletNote " +
+                (
+                    if (from == null) {
+                        "Connect Seed Vault in Settings, under Wallet, or send "
+                    } else {
+                        "Send "
+                    }
+                    ) +
+                "${sol(gap)} to ${payer.base58} and deploy again.",
+            cause,
+        )
     }
 
     /**
@@ -412,6 +605,9 @@ private class DeploySession private constructor(
 
     private suspend fun createBuffer() {
         coroutineContext.ensureActive()
+        // An adopted buffer is already on chain, already paid for, and its
+        // record is already in OpenBuffers (adoptBuffer).
+        if (bufferKey != null) return
         val keypair = Keypair.generate()
         val space = (Loader.BUFFER_HEADER + elf.size).toLong()
         val blockhash = pacer.run { rpc.getLatestBlockhash() }
@@ -428,8 +624,11 @@ private class DeploySession private constructor(
             .withSignature(payer, deployKey.sign(bytes))
             .withSignature(keypair.publicKey, keypair.sign(bytes))
         // Recorded before the send: from here on the rent is on chain, or
-        // may be, and the record is the only way back to it.
-        buffer = keypair
+        // may be, and the record is the only way back to it — for Reclaim,
+        // and for the next attempt, which continues this upload rather than
+        // starting a second one (adoptBuffer).
+        bufferKey = keypair.publicKey
+        bufferAuthority = payer
         OpenBuffers.add(
             app,
             OpenBuffer(
@@ -448,17 +647,31 @@ private class DeploySession private constructor(
     // ---- 4. writes ----------------------------------------------------------------
 
     private suspend fun writeChunks() {
-        val bufferKey = checkNotNull(buffer).publicKey
+        val bufferKey = checkNotNull(this.bufferKey)
         val total = chunks.size
-        val confirmed = BooleanArray(total)
+        val confirmed = alreadyWritten?.copyOf() ?: BooleanArray(total)
         val lastError = AtomicReference<String?>(null)
-        var pending: List<Int> = chunks.indices.toList()
-        onLine("Writing $total chunks of ${Loader.writeChunkSize()} bytes")
+        var pending: List<Int> = chunks.indices.filter { !confirmed[it] }
+        if (pending.isEmpty()) {
+            onLine("All $total chunks are on the buffer already — nothing to upload")
+            return
+        }
+        check(bufferAuthority == payer) {
+            "The buffer's authority is ${bufferAuthority?.base58} — the deploy key cannot write to it"
+        }
+        onLine(
+            if (pending.size == total) {
+                "Writing $total chunks of ${Loader.writeChunkSize()} bytes"
+            } else {
+                "Writing the ${pending.size} chunks of $total this buffer is missing"
+            }
+        )
         for (round in 1..WRITE_ROUNDS) {
             coroutineContext.ensureActive()
             if (round > 1) onLine("Resending ${pending.size} chunks (round $round of $WRITE_ROUNDS)")
             val sent = ArrayList<Sent>(pending.size)
-            for (batch in pending.chunked(WRITE_BATCH)) {
+            val batches = pending.chunked(WRITE_BATCH)
+            for (batch in batches) {
                 coroutineContext.ensureActive()
                 val blockhash = pacer.run { rpc.getLatestBlockhash() }
                 val results = coroutineScope {
@@ -484,6 +697,13 @@ private class DeploySession private constructor(
                     }.awaitAll()
                 }
                 sent.addAll(results.filterNotNull())
+                // The endpoint's rate limit makes signing and sending a batch
+                // of forty about fifty seconds, so a 186-chunk artifact spent
+                // four and a half minutes here with nothing to show for it —
+                // the "Writing n/total" lines below only start once the first
+                // statuses come back (QA P-17). One line per batch is one a
+                // minute, which is what the log island wants.
+                if (batches.size > 1) onLine("Signed and sent ${sent.size}/${pending.size} chunks")
             }
             if (sent.isEmpty()) {
                 throw ChainException("Could not send any of the ${pending.size} chunks" + lastError.get()?.let { " · $it" }.orEmpty())
@@ -551,7 +771,7 @@ private class DeploySession private constructor(
     /** The deploy or upgrade signature, and who holds the upgrade authority afterwards. */
     private suspend fun finalise(mode: Mode): Pair<String, Pubkey> {
         coroutineContext.ensureActive()
-        val bufferKey = checkNotNull(buffer).publicKey
+        val bufferKey = checkNotNull(this.bufferKey)
         return when (mode) {
             Mode.Fresh -> {
                 val programData = Pda.programDataAddress(programId)
@@ -582,26 +802,71 @@ private class DeploySession private constructor(
                     signature to handOver(programData)
                 } else {
                     val authority = mode.authority
-                    onLine("Handing the buffer to Seed Vault ${short(authority)} so it can sign the upgrade")
-                    sendLocal(listOf(Loader.setBufferAuthority(bufferKey, payer, authority)), signers = listOf(deployKey))
-                    OpenBuffers.add(
-                        app,
-                        OpenBuffer(bufferKey.base58, cluster, authority.base58, System.currentTimeMillis(), programId.base58),
-                    )
-                    // The wallet is launched from the activity, and only
-                    // once it is resumed: a deploy watched from the
-                    // notification shade stalls here until the app is back.
-                    onLine("Asking Seed Vault to sign the upgrade · keep Thragg on screen while it answers")
-                    val signature = ChainSigning.signAndSend(
-                        app, cluster, rpc, pacer, payer,
-                        listOf(Loader.upgrade(programData, programId, bufferKey, authority, authority)),
-                        local = listOf(deployKey), wallet = authority,
-                    )
+                    // Already handed over by the attempt this run resumed:
+                    // doing it twice would be refused, and the buffer is
+                    // exactly where it needs to be.
+                    if (bufferAuthority != authority) {
+                        onLine("Handing the buffer to Seed Vault ${short(authority)} so it can sign the upgrade")
+                        sendLocal(listOf(Loader.setBufferAuthority(bufferKey, payer, authority)), signers = listOf(deployKey))
+                        bufferAuthority = authority
+                        OpenBuffers.add(
+                            app,
+                            OpenBuffer(bufferKey.base58, cluster, authority.base58, System.currentTimeMillis(), programId.base58),
+                        )
+                    }
+                    val signature = signUpgrade(programData, bufferKey, authority)
                     bufferDrained = true
                     onLine("Upgraded · ${cluster.explorerTx(signature)}")
                     signature to authority
                 }
             }
+        }
+    }
+
+    /**
+     * The wallet's signature on the Upgrade, asked for once and then once
+     * more after re-authorizing.
+     *
+     * The wallet is launched from the activity, and only once it is resumed:
+     * a deploy watched from the notification shade stalls here until the app
+     * is back. And the authorization can go missing between [authorizeUpfront]
+     * and this moment — on 2026-09-08 the dApp Store updated
+     * `com.solanamobile.wallet` mid-run and took Thragg's with it — so a
+     * refusal here re-requests it inline and asks again rather than ending a
+     * deploy that has everything else it needs. The buffer is untouched
+     * either way: a second failure leaves it whole and the next run adopts it.
+     */
+    private suspend fun signUpgrade(programData: Pubkey, bufferKey: Pubkey, authority: Pubkey): String {
+        val instructions = listOf(Loader.upgrade(programData, programId, bufferKey, authority, authority))
+        onLine("Asking Seed Vault to sign the upgrade · keep Thragg on screen while it answers")
+        return try {
+            ChainSigning.signAndSend(
+                app, cluster, rpc, pacer, payer, instructions,
+                local = listOf(deployKey), wallet = authority,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onLine("Seed Vault did not sign: ${ChainSigning.readable(e)} · asking it to authorize Thragg again")
+            val again = withContext(Dispatchers.Main) { SeedVaultWallet.connect(app, cluster) }
+            val address = again.getOrElse { why ->
+                throw ChainException(
+                    "${ChainSigning.readable(e)} Re-authorizing failed too: ${ChainSigning.readable(why)}",
+                    e,
+                )
+            }
+            if (address != authority.base58) {
+                throw ChainException(
+                    "Seed Vault came back as ${Base58.short(address)}, which does not hold this program's " +
+                        "upgrade authority (${short(authority)})",
+                    e,
+                )
+            }
+            onLine("Seed Vault authorized Thragg again · asking for the signature once more")
+            ChainSigning.signAndSend(
+                app, cluster, rpc, pacer, payer, instructions,
+                local = listOf(deployKey), wallet = authority,
+            )
         }
     }
 

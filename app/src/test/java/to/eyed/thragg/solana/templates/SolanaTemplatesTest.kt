@@ -229,8 +229,14 @@ class SolanaTemplatesTest {
         val lib = SolanaFramework.Native.files(program).first { it.path == "src/lib.rs" }.contents
         assertTrue(lib.contains("entrypoint!(process_instruction);"))
         // No declare_id!, as in Playground: ProgramIds reads a Native id from
-        // the keypair and never syncs a Native lib.rs.
+        // the keypair, so a fresh Native scaffold has one claim and cannot
+        // disagree with itself (QA B-05).
         assertTrue(!lib.contains("declare_id!"))
+        // P-24: `entrypoint!` names two features this crate does not declare,
+        // and a scaffold's first Test printed four warnings about them.
+        assertTrue(native.contains("[lints.rust]"))
+        assertTrue(native.contains("custom-heap"))
+        assertTrue(native.contains("custom-panic"))
     }
 
     /** A silent wrap in a balance is how programs lose money. */

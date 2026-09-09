@@ -32,7 +32,7 @@ import kotlin.coroutines.coroutineContext
  * data, Anchor's `global:airdrop` discriminator. The PDAs are
  * `["spec", difficulty u8, amount u64 LE]`, `["source", spec]` and
  * `["receipt", key, difficulty u8]`, all off the program. In the same
- * instruction the payer fronts the receipt's rent (810,624 lamports, as
+ * instruction the payer fronts the receipt's rent ([RECEIPT_RENT] lamports, as
  * measured) and is paid the 0.02 SOL, so a claim nets about 0.019 SOL — and
  * a payer that holds nothing cannot make the first one, because the fee is
  * taken before anything runs. [BOOTSTRAP_LAMPORTS] is that floor; [fund]
@@ -49,8 +49,17 @@ object PowFaucet {
     /** What one claim pays, and the amount in the spec PDA's seeds. */
     const val CLAIM_LAMPORTS = 20_000_000L
 
-    /** What the payer fronts for each receipt account; measured, not derived. */
-    const val RECEIPT_RENT = 810_624L
+    /**
+     * What the payer fronts for each receipt account; measured, not derived.
+     *
+     * 650,240 lamports, from a transaction that claimed six times against an
+     * empty source and so was paid nothing back: the payer fell by 3,936,440
+     * = 6 x 650,240 + 35,000 of fee for seven signers (devnet, 2026-09-09).
+     * The 810,624 that stood here until then made every optimistic credit
+     * 160,384 lamports per claim too pessimistic — progress the miner then
+     * had to find again in a real balance read (QA P-16).
+     */
+    const val RECEIPT_RENT = 650_240L
 
     /** The difficulties with a 0.02 SOL spec on devnet: `AAA` and `AAAA`. */
     val DIFFICULTIES: List<Int> = listOf(3, 4)

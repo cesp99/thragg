@@ -492,8 +492,12 @@ private val ANCHOR_GITIGNORE =
  * `src/lib.rs` is Playground's byte for byte — an account owned by the
  * program whose Borsh-encoded `u32` is incremented every time it is greeted.
  * There is no `declare_id!` in it, and none is added: Playground's Native
- * program has none, and `chain/ProgramIds.kt` reads a Native program's id
- * from its keypair (id sync is an Anchor-only step there).
+ * program has none — a native program is handed its id at runtime and never
+ * asserts it — so the keypair is the only claim there is and
+ * `chain/ProgramIds.kt` reads the id straight off it. (The id sync still runs
+ * for Native: a *cloned* native program may carry a `declare_id!`, and one
+ * that is not the keypair's address is a program that rejects every
+ * instruction.)
  *
  * The manifest is the one Playground's export writes (`native/export.ts`) at
  * the versions that build here: `solana-program` 2.2 and `borsh` 1 with
@@ -531,6 +535,17 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
         [dependencies]
         borsh = { version = "1.5", features = ["derive"] }
         solana-program = "2.2"
+
+        # `entrypoint!` expands to `#[cfg(feature = "custom-heap")]` and
+        # `#[cfg(feature = "custom-panic")]` in THIS crate, and cargo only
+        # knows the features this manifest declares — so a first `cargo test`
+        # of an untouched scaffold printed four `unexpected cfg condition
+        # value` warnings that the person who typed the project name had no
+        # way to act on (measured on the Seeker 2026-09-08). Naming the two
+        # values here is what solana-program's own crates do; the lint stays
+        # on for every other cfg.
+        [lints.rust]
+        unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("custom-heap", "custom-panic"))'] }
 
         [profile.release]
         overflow-checks = true
