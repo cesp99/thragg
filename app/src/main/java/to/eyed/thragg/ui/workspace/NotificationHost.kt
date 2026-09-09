@@ -129,6 +129,14 @@ fun NotificationHost(
     /** False on a phone or a folded foldable — see `WideLayoutMinWidth`. */
     isWide: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * What already sits on the keyboard and must not be covered — the
+     * editor's readout and key row, which the pane reports while they are
+     * docked. Riding the keyboard was only half the job: the band landed on
+     * the keys instead, and swallowed the taps meant for them, so pressing
+     * undo raised a warning that hid undo (device, 2026-09-09).
+     */
+    bottomInset: Dp = 0.dp,
 ) {
     // One timer for the whole stack, waking exactly when the soonest toast
     // runs out rather than polling: an idle workspace should not recompose
@@ -163,6 +171,7 @@ fun NotificationHost(
             // above the nav capsule, which the shell's column already
             // reserves — is already right (ThraggShell.kt).
             .imePadding()
+            .padding(bottom = bottomInset)
             .padding(StackMargin)
             .widthIn(max = ToastWidth),
     ) {

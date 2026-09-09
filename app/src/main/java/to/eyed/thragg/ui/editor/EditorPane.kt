@@ -174,7 +174,6 @@ private const val RUNNABLES_SETTLE_MILLIS = 250L
  * bar's 56dp and the file bar's 44dp are both reclaimed here precisely
  * because both hide while the keyboard is up.
  */
-private val ACTION_ROW_HEIGHT = 44.dp
 
 /**
  * The caret readout that rides on top of the action row while the IME is up.
@@ -187,7 +186,6 @@ private val ACTION_ROW_HEIGHT = 44.dp
  * part of it is pressable, and the arithmetic it costs the buffer is counted
  * in [IME_DOCK_HEIGHT] rather than left for the caret to fall behind.
  */
-private val CARET_READOUT_HEIGHT = 18.dp
 
 /**
  * Everything the keyboard's dock puts between the buffer and the keys — the
@@ -198,7 +196,6 @@ private val CARET_READOUT_HEIGHT = 18.dp
  * band added to the dock cannot be added to one of them and forgotten in the
  * other.
  */
-private val IME_DOCK_HEIGHT = CARET_READOUT_HEIGHT + ACTION_ROW_HEIGHT
 
 /**
  * How far a diagnostic fades once the buffer has moved under it.

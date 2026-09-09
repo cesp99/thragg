@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import to.eyed.thragg.ui.editor.IME_DOCK_HEIGHT
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -1128,6 +1129,19 @@ fun CodeScreen(
                 // output in the same buffer (docs/VISUAL.md, "THE BOUNDARY,
                 // EXACTLY"). Nothing inside it was touched by this pass.
                 active != null && activeEditor != null -> ZedSurface {
+                    // While a buffer is docked on the keyboard, the readout
+                    // and the key row own that strip of the window. The toast
+                    // band is drawn by the shell, above this, and would
+                    // otherwise ride the keyboard straight onto the keys and
+                    // swallow their taps — pressing undo raised a warning
+                    // that hid undo (device, 2026-09-09). Reported from here,
+                    // where both the pane and the shell are in scope, so the
+                    // Zed half does not have to reach for shell state.
+                    val imeUp = WindowInsets.isImeVisible
+                    DisposableEffect(imeUp) {
+                        state.imeDockHeight = if (imeUp) IME_DOCK_HEIGHT else 0.dp
+                        onDispose { state.imeDockHeight = 0.dp }
+                    }
                     EditorPane(
                         state = activeEditor,
                         modifier = Modifier.fillMaxSize(),

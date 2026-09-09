@@ -1,5 +1,24 @@
 package to.eyed.thragg.ui.editor
 
+import androidx.compose.ui.unit.dp
+
+/** The fixed key row that rides the keyboard (EditorPane's action row). */
+internal val ACTION_ROW_HEIGHT = 44.dp
+
+/** The caret readout above it: a readout, not a target, so it is thin. */
+internal val CARET_READOUT_HEIGHT = 18.dp
+
+/**
+ * Everything the keyboard's dock puts between the buffer and the keys.
+ *
+ * The one number for "the first pixel of the pane a popup, or the caret, may
+ * not use": the reveal arithmetic, the popup placement and — since the toast
+ * band learned to ride the keyboard and promptly landed on the keys — the
+ * notification host all read it, so a band added to the dock cannot be added
+ * to one of them and forgotten in the others.
+ */
+internal val IME_DOCK_HEIGHT = CARET_READOUT_HEIGHT + ACTION_ROW_HEIGHT
+
 /**
  * How much of a pane the soft keyboard covers, in pixels, given the
  * keyboard's inset from the window's bottom, the window's height, and the

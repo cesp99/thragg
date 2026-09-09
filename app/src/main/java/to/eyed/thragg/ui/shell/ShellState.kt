@@ -3,6 +3,7 @@ package to.eyed.thragg.ui.shell
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.KeyEvent
 import to.eyed.thragg.core.ProjectSession
@@ -37,6 +38,16 @@ import to.eyed.thragg.core.ProjectSession
  * which is exactly right for a destination that is not on screen.
  */
 class ShellState {
+
+    /**
+     * How much of the keyboard's top edge the editor's own dock is using —
+     * its caret readout and its key row — or zero when no buffer is docked
+     * there. The toast band reads it so it can ride the keyboard without
+     * landing on the keys and eating the taps meant for them; only the pane
+     * that draws the dock knows whether it is there.
+     */
+    var imeDockHeight by mutableStateOf(0.dp)
+
 
     // ---- Where you are ------------------------------------------------------
 

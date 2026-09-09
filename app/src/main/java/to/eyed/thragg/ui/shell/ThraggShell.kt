@@ -284,6 +284,9 @@ fun ThraggShell(
                     stack = Notifications,
                     isWide = false,
                     modifier = Modifier.align(Alignment.BottomCenter),
+                    // Clear of the editor's own dock when it is on the
+                    // keyboard; zero everywhere else.
+                    bottomInset = state.imeDockHeight,
                 )
             }
             ShellNavBar(state)
