@@ -127,4 +127,27 @@ class DeployedCardTest {
         val mainnet = shortfallDetail(1_200_000_000L, estimate, Cluster.MainnetBeta)!!
         assertTrue(mainnet, "real SOL" in mainnet && "mines" !in mainnet)
     }
+
+    /**
+     * The 10 % the deployer adds is why the sheet and the run's first log
+     * line differ; s4 read the two figures as a contradiction, so the line
+     * that prints the gap says where it comes from.
+     */
+    @Test
+    fun `the shortfall line names the tenth the deployer adds`() {
+        for (cluster in listOf(Cluster.Devnet, Cluster.Testnet, Cluster.MainnetBeta)) {
+            val line = shortfallDetail(1_200_000_000L, estimate, cluster)!!
+            assertTrue(line, "a tenth over the estimate as margin" in line)
+        }
+        // And the gap itself is the deployer's threshold, not the estimate.
+        assertEquals(Loader.withMargin(estimate.total) - 1_200_000_000L, shortfallLamports(1_200_000_000L, estimate))
+    }
+
+    /** QA P-19: an estimate that fell back to the formula says so. */
+    @Test
+    fun `the rent fallback line names the cluster that did not answer`() {
+        val line = rentFallbackDetail("devnet")
+        assertTrue(line, line.startsWith("devnet did not quote its rent"))
+        assertTrue(line, "built-in formula" in line)
+    }
 }

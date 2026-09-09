@@ -19,6 +19,7 @@ import com.solana.mobilewalletadapter.common.ProtocolContract
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * A wallet request that did not end in a signature, with a message a person
@@ -346,7 +347,20 @@ object SeedVaultWallet {
      */
     private suspend fun <T> guarded(what: String, call: suspend () -> TransactionResult<T>): TransactionResult<T> =
         try {
-            call()
+            // A ceiling on the whole association, not only on the prompt.
+            // MWA gives its own prompt about ninety seconds, but the layers
+            // under it — waiting for the activity, starting the wallet app,
+            // the scenario the dApp Store creates by replacing that app
+            // mid-request — have none: measured on the Seeker 2026-09-08, a
+            // Reclaim sat on "Working on devnet…" for THIRTEEN MINUTES before
+            // it said anything (QA P-18). Nothing is sent by an association
+            // that never opened, so giving up is safe, and the sentence
+            // [describe] makes of "Timed out" says to try again.
+            withTimeoutOrNull(ASSOCIATION_TIMEOUT_MS) { call() }
+                ?: TransactionResult.Failure(
+                    "Timed out waiting for the wallet to answer",
+                    java.util.concurrent.TimeoutException("$what took over ${ASSOCIATION_TIMEOUT_MS / 1_000} s"),
+                )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -475,6 +489,13 @@ object SeedVaultWallet {
             restored = true
         }
     }
+
+    /**
+     * How long any one wallet request may take, prompt and all: MWA's own
+     * ~90 s plus room for a person reading a mainnet confirm, and far under
+     * the thirteen minutes a broken association cost once.
+     */
+    private const val ASSOCIATION_TIMEOUT_MS = 3L * 60L * 1_000L
 
     private const val NOT_ATTACHED = "Wallet is not available yet"
     private const val NOT_CONNECTED = "Connect Seed Vault in Settings, under Wallet, first"

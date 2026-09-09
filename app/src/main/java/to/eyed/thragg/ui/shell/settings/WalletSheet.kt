@@ -15,7 +15,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +57,7 @@ import to.eyed.thragg.solana.chain.ProgramClose
 import to.eyed.thragg.solana.chain.ProgramStatus
 import to.eyed.thragg.solana.chain.Pubkey
 import to.eyed.thragg.solana.chain.Rpc
+import to.eyed.thragg.solana.chain.RpcException
 import to.eyed.thragg.solana.chain.RpcPacer
 import to.eyed.thragg.solana.chain.SeedVaultWallet
 import to.eyed.thragg.solana.chain.Transaction
@@ -113,6 +119,23 @@ internal fun WalletSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // Doze is the one thing the foreground service and the wake lock cannot
+    // fix, and mining is minutes of network with the screen off — the same
+    // ask the Deploy sheet makes, made here, on the screen the miner is
+    // started from (QA G-23). The system dialog returns no result, so the
+    // answer is read again every time this activity comes back to the front.
+    var unrestrictedPoll by remember { mutableIntStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) unrestrictedPoll++
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val unrestricted by produceState(true, unrestrictedPoll) {
+        value = BackgroundWork.isUnrestricted(context)
+    }
     val wallet = SeedVaultWallet.address
     val walletLabel = SeedVaultWallet.label
     // Bumped by Refresh and by every action that moved SOL; the balance and
@@ -258,7 +281,11 @@ internal fun WalletSheet(
         if (keyBusy) return
         faucetDry = false
         keyBusy = true
-        keyBusyLabel = "Asking the ${cluster.display} faucet…"
+        keyBusyLabel = if (cluster.hasPowFaucet) {
+            "Starting the ${cluster.display} miner…"
+        } else {
+            "Asking the ${cluster.display} faucet…"
+        }
         val app = context.applicationContext
         miningJob = WalletWork.scope.launch {
             var stopped = false
@@ -267,8 +294,12 @@ internal fun WalletSheet(
                     withContext(Dispatchers.IO) {
                         runCatching {
                             val rpc = Rpc(cluster)
+                            // Every request on both branches goes through one
+                            // pacer: it is the endpoint's rate limit, and it
+                            // is also what makes the blocking poll inside
+                            // Rpc.confirm interruptible, so Stop stops (P-20).
+                            val pacer = RpcPacer()
                             if (cluster.hasPowFaucet) {
-                                val pacer = RpcPacer()
                                 val start = pacer.run { rpc.getBalance(key.publicKey.base58) }
                                 // A dry key cannot pay for its first claim; the
                                 // wallet, when there is one, is asked for a
@@ -292,9 +323,16 @@ internal fun WalletSheet(
                             } else {
                                 // The height first, so the wait is bounded by a blockhash
                                 // that was valid when the faucet was asked.
-                                val height = rpc.getLatestBlockhash().lastValidBlockHeight
-                                val signature = rpc.requestAirdrop(key.publicKey.base58, ONE_SOL)
-                                rpc.confirm(signature, height)
+                                val height = pacer.run { rpc.getLatestBlockhash().lastValidBlockHeight }
+                                // One attempt at the faucet itself: it hangs
+                                // rather than refuses when it is dry, and
+                                // five paced retries would stretch that over
+                                // minutes.
+                                val signature = pacer.run(retry = false) {
+                                    rpc.requestAirdrop(key.publicKey.base58, ONE_SOL)
+                                }
+                                keyBusyLabel = "Waiting for the ${cluster.display} faucet's transaction to confirm…"
+                                pacer.run { rpc.confirm(signature, height) }
                                 "1 SOL from the ${cluster.display} faucet landed in the deploy key"
                             }
                         }
@@ -314,11 +352,11 @@ internal fun WalletSheet(
                             // The message names the address: another source of
                             // SOL is the way out of every failure here, and the
                             // miner's own messages say when it is the first
-                            // claim that cannot be paid for.
+                            // claim that cannot be paid for. A rate limit is
+                            // said as what it is — the endpoint throttling us,
+                            // not the faucet declining (P-20).
                             Notifications.error(
-                                "The ${cluster.display} faucet refused: ${it.message} — try again in a " +
-                                    "minute, top up from Seed Vault, or send SOL to " +
-                                    "${Base58.short(key.publicKey.base58)} by hand",
+                                faucetFailure(cluster, it, key.publicKey.base58),
                                 key = WALLET_KEY,
                             )
                         }
@@ -328,9 +366,19 @@ internal fun WalletSheet(
                 throw e
             } finally {
                 keyBusy = false
+                keyBusyLabel = ""
                 miningJob = null
                 refresh++
-                if (stopped) Notifications.info("Stopped mining — what landed is in the deploy key", key = WALLET_KEY)
+                if (stopped) {
+                    Notifications.info(
+                        if (cluster.hasPowFaucet) {
+                            "Stopped mining — what landed is in the deploy key"
+                        } else {
+                            "Stopped asking the ${cluster.display} faucet — anything it already sent is in the deploy key"
+                        },
+                        key = WALLET_KEY,
+                    )
+                }
             }
         }
     }
@@ -340,6 +388,7 @@ internal fun WalletSheet(
         val to = wallet ?: return
         if (keyBusy) return
         keyBusy = true
+        keyBusyLabel = "Sending the deploy key's balance to Seed Vault ${Base58.short(to)}…"
         val app = context.applicationContext
         WalletWork.scope.launch {
             val result = BackgroundWork.hold(app, "return") {
@@ -367,6 +416,7 @@ internal fun WalletSheet(
                 }
             }
             keyBusy = false
+            keyBusyLabel = ""
             result
                 .onSuccess {
                     Notifications.info(
@@ -382,6 +432,10 @@ internal fun WalletSheet(
     fun reclaim(buffer: OpenBuffer) {
         if (keyBusy) return
         keyBusy = true
+        // A close signed by Seed Vault starts the wallet app and can sit
+        // there: the row has to say what it is waiting for, or a generic
+        // "Working on devnet…" invites a second tap (QA P-18).
+        keyBusyLabel = "Closing buffer ${Base58.short(buffer.address)} · Seed Vault may ask you to sign"
         val app = context.applicationContext
         WalletWork.scope.launch {
             // Success is announced by ProgramClose itself, with the amount.
@@ -389,6 +443,7 @@ internal fun WalletSheet(
                 withContext(Dispatchers.IO) { ProgramClose.closeBuffer(app, cluster, buffer) }
             }
             keyBusy = false
+            keyBusyLabel = ""
             result.onFailure {
                 Notifications.error(
                     it.message ?: "Could not reclaim buffer ${Base58.short(buffer.address)}",
@@ -584,6 +639,26 @@ internal fun WalletSheet(
                             Text("Return SOL to wallet", style = MaterialTheme.typography.labelLarge)
                         }
                     }
+                }
+                // Only where there is a faucet to work: on mainnet-beta this
+                // card has no minutes-long job to protect.
+                if (!unrestricted && cluster.hasFaucet) {
+                    NoticeCard(
+                        severity = Severity.Warn,
+                        title = "Android may pause this while the screen is off",
+                        body = if (cluster.hasPowFaucet) {
+                            "Mining is minutes of network. Letting Thragg run unrestricted keeps it going in your pocket."
+                        } else {
+                            "Waiting on the faucet is minutes of network. Letting Thragg run unrestricted keeps it going in your pocket."
+                        },
+                        actions = {
+                            ThraggChip(
+                                label = "Allow in background",
+                                onClick = { BackgroundWork.requestUnrestricted(context) },
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
                 }
                 if (faucetDry) {
                     NoticeCard(
@@ -850,6 +925,27 @@ internal fun balanceDetail(lamports: Long?, failed: Boolean, cluster: String): S
 /** An open buffer's second line: where it is and what it was for. */
 internal fun bufferDetail(cluster: String, programId: String?): String =
     if (programId != null) "$cluster · for ${Base58.short(programId)}" else "$cluster · left by an unfinished deploy"
+
+/**
+ * What went wrong asking for SOL, said as what it is.
+ *
+ * A 429 is the *endpoint* throttling this phone, not the faucet declining —
+ * reported as "the testnet faucet refused" it sent QA looking for a dry
+ * faucet that was fine a minute later (QA P-20). Everything else names the
+ * deploy key, because another source of SOL is the way out of all of it.
+ * Pure, tested.
+ */
+internal fun faucetFailure(cluster: Cluster, error: Throwable, address: String): String {
+    val rpc = error as? RpcException
+    val throttled = rpc?.httpStatus == 429 || rpc?.isTransient == true
+    return if (throttled) {
+        "${cluster.display} is rate-limiting Thragg rather than refusing the request — " +
+            "wait a minute and try again, or top up from Seed Vault"
+    } else {
+        "The ${cluster.display} faucet refused: ${error.message} — try again in a " +
+            "minute, top up from Seed Vault, or send SOL to ${Base58.short(address)} by hand"
+    }
+}
 
 /**
  * The Airdrop button's label: devnet mines, and mines more than a faucet

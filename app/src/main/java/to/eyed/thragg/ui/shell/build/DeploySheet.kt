@@ -45,6 +45,7 @@ import to.eyed.thragg.solana.chain.OnChainProgram
 import to.eyed.thragg.solana.chain.ProgramIds
 import to.eyed.thragg.solana.chain.ProgramStatus
 import to.eyed.thragg.solana.chain.Rpc
+import to.eyed.thragg.solana.chain.RpcPacer
 import to.eyed.thragg.solana.chain.SeedVaultWallet
 import to.eyed.thragg.solana.toolchain.formatBytes
 import to.eyed.thragg.ui.components.HairlineDivider
@@ -78,10 +79,13 @@ import to.eyed.thragg.ui.theme.MD
  * which decides whether this is a fresh deploy or an upgrade, and therefore
  * the estimate. The estimate is [Loader.estimateDeploy] over the rent the
  * cluster quotes (the same `getMinimumBalanceForRentExemption` the deployer
- * asks), falling back to the formula when the cluster does not answer; it
- * keeps its `~` because the fee count is a prediction of how many writes
- * land first time. The second line says how much comes back when the buffer
- * is drained.
+ * asks, for the sizes [Loader.rentSizes] names), falling back to the formula
+ * — for every size, never a mix — when the cluster does not answer, and
+ * saying so under the row. An upgrade is priced with the deployed account in
+ * hand, so the `ExtendProgram` rent an artifact that grew by a byte will pay
+ * is in the number. It keeps its `~` because the fee count is a prediction of
+ * how many writes land first time. The second line says how much comes back
+ * when the buffer is drained.
  *
  * THE BUTTON WAITS FOR THE FACTS. Until the IO pass is back, and whenever the
  * cluster did not answer, Deploy is off: what the cluster has at the id is
@@ -128,6 +132,12 @@ private class DeployFacts(
     /** What the cluster has at the id; null when there is no id, a failure when the RPC did not answer. */
     val status: Result<OnChainProgram>?,
     val estimate: Loader.CostEstimate?,
+    /**
+     * Whether the rent in [estimate] is the cluster's own quote. False means
+     * every figure in it came from the built-in formula — never a mix of the
+     * two, which on devnet is a third of a SOL apart on a 200 kB program.
+     */
+    val rentQuoted: Boolean = true,
 )
 
 @Composable
@@ -345,6 +355,14 @@ internal fun DeploySheet(
                     label = if (deployed != null) "Estimated cost (upgrade)" else "Estimated cost",
                     value = costDetail(estimate?.total),
                 )
+                if (estimate != null && facts?.rentQuoted == false) {
+                    Text(
+                        text = rentFallbackDetail(where),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
+                    )
+                }
                 if (estimate != null && estimate.bufferRent > 0) {
                     Text(
                         text = comesBackDetail(estimate.bufferRent),
@@ -430,7 +448,7 @@ internal fun DeploySheet(
  * that does not answer still leaves the sheet with the id, the artifact and
  * the estimate — the facts that live on this phone.
  */
-private fun gather(context: Context, root: String, program: ProgramTarget, cluster: Cluster): DeployFacts {
+private suspend fun gather(context: Context, root: String, program: ProgramTarget, cluster: Cluster): DeployFacts {
     val resolved = ProgramIds.resolve(root, program, cluster)
     val artifact = File(root, program.artifactPath)
     val bytes = artifact.takeIf { it.isFile }?.length()
@@ -439,17 +457,37 @@ private fun gather(context: Context, root: String, program: ProgramTarget, clust
         if (DeployKey.exists(context)) DeployKey.get(context).publicKey.base58 else null
     }.getOrNull()
     val rpc = Rpc(cluster)
-    val balance = key?.let { runCatching { rpc.getBalance(it) } }
-    val status = resolved.id?.let { runCatching { ProgramStatus.inspect(rpc, it) } }
-    val upgrade = status?.getOrNull() is OnChainProgram.Deployed
+    // Six reads at once from a composition is how a sheet gets rate limited
+    // by the endpoint it is about to deploy through; the pacer is the same
+    // gate the deployer uses, and it retries a 429 rather than falling back
+    // to the formula on one.
+    val pacer = RpcPacer()
+    val balance = key?.let { runCatching { pacer.run { rpc.getBalance(it) } } }
+    val status = resolved.id?.let { runCatching { pacer.run { ProgramStatus.inspect(rpc, it) } } }
+    val deployed = status?.getOrNull() as? OnChainProgram.Deployed
+    // The deployed account, so an upgrade's ExtendProgram rent is in the row
+    // — the deployer charges it whenever the artifact grew by a byte, and
+    // the sheet used to print zero for it (QA G-21).
+    val existing = deployed?.let { Loader.Existing(it.dataLen, it.reclaimable) }
+    val upgrade = deployed != null
     // The cluster's rent, so the cost and the "short by" line under the
     // balance are the deployer's own numbers (ProgramDeploy.fund asks the
-    // same question); the formula only when the cluster does not answer.
-    val rent: (Int) -> Long = { size ->
-        runCatching { rpc.getMinimumBalanceForRentExemption(size) }.getOrElse { Loader.rentExempt(size) }
+    // same sizes, through Loader.rentSizes); the formula only when the
+    // cluster does not answer, and then for EVERY size, because a row that
+    // adds a quoted buffer to a formula's programdata is neither number.
+    val quotes = HashMap<Int, Long>()
+    var quoted = true
+    if (bytes != null) {
+        for (size in Loader.rentSizes(bytes.toInt(), upgrade, existing)) {
+            val answer = runCatching { pacer.run { rpc.getMinimumBalanceForRentExemption(size) } }.getOrNull()
+            if (answer == null) quoted = false else quotes[size] = answer
+        }
     }
-    val estimate = bytes?.let { Loader.estimateDeploy(it.toInt(), upgrade, rent) }
-    return DeployFacts(resolved, bytes, key, balance, status, estimate)
+    val estimate = bytes?.let {
+        val rent: (Int) -> Long = if (quoted) { size -> quotes.getValue(size) } else Loader::rentExempt
+        Loader.estimateDeploy(it.toInt(), upgrade, rent, existing)
+    }
+    return DeployFacts(resolved, bytes, key, balance, status, estimate, rentQuoted = quoted)
 }
 
 /**
@@ -502,18 +540,31 @@ internal fun comesBackDetail(bufferRent: Long): String =
 internal fun shortfallDetail(balance: Long?, estimate: Loader.CostEstimate?, cluster: Cluster?): String? {
     if (cluster == null) return null
     val gap = shortfallLamports(balance, estimate)?.let { Loader.lamportsToSol(it) } ?: return null
+    // The tenth is named because the deploy's own first log line prints the
+    // bigger number, and two figures that differ by 10 % with nothing to
+    // explain them read as a contradiction (QA, s4).
+    val margin = "the deploy asks a tenth over the estimate as margin, and"
     return when {
         cluster.hasPowFaucet ->
-            "short by about $gap — Deploy mines the difference from the devnet proof-of-work " +
+            "short by about $gap — $margin mines the difference from the devnet proof-of-work " +
                 "faucet first, a minute or two; Wallet has Mine 5 SOL to do it ahead of time. " +
                 "When the faucet is empty, top up from Seed Vault instead"
         cluster.hasFaucet ->
-            "short by about $gap — Deploy asks the ${cluster.display} faucet first, " +
+            "short by about $gap — $margin asks the ${cluster.display} faucet first, " +
                 "then Seed Vault for what the faucet will not give"
         else ->
-            "short by about $gap — Seed Vault signs one transfer of real SOL to the deploy key when you confirm"
+            "short by about $gap — $margin has Seed Vault sign one transfer of real SOL to the deploy key when you confirm"
     }
 }
+
+/**
+ * The line under the cost when the cluster did not quote its rent. Measured
+ * on devnet 2026-09-08: the formula wanted 1.3985 SOL for a 200 kB buffer the
+ * cluster prices at 1.0207, so an unannotated fallback is a row that is a
+ * third of a SOL wrong and says nothing about it.
+ */
+internal fun rentFallbackDetail(cluster: String): String =
+    "$cluster did not quote its rent, so this is the built-in formula — it reads high, and the deploy will use the cluster's own figures"
 
 /**
  * The gap in lamports, or null when there is none or nothing is known — the
@@ -524,8 +575,7 @@ internal fun shortfallDetail(balance: Long?, estimate: Loader.CostEstimate?, clu
  */
 internal fun shortfallLamports(balance: Long?, estimate: Loader.CostEstimate?): Long? {
     if (balance == null || estimate == null) return null
-    val required = estimate.total + estimate.total / 10
-    return (required - balance).takeIf { it > 0L }
+    return (Loader.withMargin(estimate.total) - balance).takeIf { it > 0L }
 }
 
 /** The deploy key's balance line, in the order the facts arrive. */

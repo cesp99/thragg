@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import to.eyed.thragg.solana.chain.Cluster
+import to.eyed.thragg.solana.chain.RpcException
 
 /**
  * The sentences the Solana rows and sheets print, held still.
@@ -140,6 +141,25 @@ class ChainRowsTest {
         assertEquals("Mine 5 SOL", airdropLabel(Cluster.Devnet))
         assertEquals("Airdrop 1 SOL", airdropLabel(Cluster.Testnet))
         assertEquals("…", balanceDetail(null, failed = false, cluster = "devnet"))
+    }
+
+    /**
+     * QA P-20: a 429 is the endpoint throttling us. Reported as "the faucet
+     * refused" it sent the tester looking for a dry faucet that was working.
+     */
+    @Test
+    fun `a rate limit is reported as ours and anything else as the faucet's`() {
+        val throttled = faucetFailure(Cluster.Testnet, RpcException("testnet refused requestAirdrop: rate limited", httpStatus = 429), other)
+        assertTrue(throttled, "rate-limiting Thragg" in throttled)
+        assertTrue(throttled, "faucet refused" !in throttled)
+        val behind = faucetFailure(Cluster.Testnet, RpcException("Node is behind", code = -32005), other)
+        assertTrue(behind, "rate-limiting Thragg" in behind)
+        val dry = faucetFailure(Cluster.Testnet, RpcException("airdrop request failed"), other)
+        assertTrue(dry, dry.startsWith("The testnet faucet refused: airdrop request failed"))
+        // The address is there to act on, shortened the way every row shortens it.
+        assertTrue(dry, "AbCd…EFGh" in dry)
+        val plain = faucetFailure(Cluster.Devnet, IllegalStateException("no network"), other)
+        assertTrue(plain, "The devnet faucet refused: no network" in plain)
     }
 
     @Test

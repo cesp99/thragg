@@ -165,8 +165,12 @@ class PowFaucetTest {
 
     @Test
     fun `a claim nets the payout less the receipt and its share of the fee`() {
-        // From the accepted transaction: 20,000,000 in, 810,624 to the receipt, 10,000 of fee for two signers.
-        assertEquals(19_179_376L, PowFaucet.CLAIM_LAMPORTS - PowFaucet.RECEIPT_RENT - 2 * Loader.LAMPORTS_PER_SIGNATURE)
+        // From the accepted transaction: 20,000,000 in, 650,240 to the receipt, 10,000 of fee for two signers.
+        assertEquals(19_339_760L, PowFaucet.CLAIM_LAMPORTS - PowFaucet.RECEIPT_RENT - 2 * Loader.LAMPORTS_PER_SIGNATURE)
+        // And the measurement RECEIPT_RENT itself comes from (QA P-16): six
+        // claims against an empty source paid nothing back and cost the payer
+        // 3,936,440 lamports — six receipts and the fee for seven signers.
+        assertEquals(3_936_440L, 6 * PowFaucet.RECEIPT_RENT + 7 * Loader.LAMPORTS_PER_SIGNATURE)
         assertTrue(PowFaucet.BOOTSTRAP_LAMPORTS > PowFaucet.RECEIPT_RENT + 7 * Loader.LAMPORTS_PER_SIGNATURE)
     }
 

@@ -148,8 +148,9 @@ object ProgramIds {
      * claims — `declare_id!` in `lib.rs`, the Anchor.toml table, a Seahorse
      * program's Python — at that keypair's address, saying which files
      * changed (project-relative, the keypair's path among them). Blocking.
-     * Anchor and Seahorse only; a Native project has no Anchor.toml and no
-     * Python.
+     * Every framework: an Anchor project has all three claims, a Seahorse one
+     * has the Python too, and a Native one has only `src/lib.rs` — which is
+     * still one claim too many to leave lying (see below).
      *
      * `anchor keys sync` fixes `declare_id!` in `lib.rs`, and the build that
      * runs after it is what the id is for. But two files it does not reach
@@ -176,6 +177,22 @@ object ProgramIds {
      *    the first call. The Python is the source; [withSeahorseDeclaredId]
      *    is the sync for it.
      *
+     *  - **A Native program's `declare_id!`, when it has one.** Playground's
+     *    Native starter has none — a native program is not compiled against
+     *    its own address — and neither does the scaffold here, so a fresh
+     *    Native project has one claim (the keypair) and cannot disagree with
+     *    itself. But a *cloned* native program, or one written by hand or by
+     *    an older Thragg, does carry `declare_id!("…")`, and the keypair the
+     *    first build generates for it is a different address. That is a real
+     *    disagreement ([Resolved.disagree] is framework-agnostic, and so is
+     *    the Deploy sheet's refusal), and until 2026-09-09 it was one nothing
+     *    could resolve: the sheet said "rebuild syncs them" and the build
+     *    returned `emptyList()` for Native, so the program could never be
+     *    deployed (QA B-05). It is the same one-line rewrite Anchor gets,
+     *    minus the two files a Native project does not have — Anchor.toml is
+     *    absent, so the table half writes nothing, and the Python half is
+     *    Seahorse's alone.
+     *
      *  - **The keypair itself, and `lib.rs`, before the first build.** Until
      *    2026-09-08 a program with no keypair was left alone — "the first
      *    build makes one" — and that was the bug: a fresh Seahorse scaffold's
@@ -199,8 +216,8 @@ object ProgramIds {
      */
     fun syncProgramIds(layout: ProjectLayout): List<String> {
         when (layout.framework) {
-            ProjectFramework.Anchor, ProjectFramework.Seahorse -> Unit
-            ProjectFramework.Native, ProjectFramework.Unknown -> return emptyList()
+            ProjectFramework.Anchor, ProjectFramework.Seahorse, ProjectFramework.Native -> Unit
+            ProjectFramework.Unknown -> return emptyList()
         }
         val changed = ArrayList<String>()
         val anchorToml = File(layout.root, "Anchor.toml")
@@ -290,17 +307,22 @@ object ProgramIds {
 
     /**
      * Whether any program in [layout] has two present sources that disagree —
-     * the shape `BuildRunner.idsDisagree` wants. Anchor and Seahorse only:
-     * a Native project has no `anchor keys sync` to promise, so a mismatch
-     * there is not a thing the build could have fixed.
+     * the shape `BuildRunner.idsDisagree` wants. Every framework but
+     * [ProjectFramework.Unknown], including Native: a Native project has no
+     * `anchor keys sync`, but it does have [syncProgramIds], which the build
+     * runs before it compiles, so a mismatch there is a thing the build fixes
+     * and saying so is honest. Answering `false` for Native was the other
+     * half of QA B-05 — the deploy went ahead with a `declare_id!` the
+     * program keypair did not match, which is a program that rejects every
+     * instruction.
      *
      * The cluster is the one Anchor.toml names, falling back to
      * [Cluster.DEFAULT]; there is no Context here to ask [ClusterStore].
      */
     fun disagree(layout: ProjectLayout): Boolean {
         when (layout.framework) {
-            ProjectFramework.Anchor, ProjectFramework.Seahorse -> Unit
-            ProjectFramework.Native, ProjectFramework.Unknown -> return false
+            ProjectFramework.Anchor, ProjectFramework.Seahorse, ProjectFramework.Native -> Unit
+            ProjectFramework.Unknown -> return false
         }
         val anchorToml = File(layout.root, "Anchor.toml")
         val cluster = runCatching { anchorToml.readText() }.getOrNull()

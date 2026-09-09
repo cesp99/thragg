@@ -380,6 +380,125 @@ class LoaderTest {
         assertEquals(estimate.bufferRent + estimate.fees, estimate.total)
     }
 
+    /**
+     * QA G-21: MAX_DATA_LEN_FACTOR is 1, so an artifact that grew by a byte
+     * has outgrown its programdata and the deployer sends ExtendProgram and
+     * pays its rent. The sheet printed zero for that.
+     */
+    @Test
+    fun `an upgrade that outgrew its programdata pays the extension's rent`() {
+        val was = 50_000
+        val now = 60_000
+        val existing = Loader.Existing(dataLen = was.toLong(), reclaimable = Loader.rentExempt(Loader.PROGRAMDATA_HEADER + was))
+        val estimate = Loader.estimateDeploy(now, upgrade = true, existing = existing)
+        assertEquals(
+            Loader.rentExempt(Loader.PROGRAMDATA_HEADER + now) - existing.reclaimable,
+            estimate.programDataRent,
+        )
+        assertTrue(estimate.programDataRent > 0L)
+        assertEquals(0L, estimate.programRent)
+        // It is exactly what ProgramDeploy.fund used to compute inline.
+        assertEquals(
+            (Loader.rentExempt(Loader.PROGRAMDATA_HEADER + now) - existing.reclaimable).coerceAtLeast(0L),
+            estimate.programDataRent,
+        )
+    }
+
+    @Test
+    fun `an upgrade that still fits, or whose account is unknown, pays no programdata rent`() {
+        val existing = Loader.Existing(dataLen = 60_000L, reclaimable = 1_000_000_000L)
+        assertEquals(0L, Loader.estimateDeploy(60_000, upgrade = true, existing = existing).programDataRent)
+        assertEquals(0L, Loader.estimateDeploy(59_000, upgrade = true, existing = existing).programDataRent)
+        assertEquals(0L, Loader.estimateDeploy(90_000, upgrade = true, existing = null).programDataRent)
+        // An account holding more than the grown size needs is not a refund.
+        val rich = Loader.Existing(dataLen = 10L, reclaimable = 500_000_000_000L)
+        assertEquals(0L, Loader.estimateDeploy(60_000, upgrade = true, existing = rich).programDataRent)
+    }
+
+    /**
+     * The invariant behind P-19: a caller quotes the cluster's rent for the
+     * sizes [Loader.rentSizes] names, and the estimate must ask for those and
+     * no others — otherwise a `getValue` throws, or a size is silently priced
+     * by the formula next to quoted ones.
+     */
+    @Test
+    fun `rentSizes names exactly the sizes the estimate asks for`() {
+        val cases = listOf(
+            Triple(200_000, false, null),
+            Triple(0, false, null),
+            Triple(50_000, true, null),
+            Triple(60_000, true, Loader.Existing(50_000L, 1_000L)),
+            Triple(60_000, true, Loader.Existing(60_000L, 1_000L)),
+        )
+        for ((elf, upgrade, existing) in cases) {
+            val asked = ArrayList<Int>()
+            Loader.estimateDeploy(elf, upgrade, { size -> asked.add(size); Loader.rentExempt(size) }, existing)
+            assertEquals("$elf/$upgrade/$existing", Loader.rentSizes(elf, upgrade, existing).sorted(), asked.distinct().sorted())
+        }
+    }
+
+    /** The margin the deployer requires, in one place for both callers. */
+    @Test
+    fun `withMargin is the estimate plus a tenth`() {
+        assertEquals(2_200_000_000L, Loader.withMargin(2_000_000_000L))
+        assertEquals(0L, Loader.withMargin(0L))
+        assertEquals(1L, Loader.withMargin(1L))
+    }
+
+    /** QA G-20: a resumed deploy does not pay for the buffer or the writes twice. */
+    @Test
+    fun `outstanding drops the buffer rent and the writes an earlier attempt landed`() {
+        val estimate = Loader.CostEstimate(
+            bufferRent = 1_000_000_000L,
+            programDataRent = 0L,
+            programRent = 0L,
+            fees = Loader.LAMPORTS_PER_SIGNATURE * 191,
+        )
+        assertEquals(estimate.total, Loader.outstanding(estimate, bufferAlreadyPaid = false, writesAlreadyLanded = 0))
+        assertEquals(
+            estimate.total - estimate.bufferRent - Loader.LAMPORTS_PER_SIGNATURE * 186,
+            Loader.outstanding(estimate, bufferAlreadyPaid = true, writesAlreadyLanded = 186),
+        )
+        // Never negative, and a nonsense count cannot make it so.
+        assertEquals(0L, Loader.outstanding(estimate, bufferAlreadyPaid = true, writesAlreadyLanded = 1_000_000))
+        assertEquals(estimate.total, Loader.outstanding(estimate, bufferAlreadyPaid = false, writesAlreadyLanded = -5))
+    }
+
+    /**
+     * The read that decides whether a buffer left by an earlier attempt is
+     * this artifact (QA G-20). A buffer account is 37 bytes of header and
+     * then the ELF.
+     */
+    @Test
+    fun `writtenChunks compares the buffer's bytes against the artifact's`() {
+        val elf = ByteArray(3_000) { (it % 251).toByte() }
+        val chunks = Loader.chunks(elf)
+        assertTrue(chunks.size >= 3)
+        val whole = ByteArray(Loader.BUFFER_HEADER + elf.size)
+        elf.copyInto(whole, Loader.BUFFER_HEADER)
+        assertTrue(Loader.writtenChunks(whole, chunks).all { it })
+
+        // One byte off in the second chunk: only that chunk is not written.
+        val nibbled = whole.copyOf()
+        val (offset, bytes) = chunks[1]
+        nibbled[Loader.BUFFER_HEADER + offset + bytes.size / 2]++
+        val written = Loader.writtenChunks(nibbled, chunks)
+        assertTrue(written[0])
+        assertTrue(!written[1])
+        assertTrue(written[2])
+
+        // A half-written buffer: the tail is zeros, so its chunks are not there.
+        val partial = ByteArray(Loader.BUFFER_HEADER + elf.size)
+        elf.copyInto(partial, Loader.BUFFER_HEADER, 0, chunks[0].second.size)
+        val some = Loader.writtenChunks(partial, chunks)
+        assertTrue(some[0])
+        assertTrue(some.drop(1).none { it })
+
+        // An account too short for the artifact matches nothing and throws nothing.
+        assertTrue(Loader.writtenChunks(ByteArray(10), chunks).none { it })
+        assertTrue(Loader.writtenChunks(ByteArray(0), chunks).none { it })
+    }
+
     @Test
     fun `an empty ELF still costs the accounts`() {
         val estimate = Loader.estimateDeploy(0, upgrade = false)

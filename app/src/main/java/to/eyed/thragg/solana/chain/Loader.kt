@@ -439,6 +439,14 @@ object Loader {
     }
 
     /**
+     * What the cluster already has at the id, for an upgrade's estimate:
+     * [dataLen] is the programdata's ELF capacity (`max_data_len`) and
+     * [reclaimable] its lamports. Both come from [OnChainProgram.Deployed],
+     * and without them an upgrade cannot be priced — see [estimateDeploy].
+     */
+    data class Existing(val dataLen: Long, val reclaimable: Long)
+
+    /**
      * The lamports a deploy needs up front, and how many of them stay.
      * [bufferRent] comes back when the deploy or upgrade drains the buffer;
      * [programDataRent] and [programRent] are the [permanent] part.
@@ -454,37 +462,142 @@ object Loader {
     }
 
     /**
-     * The formula behind the Deploy sheet's "~1.49 SOL" row.
+     * The formula behind the Deploy sheet's "~1.49 SOL" row, and the same
+     * arithmetic the deployer funds by (`ProgramDeploy.fund` calls this, so
+     * the two cannot drift).
      *
      * Fresh deploy: a buffer sized for the ELF, a programdata account sized
-     * for [maxDataLen] — twice the ELF, so the next build has room — and the
-     * 36-byte program account. Upgrade: the buffer only; the programdata is
-     * already paid for, and the deployer tops it up with `ExtendProgram` only
-     * when the new ELF outgrows it, which the sheet's estimate cannot know
-     * without the account. Fees count one signature per Write,
-     * plus the buffer-create, deploy-or-upgrade and set-authority transactions
-     * with their second signers: `writes + 5` signatures, which rounds an
-     * upgrade up by one and keeps the two paths one line.
+     * for [maxDataLen] and the 36-byte program account. Upgrade: the buffer,
+     * plus — when [existing] is known and the new ELF has outgrown it — what
+     * `ExtendProgram` costs, which is the rent of the grown account less the
+     * lamports it already holds. That last term is G-21: [MAX_DATA_LEN_FACTOR]
+     * is 1, so the previous `max_data_len` is the previous ELF's length and
+     * **every upgrade whose artifact grew by a byte pays it**; the sheet used
+     * to print zero for it and the deploy then asked for up to a third more
+     * than the row said. With [existing] null the upgrade branch still says
+     * zero — the caller could not reach the cluster, and a guess would be
+     * worse than the `~`.
+     *
+     * Fees count one signature per Write, plus the buffer-create,
+     * deploy-or-upgrade, set-authority and extend transactions with their
+     * second signers: `writes + 5` signatures, which rounds an upgrade up by
+     * one and keeps the two paths one line.
      *
      * [rent] is [rentExempt]'s formula by default — the sheet's `~` — and
      * the cluster's own `getMinimumBalanceForRentExemption` when the caller
-     * can ask (`DeploySheet.gather`, the deployer's `fund`). The two differ:
+     * can ask (`DeploySheet.gather`, the deployer's `fund`), quoted for the
+     * sizes [rentSizes] names so one paced pass covers them. The two differ:
      * on devnet 2026-09-08 the cluster wanted 1.0207 SOL for a 200 kB
      * buffer where the formula said 1.3985, so a sheet that compared the
      * formula with the key's balance called a key with 0.8 SOL to spare
      * "short by 0.02" — and the deployer, a minute later, disagreed in the
-     * same log. Same figures in, same figures out.
+     * same log. Same figures in, same figures out — and one pricing per
+     * estimate: a caller that could not quote every size falls back to the
+     * formula for all of them rather than mixing the two.
      */
-    fun estimateDeploy(elfBytes: Int, upgrade: Boolean, rent: (Int) -> Long = ::rentExempt): CostEstimate {
+    fun estimateDeploy(
+        elfBytes: Int,
+        upgrade: Boolean,
+        rent: (Int) -> Long = ::rentExempt,
+        existing: Existing? = null,
+    ): CostEstimate {
         require(elfBytes >= 0) { "elf size must not be negative: $elfBytes" }
         val chunk = writeChunkSize()
         val writes = (elfBytes + chunk - 1) / chunk
+        val extend = extendSize(elfBytes, upgrade, existing)
         return CostEstimate(
             bufferRent = rent(BUFFER_HEADER + elfBytes),
-            programDataRent = if (upgrade) 0L else rent((PROGRAMDATA_HEADER + maxDataLen(elfBytes)).toInt()),
+            programDataRent = when {
+                !upgrade -> rent((PROGRAMDATA_HEADER + maxDataLen(elfBytes)).toInt())
+                extend != null -> (rent(extend) - (existing?.reclaimable ?: 0L)).coerceAtLeast(0L)
+                else -> 0L
+            },
             programRent = if (upgrade) 0L else rent(PROGRAM_SIZE),
             fees = LAMPORTS_PER_SIGNATURE * (writes + 5),
         )
+    }
+
+    /**
+     * The deployer's own threshold: an estimate plus a tenth.
+     *
+     * `ProgramDeploy.fund` will not start with less than this in the deploy
+     * key, and the Deploy sheet's "short by about" line has to use the same
+     * number or the sheet says one thing and the log says another 10 % bigger
+     * (s4 read the two as a contradiction). One function, both callers.
+     */
+    fun withMargin(lamports: Long): Long = lamports + lamports / 10
+
+    /**
+     * What is left to pay when a buffer from an earlier attempt is being
+     * reused: its rent is on chain already, and so is a signature for every
+     * chunk that landed. Never negative.
+     */
+    fun outstanding(estimate: CostEstimate, bufferAlreadyPaid: Boolean, writesAlreadyLanded: Int): Long {
+        val paid = (if (bufferAlreadyPaid) estimate.bufferRent else 0L) +
+            LAMPORTS_PER_SIGNATURE * writesAlreadyLanded.coerceAtLeast(0)
+        return (estimate.total - paid).coerceAtLeast(0L)
+    }
+
+    /**
+     * For each of [chunks], whether a buffer account's whole [data] already
+     * holds exactly those bytes at [BUFFER_HEADER] + its offset.
+     *
+     * This is what makes a resumed deploy safe: the record in `OpenBuffers`
+     * says which account an earlier attempt left, and this says whether the
+     * account is *this* artifact — byte for byte, not by size or by hope.
+     * An account too short for a chunk answers false for it rather than
+     * throwing, so a buffer built for a different build is simply not
+     * adopted.
+     */
+    fun writtenChunks(data: ByteArray, chunks: List<Pair<Int, ByteArray>>): BooleanArray =
+        BooleanArray(chunks.size) { index ->
+            val (offset, bytes) = chunks[index]
+            val at = BUFFER_HEADER + offset
+            when {
+                at < 0 || at + bytes.size > data.size -> false
+                else -> {
+                    var same = true
+                    for (i in bytes.indices) {
+                        if (data[at + i] != bytes[i]) {
+                            same = false
+                            break
+                        }
+                    }
+                    same
+                }
+            }
+        }
+
+    /**
+     * Every account size [estimateDeploy] will price for these arguments, so
+     * a caller can quote them all from the cluster in one paced pass before
+     * calling it (the `rent` lambda there is not suspending, and six
+     * unretried reads scattered through a composition were their own defect).
+     * Distinct, and in no particular order.
+     */
+    fun rentSizes(elfBytes: Int, upgrade: Boolean, existing: Existing? = null): List<Int> {
+        require(elfBytes >= 0) { "elf size must not be negative: $elfBytes" }
+        val sizes = ArrayList<Int>(3)
+        sizes.add(BUFFER_HEADER + elfBytes)
+        if (upgrade) {
+            extendSize(elfBytes, upgrade, existing)?.let { sizes.add(it) }
+        } else {
+            sizes.add((PROGRAMDATA_HEADER + maxDataLen(elfBytes)).toInt())
+            sizes.add(PROGRAM_SIZE)
+        }
+        return sizes.distinct()
+    }
+
+    /**
+     * The programdata size an `ExtendProgram` would have to pay rent for, or
+     * null when this is not an upgrade, the account is unknown, or the ELF
+     * still fits. One place, so [estimateDeploy] and [rentSizes] cannot
+     * disagree about which sizes are priced.
+     */
+    private fun extendSize(elfBytes: Int, upgrade: Boolean, existing: Existing?): Int? {
+        if (!upgrade || existing == null) return null
+        if (elfBytes <= existing.dataLen) return null
+        return PROGRAMDATA_HEADER + elfBytes
     }
 
     /**

@@ -338,12 +338,50 @@ class ProgramIdsTest {
 
     // --- disagree(layout) ------------------------------------------------------
 
+    /**
+     * QA B-05: a Native project with a `declare_id!` that is not the
+     * keypair's address IS in disagreement — the Deploy sheet refuses it and
+     * says a rebuild will sync them, and until 2026-09-09 the rebuild
+     * returned `emptyList()` for Native, so the program could never be
+     * deployed. Unknown is still no one's business.
+     */
     @Test
-    fun `Native and Unknown layouts never disagree`() {
-        write("src/lib.rs", "declare_id!(\"$idA\");")
-        writeKeypair()
-        assertFalse(ProgramIds.disagree(layout(ProjectFramework.Native)))
+    fun `a Native layout disagrees when declare_id is not the keypair, and the sync fixes it`() {
+        write("src/lib.rs", "declare_id!(\"$idA\");\n\nentrypoint!(process_instruction);\n")
+        val keypair = writeKeypair()
+        assertTrue(ProgramIds.disagree(layout(ProjectFramework.Native)))
         assertFalse(ProgramIds.disagree(layout(ProjectFramework.Unknown)))
+
+        assertEquals(listOf("src/lib.rs"), ProgramIds.syncProgramIds(layout(ProjectFramework.Native)))
+        val text = File(root, "src/lib.rs").readText()
+        assertTrue(text, text.startsWith("declare_id!(\"${keypair.publicKey.base58}\");"))
+        assertTrue(text, text.contains("entrypoint!(process_instruction);"))
+        assertFalse(ProgramIds.disagree(layout(ProjectFramework.Native)))
+        // Idempotent, and it wrote no Anchor.toml for a project that has none.
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Native)))
+        assertFalse(File(root, "Anchor.toml").exists())
+    }
+
+    /**
+     * The scaffold's own Native program (and Playground's) has no
+     * `declare_id!` at all: one claim, nothing to disagree with, and the sync
+     * makes the keypair and stops.
+     */
+    @Test
+    fun `a Native scaffold with no declare_id has nothing to sync but its keypair`() {
+        write("src/lib.rs", "entrypoint!(process_instruction);\n")
+        val changed = ProgramIds.syncProgramIds(layout(ProjectFramework.Native))
+        assertEquals(listOf("target/deploy/my_program-keypair.json"), changed)
+        assertFalse(ProgramIds.disagree(layout(ProjectFramework.Native)))
+        assertEquals("entrypoint!(process_instruction);\n", File(root, "src/lib.rs").readText())
+    }
+
+    @Test
+    fun `an Unknown layout is never synced`() {
+        write("src/lib.rs", "declare_id!(\"$idA\");\n")
+        writeKeypair()
+        assertEquals(emptyList<String>(), ProgramIds.syncProgramIds(layout(ProjectFramework.Unknown)))
+        assertTrue(File(root, "src/lib.rs").readText().contains(idA))
     }
 
     @Test
