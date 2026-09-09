@@ -123,6 +123,28 @@ pub use session::{RecentProject, SESSION_VERSION, SessionDocument};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// FNV-1a's 64-bit offset basis — where [`fnv1a_step`] starts.
+pub(crate) const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// FNV-1a, 64-bit, continued from `hash`. Taken a chunk at a time so a rope
+/// can be hashed through the leaves it already holds, instead of being
+/// joined into one string first.
+pub(crate) fn fnv1a_step(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// FNV-1a, 64-bit. A hash, not a digest: nothing here defends against a
+/// chosen collision, only against an accidental one. The pane's
+/// `EditorState.textHash` is the same function, so the two sides agree on
+/// what "the same text" means.
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
+    fnv1a_step(FNV_OFFSET_BASIS, bytes)
+}
+
 /// A (row, UTF-16 column) position as a byte offset into `rope`, clipped to
 /// the text — the pane's coordinates turned into the tree's.
 fn utf16_offset(rope: &rope::Rope, row: u32, col_utf16: u32) -> usize {
@@ -247,11 +269,57 @@ impl BufferState {
     }
 
     /// What `Engine::buffer_is_dirty` answers, for a caller already holding
-    /// the lock. A buffer with no file is never dirty.
-    pub(crate) fn is_dirty(&self) -> bool {
-        self.file
-            .as_ref()
-            .is_some_and(|file| self.version != file.saved_version || file.shape_changed)
+    /// the lock. A buffer with no file is never dirty — there is nowhere for
+    /// it to be dirty against.
+    ///
+    /// Dirty means *the text is not what was last written to or read from
+    /// disk*, which the version alone cannot say: undo bumps the version
+    /// like any other edit, so an undo back onto the saved text used to read
+    /// as an unsaved change — and a buffer that claims edits it does not
+    /// have stops the poll reloading it, manufactures a save conflict, and
+    /// nags on close.
+    ///
+    /// This is polled several times a second for every open file, so it is
+    /// laid out cheapest-first: the version compare answers outright for a
+    /// buffer nobody has touched since its last sync; the byte length
+    /// answers for one that has been typed into, since almost every edit
+    /// changes the length; only a buffer sitting at exactly the synced
+    /// length is hashed. Either way the answer is then remembered against the
+    /// version that produced it — `saved_version` pulled forward when the
+    /// text matches, `known_dirty_version` set when it does not — so a
+    /// buffer nobody is typing into is hashed at most once and every poll
+    /// after that is an integer compare again.
+    pub(crate) fn is_dirty(&mut self) -> bool {
+        let Some(file) = self.file.as_ref() else {
+            return false;
+        };
+        // The shape — encoding, byte-order mark, line ending — is dirty on
+        // its own terms: the text may be identical and the bytes a save
+        // would write are not.
+        if file.shape_changed {
+            return true;
+        }
+        if self.version == file.saved_version {
+            return false;
+        }
+        // Already hashed at this very version and found different: the answer
+        // cannot have changed without an edit, and an edit moves the version.
+        if file.known_dirty_version == Some(self.version) {
+            return true;
+        }
+        if self.buffer.len() != file.synced.len {
+            return true;
+        }
+        let matches = file::ContentId::of_rope(self.buffer.as_rope()) == file.synced;
+        let version = self.version;
+        if let Some(file) = self.file.as_mut() {
+            if matches {
+                file.saved_version = version;
+            } else {
+                file.known_dirty_version = Some(version);
+            }
+        }
+        !matches
     }
 
     /// Undo or redo just stepped over `transaction`; `version` has been
@@ -259,9 +327,19 @@ impl BufferState {
     /// encoding — and the dirty state of the side it lands on — across with it
     /// (see `FileState::restore_encoding_for_transaction`).
     fn crossed_transaction(&mut self, transaction: text::TransactionId, was_dirty: bool) {
+        // Almost no transaction is a reload, and fingerprinting the text is
+        // the one part of this that costs anything; ask first.
+        if !self
+            .file
+            .as_ref()
+            .is_some_and(|file| file.is_reload_transaction(transaction))
+        {
+            return;
+        }
         let version = self.version;
+        let content = file::ContentId::of_rope(self.buffer.as_rope());
         if let Some(file) = &mut self.file {
-            file.restore_encoding_for_transaction(transaction, was_dirty, version);
+            file.restore_encoding_for_transaction(transaction, was_dirty, version, content);
         }
     }
 

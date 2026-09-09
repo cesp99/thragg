@@ -330,7 +330,9 @@ fn sessions_dir() -> Option<PathBuf> {
 /// `../settings` must not be able to choose the file it is written to. The
 /// readable half is kept as a prefix so the directory means something to a
 /// human. Zed's `workspace_id` is the same idea with a database's autonumber
-/// in place of the hash.
+/// in place of the hash. A hash and not a digest is enough: the only
+/// property needed is that two roots almost never collide, and the document
+/// records its own root, so even a collision is caught rather than applied.
 fn session_file(root: &Path) -> Option<PathBuf> {
     let directory = sessions_dir()?;
     let key = root.to_string_lossy();
@@ -342,19 +344,7 @@ fn session_file(root: &Path) -> Option<PathBuf> {
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .take(32)
         .collect();
-    Some(directory.join(format!("{name}-{:016x}.json", fnv1a(key.as_bytes()))))
-}
-
-/// FNV-1a, 64-bit. A hash, not a digest: it names a file, and the only
-/// property needed is that two roots almost never collide — and the document
-/// records its own root, so even a collision is caught rather than applied.
-fn fnv1a(bytes: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
+    Some(directory.join(format!("{name}-{:016x}.json", crate::fnv1a(key.as_bytes()))))
 }
 
 fn recent_file() -> Option<PathBuf> {

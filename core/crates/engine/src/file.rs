@@ -1,8 +1,13 @@
 //! File-backed buffers: open, save, dirty state, and disk conflicts.
 //!
-//! A buffer is "dirty" when its content version has moved past the version
-//! last written to (or read from) disk. That is a comparison of two integers,
-//! not a hash of the text, so it is exact and free.
+//! A buffer is "dirty" when its *text* is not the text last written to (or
+//! read from) disk. The version is the fast path for that question and not
+//! the question itself — it moves on undo as readily as on typing, so a
+//! buffer undone back onto the file's own bytes has a version past the saved
+//! one and nothing to save. What is recorded at each sync is therefore the
+//! text's byte length and a hash of it as well as the version, and the test
+//! falls through to them only when the versions disagree; see
+//! `BufferState::is_dirty`.
 //!
 //! Disk changes are *detected*, never silently resolved. The worktree's
 //! existing file watcher (see `project.rs`) flags an open buffer whose file
@@ -22,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use encoding_rs::Encoding;
+use rope::Rope;
 
 use crate::encoding::{self, DecodedText, LineEnding};
 use crate::{BufferId, EngineError};
@@ -31,6 +37,18 @@ pub(crate) struct FileState {
     pub path: PathBuf,
     /// Buffer version as of the last successful load or save.
     pub saved_version: u64,
+    /// The buffer's text as of that same moment, fingerprinted. The version
+    /// says *when* we were last in sync; this says *with what*, which is the
+    /// only way to recognise an undo that lands back on it.
+    pub synced: ContentId,
+    /// A version whose text was hashed and found to differ from [`synced`] —
+    /// the "dirty" twin of pulling `saved_version` forward on a match. It
+    /// keeps a buffer parked at exactly the synced *length* with different
+    /// bytes (a transposed pair, a character typed over another) from being
+    /// rehashed four times a second for as long as it sits there. Only ever
+    /// read at that exact version, and only after `saved_version` has been
+    /// ruled out, so a later sync at the same version cannot be shadowed.
+    pub known_dirty_version: Option<u64>,
     /// Modification time and length as of that same moment. Together they
     /// distinguish "someone else wrote this file" from "we wrote it", which
     /// matters because our own save fires the watcher too.
@@ -77,11 +95,49 @@ struct ReloadSide {
     dirty: bool,
 }
 
+/// A buffer's text, small enough to keep beside it: the byte length, and a
+/// 64-bit FNV-1a of the bytes. The length is what the dirty test asks first
+/// — nearly every edit changes it — and the hash settles the rest. Two
+/// different texts of the same length colliding takes a 1-in-2^64 accident;
+/// what it would cost is one missing dirty dot, so the odds are the right
+/// shape for the price.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ContentId {
+    pub len: usize,
+    pub hash: u64,
+}
+
+impl ContentId {
+    /// Fingerprint a rope in place: `Rope::chunks` walks the leaves it
+    /// already holds, so this reads the text once and allocates nothing —
+    /// `Rope::to_string` would copy the whole buffer to hash it.
+    pub(crate) fn of_rope(rope: &Rope) -> Self {
+        let mut hash = crate::FNV_OFFSET_BASIS;
+        for chunk in rope.chunks() {
+            hash = crate::fnv1a_step(hash, chunk.as_bytes());
+        }
+        ContentId {
+            len: rope.len(),
+            hash,
+        }
+    }
+
+    /// Fingerprint the text a load just decoded, before it becomes a rope.
+    pub(crate) fn of_str(text: &str) -> Self {
+        ContentId {
+            len: text.len(),
+            hash: crate::fnv1a(text.as_bytes()),
+        }
+    }
+}
+
 impl FileState {
     pub fn new(path: PathBuf) -> Self {
         FileState {
             path,
             saved_version: 0,
+            synced: ContentId::default(),
+            known_dirty_version: None,
             disk_mtime: None,
             disk_len: 0,
             external_change: false,
@@ -120,6 +176,12 @@ impl FileState {
         }
     }
 
+    /// Whether `transaction` is one of the reloads noted above — asked
+    /// before the caller pays for a fingerprint of the text.
+    pub(crate) fn is_reload_transaction(&self, transaction: text::TransactionId) -> bool {
+        self.reload_encodings.contains_key(&transaction)
+    }
+
     /// Undo or redo just crossed `transaction`, and `version` is the
     /// buffer's version now. If it was a reload that changed the encoding,
     /// the encoding crosses back with it: the text is now what the *other*
@@ -135,6 +197,7 @@ impl FileState {
         transaction: text::TransactionId,
         was_dirty: bool,
         version: u64,
+        content: ContentId,
     ) {
         let Some(&other) = self.reload_encodings.get(&transaction) else {
             return;
@@ -147,16 +210,26 @@ impl FileState {
         self.encoding = other.encoding;
         self.has_bom = other.has_bom;
         if !other.dirty {
+            // This side is the file read the other way, so it is the text we
+            // are in sync with now: record it as such, or the next edit
+            // would be measured against a fingerprint of the other side.
             self.saved_version = version;
+            self.synced = content;
             self.shape_changed = false;
         }
         self.reload_encodings.insert(transaction, this_side);
     }
 
-    /// Record the file's current identity as the one we are in sync with.
-    pub fn mark_synced(&mut self, version: u64) {
+    /// Record the file's current identity — and the text we hold it as — as
+    /// the ones we are in sync with. `content` must be the buffer's text at
+    /// `version`, not necessarily the text it holds now: a save records the
+    /// bytes it actually wrote, so an edit that lands mid-write is still
+    /// counted as unsaved.
+    pub fn mark_synced(&mut self, version: u64, content: ContentId) {
         let (mtime, len) = stat(&self.path);
         self.saved_version = version;
+        self.synced = content;
+        self.known_dirty_version = None;
         self.disk_mtime = mtime;
         self.disk_len = len;
         self.external_change = false;
@@ -223,7 +296,7 @@ impl crate::Engine {
 
         let mut file = FileState::new(path);
         file.adopt(line_ending, &decoded);
-        file.mark_synced(0);
+        file.mark_synced(0, ContentId::of_str(&decoded.text));
         if let Ok(state) = self.buffer(id) {
             state.lock().unwrap().file = Some(file);
         }
@@ -263,11 +336,13 @@ impl crate::Engine {
     /// Whether the buffer has edits not yet written to disk. Buffers with no
     /// file are never dirty — there is nowhere for them to be dirty against.
     pub fn buffer_is_dirty(&self, id: BufferId) -> bool {
-        self.with_buffer(id, |state| match &state.file {
-            Some(file) => state.version != file.saved_version || file.shape_changed,
-            None => false,
-        })
-        .unwrap_or(false)
+        // Takes the lock for writing because the answer can collapse the
+        // state it was read from (see `BufferState::is_dirty`).
+        let Ok(state) = self.buffer(id) else {
+            return false;
+        };
+        let mut state = state.lock().unwrap();
+        state.is_dirty()
     }
 
     /// The line ending the buffer's file uses, or None for a buffer with no
@@ -357,7 +432,7 @@ impl crate::Engine {
     pub fn save_buffer(&self, id: BufferId) -> Result<u64, EngineError> {
         // Take the text and path under the lock, then write without holding
         // it: a save of a large file must not stall every other buffer query.
-        let (path, bytes, version) = {
+        let (path, bytes, version, content) = {
             let state = self.buffer(id)?;
             let state = state.lock().unwrap();
             let file = state.file.as_ref().ok_or(EngineError::NoFile(id))?;
@@ -366,7 +441,10 @@ impl crate::Engine {
             // (`worktree/src/worktree.rs:1856-1873`).
             let text = file.line_ending.apply(state.buffer.text());
             let bytes = encoding::encode_text(&text, file.encoding, file.has_bom);
-            (file.path.clone(), bytes, state.version)
+            // Fingerprinted here, under the same lock as the bytes, so it
+            // describes exactly what the write is about to put on disk.
+            let content = ContentId::of_rope(state.buffer.as_rope());
+            (file.path.clone(), bytes, state.version, content)
         };
 
         write_atomically(&path, &bytes)?;
@@ -376,7 +454,7 @@ impl crate::Engine {
         if let Some(file) = &mut state.file {
             // Record the version we actually wrote, not the current one: an
             // edit that landed during the write must leave the buffer dirty.
-            file.mark_synced(version);
+            file.mark_synced(version, content);
         }
         drop(state);
         // settings.json edited as a tab and saved is a settings write like
@@ -456,7 +534,7 @@ impl crate::Engine {
             };
             file.adopt(line_ending, &decoded);
             file.note_reload_encoding(transaction, previous);
-            file.mark_synced(version);
+            file.mark_synced(version, ContentId::of_str(text));
         }
         let lsp_change = self.history_change(&state, old_end);
         drop(state);
@@ -542,7 +620,16 @@ pub(crate) fn write_atomically_io(path: &Path, bytes: impl AsRef<[u8]>) -> std::
 #[cfg(test)]
 mod tests {
     use super::LineEnding;
-    use crate::{Engine, EngineError};
+    use crate::{BufferId, Engine, EngineError};
+
+    /// Close the open undo transaction, as a pause in typing does — the
+    /// buffer groups edits that land within 300 ms of each other, and a
+    /// test that means "one undo, one step" has to say where the steps are
+    /// rather than sleep through the interval.
+    fn end_typing(engine: &Engine, id: BufferId) {
+        let state = engine.buffer(id).unwrap();
+        state.lock().unwrap().buffer.finalize_last_transaction();
+    }
 
     #[test]
     fn opening_the_same_file_twice_shares_one_buffer() {
@@ -581,8 +668,141 @@ mod tests {
         assert!(!engine.buffer_is_dirty(id));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "one two");
 
-        // Undo is an edit like any other: it makes the buffer dirty again.
+        // Undo moves the version like any other edit, and this one moves the
+        // text away from what was saved, so the buffer is dirty again.
         engine.undo(id).unwrap();
+        assert!(engine.buffer_is_dirty(id));
+    }
+
+    /// The dirty dot answers for the text, not for the version counter: an
+    /// undo back onto the saved text has nothing left to save. Measured on
+    /// the device as the thing that stopped the poll reloading a clean
+    /// buffer and then offered to overwrite the other writer's change.
+    #[test]
+    fn an_undo_back_onto_the_saved_text_is_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("notes.txt");
+        std::fs::write(&file, "one").unwrap();
+
+        let engine = Engine::new();
+        let id = engine.open_file(&file).unwrap();
+        engine.edit(id, 3, 3, " two").unwrap();
+        engine.save_buffer(id).unwrap();
+        assert!(!engine.buffer_is_dirty(id));
+        end_typing(&engine, id);
+
+        // Type, then take it back: the text is the file's again.
+        engine.edit(id, 7, 7, "!").unwrap();
+        assert!(engine.buffer_is_dirty(id));
+        engine.undo(id).unwrap();
+        assert_eq!(engine.text(id).unwrap(), "one two");
+        assert!(!engine.buffer_is_dirty(id));
+
+        // And the redo is dirty again — the collapse the first answer did
+        // must not have pinned the buffer clean.
+        engine.redo(id).unwrap();
+        assert_eq!(engine.text(id).unwrap(), "one two!");
+        assert!(engine.buffer_is_dirty(id));
+
+        // Asking twice is the same answer, and the second ask is the cheap
+        // one: the first pulled `saved_version` up to the current version.
+        engine.undo(id).unwrap();
+        assert!(!engine.buffer_is_dirty(id));
+        assert!(!engine.buffer_is_dirty(id));
+        let state = engine.buffer(id).unwrap();
+        let state = state.lock().unwrap();
+        assert_eq!(
+            state.version,
+            state.file.as_ref().unwrap().saved_version,
+            "a clean answer collapses, so the next poll hashes nothing"
+        );
+    }
+
+    /// The same, reached through a reload instead of a save — the shape the
+    /// device run found: an external write lands, the user types over it and
+    /// takes it back, and the buffer is the file on disk again.
+    #[test]
+    fn an_undo_back_onto_a_reloaded_text_is_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("shared.txt");
+        std::fs::write(&file, "// P7 BASE\n").unwrap();
+
+        let engine = Engine::new();
+        let id = engine.open_file(&file).unwrap();
+        std::fs::write(&file, "// P7 EXTERNAL ONE\n").unwrap();
+        engine.reload_buffer(id).unwrap();
+        assert_eq!(engine.text(id).unwrap(), "// P7 EXTERNAL ONE\n");
+        assert!(!engine.buffer_is_dirty(id));
+
+        engine.edit(id, 3, 3, "ZZZ").unwrap();
+        assert!(engine.buffer_is_dirty(id));
+        engine.undo(id).unwrap();
+        assert_eq!(engine.text(id).unwrap(), "// P7 EXTERNAL ONE\n");
+        assert!(!engine.buffer_is_dirty(id));
+    }
+
+    /// The length is only the fast path. An edit that swaps one character
+    /// for another leaves the buffer exactly as long as the file, and the
+    /// hash is what catches it.
+    #[test]
+    fn an_edit_that_keeps_the_length_is_still_dirty() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("same-length.txt");
+        std::fs::write(&file, "abcdef").unwrap();
+
+        let engine = Engine::new();
+        let id = engine.open_file(&file).unwrap();
+        engine.edit(id, 0, 1, "z").unwrap();
+        assert_eq!(engine.text(id).unwrap(), "zbcdef");
+        assert!(engine.buffer_is_dirty(id));
+
+        // Two swaps that undo each other by hand, not by the undo stack.
+        engine.edit(id, 0, 1, "a").unwrap();
+        assert_eq!(engine.text(id).unwrap(), "abcdef");
+        assert!(!engine.buffer_is_dirty(id));
+
+        // A transposition — same length, same bytes, different order.
+        engine.edit(id, 0, 2, "ba").unwrap();
+        assert!(engine.buffer_is_dirty(id));
+        // Asked again with nothing changed in between it is still dirty, and
+        // the second ask does not re-hash: the version it was hashed at is
+        // remembered, exactly as a clean answer's collapse is.
+        assert!(engine.buffer_is_dirty(id));
+        let state = engine.buffer(id).unwrap();
+        let state = state.lock().unwrap();
+        assert_eq!(
+            state.file.as_ref().unwrap().known_dirty_version,
+            Some(state.version)
+        );
+    }
+
+    /// A shape change is dirty whatever the text says: the bytes a save
+    /// would write are not the bytes on disk, even though the buffer reads
+    /// back identical.
+    #[test]
+    fn a_shape_change_is_dirty_even_with_untouched_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("unix.txt");
+        std::fs::write(&file, "a\nb\n").unwrap();
+
+        let engine = Engine::new();
+        let id = engine.open_file(&file).unwrap();
+        let text = engine.text(id).unwrap();
+
+        engine.set_buffer_line_ending(id, LineEnding::Windows).unwrap();
+        assert_eq!(engine.text(id).unwrap(), text);
+        assert!(engine.buffer_is_dirty(id));
+        engine.save_buffer(id).unwrap();
+        assert!(!engine.buffer_is_dirty(id));
+
+        engine.set_buffer_encoding(id, encoding_rs::UTF_16LE, true).unwrap();
+        assert_eq!(engine.text(id).unwrap(), text);
+        assert!(engine.buffer_is_dirty(id));
+
+        // …and an edit and undo underneath the shape change do not clear it.
+        engine.edit(id, 0, 0, "x").unwrap();
+        engine.undo(id).unwrap();
+        assert_eq!(engine.text(id).unwrap(), text);
         assert!(engine.buffer_is_dirty(id));
     }
 
@@ -843,7 +1063,6 @@ mod tests {
         assert!(!engine.buffer_is_dirty(id));
 
         // And a save now writes 1251, so the file is unchanged.
-        engine.edit(id, 0, 0, "").unwrap();
         engine.save_buffer(id).unwrap();
         assert_eq!(std::fs::read(&file).unwrap(), bytes.as_ref());
 
@@ -853,10 +1072,14 @@ mod tests {
         engine.save_buffer(id).unwrap();
         assert_eq!(std::fs::read(&file).unwrap(), "привет\n".as_bytes());
 
-        // The reinterpretation is a reload, so it is undoable — and the
-        // file was saved as UTF-8 since, so undoing it dirties the buffer.
+        // The reinterpretation is a reload, so it is undoable: the mojibake
+        // comes back, and the encoding it was read in comes back with it.
         engine.undo(id).unwrap();
-        assert!(engine.buffer_is_dirty(id));
+        assert_ne!(engine.text(id).unwrap(), "привет\n");
+        assert_eq!(
+            engine.buffer_encoding(id),
+            Some((encoding_rs::WINDOWS_1252, false))
+        );
     }
 
     /// The picker's reopen, then Ctrl+Z, then Ctrl+Shift+Z, as they land on

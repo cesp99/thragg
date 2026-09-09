@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -107,6 +108,16 @@ private val ControlIcon = 14.dp
  * row that expands the stack, so a burst of failures is a number rather than a
  * wall.
  *
+ * IT RIDES ON THE KEYBOARD. With the IME up, the band's own corner of the
+ * screen is underneath it — and the controls that raise most toasts live in
+ * the keyboard's action row, so the answer to a key press would be drawn
+ * where that press cannot see it. (Measured: undo hitting the reload floor
+ * says so in a toast, and undo exists only in the IME dock.) So the column
+ * is padded by the IME, the way the Agent composer and the terminal are
+ * (AgentComposer.kt, ShellMode.kt) — the same inset the system animates the
+ * keyboard in on, not a motion of ours. With the keyboard down the inset is
+ * zero and nothing moves: the toasts sit exactly where they always did.
+ *
  * The host draws nothing at all when the stack is empty, and it never takes
  * focus by itself: a toast that stole the keyboard mid-keystroke would be
  * worse than the failure it is reporting. Tab or a tap lands on one, and then
@@ -146,6 +157,12 @@ fun NotificationHost(
         verticalArrangement = Arrangement.spacedBy(StackGap),
         userScrollEnabled = false,
         modifier = modifier
+            // Above the keyboard, never under it. Plain `imePadding` and not
+            // a union with the navigation bars: with the keyboard down this
+            // must resolve to nothing, because where the band sits then —
+            // above the nav capsule, which the shell's column already
+            // reserves — is already right (ThraggShell.kt).
+            .imePadding()
             .padding(StackMargin)
             .widthIn(max = ToastWidth),
     ) {
