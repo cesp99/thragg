@@ -133,8 +133,16 @@ internal object GitOps {
             // The panel's own error strip still carries the detail for
             // whoever has the panel open; the toast is for whoever does not,
             // which used to be a command that vanished without a word.
+            // And a command that succeeds takes back the last one's error.
+            // These toasts are keyed on the project and errors are never on a
+            // clock, so without this the sentence from a failure outlives the
+            // command that fixed it: "git does not know who you are yet" was
+            // still the only thing on screen after the identity sheet's retry
+            // had committed (QA 0.0.23). Success is the retraction.
             if (failure != null) {
                 Notifications.error(failure, key = "git:$project")
+            } else {
+                Notifications.dismissKey("git:$project")
             }
             onDone(failure)
         }

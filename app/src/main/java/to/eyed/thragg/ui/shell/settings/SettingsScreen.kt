@@ -273,8 +273,11 @@ fun SettingsScreen(
     // relaunch (QA 0.0.22, G-11). Re-asked on every arrival and after every
     // write, because a write is how it gets fixed.
     var settingsProblem by remember { mutableStateOf<String?>(null) }
+    var settingsRecovered by remember { mutableStateOf(false) }
     LaunchedEffect(settings, refusals) {
-        settingsProblem = withContext(Dispatchers.IO) { AppSettings.loadChecked().problem }
+        val loaded = withContext(Dispatchers.IO) { AppSettings.loadChecked() }
+        settingsProblem = loaded.problem
+        settingsRecovered = loaded.recovered
     }
 
     /** One key, written off the main thread, with the refusal made visible. */
@@ -337,8 +340,19 @@ fun SettingsScreen(
             ThraggCard(modifier = Modifier.fillMaxWidth()) {
                 LinkRow(
                     label = "settings.json is not in effect",
-                    description = "$problem — every setting below is the built-in default " +
-                        "until it is fixed. Tap to open the file.",
+                    // Which consequence is true depends on how far the file
+                    // got: `recovered` means this side read it where the
+                    // engine would not, so the rows below ARE the user's and
+                    // only the editor's own half is defaulted. Saying
+                    // otherwise makes the card contradict the screen under it
+                    // (QA G-11, same branch as CodeScreen's toast).
+                    description = if (settingsRecovered) {
+                        "$problem — the editor's own settings are the built-in " +
+                            "defaults until it is fixed. Tap to open the file."
+                    } else {
+                        "$problem — every setting below is the built-in default " +
+                            "until it is fixed. Tap to open the file."
+                    },
                     onClick = openSettingsJson,
                 )
             }

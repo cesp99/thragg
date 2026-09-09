@@ -664,7 +664,16 @@ fun CodeScreen(
             }
             Notifications.error(
                 "settings.json is not in effect: $problem. $consequence",
-                action = path?.let { NotificationAction("Open") { state.openPath?.invoke(it) } },
+                // Open, and *arrive*: this toast is raised at launch and is on
+                // screen whatever tab the user is on, so opening the file
+                // without switching to Code is a button that looks dead from
+                // the Agent tab (QA r2 §6c). Same rule as CodeJump.to's.
+                action = path?.let {
+                    NotificationAction("Open") {
+                        state.openPath?.invoke(it)
+                        state.show(Destination.Code)
+                    }
+                },
                 key = GLOBAL_SETTINGS_NOTIFICATION,
             )
         }

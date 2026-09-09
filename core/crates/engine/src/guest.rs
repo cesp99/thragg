@@ -360,8 +360,19 @@ pub(crate) fn invocation(userland: &Userland, command: &GuestCommand) -> Invocat
         "--kill-on-exit",
         // The rootfs was unpacked with this on, and dpkg keeps using it, so
         // the guest's own files are only presented correctly with it on here
-        // too. Nothing here creates a link, so it costs a translation and
-        // nothing else.
+        // too — dropping it would make every hard link already in the rootfs
+        // read as a broken absolute symlink.
+        //
+        // It is NOT free, and the comment that used to sit here ("nothing here
+        // creates a link") was wrong: git's `finalize_object_file` hard-links
+        // every loose object into place, so with this on the object names
+        // became symlinks into hidden `.l2s.*` files and renaming or exporting
+        // a project destroyed its history (QA 0.0.23, G-17/G-24). The fix is
+        // to stop the guest making links rather than to stop translating
+        // them: `git_argv` passes `-c core.createObject=rename` (git.rs), and
+        // Kotlin's `DebianUserland.state()` seeds the same in
+        // `/root/.gitconfig` for the gits this crate does not spawn. Anything
+        // else added here that hard-links needs the same treatment.
         "--link2symlink",
         // Debian's binaries are happy on any kernel, but the guest asking
         // uname is one less thing to differ from the terminal's environment.

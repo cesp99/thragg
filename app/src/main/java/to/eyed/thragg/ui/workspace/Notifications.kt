@@ -102,6 +102,7 @@ open class NotificationStack(private val now: () -> Long = System::currentTimeMi
         severity: NotificationSeverity = NotificationSeverity.Info,
         action: NotificationAction? = null,
         key: String? = null,
+        sticky: Boolean = false,
     ): Long {
         val id = nextId++
         val notification = AppNotification(
@@ -110,7 +111,7 @@ open class NotificationStack(private val now: () -> Long = System::currentTimeMi
             severity = severity,
             action = action,
             key = key,
-            expiresAt = lifetimeOf(severity, action)?.let { now() + it },
+            expiresAt = if (sticky) null else lifetimeOf(severity, action)?.let { now() + it },
         )
         if (key != null) items.removeAll { it.key == key }
         items.add(0, notification)
@@ -130,6 +131,15 @@ open class NotificationStack(private val now: () -> Long = System::currentTimeMi
 
     fun error(message: String, action: NotificationAction? = null, key: String? = null): Long =
         show(message, NotificationSeverity.Error, action, key)
+
+    /**
+     * An Info that waits to be dismissed, for the handful of notices that
+     * report money having moved. Six seconds is right for "saved" and wrong
+     * for "Seed Vault sent 5 SOL to the deploy key": the transfer that landed
+     * while the sheet was away is exactly the one nobody is looking at.
+     */
+    fun done(message: String, action: NotificationAction? = null, key: String? = null): Long =
+        show(message, NotificationSeverity.Info, action, key, sticky = true)
 
     fun dismiss(id: Long) {
         items.removeAll { it.id == id }

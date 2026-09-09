@@ -327,7 +327,10 @@ internal fun launchTopUp(context: Context, cluster: Cluster, amount: Long, deplo
         TopUpProgress.version++
         result
             .onSuccess {
-                Notifications.info(
+                // Sticky, like the failure: the transfer usually lands after the
+                // sheet has been dismissed, and an Info that expires in six
+                // seconds is a top-up that reports nothing (QA r4 §3).
+                Notifications.done(
                     WalletTopUp.landedDetail(it.amount, it.keyBalance, cluster),
                     key = WalletTopUp.NOTIFICATION_KEY,
                 )

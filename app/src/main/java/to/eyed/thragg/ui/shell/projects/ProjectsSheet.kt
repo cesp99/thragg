@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1068,23 +1069,45 @@ private fun ConfirmDeleteSheet(
     }
 }
 
+/**
+ * One row of a menu drawn as a sheet: one line of `bodyMedium`, destructive in
+ * `error`, no icon.
+ *
+ * Internal, and the one of its kind — the Files sheet's long-press menu
+ * ([to.eyed.thragg.ui.shell.code.FilesSheet]) is the same gesture answered the
+ * same way, and a second copy of this would be two menus that drift apart. It
+ * is the one that brought [enabled]: the file tree's menu has entries that are
+ * only sometimes live (Paste with nothing cut, Reveal Active File with no file
+ * open), and a row that answers a tap by doing nothing is worse than one that
+ * says it cannot.
+ */
 @Composable
-private fun MenuRow(label: String, isDestructive: Boolean = false, onClick: () -> Unit) {
+internal fun MenuRow(
+    label: String,
+    isDestructive: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     Text(
         text = label,
         style = MaterialTheme.typography.bodyMedium,
-        color = if (isDestructive) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface
+        color = when {
+            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = MenuRowDisabledAlpha)
+            isDestructive -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.onSurface
         },
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .heightIn(min = MD.rowMin)
             .padding(horizontal = MD.space4, vertical = MD.space3),
     )
 }
+
+/** Material's disabled-content alpha, for the one row that has the state. */
+private const val MenuRowDisabledAlpha = 0.38f
 
 @Composable
 internal fun Message(text: String, isError: Boolean = false) {

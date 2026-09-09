@@ -64,6 +64,7 @@ import to.eyed.thragg.ui.theme.ThraggIcon
 import to.eyed.thragg.ui.theme.ThraggIconButton
 import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.touchTarget
+import to.eyed.thragg.ui.shell.projects.MenuRow
 import to.eyed.thragg.ui.workspace.OpenFilesState
 import to.eyed.thragg.ui.workspace.PanelMenuEntry
 import to.eyed.thragg.ui.workspace.PanelMenuRequest
@@ -598,42 +599,6 @@ private fun SheetAction(@DrawableRes icon: Int, label: String, onClick: () -> Un
         )
     }
 }
-
-/**
- * One line of [EntryMenuSheet].
- *
- * The Projects sheet's row with one addition: a disabled state. The panel's
- * menu has entries that are only sometimes live — Paste with nothing cut,
- * Reveal Active File with no file open — and a row that answers a tap by
- * doing nothing is worse than one that says it cannot.
- */
-@Composable
-private fun MenuRow(
-    label: String,
-    isDestructive: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.bodyMedium,
-        color = when {
-            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = DisabledAlpha)
-            isDestructive -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.onSurface
-        },
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
-            .heightIn(min = MD.rowMin)
-            .padding(horizontal = MD.space4, vertical = MD.space3),
-    )
-}
-
-/** Material's own disabled content alpha, which the theme does not restate. */
-private const val DisabledAlpha = 0.38f
 
 private val OpenListMaxHeight = 176.dp
 

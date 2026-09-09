@@ -648,6 +648,15 @@ pub(crate) fn git_argv<S: AsRef<OsStr>>(project: &Path, args: &[S]) -> Vec<OsStr
     // ownership" check would have passed anyway. Supported since git 2.35.3;
     // Debian stable is well past that.
     argv.extend(["-c", "safe.directory=*"].map(OsString::from));
+    // Every loose object git writes goes in through `finalize_object_file`,
+    // which writes `objects/XX/tmp_obj_??????` and then `link(2)`s it into
+    // place. The guest runs under proot's `--link2symlink` (guest.rs), which
+    // turns each of those links into a symlink holding the *absolute host*
+    // path of a hidden `.l2s.*` file — so the repository is only readable from
+    // this device, at this path, and a rename or an export destroys it (QA
+    // 0.0.23, G-17/G-24). This is git's own switch for filesystems where
+    // linking is a bad idea: rename the temp file into place instead.
+    argv.extend(["-c", "core.createObject=rename"].map(OsString::from));
     // A file called `*.rs` is a file, not a glob, and a file called `-f` is not
     // an option. Every path this module hands git comes from the user's own
     // worktree, so both are reachable — and pathspec magic would silently touch
@@ -2552,6 +2561,8 @@ mod tests {
                 "/files/projects/thing",
                 "-c",
                 "safe.directory=*",
+                "-c",
+                "core.createObject=rename",
                 "--literal-pathspecs",
                 "--no-optional-locks",
                 "status",
@@ -2574,6 +2585,8 @@ mod tests {
                 "/files/projects/thing",
                 "-c",
                 "safe.directory=*",
+                "-c",
+                "core.createObject=rename",
                 "--literal-pathspecs",
                 "add",
                 "-A",

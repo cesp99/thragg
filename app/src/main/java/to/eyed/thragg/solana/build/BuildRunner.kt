@@ -669,7 +669,16 @@ object BuildRunner {
         onProgress: ((String) -> Unit)? = null,
         onLine: (String) -> Unit,
     ): Int {
-        val command: ShellCommand = Userland.backend.execCommand(
+        // Real links, not apt's rewrite. cargo *uplifts* its finished artifact
+        // into `target/deploy/` with a hard link, and under
+        // `--link2symlink` that name becomes a symlink holding an absolute
+        // host path — the same trap `cargo install` taught us
+        // ([Userland.execCommandRealLinks]), and the reason a renamed project
+        // with a stale build had a `.so` pointing at where it used to live
+        // (QA 0.0.23). Nothing a build runs unpacks a Debian package, which is
+        // the one thing the rewrite is for; the toolchain installer has run
+        // every cargo it owns this way since it was written.
+        val command: ShellCommand = Userland.backend.execCommandRealLinks(
             context,
             project.root,
             listOf("/bin/sh", "-c", line),
