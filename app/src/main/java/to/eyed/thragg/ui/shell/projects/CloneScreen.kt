@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -27,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -40,6 +43,7 @@ import to.eyed.thragg.ui.components.Severity
 import to.eyed.thragg.ui.components.ZedCodeBlock
 import to.eyed.thragg.ui.shell.Destination
 import to.eyed.thragg.ui.shell.ShellState
+import to.eyed.thragg.ui.theme.LocalReduceMotion
 import to.eyed.thragg.ui.theme.MD
 import to.eyed.thragg.ui.theme.TabularNums
 
@@ -166,6 +170,12 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                         ZedCodeBlock(
                             text = detail,
                             maxLines = 8,
+                            // Wrapped, not side-scrolled: git's refusal is a
+                            // sentence ("fatal: could not read Username for
+                            // 'https://github.com'"), and on a 400dp column
+                            // it was cut mid-word with nothing to say that
+                            // there was more of it (QA P-08).
+                            wrap = true,
                             modifier = Modifier.padding(top = MD.space2),
                         )
                     }
@@ -181,6 +191,14 @@ fun CloneScreen(state: ShellState, modifier: Modifier = Modifier) {
                         },
                         placeholder = "https://github.com/owner/repo.git",
                         autoFocus = true,
+                        // A URL, and the IME is told so: GBoard capitalised
+                        // the first letter into `https://GitHub.com/…` and
+                        // autocorrected the rest of the path (QA P-14).
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrectEnabled = false,
+                            keyboardType = KeyboardType.Uri,
+                        ),
                     )
                     SectionHeader("Project name", modifier = Modifier.padding(top = MD.space6))
                     SheetTextField(
@@ -291,12 +309,15 @@ private fun CloneActions(
 /**
  * Phase and a bar.
  *
- * With no percentage the bar is full and tinted rather than animated: `git
- * clone` spends whole phases with no number to report, and a bar that crawls
- * on nothing is a bar that lies about progress. Material's own indeterminate
- * indicator is exactly that lie, which is why the unknown case passes 1f to
- * the determinate one instead — the phase line above it is what is carrying
- * "still working", and it changes.
+ * `git clone` spends whole phases with no number to report. The old answer
+ * was to pass `1f` to the determinate bar, on the argument that a crawling
+ * bar lies about progress — but a bar drawn **full** for the whole clone is
+ * the louder lie, and it is the one the device pass read: neither of the
+ * stage's two clones ever showed anything but a completed bar (QA G-25).
+ * With no fraction the bar is *indeterminate*, which is the one control
+ * whose meaning is "still working, and I cannot say how far"; under reduce
+ * motion it is an empty track instead, and the phase line above it — which
+ * changes — is what carries the news.
  *
  * The percentage is tabular, because it ticks.
  */
@@ -322,12 +343,21 @@ private fun CloneProgress(phase: String, fraction: Float?) {
                 )
             }
         }
-        LinearProgressIndicator(
-            progress = { fraction?.coerceIn(0f, 1f) ?: 1f },
-            modifier = Modifier.fillMaxWidth().padding(top = MD.rowPadY),
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            gapSize = 0.dp,
-            drawStopIndicator = {},
-        )
+        val bar = Modifier.fillMaxWidth().padding(top = MD.rowPadY)
+        if (fraction == null && !LocalReduceMotion.current) {
+            LinearProgressIndicator(
+                modifier = bar,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                gapSize = 0.dp,
+            )
+        } else {
+            LinearProgressIndicator(
+                progress = { fraction?.coerceIn(0f, 1f) ?: 0f },
+                modifier = bar,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                gapSize = 0.dp,
+                drawStopIndicator = {},
+            )
+        }
     }
 }

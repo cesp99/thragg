@@ -121,6 +121,19 @@ object BuildRunner {
     var runningAction: BuildAction? by mutableStateOf(null)
         private set
 
+    /**
+     * What the last finished run was and how it ended — the failure card's
+     * whole subject.
+     *
+     * It lives here rather than on `BuildState.Failed` because the verdict on
+     * [ShellState] is read by the nav bar's badge and says only "something
+     * failed"; the card has to say *which verb* failed and offer to run that
+     * one again. Before this, a failed deploy and a failed test were both
+     * titled "The build failed" and both retried a build (QA G-02).
+     */
+    var lastFailure: FailureFacts? by mutableStateOf(null)
+        private set
+
     // --- the seams other chunks fill -----------------------------------------
 
     /**
@@ -204,7 +217,7 @@ object BuildRunner {
      * manifest or finishes the toolchain setup, and rare enough that the proot
      * start-up the probe costs is not on any hot path.
      */
-    fun refresh(context: Context, projectRoot: String?) {
+    fun refresh(context: Context, projectRoot: String?, probeTools: Boolean = true) {
         if (projectRoot == null) {
             layout = null
             freshness = ArtifactFreshness.Missing
@@ -215,9 +228,14 @@ object BuildRunner {
         val detected = BuildTasks.detect(root)
         layout = detected
         freshness = BuildTasks.freshness(root, detected.primary)
-        // The probe is the expensive half and it says nothing about a project
-        // that has nothing to build.
-        if (detected.isBuildable) {
+        // The probe is the expensive half — it starts a proot — and it says
+        // nothing about a project that has nothing to build. It is also not a
+        // fact about the *project*: `tools` is what the guest has, one answer
+        // for the whole device, which is why a project switch can ask for it
+        // to be skipped (`probeTools = false`) and still get a correct build
+        // command. It is taken anyway the first time in a process, because
+        // "no tools" and "not asked yet" are the same value.
+        if (detected.isBuildable && (probeTools || tools == GuestTools.NONE)) {
             tools = BuildTasks.probe(context)
         }
         val manifest = runCatching { ToolchainManifest.load(context) }.getOrNull()
@@ -230,6 +248,36 @@ object BuildRunner {
     fun refreshFreshness() {
         val current = layout ?: return
         freshness = BuildTasks.freshness(File(current.root), current.primary)
+    }
+
+    /**
+     * Let go of the open project: stop whatever is running and drop every
+     * fact that was about it.
+     *
+     * Called when the shell stops pointing at a project — a switch, a delete
+     * — and it is the whole of QA B-10. Everything below was per-project
+     * state that nothing cleared: the log island, the "N warnings" figure,
+     * the Problems rows, the last command the Fix-with-agent prompt quotes,
+     * and — worst — [layout], which is the tree ▶ builds in. A switch that
+     * left it alone built the *previous* project from the new project's
+     * editor and published its diagnostics over the new project's file.
+     *
+     * The guest tools survive: they are a fact about the device, not about
+     * the project ([refresh]).
+     *
+     * Main thread — it only writes state and signals a process.
+     */
+    fun forget() {
+        stop()
+        log.clear()
+        log.flush()
+        BuildDiagnostics.clear()
+        lastIssues = emptyList()
+        lastCommand = ""
+        lastFailure = null
+        layout = null
+        freshness = ArtifactFreshness.Missing
+        probed = false
     }
 
     // --- running ----------------------------------------------------------------
@@ -249,7 +297,28 @@ object BuildRunner {
         command: BuildCommand? = null,
     ) {
         if (isRunning) return
-        val current = layout ?: return
+        val root = shell.project?.rootPath
+        val current = layout
+        // The one rule that makes ▶ trustworthy: a run happens in the project
+        // the shell is showing, or it does not happen and says why. `layout`
+        // is re-pointed where a project is opened (`openProjectInShell`), so
+        // the only way here is the moment between the two — and the editor's
+        // ▶ used to answer that moment by silently building the *previous*
+        // project (QA B-10, G-01).
+        if (root == null) {
+            Notifications.error(
+                "No project is open, so there is nothing to ${action.label.lowercase()}",
+                key = NOTIFICATION_KEY,
+            )
+            return
+        }
+        if (current == null || current.root != root) {
+            Notifications.info(
+                "Still opening ${File(root).name} — ${action.label} again in a moment",
+                key = NOTIFICATION_KEY,
+            )
+            return
+        }
         val chosen = command ?: when (action) {
             BuildAction.Build -> BuildTasks.buildCommand(current, tools, platformToolsVersion, toolsCacheSeeds)
             BuildAction.Test -> BuildTasks.testCommand(current, platformToolsVersion, toolsCacheSeeds)
@@ -304,6 +373,7 @@ object BuildRunner {
         // *start* of this one, not when it finishes.
         BuildDiagnostics.clear()
         lastIssues = emptyList()
+        lastFailure = null
         lastCommand = command.display
         isRunning = true
         runningAction = action
@@ -344,7 +414,13 @@ object BuildRunner {
                 ticker.cancel()
                 log.flush()
                 current = null
-                if (generation != mine) finishCancelled(app, shell, startedAt)
+                // `mine + 1` is "the stop that killed me, and nothing since".
+                // The kill's grace period is three seconds, and a run started
+                // inside it — switch project, build the new one — would
+                // otherwise have its "running" state wiped by the corpse of
+                // the run before it, leaving a build going with no Stop on
+                // screen (QA B-10c).
+                if (generation == mine + 1) finishCancelled(app, shell, startedAt)
             }
         }
     }
@@ -375,7 +451,25 @@ object BuildRunner {
         // Seeker 2026-09-08: a fresh Seahorse scaffold's first build failed
         // with anchor's "Program ID mismatch" because nothing had synced
         // before the build generated the key — and it could not have.
-        if (action == BuildAction.Build &&
+        val ourIds = idsAreOurs(project)
+        if (action == BuildAction.Build && !ourIds &&
+            (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
+        ) {
+            // Somebody else's repository, with somebody else's id committed in
+            // it. Rewriting that id is a change to *their* source that nobody
+            // asked for and that `git status` reports as your work — measured
+            // on a public Anchor clone, whose first build silently rewrote
+            // `declare_id!` and added a `[programs.devnet]` table disagreeing
+            // with the committed `[programs.localnet]` (QA P-12).
+            log.append(
+                BuildLogRow.Note(
+                    "This is a clone with a program id committed in it, so the id is left " +
+                        "exactly as the repository has it. Deploy generates a keypair and " +
+                        "syncs the id when you ask it to."
+                )
+            )
+        }
+        if (action == BuildAction.Build && ourIds &&
             (project.framework == ProjectFramework.Anchor || project.framework == ProjectFramework.Seahorse)
         ) {
             val synced = programIdsSync?.invoke(project).orEmpty()
@@ -391,7 +485,7 @@ object BuildRunner {
             }
         }
         // 2. Reconcile the program id before an Anchor build, never after.
-        if (action == BuildAction.Build && needsKeysSync(project)) {
+        if (action == BuildAction.Build && ourIds && needsKeysSync(project)) {
             log.append(
                 BuildLogRow.Note(
                     "declare_id! still holds the scaffold's placeholder — running anchor keys sync"
@@ -639,6 +733,20 @@ object BuildRunner {
         } else {
             BuildState.Succeeded(System.currentTimeMillis())
         }
+        // Which verb failed, and — when the compiler had nothing to say — the
+        // line that did. A test that died with "Attempt to load a program
+        // that does not exist" used to be reported as "anchor test reported 8
+        // warnings" (QA G-02).
+        lastFailure = if (failed) {
+            FailureFacts(
+                action = action,
+                errors = errors,
+                warnings = warnings,
+                detail = if (errors == 0) failureDetail(textLines()) else null,
+            )
+        } else {
+            null
+        }
         isRunning = false
         runningAction = null
         holdService(context, false)
@@ -692,6 +800,7 @@ object BuildRunner {
         val mine = ++generation
         val startedAt = System.currentTimeMillis()
         log.clear()
+        lastFailure = null
         lastCommand = "deploy ${program.artifactPath}"
         isRunning = true
         runningAction = BuildAction.Deploy
@@ -723,12 +832,25 @@ object BuildRunner {
                 } else {
                     BuildState.Succeeded(System.currentTimeMillis())
                 }
+                // A deploy never reaches a compiler: its failure is a chain
+                // failure, and what it says is the exception's own sentence.
+                lastFailure = if (failed) {
+                    FailureFacts(
+                        action = BuildAction.Deploy,
+                        errors = 0,
+                        warnings = 0,
+                        detail = outcome.exceptionOrNull()?.message?.trim()?.take(DETAIL_MAX)
+                            ?: failureDetail(textLines()),
+                    )
+                } else {
+                    null
+                }
                 isRunning = false
                 runningAction = null
                 holdService(app, false)
             } finally {
                 log.flush()
-                if (generation != mine) finishCancelled(app, shell, startedAt)
+                if (generation == mine + 1) finishCancelled(app, shell, startedAt)
             }
         }
     }
@@ -744,6 +866,39 @@ object BuildRunner {
      * comparison — declare_id! against the keypair's real address against
      * Anchor.toml — is [idsDisagree], which P6 registers.
      */
+    /**
+     * Whether this project's program id is *ours to write*.
+     *
+     * Three states, and only the first is somebody else's: a git worktree we
+     * did not scaffold, whose `declare_id!` holds a real committed id and
+     * which has no program keypair here. Ours are the rest — a scaffold (no
+     * repository yet, or one this app made and whose id it wrote), a project
+     * whose keypair is already in `target/deploy` (that id came from this
+     * phone), and one still holding the template's placeholder, which is
+     * nobody's id.
+     *
+     * The keypair is the decisive fact: it is what a deploy signs with, so a
+     * project that has one has already had its id decided here.
+     */
+    private fun idsAreOurs(project: ProjectLayout): Boolean {
+        val root = File(project.root)
+        if (project.programs.isEmpty()) return true
+        if (!File(root, ".git").exists()) return true
+        val hasKeypair = project.programs.any {
+            File(root, "target/deploy/${it.moduleName}-keypair.json").isFile
+        }
+        if (hasKeypair) return true
+        // A placeholder is not an id anybody committed on purpose.
+        return project.programs.any { program ->
+            val lib = File(root, "programs/${program.crateName}/src/lib.rs")
+            val python = File(root, "programs_py/${program.moduleName}.py")
+            listOf(lib, python).any { file ->
+                runCatching { file.readText() }.getOrNull()
+                    ?.contains(SolanaProgram.PLACEHOLDER_ID) == true
+            }
+        }
+    }
+
     private fun needsKeysSync(project: ProjectLayout): Boolean {
         if (project.framework == ProjectFramework.Native) return false
         idsDisagree?.let { return it(project) }
@@ -756,6 +911,15 @@ object BuildRunner {
             val lib = File(root, "programs/${program.crateName}/src/lib.rs")
             runCatching { lib.readText() }.getOrNull()
                 ?.contains(SolanaProgram.PLACEHOLDER_ID) == true
+        }
+    }
+
+    /** The log's plain output lines, newest last — what [failureDetail] reads. */
+    private fun textLines(): List<String> = log.rows.mapNotNull { row ->
+        when (row) {
+            is BuildLogRow.Text -> row.text
+            is BuildLogRow.Progress -> row.text
+            else -> null
         }
     }
 
@@ -788,6 +952,36 @@ object BuildRunner {
 
     /** What [execute] returns when there is no guest to run anything in. */
     const val NO_USERLAND = -2
+
+    /**
+     * The one line of a log worth putting on the failure card, when the
+     * compiler produced no diagnostics at all.
+     *
+     * The last line git, anchor or the chain marked — `error`, `failed`,
+     * `fatal`, `panicked` — and the last line said at all when nothing is
+     * marked. Lines still carrying rustc's SGR escapes are skipped: the card
+     * is Material prose and a paste of control bytes is not a sentence
+     * (AnsiText.kt renders those, in the log, where they belong).
+     *
+     * Pure, because it is a sentence the product prints (BuildFailureTest).
+     */
+    fun failureDetail(lines: List<String>): String? {
+        val clean = lines
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.contains('\u001B') }
+        if (clean.isEmpty()) return null
+        val marked = clean.lastOrNull { line ->
+            DETAIL_MARKERS.any { line.contains(it, ignoreCase = true) }
+        }
+        val chosen = marked ?: clean.last()
+        return if (chosen.length <= DETAIL_MAX) chosen else chosen.take(DETAIL_MAX).trimEnd() + "…"
+    }
+
+    /** What marks a line as the reason a run ended — see [failureDetail]. */
+    private val DETAIL_MARKERS = listOf("error", "failed", "fatal", "panicked", "not exist")
+
+    /** How much of a log line the failure card will carry. */
+    private const val DETAIL_MAX = 160
 
     /**
      * `failed · 1 error, 1 warning · 1m11s` — docs/UI.md's own words, and a
@@ -838,6 +1032,22 @@ object BuildRunner {
 
     private fun plural(count: Int, word: String) = if (count == 1) word else "${word}s"
 }
+
+/**
+ * How the last run ended, when it ended badly.
+ *
+ * The card over the log is built from exactly this and nothing else, which is
+ * what keeps its title, its body and its Retry talking about the same run: the
+ * verb that failed, the compiler's counts, and — for a failure the compiler
+ * never saw — the line that explains it.
+ */
+data class FailureFacts(
+    val action: BuildAction,
+    val errors: Int,
+    val warnings: Int,
+    /** The log's own last word, when there are no diagnostics to quote. */
+    val detail: String?,
+)
 
 /**
  * How a program gets on chain. Implemented by P6 (`solana/chain/ProgramDeploy.kt`)

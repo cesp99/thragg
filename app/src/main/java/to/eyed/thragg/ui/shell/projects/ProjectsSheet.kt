@@ -37,6 +37,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
 import to.eyed.thragg.core.AgentSessions
+import to.eyed.thragg.core.CoreBridge
 import to.eyed.thragg.core.ProjectSession
 import to.eyed.thragg.core.ProjectSummary
 import to.eyed.thragg.core.ProjectsRoot
@@ -69,6 +73,8 @@ import to.eyed.thragg.ui.components.ThraggSpinner
 import to.eyed.thragg.ui.components.StatusDot
 import to.eyed.thragg.ui.components.fadeUnderBottomActions
 import to.eyed.thragg.ui.components.outlinedButtonEdge
+import to.eyed.thragg.solana.build.BuildRunner
+import to.eyed.thragg.ui.shell.BuildState
 import to.eyed.thragg.ui.shell.Route
 import to.eyed.thragg.ui.shell.SessionRestore
 import to.eyed.thragg.ui.shell.SheetScaffold
@@ -178,6 +184,8 @@ fun ProjectsSheet(
 
     /** The long-press menu's subject, or null when it is closed. */
     var menuFor by remember { mutableStateOf<ProjectSummary?>(null) }
+    /** Whether the Import sheet — a folder, or files — is up. */
+    var importing by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<ProjectSummary?>(null) }
     var deleting by remember { mutableStateOf<ProjectSummary?>(null) }
     var exporting by remember { mutableStateOf<ProjectSummary?>(null) }
@@ -205,24 +213,65 @@ fun ProjectsSheet(
             }
         }
     }
+    // Files rather than a tree — the fallback that makes Import work at all on
+    // this device. The Seeker's own DocumentsUI refuses every folder ("Can't
+    // use this folder — To protect your privacy, choose another folder") with
+    // USE THIS FOLDER greyed, including folders it has just created, so the
+    // tree grant above can never be given and Import was simply dead (QA
+    // G-24). Picking files needs no tree permission.
+    val importFilesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        busy = "Importing…"
+        ProjectWork.launch {
+            val imported = withContext(Dispatchers.IO) { importFiles(context, uris) }
+            busy = null
+            revision++
+            imported.fold(
+                onSuccess = { project ->
+                    openProjectInShell(context, state, project.absolutePath)
+                    onDismiss()
+                },
+                onFailure = {
+                    Notifications.error(
+                        it.message ?: "Those files could not be imported",
+                        key = "projects",
+                    )
+                },
+            )
+        }
+    }
+    // Export writes one FILE the user names, rather than asking for a folder
+    // to write into: the same broken tree provider made "Export a copy" a
+    // picker that could never be satisfied, and a zip is also the shape
+    // somebody wants a project copy in (QA G-24).
     val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree()
+        ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? ->
         val target = exporting
         exporting = null
         if (uri == null || target == null) return@rememberLauncherForActivityResult
         busy = "Exporting…"
         ProjectWork.launch {
-            val result = withContext(Dispatchers.IO) {
-                SafTransfer.exportProject(context, File(target.path), uri)
+            val written = withContext(Dispatchers.IO) {
+                zipProject(context, File(target.path), uri)
             }
             busy = null
-            when (result) {
-                is SafTransfer.Result.Failed -> Notifications.error(result.message, key = "projects")
-                is SafTransfer.Result.Exported ->
-                    Notifications.info("Exported ${result.files} files", key = "projects")
-                else -> Unit
-            }
+            written.fold(
+                onSuccess = { files ->
+                    Notifications.info(
+                        "Exported $files ${if (files == 1) "file" else "files"} to ${target.name}.zip",
+                        key = "projects",
+                    )
+                },
+                onFailure = {
+                    Notifications.error(
+                        it.message ?: "That project could not be exported",
+                        key = "projects",
+                    )
+                },
+            )
         }
     }
 
@@ -353,9 +402,9 @@ fun ProjectsSheet(
             item(key = "tools") {
                 ThraggCard(modifier = Modifier.fillMaxWidth()) {
                     ToolRow(
-                        label = "Import a folder",
+                        label = "Import",
                         icon = R.drawable.ic_ui_folder_import,
-                        onClick = { importLauncher.launch(null) },
+                        onClick = { importing = true },
                     )
                     HairlineDivider()
                     ToolRow(
@@ -390,6 +439,15 @@ fun ProjectsSheet(
         }
     }
 
+    if (importing) {
+        ImportSheet(
+            state = state,
+            onDismiss = { importing = false },
+            onFolder = { importing = false; importLauncher.launch(null) },
+            onFiles = { importing = false; importFilesLauncher.launch(arrayOf("*/*")) },
+        )
+    }
+
     val menuTarget = menuFor
     if (menuTarget != null) {
         ProjectMenuSheet(
@@ -400,7 +458,7 @@ fun ProjectsSheet(
             onExport = {
                 menuFor = null
                 exporting = menuTarget
-                exportLauncher.launch(null)
+                exportLauncher.launch("${menuTarget.name}.zip")
             },
             onDelete = { menuFor = null; deleting = menuTarget },
         )
@@ -437,10 +495,18 @@ fun ProjectsSheet(
                     val wasOpen = state.project?.rootPath == deleteTarget.path
                     // Closed before the directory goes: the engine is
                     // watching it, and deleting under a live worktree is the
-                    // one ordering that produces a scan of nothing.
+                    // one ordering that produces a scan of nothing. The
+                    // terminals, the Shell mode and the build runner go with
+                    // it — the same teardown a switch does, which this path
+                    // used to skip: a proot left running inside a directory
+                    // SafeDelete was removing, pinned foreground by
+                    // TerminalService and unreachable, because with no
+                    // project open the Build destination never draws a
+                    // terminal at all (QA G-18).
                     if (wasOpen) {
                         val open = state.project
                         state.reset()
+                        closeOpenProject(context, state, deleteTarget.path)
                         withContext(Dispatchers.IO) { open?.close() }
                     }
                     val gone = withContext(Dispatchers.IO) {
@@ -512,21 +578,21 @@ internal suspend fun openProjectInShell(
     val previous = state.project
     if (previous?.rootPath == path) return previous
     // The old project's place is written before anything of it is torn down:
-    // the buffers, the carets and the destination are all still here.
-    if (switching) SessionRestore.save(state, CodeState.current)
+    // the buffers, the carets and the destination are all still here — unless
+    // the directory has gone, which is what a rename and a delete both leave
+    // behind. Writing a session for a path that no longer exists is how the
+    // orphan documents in `files/sessions/` were made (QA G-17).
+    val previousRoot = previous?.rootPath
+    if (switching && previousRoot != null && File(previousRoot).isDirectory) {
+        SessionRestore.save(state, CodeState.current)
+    }
     // Everything pushed over a destination named the old project's files.
     if (switching) state.reset()
-    // …and so did every running shell. WorkspaceScreen.kt:1197 dropped the
-    // terminals on a switch and the rule survives the rewrite: a session left
-    // `cd`'d into a project that is no longer open answers `ls` with the wrong
-    // tree and `cargo build` with the wrong crate. On the main thread by
-    // construction — TerminalSession binds a Handler to the calling looper —
-    // which is what [ProjectWork] is, and closeAll() also hands the foreground
-    // service back. The Shell/Build mode of the old root goes with it.
-    if (switching) {
-        TerminalSessions.of(context).closeAll()
-        previous?.rootPath?.let(ShellModes::forget)
-    }
+    // …and so did every running shell, and the build runner. Everything the
+    // old project owned goes in one place ([closeOpenProject]), because the
+    // delete path needs the identical teardown and used to do half of it (QA
+    // G-18).
+    if (switching) closeOpenProject(context, state, previousRoot)
     // The conversation belongs to the project it was about. AgentSessions is
     // keyed by project id, and its own `open` drops the threads of every
     // other project — this is the close half, for the case where the next
@@ -544,11 +610,44 @@ internal suspend fun openProjectInShell(
         return null
     }
     state.project = opened
+    // The build layer is pointed at the project the shell is showing, here
+    // and nowhere else. This is QA B-10's fix and half of G-01's: `refresh`
+    // used to be called only from BuildScreen's own LaunchedEffect, so a
+    // switch (which forces you onto Code) left BuildRunner holding the
+    // *previous* project's layout — ▶ from the editor built the old tree and
+    // published its diagnostics — and a cold start onto Code left it holding
+    // none at all, which is why ▶ did nothing until Build had been opened
+    // once. `probeTools = false` keeps the proot probe to once per process:
+    // what the guest has installed is not a fact about the project.
+    withContext(Dispatchers.IO) { BuildRunner.refresh(context, path, probeTools = false) }
     // …and the new one's place comes back: its files into Code's queue, its
     // Shell mode, and — on the launch-time restore only — the destination it
     // was on. A switch lands on Code, as `reset()` decided a line ago.
     SessionRestore.restore(state, CodeState.current, opened, applyDestination = !switching)
     return opened
+}
+
+/**
+ * Everything the open project owns, let go of — the teardown a switch does,
+ * factored so the delete path can do the same one.
+ *
+ * Three things, and the delete path used to do none of them (QA G-18): the
+ * terminals, which are `cd`'d into a directory that is about to go and which
+ * hold the foreground service up ("1 session running", with no screen left
+ * that can reach them); the Shell/Build mode of that root; and the build
+ * runner, whose log, warnings, Problems rows and *layout* otherwise follow
+ * you into the next project (QA B-10).
+ *
+ * Main thread by construction — `TerminalSession` binds a Handler to the
+ * calling looper, which is what [ProjectWork] is.
+ */
+internal fun closeOpenProject(context: Context, state: ShellState, root: String?) {
+    TerminalSessions.of(context).closeAll()
+    root?.let(ShellModes::forget)
+    BuildRunner.forget()
+    // The verdict is the project's too: a red "Failed" badge from the project
+    // you just left is a claim about the one you just opened.
+    state.build = BuildState.Idle
 }
 
 /** A project, the one thing about it worth reading off disk, and its branch. */
@@ -782,6 +881,35 @@ private fun ToolRow(
 /** The share of a 400dp row a readout may take before it is the one that ellipsises. */
 private val DetailMax = 168.dp
 
+/**
+ * Import: a folder, or the files in one.
+ *
+ * Two ways because on this phone only one of them works. The folder picker is
+ * Android's tree grant and is the better answer when the device's own
+ * `ExternalStorageProvider` will give one; the Seeker's refuses every folder
+ * with "Can't use this folder", including ones it has just made, so the
+ * sentence says so and the second row is the way through (QA G-24).
+ */
+@Composable
+private fun ImportSheet(
+    state: ShellState,
+    onDismiss: () -> Unit,
+    onFolder: () -> Unit,
+    onFiles: () -> Unit,
+) {
+    SheetScaffold(state = state, onDismiss = onDismiss, title = "Import") {
+        MenuRow("A folder, as a new project", onClick = onFolder)
+        MenuRow("Files, into a new project", onClick = onFiles)
+        Message(
+            "A project is copied in rather than opened where it is: the engine watches a " +
+                "real directory, and a Storage Access Framework tree has no path behind " +
+                "it. If the folder picker says it cannot use the folder you chose — some " +
+                "builds of Android's file app refuse every one of them — pick the files " +
+                "instead."
+        )
+    }
+}
+
 /** Rename / Export / Delete — docs/UI.md, "Long-press a row". */
 @Composable
 private fun ProjectMenuSheet(
@@ -835,7 +963,21 @@ private fun RenameProjectSheet(
                 confirmEnabled = error == null && name.isNotBlank(),
                 onConfirm = {
                     ProjectWork.launch {
+                        // The session document is keyed by path, and
+                        // [ProjectsRoot.rename] moves it — so what it moves
+                        // has to be current. Snapshotting here, on the main
+                        // thread, is the only moment the buffers and carets
+                        // of the project being renamed are still open (QA
+                        // G-17).
+                        val document = if (state.project?.rootPath == project.path) {
+                            SessionRestore.snapshot(state, CodeState.current)
+                        } else {
+                            null
+                        }
                         val moved = withContext(Dispatchers.IO) {
+                            if (document != null) {
+                                runCatching { CoreBridge.sessionSave(document.root, document.toJson()) }
+                            }
                             ProjectsRoot.rename(context, project.name, name)
                         }
                         if (moved == null) {
@@ -1016,14 +1158,32 @@ internal fun SheetTextField(
     error: String? = null,
     autoFocus: Boolean = false,
     singleLine: Boolean = true,
+    /**
+     * What the IME should be for this field. The default is a name; a URL
+     * field passes one that turns capitalisation and autocorrect off —
+     * GBoard capitalised the clone URL into `https://GitHub.com/…`, which
+     * git then refused (QA P-14).
+     */
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     val focus = remember { FocusRequester() }
     // Only ever requested once per field. A request on every recomposition
     // fights the user for focus the moment a second field exists.
     LaunchedEffect(autoFocus) { if (autoFocus) runCatching { focus.requestFocus() } }
+    // A `TextFieldValue`, not a String, for one reason: a field opened with
+    // text already in it puts the caret at index 0, so the first thing typed
+    // into the Rename sheet prefixed the name — `2qa_native` (QA P-14). The
+    // selection is carried here and rebuilt at the *end* of the text whenever
+    // the caller rewrites it from outside.
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    val shown = if (field.text == value) field else TextFieldValue(value, TextRange(value.length))
     OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
+        value = shown,
+        onValueChange = {
+            field = it
+            if (it.text != value) onValueChange(it.text)
+        },
+        keyboardOptions = keyboardOptions,
         modifier = Modifier.fillMaxWidth().focusRequester(focus),
         placeholder = {
             Text(
@@ -1055,3 +1215,106 @@ private val CurrentDotSlot = 8.dp
  * detached, and this is the one place in the row where that matters.
  */
 private val DotGap = 10.dp
+
+
+// ---- Import and export, without a tree grant ---------------------------------
+//
+// These belong in `core/SafTransfer.kt` beside the tree copiers and should
+// move there; they are here because that file was another worker's during the
+// QA fix pass. Both are **blocking**.
+
+/**
+ * The directories a project export leaves out.
+ *
+ * `target/` is measured in gigabytes and is reproducible from the source;
+ * `node_modules/` is reproducible from `yarn.lock`. Exporting either turns a
+ * 2 MB project into a copy no messaging app will carry.
+ */
+private val ExportSkip = setOf("target", "node_modules")
+
+/**
+ * Write [project] into [target] as a zip, and answer how many files went in.
+ *
+ * Symlinks are skipped rather than followed: a clone can hold one pointing
+ * anywhere, and a zip that followed it would copy something outside the
+ * project — the same rule [to.eyed.thragg.core.SafeDelete] follows for the
+ * same reason.
+ */
+private fun zipProject(context: Context, project: File, target: Uri): Result<Int> = runCatching {
+    var files = 0
+    val stream = context.contentResolver.openOutputStream(target, "wt")
+        ?: error("That file could not be opened for writing")
+    stream.use { out ->
+        java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(out)).use { zip ->
+            project.walkTopDown()
+                .onEnter { dir -> dir.name !in ExportSkip && !isLink(dir) }
+                .forEach { file ->
+                    if (!file.isFile || isLink(file)) return@forEach
+                    val relative = file.relativeToOrNull(project)?.path ?: return@forEach
+                    zip.putNextEntry(java.util.zip.ZipEntry("${project.name}/$relative"))
+                    file.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                    files++
+                }
+        }
+    }
+    files
+}
+
+/** Whether [file] is a symbolic link, without java.nio's path arithmetic. */
+private fun isLink(file: File): Boolean =
+    runCatching { file.canonicalFile != file.absoluteFile }.getOrDefault(true)
+
+/**
+ * Copy [uris] into a new project and return it.
+ *
+ * The project is named after the first file's own name without its extension,
+ * which is the only name the picker gives us — a tree grant would have had a
+ * folder name, and this is the path taken when there is no tree grant to be
+ * had.
+ */
+private fun importFiles(context: Context, uris: List<Uri>): Result<File> = runCatching {
+    val first = uris.firstOrNull()?.let { displayName(context, it) }
+    val desired = first?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "imported"
+    val project = ProjectsRoot.create(context, ProjectsRoot.uniqueName(context, desired))
+        ?: error("A project for those files could not be made")
+    var written = 0
+    for (uri in uris) {
+        val name = (displayName(context, uri) ?: "file")
+            .replace('/', '_')
+            .replace('\\', '_')
+            .trimStart('.')
+            .ifBlank { "file" }
+        val file = freeFile(project, name)
+        val input = context.contentResolver.openInputStream(uri) ?: continue
+        input.use { source -> file.outputStream().use { source.copyTo(it) } }
+        written++
+    }
+    if (written == 0) {
+        project.delete()
+        error("Nothing could be read from those files")
+    }
+    project
+}
+
+/** `name`, `name 2`, `name 3`… — the first one [dir] has not got. */
+private fun freeFile(dir: File, name: String): File {
+    val candidate = File(dir, name)
+    if (!candidate.exists()) return candidate
+    val stem = name.substringBeforeLast('.', name)
+    val suffix = name.substringAfterLast('.', "").let { if (it.isEmpty()) "" else ".$it" }
+    var index = 2
+    while (File(dir, "$stem $index$suffix").exists()) index++
+    return File(dir, "$stem $index$suffix")
+}
+
+/** What the picker calls a document, or null when it will not say. */
+private fun displayName(context: Context, uri: Uri): String? = runCatching {
+    context.contentResolver.query(
+        uri,
+        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+}.getOrNull()

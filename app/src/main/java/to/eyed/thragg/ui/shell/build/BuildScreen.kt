@@ -60,6 +60,7 @@ import to.eyed.thragg.solana.build.BuildDiagnostics
 import to.eyed.thragg.solana.build.BuildIssue
 import to.eyed.thragg.solana.build.BuildRunner
 import to.eyed.thragg.solana.build.BuildTasks
+import to.eyed.thragg.solana.build.FailureFacts
 import to.eyed.thragg.solana.build.ProjectFramework
 import to.eyed.thragg.solana.build.ProjectLayout
 import to.eyed.thragg.terminal.Userland
@@ -186,6 +187,22 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
         }
     }
 
+    /**
+     * Retry runs the verb that failed — the whole of QA G-02's second half.
+     *
+     * Deploy retries as the *sheet* rather than as a deploy: it spends SOL,
+     * and the one control in the app that spends it is the sheet's own
+     * confirm. A failed test goes back through [onTest] so its Node gate is
+     * asked again rather than skipped.
+     */
+    val onRetry = { action: BuildAction? ->
+        when (action) {
+            BuildAction.Deploy -> DeployPrompt.open = true
+            BuildAction.Test -> onTest()
+            else -> BuildRunner.start(context, state, BuildAction.Build)
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         BuildBar(
             state = state,
@@ -219,7 +236,7 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
 
             inShell -> ShellTerminal(state, root, modifier = Modifier.weight(1f))
 
-            else -> BuildBody(state, context, root, layout, modifier = Modifier.weight(1f))
+            else -> BuildBody(state, context, root, layout, onRetry, modifier = Modifier.weight(1f))
         }
 
         // The verbs, under the thumb, in Build and in Shell alike; the log
@@ -288,10 +305,15 @@ fun BuildScreen(state: ShellState, modifier: Modifier = Modifier) {
  *
  * Installed once and never taken back: it is a process-wide holder, and a
  * `▶` that stops working because you navigated away from Build would be worse
- * than one that never worked. **This is called from the Build destination's
- * composition, so the editor's ▶ works from the moment Build has been opened
- * once.** Making it work on the very first frame of a cold start needs one
- * line in `ThraggShell.kt`, which wave 1 owns — see this chunk's handoffs.
+ * than one that never worked. It is installed from the shell's own
+ * composition as well as from here (`ThraggShell.kt`), because this call
+ * happens only when the Build destination composes — and a cold start that
+ * lands on Code used to leave the editor's ▶ dead until Build had been opened
+ * once (QA G-01). Installing it twice with the same state is a no-op.
+ *
+ * The other half of that fix is not here: ▶ needs [BuildRunner] to be pointed
+ * at the open project, which is now done where the project is opened
+ * (`openProjectInShell`) rather than by this screen's own `LaunchedEffect`.
  */
 object BuildBootstrap {
     fun install(state: ShellState, context: Context) {
@@ -304,9 +326,17 @@ object BuildBootstrap {
         // screen's isRunning effect, because this seam is the one start path
         // that runs while the user is on Code — where BuildScreen is not
         // composed and its LaunchedEffect cannot fire.
-        CodeBuildSeam.run = { _ ->
+        CodeBuildSeam.run = { project ->
             Notifications.dismissKey(BUILD_TOAST_KEY)
-            BuildRunner.start(app, state, BuildAction.Build)
+            // The argument is not decoration: it is the project the editor
+            // believes it is building, and a run that disagreed with it is
+            // exactly the shape of QA B-10. `BuildRunner.start` makes the
+            // same check against its own layout; this one catches the case
+            // before a notification is dismissed for a project nobody is
+            // looking at.
+            if (project.rootPath == state.project?.rootPath) {
+                BuildRunner.start(app, state, BuildAction.Build)
+            }
         }
     }
 }
@@ -485,7 +515,11 @@ private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?, context:
                         )
                     } else {
                         Text(
-                            text = layout?.primary?.artifactPath.orEmpty(),
+                            text = stripPath(
+                                layout?.primary?.artifactPath,
+                                failed,
+                                BuildRunner.freshness,
+                            ),
                             // The buffer's face, because it is a path: the same
                             // figure in the same face as the editor's tab and the
                             // log's own rows.
@@ -501,6 +535,26 @@ private fun BuildStatusStrip(state: ShellState, layout: ProjectLayout?, context:
             }
         }
     }
+}
+
+/**
+ * The artifact path the strip prints in its trailing slot, or nothing.
+ *
+ * Nothing after a failed run, and nothing with no artifact on disk. The slot
+ * used to print the path unconditionally, so a build that failed showed the
+ * `.so` from *before* it beside the word "Failed" — which reads as "here is
+ * what it produced" — and a project that had never built showed a path to a
+ * file that was not there (QA P-09). Pure (FailureCardTest).
+ */
+internal fun stripPath(
+    artifactPath: String?,
+    failed: Boolean,
+    freshness: ArtifactFreshness,
+): String = when {
+    artifactPath == null -> ""
+    failed -> ""
+    freshness is ArtifactFreshness.Missing -> ""
+    else -> artifactPath
 }
 
 /** What the strip says when nothing is running. Never a duration: none is kept. */
@@ -549,26 +603,49 @@ private fun IssueCounts(errors: Int, warnings: Int) {
 private fun plural(count: Int, word: String) = if (count == 1) word else "${word}s"
 
 /**
+ * The title on the failure notice: which verb failed.
+ *
+ * "The build failed" was hard-coded, so a failed deploy and a failed test both
+ * claimed a build had failed — four independent QA reports (G-02). Null is a
+ * failure this process did not run (a verdict restored with the shell), and
+ * "The build failed" is the honest fallback there: Build is what the ▶ does.
+ */
+internal fun failureTitle(action: BuildAction?): String = when (action) {
+    BuildAction.Test -> "The tests failed"
+    BuildAction.Deploy -> "The deploy failed"
+    else -> "The build failed"
+}
+
+/**
  * The sentence on the failure notice: what ran, and what it found.
  *
- * The counts come from [BuildState.Failed] rather than from
+ * The counts come from the run's own [FailureFacts] rather than from
  * `BuildRunner.lastIssues`, because those two can disagree by design — a run
  * that died on a linker error the parser did not recognise has a failure with
  * no issues in it, and the notice has to say so rather than claim zero
  * problems above an empty card list.
+ *
+ * The order is the fix for G-02's first half. A run that produced no *errors*
+ * did not fail because of its warnings, and saying "anchor test reported 8
+ * warnings" about a test that died with "Attempt to load a program that does
+ * not exist" is a false cause. Errors are quoted first, then the log's own
+ * last word ([FailureFacts.detail]), and the warning count only when there is
+ * nothing better to say.
  */
-private fun failureBody(failed: BuildState.Failed?): String {
-    val command = BuildRunner.lastCommand.ifBlank { "The last run" }
+internal fun failureBody(failure: FailureFacts?, command: String): String {
+    val head = command.ifBlank { "The last run" }
+    val errors = failure?.errors ?: 0
+    val warnings = failure?.warnings ?: 0
     val counts = buildList {
-        val errors = failed?.errors ?: 0
-        val warnings = failed?.warnings ?: 0
         if (errors > 0) add("$errors ${plural(errors, "error")}")
         if (warnings > 0) add("$warnings ${plural(warnings, "warning")}")
     }
-    return if (counts.isEmpty()) {
-        "$command stopped without finishing. The log has what it printed."
-    } else {
-        "$command reported ${counts.joinToString(" and ")}."
+    val detail = failure?.detail?.trim().orEmpty()
+    return when {
+        errors > 0 -> "$head reported ${counts.joinToString(" and ")}."
+        detail.isNotEmpty() -> "$head stopped: $detail"
+        counts.isNotEmpty() -> "$head reported ${counts.joinToString(" and ")}."
+        else -> "$head stopped without finishing. The log has what it printed."
     }
 }
 
@@ -579,6 +656,7 @@ private fun BuildBody(
     context: Context,
     root: String,
     layout: ProjectLayout?,
+    onRetry: (BuildAction?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val reason = unavailableReason(context, layout)
@@ -613,7 +691,9 @@ private fun BuildBody(
     val hold = remember { HeaderHold() }
     if (header) {
         hold.notice = notice
-        hold.failed = state.build as? BuildState.Failed
+        hold.failed = failed
+        hold.failure = BuildRunner.lastFailure
+        hold.command = BuildRunner.lastCommand
         hold.issues = issues
         hold.preview = preview
     }
@@ -641,6 +721,7 @@ private fun BuildBody(
         ) {
             val shownNotice = hold.notice
             val shownFailed = hold.failed
+            val shownFailure = hold.failure
             val shownIssues = hold.issues
             val shownPreview = hold.preview
             Column {
@@ -666,36 +747,41 @@ private fun BuildBody(
                             }
                         },
                     )
-                } else if (shownFailed != null) {
+                } else if (shownFailed) {
                     // The third tier of the error model: not a toast, not a
                     // banner — a card that STAYS, in the place the thing went
                     // wrong, with the ways out on it (docs/VISUAL.md, "What we
                     // deliberately do not copy").
                     NoticeCard(
                         severity = Severity.Error,
-                        title = "The build failed",
-                        body = failureBody(shownFailed),
+                        title = failureTitle(shownFailure?.action),
+                        body = failureBody(shownFailure, hold.command),
                         actions = {
                             ThraggChip(
                                 label = "Retry",
-                                onClick = {
-                                    BuildRunner.start(context, state, BuildAction.Build)
-                                },
+                                onClick = { onRetry(shownFailure?.action) },
                                 tint = MaterialTheme.colorScheme.primary,
                             )
-                            ThraggChip(
-                                label = "Fix with agent",
-                                onClick = {
-                                    askAgent(
-                                        state,
-                                        context,
-                                        BuildDiagnostics.agentPrompt(
-                                            shownIssues,
-                                            BuildRunner.lastCommand,
-                                        ),
-                                    )
-                                },
-                            )
+                            // Only for a failure a compiler produced. A deploy
+                            // that ran out of SOL and a test that called a
+                            // program nobody deployed are not code the agent
+                            // can fix, and offering it there sent an empty
+                            // prompt (QA G-02).
+                            if (shownIssues.isNotEmpty()) {
+                                ThraggChip(
+                                    label = "Fix with agent",
+                                    onClick = {
+                                        askAgent(
+                                            state,
+                                            context,
+                                            BuildDiagnostics.agentPrompt(
+                                                shownIssues,
+                                                hold.command,
+                                            ),
+                                        )
+                                    },
+                                )
+                            }
                             // Two, not three: NoticeCard's action row does not
                             // wrap, and a third chip runs off a 400dp card.
                             // Problems is reachable from the overflow and from
@@ -916,7 +1002,11 @@ internal data class Unavailable(
 /** The header's last contents, held through its exit — see [BuildBody]. */
 private class HeaderHold {
     var notice: Unavailable? = null
-    var failed: BuildState.Failed? = null
+    /** Whether the run failed, held so the card does not blank out mid-exit. */
+    var failed: Boolean = false
+    var failure: FailureFacts? = null
+    /** What ran, held with the rest so the body does not change under its exit. */
+    var command: String = ""
     var issues: List<BuildIssue> = emptyList()
     var preview: List<BuildIssue> = emptyList()
 }

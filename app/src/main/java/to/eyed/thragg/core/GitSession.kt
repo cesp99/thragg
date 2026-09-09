@@ -1,5 +1,8 @@
 package to.eyed.thragg.core
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -148,8 +151,11 @@ class GitSession(private val project: ProjectSession) {
     }
 
     /** Record that identity in the guest. Null when it worked. **Blocking**. */
-    fun setIdentity(name: String, email: String): String? =
-        CoreBridge.gitSetIdentity(project.id, name, email)
+    fun setIdentity(name: String, email: String): String? {
+        val failure = CoreBridge.gitSetIdentity(project.id, name, email)
+        if (failure == null) GitIdentityPrompt.remember()
+        return failure
+    }
 
     /** Take those paths back out of the index. **Blocking**. */
     fun unstage(paths: List<String>): String? =
@@ -195,7 +201,28 @@ class GitSession(private val project: ProjectSession) {
         amend: Boolean = false,
         signoff: Boolean = false,
         noVerify: Boolean = false,
-    ): String? = CoreBridge.gitCommit(project.id, message, amend, signoff, noVerify)
+    ): String? {
+        // Asked before git is, and asked here rather than at either commit
+        // button, because a commit that cannot be attributed cannot be made
+        // and there is no screen in the app that ever set an identity: a
+        // fresh install's first commit died on git's raw
+        // "unable to auto-detect email address (got 'root@localhost.(none)')"
+        // and the only repair was `git config --global` in the Shell (QA
+        // G-13). Whoever is showing this project's changes answers
+        // [GitIdentityPrompt] with a sheet and runs [retry] afterwards.
+        if (!GitIdentityPrompt.known) {
+            val identity = identity()
+            if (identity?.isComplete != true) {
+                GitIdentityPrompt.ask(this, identity) {
+                    CoreBridge.gitCommit(project.id, message, amend, signoff, noVerify)
+                }
+                return NO_IDENTITY
+            }
+            GitIdentityPrompt.remember()
+        }
+        return CoreBridge.gitCommit(project.id, message, amend, signoff, noVerify)
+    }
+
 
     /**
      * Undo the last commit, keeping everything it held staged — exactly
@@ -285,6 +312,14 @@ class GitSession(private val project: ProjectSession) {
         CoreBridge.gitPathHunkRestore(project.id, path, rows.first.toLong(), (rows.last + 1).toLong())
 
     internal companion object {
+        /**
+         * What [commit] answers when git has nobody to attribute the commit
+         * to. A sentence rather than git's paragraph, because the sheet that
+         * fixes it is opening as this is read.
+         */
+        const val NO_IDENTITY: String =
+            "git does not know who you are yet — say who, and the commit goes through"
+
         /** The bridge's `{"remotes":[…]}`; an error object is an empty list. */
         fun parsePushedRemotes(json: String): List<String> {
             val remotes = JSONObject(json).optJSONArray("remotes") ?: JSONArray()
@@ -594,6 +629,57 @@ data class GitPanelState(
  */
 data class GitIdentity(val name: String, val email: String) {
     val isComplete: Boolean get() = name.isNotBlank() && email.isNotBlank()
+}
+
+/**
+ * The commit that is waiting to be told who is making it.
+ *
+ * A one-slot mailbox rather than a callback on the commit button, because
+ * there are two commit buttons on two surfaces — the Changes bar and the
+ * commit sheet — and the question belongs to *committing*, not to either of
+ * them. [GitSession.commit] raises it; whichever surface is showing the
+ * project draws the sheet and, when it has an identity, runs [Request.retry],
+ * which is the very commit that was refused.
+ *
+ * [known] is a per-process latch, not a cache of the values: the identity is
+ * global to the guest (`git config --global`, `HOME=/root`), so once it is
+ * there it is there for every project, and no commit after the first pays for
+ * the two `git config --get` spawns that answer it.
+ */
+object GitIdentityPrompt {
+
+    /** The refused commit, and how to run it again. */
+    data class Request(
+        val session: GitSession,
+        /** What git already has, when it has half of it. */
+        val current: GitIdentity?,
+        /** The commit, ready to run again. **Blocking**. */
+        val retry: () -> String?,
+    )
+
+    /** The question on screen, or null when there is none. */
+    var pending: Request? by mutableStateOf(null)
+        private set
+
+    /** Whether the guest is known to have a usable identity. */
+    @Volatile
+    var known: Boolean = false
+        private set
+
+    fun ask(session: GitSession, current: GitIdentity?, retry: () -> String?) {
+        pending = Request(session, current, retry)
+    }
+
+    /** The identity is there; stop asking git about it. */
+    fun remember() {
+        known = true
+        pending = null
+    }
+
+    /** The user closed the sheet; the commit does not happen. */
+    fun dismiss() {
+        pending = null
+    }
 }
 
 /** One file's diff, and what a diff view draws. */

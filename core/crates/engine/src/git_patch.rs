@@ -71,32 +71,40 @@ impl crate::Engine {
         staged: bool,
     ) -> Result<Vec<FileDiff>, String> {
         let repo = self.repo_for(id)?;
-        let mut args: Vec<OsString> = vec![OsString::from("diff")];
-        if staged {
-            args.push(OsString::from("--staged"));
-        } else {
-            // Against HEAD, not against the index: "what changed in this file"
-            // means everything since the last commit, staged or not. Diffing
-            // the worktree against the index hides a change the moment it is
-            // staged, which read as "this file matches the last commit".
-            args.push(OsString::from("HEAD"));
-        }
-        args.push(OsString::from("--no-color"));
-        args.push(OsString::from("--no-ext-diff"));
-        // Renames are worth showing as renames rather than as one file deleted
-        // and another added in full.
-        args.push(OsString::from("--find-renames"));
-        args.push(OsString::from("-U3"));
-        if let Some(path) = path {
-            args.push(OsString::from("--"));
-            args.push(OsString::from(crate::git::checked_path(path)?));
-        }
-        let run = run_git(
+        let checked = match path {
+            Some(path) => Some(crate::git::checked_path(path)?),
+            None => None,
+        };
+        // Against HEAD, not against the index: "what changed in this file"
+        // means everything since the last commit, staged or not. Diffing the
+        // worktree against the index hides a change the moment it is staged,
+        // which read as "this file matches the last commit".
+        let base = if staged { None } else { Some("HEAD") };
+        let mut run = run_git(
             &repo.userland,
             &repo.repo_root,
             "git diff",
-            git_argv(&repo.project_root, &args),
+            git_argv(&repo.project_root, &patch_args(base, checked.as_deref())),
         )?;
+        // A repository whose first commit has not happened has no HEAD, and
+        // git exits 128 saying so. That is not a failure to report: it is the
+        // state "Initialize repository" leaves you in, and every file in the
+        // project is new. Diffing against the empty tree is what git itself
+        // means by "before the first commit" — `git_diff.rs` already reads the
+        // same 128 as an empty base for the gutter, so before this the two
+        // disagreed and every diff on a fresh repository was the bare red
+        // string "bad revision 'HEAD'" (QA G-14).
+        if run.status != 0 && base.is_some() && is_unborn_head(&run.output) {
+            run = run_git(
+                &repo.userland,
+                &repo.repo_root,
+                "git diff",
+                git_argv(
+                    &repo.project_root,
+                    &patch_args(Some(EMPTY_TREE), checked.as_deref()),
+                ),
+            )?;
+        }
         if run.status != 0 {
             return Err(run.message());
         }
@@ -209,6 +217,48 @@ impl crate::Engine {
         })
         .unwrap_or(false)
     }
+}
+
+/// git's own name for the empty tree: the state a repository is in before its
+/// first commit. `git diff <empty tree>` is what "everything is new" means,
+/// and the hash is a constant of the object format rather than a value of any
+/// one repository.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// `git diff [<base>] --no-color … [-- <path>]`, in one place so the unborn
+/// retry runs the same command with a different base.
+fn patch_args(base: Option<&str>, path: Option<&str>) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec![OsString::from("diff")];
+    match base {
+        Some(base) => args.push(OsString::from(base)),
+        None => args.push(OsString::from("--staged")),
+    }
+    args.push(OsString::from("--no-color"));
+    args.push(OsString::from("--no-ext-diff"));
+    // Renames are worth showing as renames rather than as one file deleted
+    // and another added in full.
+    args.push(OsString::from("--find-renames"));
+    args.push(OsString::from("-U3"));
+    if let Some(path) = path {
+        args.push(OsString::from("--"));
+        args.push(OsString::from(path));
+    }
+    args
+}
+
+/// Whether git refused because `HEAD` names nothing yet.
+///
+/// git says it three ways depending on the subcommand and the version —
+/// "fatal: bad revision 'HEAD'", "fatal: ambiguous argument 'HEAD': unknown
+/// revision or path not in the working tree", "fatal: bad object HEAD" — and
+/// all three mean the same thing here. Matched on the words rather than on the
+/// exit status alone, because 128 is also what git says about a repository it
+/// cannot open at all, which is a real failure worth reporting.
+pub(crate) fn is_unborn_head(output: &str) -> bool {
+    let lower = output.to_ascii_lowercase();
+    lower.contains("bad revision 'head'")
+        || lower.contains("bad object head")
+        || (lower.contains("'head'") && lower.contains("unknown revision"))
 }
 
 /// The branch diff's argv, minus the `-C` — one place, so the host test can
@@ -502,6 +552,37 @@ fn parse_ranges(ranges: &str) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The three sentences git uses for a repository with no commit yet, and
+    /// the one it uses for a repository it could not open — which is a real
+    /// failure and must still be reported.
+    #[test]
+    fn an_unborn_head_is_told_from_a_broken_repository() {
+        assert!(is_unborn_head("fatal: bad revision 'HEAD'\n"));
+        assert!(is_unborn_head(
+            "fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.\n"
+        ));
+        assert!(is_unborn_head("fatal: bad object HEAD\n"));
+        assert!(!is_unborn_head(
+            "fatal: not a git repository (or any of the parent directories): .git\n"
+        ));
+        assert!(!is_unborn_head(""));
+    }
+
+    /// The retry is the same command with a different base — including the
+    /// `--` that keeps a path a path.
+    #[test]
+    fn the_unborn_retry_runs_the_same_diff_against_the_empty_tree() {
+        let head = patch_args(Some("HEAD"), Some("src/lib.rs"));
+        let empty = patch_args(Some(EMPTY_TREE), Some("src/lib.rs"));
+        assert_eq!(head.len(), empty.len());
+        assert_eq!(head[1], OsString::from("HEAD"));
+        assert_eq!(empty[1], OsString::from(EMPTY_TREE));
+        assert_eq!(empty[empty.len() - 2], OsString::from("--"));
+        assert_eq!(empty[empty.len() - 1], OsString::from("src/lib.rs"));
+        // Staged is not a revision at all.
+        assert_eq!(patch_args(None, None)[1], OsString::from("--staged"));
+    }
 
     /// Real `git diff` output, assembled line by line.
     ///
