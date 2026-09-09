@@ -329,7 +329,18 @@ internal fun BuildLogView(
  * list itself, which never scrolls past its content.
  */
 private suspend fun LazyListState.scrollToTail(lastIndex: Int) {
-    scrollToItem(lastIndex)
+    // The index was read from `rows` during composition, but a deploy or a
+    // new run clears and refills the log, and this runs in a coroutine that
+    // can reach the list after it has been remeasured with fewer items —
+    // `scrollToItem` past the end throws IndexOutOfBounds out of the lazy
+    // layout and takes the process with it, mid-deploy, after the buffer has
+    // been paid for (device, 2026-09-09). Clamp to what the list actually
+    // holds, and treat a lost race as nothing to do: the next arriving row
+    // re-runs this effect anyway.
+    if (lastIndex < 0) return
+    val total = layoutInfo.totalItemsCount
+    if (total <= 0) return
+    if (runCatching { scrollToItem(lastIndex.coerceAtMost(total - 1)) }.isFailure) return
     val info = layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return
     val overflow = TailFollow.overflow(

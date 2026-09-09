@@ -297,7 +297,19 @@ private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateF
         // website they are imports, pg.program is anchor.workspace, and
         // pg.wallet / pg.connection are the provider Anchor.toml configures.
         import * as anchor from "@coral-xyz/anchor";
-        import { BN, web3 } from "@coral-xyz/anchor";
+        // Why this line is not a plain `import { BN, web3 }`:
+        //
+        // mocha tries `import()` before `require()`, and the guest's Node
+        // strips TypeScript types on its own, so a spec that is legal ESM
+        // really is loaded as ESM. @coral-xyz/anchor is CommonJS, and Node
+        // detects only the exports assigned plainly: `web3` is found,
+        // `BN` — installed through a defineProperty getter — is not, so a
+        // named import of it silently yields undefined and `new BN(42)`
+        // dies as "BN is not a constructor". Under the CommonJS loader the
+        // namespace itself carries both. Reading `default` when it is there
+        // and the namespace otherwise is correct under either loader, which
+        // is what this has to survive (measured on the phone, 2026-09-09).
+        const { BN, web3 } = (anchor as any).default ?? anchor;
         import { assert } from "chai";
         import type { ${program.typeName} } from "../target/types/${program.moduleName}";
 
@@ -752,7 +764,10 @@ private fun seahorseFiles(program: SolanaProgram, cluster: String): List<Templat
             // website they are imports, pg.program is anchor.workspace, and
             // pg.wallet / pg.connection are the provider Anchor.toml configures.
             import * as anchor from "@coral-xyz/anchor";
-            import { BN, web3 } from "@coral-xyz/anchor";
+            // Reads `default` when the spec is loaded as ESM and the
+            // namespace when it is loaded as CommonJS; the Anchor test
+            // explains why neither alone is enough.
+            const { BN, web3 } = (anchor as any).default ?? anchor;
             import { assert } from "chai";
             import type { ${program.typeName} } from "../target/types/${program.moduleName}";
 

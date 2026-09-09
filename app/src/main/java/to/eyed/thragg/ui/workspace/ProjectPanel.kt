@@ -2704,10 +2704,21 @@ private fun ProjectRow(
                             // out to be.
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
+                        // Both ends do the same job. `detectTapGestures`
+                        // sits in front of this detector (the clickable
+                        // below, and `contextGesture` above), and an inner
+                        // node that consumes the up makes `drag()` report a
+                        // CANCEL rather than an END — so onDragEnd was dead
+                        // code and a hold-and-release opened nothing at all
+                        // on every file and folder row (device, 2026-09-09).
+                        // The header row escapes it only because it uses
+                        // `combinedClickable` instead.
                         onDragEnd = {
                             if (moved) onDragEnd() else onContextMenu(pressed.value)
                         },
-                        onDragCancel = { if (moved) onDragCancel() },
+                        onDragCancel = {
+                            if (moved) onDragCancel() else onContextMenu(pressed.value)
+                        },
                         onDrag = { change, _ ->
                             change.consume()
                             moved = true
