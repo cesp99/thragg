@@ -213,4 +213,22 @@ class WalletTopUpTest {
         assertTrue(said, Base58.short(wallet) in said && Base58.short(key) in said)
         assertTrue(said, "1 SOL" in said && "keep Thragg on screen" in said)
     }
+
+    /**
+     * QA r4 §14c: three Connect prompts lapsed unanswered and each came back
+     * to a sheet reading "Not connected" with no message at all. The transact
+     * path had the sentence since P-18; connect gets the same one with the
+     * one word that differs.
+     */
+    @Test
+    fun `a request the wallet never answered says so, in the right words for what was asked`() {
+        val connecting = WalletTopUp.didNotAnswer(Cluster.Devnet, connecting = true)
+        assertTrue(connecting, "did not answer in time for devnet" in connecting)
+        assertTrue(connecting, "nothing was connected" in connecting)
+        assertTrue(connecting, connecting.endsWith("try again"))
+
+        val signing = WalletTopUp.didNotAnswer(Cluster.MainnetBeta, connecting = false)
+        assertTrue(signing, "nothing was sent" in signing)
+        assertTrue(signing, "mainnet-beta" in signing)
+    }
 }

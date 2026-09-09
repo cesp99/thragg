@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -19,6 +20,47 @@ import java.util.concurrent.atomic.AtomicInteger
 class RpcParseTest {
 
     private val loader = "BPFLoaderUpgradeab1e11111111111111111111111"
+
+    /**
+     * The probe that would have saved 7m17s and 0.93452748 SOL on the Seeker
+     * 2026-09-09. This is the answer devnet actually gave, so what the deploy
+     * quotes is the runtime's own sentence and not `{"InstructionError":…}`.
+     */
+    @Test
+    fun `a simulation that fails quotes the runtime's own words`() {
+        val json = """
+            {"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{
+              "err":{"InstructionError":[0,"InvalidArgument"]},
+              "logs":[
+                "Program BPFLoaderUpgradeab1e11111111111111111111111 invoke [1]",
+                "ExtendProgram requires a minimum of 10240 additional bytes or to extend to maximum size, but only 5696 were requested",
+                "Program BPFLoaderUpgradeab1e11111111111111111111111 failed: invalid program argument"
+              ],"unitsConsumed":0}},"id":1}
+        """.trimIndent()
+        val said = Rpc.parseSimulation(json)
+        assertNotNull(said)
+        assertTrue(said!!, "minimum of 10240 additional bytes" in said)
+        // The loader's invoke bookkeeping is not a reason.
+        assertFalse(said, "invoke [1]" in said)
+    }
+
+    @Test
+    fun `a simulation that would land says nothing`() {
+        val json = """{"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{"err":null,"logs":[],"unitsConsumed":1200}},"id":1}"""
+        assertNull(Rpc.parseSimulation(json))
+    }
+
+    @Test
+    fun `a simulation with no logs falls back to the error object`() {
+        val json = """{"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{"err":"AccountNotFound","logs":null}},"id":1}"""
+        assertEquals("AccountNotFound", Rpc.parseSimulation(json))
+    }
+
+    @Test
+    fun `a simulation whose envelope is an error throws rather than reading a null result`() {
+        val json = """{"jsonrpc":"2.0","error":{"code":-32602,"message":"invalid transaction"},"id":1}"""
+        assertThrows(RpcException::class.java) { Rpc.parseSimulation(json) }
+    }
 
     @Test
     fun `account info decodes base64 data and reads the owner`() {

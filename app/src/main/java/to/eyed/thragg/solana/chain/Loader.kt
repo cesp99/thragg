@@ -84,6 +84,54 @@ object Loader {
     /** The `max_data_len` a fresh deploy of [elfBytes] asks for. */
     fun maxDataLen(elfBytes: Int): Long = MAX_DATA_LEN_FACTOR.toLong() * elfBytes
 
+    /**
+     * The smallest extension the upgradeable loader will accept, and the
+     * runtime's own `MAX_PERMITTED_DATA_INCREASE`: 10 kB, one page's worth.
+     *
+     * THIS IS THE FLOOR THAT KILLED THE EDIT-THEN-REDEPLOY LOOP. Until now
+     * the deployer asked `ExtendProgram` for exactly the shortfall, and the
+     * loader refuses anything under this unless the extension takes the
+     * account to [MAX_PERMITTED_DATA_LENGTH]. Measured on the Seeker
+     * 2026-09-09: `r4_anchor` grew 177,920 to 183,616 bytes, the deploy
+     * uploaded 180 chunks over 7m17s, and only then did the chain say
+     * "ExtendProgram requires a minimum of 10240 additional bytes or to
+     * extend to maximum size, but only 5696 were requested" — 0.93452748 SOL
+     * parked in a buffer for a run that could never have landed. **Every
+     * upgrade whose artifact grew by under 10 kB was impossible**, which is
+     * most of them: an added instruction is a few hundred bytes.
+     * [extendBytes] is the one place the number is chosen, so the estimate
+     * and the run cannot disagree about it again.
+     */
+    const val MAX_PERMITTED_DATA_INCREASE = 10 * 1024
+
+    /** The ceiling a programdata account may reach: the runtime's `MAX_PERMITTED_DATA_LENGTH`. */
+    const val MAX_PERMITTED_DATA_LENGTH = 10 * 1024 * 1024
+
+    /**
+     * The `additional_bytes` an upgrade of [elfBytes] must ask for when the
+     * programdata has room for [dataLen], or zero when the ELF still fits.
+     *
+     * Never between one and [MAX_PERMITTED_DATA_INCREASE]: a shortfall under
+     * the loader's floor is rounded **up** to the floor, which costs a
+     * little more rent (10 kB at devnet's ~5,083 lamports a byte is 0.052
+     * SOL, and it comes back when the program is closed) and is the
+     * difference between an upgrade that lands and one that fails after
+     * nine minutes of upload. Clamped at the top so an account within a page
+     * of [MAX_PERMITTED_DATA_LENGTH] asks to extend to exactly the maximum,
+     * which is the loader's other accepted answer.
+     *
+     * Both [estimateDeploy] and `ProgramDeploy.inspect` call this, so the
+     * sheet prices the same number the run sends.
+     */
+    fun extendBytes(elfBytes: Int, dataLen: Long): Int {
+        require(elfBytes >= 0) { "elf size must not be negative: $elfBytes" }
+        if (elfBytes <= dataLen) return 0
+        val room = MAX_PERMITTED_DATA_LENGTH - (PROGRAMDATA_HEADER + dataLen)
+        if (room <= 0L) return 0
+        val wanted = elfBytes - dataLen
+        return maxOf(wanted, MAX_PERMITTED_DATA_INCREASE.toLong()).coerceAtMost(room).toInt()
+    }
+
     // Loader instruction tags, in `UpgradeableLoaderInstruction` order.
     private const val TAG_INITIALIZE_BUFFER = 0
     private const val TAG_WRITE = 1
@@ -246,6 +294,10 @@ object Loader {
      * larger ELF can be upgraded into it. No authority signs — anyone may
      * pay to extend — but the [payer] does, since the loader moves the extra
      * rent from it through the system program. `additional_bytes` is a u32.
+     *
+     * [additionalBytes] must come from [extendBytes]: the loader refuses
+     * anything under [MAX_PERMITTED_DATA_INCREASE] that does not reach the
+     * ceiling, and it refuses it *after* the whole upload.
      */
     fun extendProgram(programData: Pubkey, program: Pubkey, payer: Pubkey, additionalBytes: Int): Instruction {
         require(additionalBytes > 0) { "extend by at least one byte: $additionalBytes" }
@@ -593,11 +645,17 @@ object Loader {
      * null when this is not an upgrade, the account is unknown, or the ELF
      * still fits. One place, so [estimateDeploy] and [rentSizes] cannot
      * disagree about which sizes are priced.
+     *
+     * It is the size the *clamped* extension reaches ([extendBytes]), not
+     * `header + elfBytes`: the loader will not grow an account by less than
+     * [MAX_PERMITTED_DATA_INCREASE], so pricing the shortfall alone quoted a
+     * figure for a transaction that could not be accepted (QA G-21).
      */
     private fun extendSize(elfBytes: Int, upgrade: Boolean, existing: Existing?): Int? {
         if (!upgrade || existing == null) return null
-        if (elfBytes <= existing.dataLen) return null
-        return PROGRAMDATA_HEADER + elfBytes
+        val by = extendBytes(elfBytes, existing.dataLen)
+        if (by == 0) return null
+        return (PROGRAMDATA_HEADER + existing.dataLen + by).toInt()
     }
 
     /**

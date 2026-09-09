@@ -388,7 +388,9 @@ class LoaderTest {
     @Test
     fun `an upgrade that outgrew its programdata pays the extension's rent`() {
         val was = 50_000
-        val now = 60_000
+        // Comfortably over the loader's floor, so the extension is the
+        // shortfall itself and the arithmetic is the plain one.
+        val now = was + 3 * Loader.MAX_PERMITTED_DATA_INCREASE
         val existing = Loader.Existing(dataLen = was.toLong(), reclaimable = Loader.rentExempt(Loader.PROGRAMDATA_HEADER + was))
         val estimate = Loader.estimateDeploy(now, upgrade = true, existing = existing)
         assertEquals(
@@ -397,11 +399,66 @@ class LoaderTest {
         )
         assertTrue(estimate.programDataRent > 0L)
         assertEquals(0L, estimate.programRent)
-        // It is exactly what ProgramDeploy.fund used to compute inline.
+    }
+
+    /**
+     * THE BLOCKER OF THE 0.0.23 REGRESSION PASS. `r4_anchor` grew 177,920 to
+     * 183,616 bytes, the deploy asked to extend by the 5,696 it was short,
+     * and the loader refused after the whole 7m17s upload:
+     * "ExtendProgram requires a minimum of 10240 additional bytes or to
+     * extend to maximum size, but only 5696 were requested" — 0.93452748 SOL
+     * parked in a buffer. Nothing between one byte and the floor may ever be
+     * asked for again.
+     */
+    @Test
+    fun `an extension is never smaller than the loader's floor`() {
+        assertEquals(0, Loader.extendBytes(177_920, 177_920L))
+        assertEquals(0, Loader.extendBytes(100, 177_920L))
+        // The measured case, to the byte.
+        assertEquals(Loader.MAX_PERMITTED_DATA_INCREASE, Loader.extendBytes(183_616, 177_920L))
+        assertEquals(Loader.MAX_PERMITTED_DATA_INCREASE, Loader.extendBytes(177_921, 177_920L))
+        // A shortfall over the floor is asked for as it is.
+        assertEquals(50_000, Loader.extendBytes(227_920, 177_920L))
         assertEquals(
-            (Loader.rentExempt(Loader.PROGRAMDATA_HEADER + now) - existing.reclaimable).coerceAtLeast(0L),
-            estimate.programDataRent,
+            Loader.MAX_PERMITTED_DATA_INCREASE,
+            Loader.extendBytes(177_920 + Loader.MAX_PERMITTED_DATA_INCREASE, 177_920L),
         )
+        // Nothing in the forbidden band, for any shortfall at all.
+        for (grew in 1..Loader.MAX_PERMITTED_DATA_INCREASE + 64) {
+            val by = Loader.extendBytes(200_000 + grew, 200_000L)
+            assertTrue("grew by $grew asked for $by", by == 0 || by >= Loader.MAX_PERMITTED_DATA_INCREASE)
+        }
+    }
+
+    /** An account within a page of the 10 MB ceiling extends to exactly the ceiling, the loader's other answer. */
+    @Test
+    fun `an extension stops at the ten megabyte ceiling`() {
+        val dataLen = (Loader.MAX_PERMITTED_DATA_LENGTH - Loader.PROGRAMDATA_HEADER - 1_000).toLong()
+        assertEquals(1_000, Loader.extendBytes(dataLen.toInt() + 500, dataLen))
+        assertEquals(
+            Loader.MAX_PERMITTED_DATA_LENGTH.toLong(),
+            Loader.PROGRAMDATA_HEADER + dataLen + Loader.extendBytes(dataLen.toInt() + 500, dataLen),
+        )
+    }
+
+    /**
+     * The sheet and the run price the same figure: the estimate charges rent
+     * for the size the *clamped* extension reaches. On devnet the sheet
+     * quoted 5,696 bytes of rent for a transaction the loader would only
+     * accept at 10,240 (QA G-21).
+     */
+    @Test
+    fun `the estimate prices the extension the deployer will actually send`() {
+        val was = 177_920
+        val now = 183_616
+        val existing = Loader.Existing(dataLen = was.toLong(), reclaimable = Loader.rentExempt(Loader.PROGRAMDATA_HEADER + was))
+        val grown = Loader.PROGRAMDATA_HEADER + was + Loader.extendBytes(now, was.toLong())
+        val estimate = Loader.estimateDeploy(now, upgrade = true, existing = existing)
+        assertEquals(Loader.rentExempt(grown) - existing.reclaimable, estimate.programDataRent)
+        // And it is more than pricing the shortfall alone would have been.
+        assertTrue(estimate.programDataRent > Loader.rentExempt(Loader.PROGRAMDATA_HEADER + now) - existing.reclaimable)
+        // The size it prices is one the caller was told to quote.
+        assertTrue(grown in Loader.rentSizes(now, upgrade = true, existing = existing))
     }
 
     @Test

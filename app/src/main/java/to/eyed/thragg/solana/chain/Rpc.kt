@@ -198,6 +198,25 @@ class Rpc(val cluster: Cluster, val url: String = cluster.rpcUrl) {
     }
 
     /**
+     * Runs [tx] against the cluster's current state without sending it:
+     * null when it would land, the reason in words when it would not.
+     *
+     * Signatures are not checked and the blockhash is replaced by the node,
+     * so an unsigned message is a valid probe — which is the point: it is
+     * what lets a deploy ask "will the loader accept this?" before it spends
+     * a buffer's rent and seven minutes of writes on the answer
+     * (`ProgramDeploy.probeExtend`, QA G-21).
+     */
+    fun simulate(tx: Transaction): String? {
+        val options = JSONObject()
+            .put("encoding", "base64")
+            .put("sigVerify", false)
+            .put("replaceRecentBlockhash", true)
+            .put("commitment", "confirmed")
+        return parseSimulation(call("simulateTransaction", JSONArray().put(tx.serialize().toBase64()).put(options)))
+    }
+
+    /**
      * Polls until [signature] is confirmed or finalized. Throws [RpcException]
      * with the program's error when the transaction landed and failed, with
      * "blockhash expired" once the chain has moved past [lastValidBlockHeight]
@@ -396,6 +415,35 @@ class Rpc(val cluster: Cluster, val url: String = cluster.rpcUrl) {
                 ""
             }
             return RpcException(message + quoted, code = code)
+        }
+
+        /**
+         * A `simulateTransaction` answer: null when `value.err` is null, and
+         * otherwise the reason a person can act on.
+         *
+         * The runtime's own sentence is in the logs, not in `err` — `err` is
+         * `{"InstructionError":[0,"InvalidArgument"]}` where the log says
+         * "ExtendProgram requires a minimum of 10240 additional bytes" — so
+         * the last few interesting log lines are what is quoted, with the
+         * loader's invoke/success bookkeeping dropped and `err` as the
+         * fallback when a node attached no logs at all.
+         */
+        fun parseSimulation(json: String): String? {
+            val value = (resultOf(json) as? JSONObject)?.optJSONObject("value")
+                ?: throw malformed("simulateTransaction")
+            if (value.isNull("err")) return null
+            val logs = value.optJSONArray("logs")
+            val reasons = ArrayList<String>()
+            if (logs != null) {
+                for (i in 0 until logs.length()) {
+                    val line = logs.optString(i).trim()
+                    if (line.isEmpty()) continue
+                    if (line.startsWith("Program ") && (" invoke [" in line || line.endsWith(" success"))) continue
+                    reasons.add(line.removePrefix("Program log: "))
+                }
+            }
+            if (reasons.isEmpty()) return value.get("err").toString()
+            return reasons.takeLast(LOG_LINES_QUOTED).joinToString(" · ")
         }
 
         /** The `result` member, or the envelope's error thrown, or a complaint that this is not JSON-RPC. */

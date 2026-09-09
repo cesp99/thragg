@@ -146,6 +146,22 @@ internal fun WalletSheet(
     // The amount picker, and the one refusal the miner can discover for us.
     var topUpOpen by remember { mutableStateOf(false) }
     var faucetDry by remember { mutableStateOf(false) }
+    /**
+     * What Seed Vault last said when asked to connect, or null.
+     *
+     * A notification is not enough here. Three Connect prompts were left to
+     * lapse on the Seeker 2026-09-09 and each one came back to a sheet
+     * reading "Not connected" with no message at all — indistinguishable
+     * from three taps that did nothing (QA r4 §14c). The transact path has
+     * said "Seed Vault did not answer in time … nothing was sent; try again"
+     * since P-18; this is the same sentence, printed where the person is
+     * looking, because a toast raised behind a bottom sheet is not (G-15).
+     */
+    var connectFailure by remember { mutableStateOf<String?>(null) }
+    // Why it is dry, in the miner's own words: with two difficulty specs the
+    // one this miner claims from can be empty while the other is not, and
+    // "the faucet is empty" alone reads as wrong when it is (B-06).
+    var faucetDryReason by remember { mutableStateOf(PowFaucet.EMPTY_REASON) }
 
     // --- Seed Vault ------------------------------------------------------
     var walletBalance by remember { mutableStateOf<Long?>(null) }
@@ -235,15 +251,22 @@ internal fun WalletSheet(
     fun connect() {
         if (walletBusy) return
         walletBusy = true
+        connectFailure = null
         scope.launch {
             try {
                 SeedVaultWallet.connect(context, cluster)
                     .onSuccess { Notifications.info("Connected Seed Vault ${Base58.short(it)}", key = WALLET_KEY) }
-                    .onFailure { Notifications.error(it.message ?: "Seed Vault did not answer", key = WALLET_KEY) }
+                    .onFailure {
+                        val said = it.message ?: WalletTopUp.didNotAnswer(cluster, connecting = true)
+                        connectFailure = said
+                        Notifications.error(said, key = WALLET_KEY)
+                    }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Notifications.error("Seed Vault did not answer: ${e.message ?: e.javaClass.simpleName}", key = WALLET_KEY)
+                val said = "Seed Vault did not answer: ${e.message ?: e.javaClass.simpleName}"
+                connectFailure = said
+                Notifications.error(said, key = WALLET_KEY)
             } finally {
                 walletBusy = false
             }
@@ -253,6 +276,7 @@ internal fun WalletSheet(
     fun disconnect() {
         if (walletBusy) return
         walletBusy = true
+        connectFailure = null
         scope.launch {
             try {
                 SeedVaultWallet.disconnect(context)
@@ -280,6 +304,7 @@ internal fun WalletSheet(
         val key = deployKey ?: return
         if (keyBusy) return
         faucetDry = false
+        faucetDryReason = PowFaucet.EMPTY_REASON
         keyBusy = true
         keyBusyLabel = if (cluster.hasPowFaucet) {
             "Starting the ${cluster.display} miner…"
@@ -347,7 +372,11 @@ internal fun WalletSheet(
                         // card offers the wallet instead.
                         if (it is PowFaucet.FaucetEmpty) {
                             faucetDry = true
-                            Notifications.error(PowFaucet.EMPTY, key = WALLET_KEY)
+                            // The exception's own sentence, not the constant:
+                            // it names the difficulty that is empty and the
+                            // one that is not, when they differ (B-06).
+                            faucetDryReason = it.reason
+                            Notifications.error(it.message ?: PowFaucet.EMPTY, key = WALLET_KEY)
                         } else {
                             // The message names the address: another source of
                             // SOL is the way out of every failure here, and the
@@ -526,6 +555,14 @@ internal fun WalletSheet(
                             value = "Connect to hold the upgrade authority of what you deploy, " +
                                 "and to fund deploys on mainnet-beta.",
                         )
+                        connectFailure?.let { said ->
+                            Text(
+                                text = said,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
+                            )
+                        }
                     }
                     HairlineDivider()
                     ActionRow(busy = walletBusy, busyLabel = "Asking Seed Vault…") {
@@ -663,9 +700,10 @@ internal fun WalletSheet(
                 if (faucetDry) {
                     NoticeCard(
                         severity = Severity.Warn,
-                        title = "The devnet faucet is empty",
-                        body = "Mining it costs the deploy key rent for every claim and pays nothing back, " +
-                            "so the miner stopped. Seed Vault holds SOL on ${cluster.display} — send some across instead.",
+                        title = "Nothing to mine on ${cluster.display}",
+                        body = "$faucetDryReason. Mining it costs the deploy key rent for every claim and pays " +
+                            "nothing back, so the miner stopped. Seed Vault holds SOL on ${cluster.display} — " +
+                            "send some across instead.",
                         actions = {
                             ThraggChip(
                                 label = "Top up from wallet",
@@ -698,6 +736,17 @@ internal fun WalletSheet(
                         )
                     }
                 }
+                // Where the money goes, said before it moves: the rent was
+                // fronted by the deploy key, so it is the deploy key that
+                // gets it back (ProgramClose.bufferRecipient). Without this
+                // line Reclaim read as taking 5,000 lamports of fee and
+                // giving nothing back (QA r4 §12).
+                Text(
+                    text = ProgramClose.reclaimDestination(deployKeyAddress),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = MD.space3),
+                )
             }
 
             if (programs.isNotEmpty()) {

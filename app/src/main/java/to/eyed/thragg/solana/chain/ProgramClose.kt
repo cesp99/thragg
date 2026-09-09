@@ -53,6 +53,38 @@ object ProgramClose {
     fun recipientFor(wallet: String?, deployKey: String): String = wallet ?: deployKey
 
     /**
+     * Where a *buffer* reclaim sends the rent: always the deploy key.
+     *
+     * NOT [recipientFor]. A buffer's rent was fronted by the deploy key —
+     * `ProgramDeploy.createBuffer` is signed and paid by it, whoever ends up
+     * holding the upgrade authority — so paying it to the wallet moves a
+     * SOL off the key that needs it and makes the Wallet sheet read as if
+     * Reclaim took 5,000 lamports of fee and gave nothing back, which is
+     * exactly how it read on the Seeker 2026-09-09 (QA r4 §12): buffer
+     * Ciyd…TiYy's 0.9336 SOL went to the wallet and the deploy key only
+     * paid the fee. The account that paid gets it back; "Return SOL to
+     * wallet" in the same sheet is how it goes on to the wallet, when that
+     * is what the user wants.
+     */
+    fun bufferRecipient(deployKey: String): String = deployKey
+
+    /**
+     * The caption under the Wallet sheet's Open buffers: where a Reclaim
+     * sends the rent, said before it moves.
+     */
+    fun reclaimDestination(deployKey: String?): String =
+        if (deployKey == null) {
+            "Reclaim returns a buffer's rent to the deploy key, which paid it."
+        } else {
+            "Reclaim returns a buffer's rent to the deploy key ${Base58.short(deployKey)}, which paid it."
+        }
+
+    /** The line a reclaim prints and the notification it raises: the sum, and where it lands. */
+    fun reclaimedDetail(buffer: String, lamports: Long, deployKey: String): String =
+        "Reclaimed buffer ${Base58.short(buffer)} · ${Loader.lamportsToSol(lamports)} back to the deploy key " +
+            "${Base58.short(deployKey)}, which paid it"
+
+    /**
      * Close [status] on [cluster] and return the rent to [recipientFor]'s
      * choice. The authority must be the deploy key or the connected wallet
      * ([ProgramStatus.canClose]); anything else fails before a byte is sent.
@@ -142,9 +174,12 @@ object ProgramClose {
                         "which neither Seed Vault nor this phone's deploy key can sign for"
                 )
             }
-            val recipient = Pubkey.of(recipientFor(wallet?.base58, deployKey.publicKey.base58))
+            val recipient = Pubkey.of(bufferRecipient(deployKey.publicKey.base58))
             val payer = ChainSigning.feePayer(rpc, pacer, cluster, deployKey, wallet, FEE_RESERVE)
-            onLine("Reclaiming buffer ${Base58.short(buffer.address)} · ${Loader.lamportsToSol(account.lamports)} to ${nameOf(recipient, wallet)}")
+            onLine(
+                "Reclaiming buffer ${Base58.short(buffer.address)} · ${Loader.lamportsToSol(account.lamports)} " +
+                    "to the deploy key ${Base58.short(recipient.base58)}, which paid it"
+            )
 
             val signature = ChainSigning.signAndSend(
                 app, cluster, rpc, pacer, payer,
@@ -154,7 +189,7 @@ object ProgramClose {
             OpenBuffers.remove(app, buffer.address)
             onLine("Reclaimed · ${cluster.explorerTx(signature)}")
             Notifications.info(
-                "Reclaimed buffer ${Base58.short(buffer.address)} · ${Loader.lamportsToSol(account.lamports)} returned",
+                reclaimedDetail(buffer.address, account.lamports, recipient.base58),
                 key = NOTIFICATION_KEY,
             )
             signature

@@ -176,6 +176,7 @@ private class DeploySession private constructor(
         authorizeUpfront(mode)
         val resumed = adoptBuffer(mode)
         fund(mode, resumed)
+        probeExtend(mode)
         createBuffer()
         writeChunks()
         val (signature, authority) = finalise(mode)
@@ -243,11 +244,21 @@ private class DeploySession private constructor(
                     "${short(programId)} is deployed on ${cluster.display} (slot ${status.slot}) · upgrading · " +
                         "authority is ${if (byWallet) "Seed Vault" else "the deploy key"}"
                 )
-                val grow = (elf.size - status.dataLen).coerceAtLeast(0L).toInt()
+                // Loader.extendBytes, never the shortfall itself: the loader
+                // refuses any extension under MAX_PERMITTED_DATA_INCREASE, and
+                // it refuses it after the whole upload (QA G-21).
+                val grow = Loader.extendBytes(elf.size, status.dataLen)
                 if (grow > 0) {
+                    val short = elf.size - status.dataLen
                     onLine(
                         "Its programdata has room for ${status.dataLen} bytes and the new artifact is ${elf.size} — " +
-                            "it will be extended by $grow bytes first"
+                            "it will be extended by $grow bytes first" +
+                            if (grow > short) {
+                                " (the loader's smallest extension is ${Loader.MAX_PERMITTED_DATA_INCREASE} bytes, " +
+                                    "not the $short it is short by)"
+                            } else {
+                                ""
+                            }
                     )
                 }
                 Mode.Upgrade(status, authority, byWallet, grow)
@@ -302,87 +313,48 @@ private class DeploySession private constructor(
 
     // ---- 1c. adopt an earlier attempt's buffer ---------------------------------------
 
-    /** A buffer from an earlier attempt that this run can finish instead of re-uploading. */
-    private class Resumable(
-        val key: Pubkey,
-        val authority: Pubkey,
-        val lamports: Long,
-        /** Per chunk: whether the buffer already holds exactly those bytes. */
-        val written: BooleanArray,
-    ) {
-        val done: Int get() = written.count { it }
-        val whole: Boolean get() = written.all { it }
-    }
-
     /**
      * The buffer an earlier attempt left for this program, when its bytes are
-     * this artifact's.
-     *
-     * A failed upgrade used to strand its rent AND its upload: the record in
-     * `OpenBuffers` was only ever read by Settings, so the retry created a
-     * second buffer and wrote all 186 chunks again — 0.95 SOL and nine
-     * minutes each time (QA G-20). Nothing about the buffer needs the keypair
-     * that created it, so a later run can simply continue: it is the
-     * *authority* that writes, hands the buffer over and upgrades, and that
-     * is the deploy key or the wallet, both of which are still here.
-     *
-     * The account is compared, not trusted: same owner, same size, same
-     * bytes. Chunks that already match are not written again, and a buffer
-     * whose authority has already moved to the wallet — the state the two
-     * failed upgrades ended in — is adopted only when it is whole, because
-     * from that point this phone cannot write to it. Anything else is left
-     * alone for Reclaim; a record whose account is gone is forgotten.
+     * this artifact's — the scan is [BufferAdoption.scan], shared with the
+     * Deploy sheet; this is the part that takes it over and says so.
      */
-    private suspend fun adoptBuffer(mode: Mode): Resumable? {
-        val records = runCatching { OpenBuffers.all(app) }.getOrDefault(emptyList())
-            .filter { it.cluster == cluster && it.programId == programId.base58 }
-        if (records.isEmpty()) return null
+    private suspend fun adoptBuffer(mode: Mode): AdoptableBuffer? {
         val walletAuthority = (mode as? Mode.Upgrade)?.takeIf { it.byWallet }?.authority
-        val space = (Loader.BUFFER_HEADER + elf.size).toLong()
-        for (record in records.asReversed()) {
-            coroutineContext.ensureActive()
-            val key = Pubkey.ofOrNull(record.address) ?: continue
-            val read = runCatching { pacer.run { rpc.getAccountInfo(record.address) } }
-            val info = read.getOrNull()
-            if (info == null) {
-                // A read that succeeded and found nothing is a record for an
-                // account that is gone; a read that failed says nothing.
-                if (read.isSuccess) runCatching { OpenBuffers.remove(app, record.address) }
-                continue
+        val resumable = BufferAdoption.scan(
+            app = app,
+            rpc = rpc,
+            pacer = pacer,
+            cluster = cluster,
+            programId = programId.base58,
+            elfSize = elf.size,
+            chunks = chunks,
+            payer = payer,
+            walletAuthority = walletAuthority,
+            forget = true,
+        ) ?: return null
+        bufferKey = resumable.key
+        bufferAuthority = resumable.authority
+        alreadyWritten = resumable.written
+        bufferRent = resumable.lamports
+        onLine(
+            when {
+                resumable.whole ->
+                    "Buffer ${short(resumable.key)} from an earlier attempt already holds this artifact — " +
+                        "reusing it, ${sol(resumable.lamports)} of rent and ${chunks.size} writes saved"
+                resumable.done > 0 ->
+                    "Buffer ${short(resumable.key)} from an earlier attempt holds ${resumable.done} of ${chunks.size} " +
+                        "chunks of this artifact — reusing it and writing the rest"
+                else ->
+                    "Buffer ${short(resumable.key)} from an earlier attempt is the right size and still this phone's to " +
+                        "write — reusing it, ${sol(resumable.lamports)} of rent saved"
             }
-            if (info.owner != Loader.PROGRAM_ID || info.space != space) continue
-            val authority = (Loader.parse(info.data) as? Loader.State.Buffer)?.authority ?: continue
-            val ours = authority == payer
-            val theirs = walletAuthority != null && authority == walletAuthority
-            if (!ours && !theirs) continue
-            val written = Loader.writtenChunks(info.data, chunks)
-            if (!ours && !written.all { it }) continue
-            val resumable = Resumable(key, authority, info.lamports, written)
-            bufferKey = key
-            bufferAuthority = authority
-            alreadyWritten = written
-            bufferRent = info.lamports
-            onLine(
-                when {
-                    resumable.whole ->
-                        "Buffer ${short(key)} from an earlier attempt already holds this artifact — " +
-                            "reusing it, ${sol(info.lamports)} of rent and ${chunks.size} writes saved"
-                    resumable.done > 0 ->
-                        "Buffer ${short(key)} from an earlier attempt holds ${resumable.done} of ${chunks.size} " +
-                            "chunks of this artifact — reusing it and writing the rest"
-                    else ->
-                        "Buffer ${short(key)} from an earlier attempt is the right size and still this phone's to " +
-                            "write — reusing it, ${sol(info.lamports)} of rent saved"
-                }
-            )
-            return resumable
-        }
-        return null
+        )
+        return resumable
     }
 
     // ---- 2. fund ------------------------------------------------------------------
 
-    private suspend fun fund(mode: Mode, resumed: Resumable?) {
+    private suspend fun fund(mode: Mode, resumed: AdoptableBuffer?) {
         val upgrade = mode is Mode.Upgrade
         // The account the cluster already has, so an upgrade's ExtendProgram
         // is priced here exactly as the Deploy sheet prices it: one
@@ -524,7 +496,7 @@ private class DeploySession private constructor(
             // deploy key money (PowFaucet.FaucetEmpty). The wallet is the
             // remedy on devnet too, and it is one prompt: ask for the whole
             // gap rather than the miner's bootstrap.
-            askWallet(from, required, balance, PowFaucet.EMPTY, e)
+            askWallet(from, required, balance, e.message ?: PowFaucet.EMPTY, e)
         } catch (e: Exception) {
             // Anything else the miner ended on — the endpoint refusing claims,
             // nothing landing for minutes — leaves the key wherever it got to,
@@ -784,7 +756,7 @@ private class DeploySession private constructor(
                     Loader.deployProgram(payer, programData, programId, bufferKey, payer, programRent, maxDataLen),
                     signers = listOf(deployKey, programKeypair),
                 )
-                bufferDrained = true
+                drained()
                 onLine("Deployed · ${cluster.explorerTx(signature)}")
                 signature to handOver(programData)
             }
@@ -797,7 +769,7 @@ private class DeploySession private constructor(
                         listOf(Loader.upgrade(programData, programId, bufferKey, payer, payer)),
                         signers = listOf(deployKey),
                     )
-                    bufferDrained = true
+                    drained()
                     onLine("Upgraded · ${cluster.explorerTx(signature)}")
                     signature to handOver(programData)
                 } else {
@@ -815,12 +787,23 @@ private class DeploySession private constructor(
                         )
                     }
                     val signature = signUpgrade(programData, bufferKey, authority)
-                    bufferDrained = true
+                    drained()
                     onLine("Upgraded · ${cluster.explorerTx(signature)}")
                     signature to authority
                 }
             }
         }
+    }
+
+    /**
+     * The buffer is empty: its rent has moved to the spill account, which is
+     * always the deploy key ([signUpgrade] explains why). Said out loud
+     * because "Reclaim took 5,000 lamports and gave nothing back" was a real
+     * reading of the Wallet sheet when the money went somewhere unnamed.
+     */
+    private fun drained() {
+        bufferDrained = true
+        if (bufferRent > 0L) onLine("Buffer drained · ${sol(bufferRent)} of rent back to the deploy key ${short(payer)}")
     }
 
     /**
@@ -837,7 +820,15 @@ private class DeploySession private constructor(
      * either way: a second failure leaves it whole and the next run adopts it.
      */
     private suspend fun signUpgrade(programData: Pubkey, bufferKey: Pubkey, authority: Pubkey): String {
-        val instructions = listOf(Loader.upgrade(programData, programId, bufferKey, authority, authority))
+        // The spill is the DEPLOY KEY, not the authority: the buffer's rent
+        // was fronted by the deploy key (createBuffer, or an earlier attempt's
+        // createBuffer that adoptBuffer resumed), so paying it back to the
+        // wallet moves nearly a SOL off the key that is about to need it and
+        // reads, on the Deploy-key balance row, as an upgrade that cost 0.95
+        // SOL (QA r4 §5). Whoever ends up holding the authority, the account
+        // that paid gets it back; the Wallet sheet's "Return SOL to wallet"
+        // is how it goes on to the wallet, deliberately.
+        val instructions = listOf(Loader.upgrade(programData, programId, bufferKey, payer, authority))
         onLine("Asking Seed Vault to sign the upgrade · keep Thragg on screen while it answers")
         return try {
             ChainSigning.signAndSend(
@@ -868,6 +859,56 @@ private class DeploySession private constructor(
                 local = listOf(deployKey), wallet = authority,
             )
         }
+    }
+
+    /**
+     * Ask the cluster whether it will grow the programdata, BEFORE the
+     * buffer's rent and the chunks are spent on the assumption that it will.
+     *
+     * The same reasoning as [authorizeUpfront], for the other precondition
+     * an upload cannot supply. Measured on the Seeker 2026-09-09: an upgrade
+     * that grew `r4_anchor` by 5,696 bytes wrote 180 chunks over 7m17s and
+     * then died on "ExtendProgram requires a minimum of 10240 additional
+     * bytes", leaving 0.93452748 SOL in a buffer. [Loader.extendBytes] is
+     * why that particular refusal cannot happen again; this is why the next
+     * one — an account at the 10 MB ceiling, a programdata whose owner
+     * changed under us, a deploy key that cannot pay the extra rent after
+     * all — costs seconds and nothing instead of seven minutes and a buffer.
+     *
+     * A simulation is not a promise: it is unsigned, run against the current
+     * slot, and the extension is still sent for real in [finalise]. A probe
+     * the node will not answer at all is not a refusal and does not stop the
+     * deploy; only a simulation that came back with an error does.
+     */
+    private suspend fun probeExtend(mode: Mode) {
+        val upgrade = mode as? Mode.Upgrade ?: return
+        if (upgrade.grow <= 0) return
+        val programData = Pubkey.of(upgrade.status.programData)
+        onLine(
+            "Checking ${cluster.display} will grow programdata ${short(programData)} by ${upgrade.grow} bytes " +
+                "before uploading"
+        )
+        val refusal = try {
+            val blockhash = pacer.run { rpc.getLatestBlockhash() }
+            val message = Message.compile(
+                payer,
+                listOf(Loader.extendProgram(programData, programId, payer, upgrade.grow)),
+                blockhash.blockhash,
+            )
+            pacer.run { rpc.simulate(Transaction.unsigned(message)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onLine("The extension could not be checked (${ChainSigning.readable(e)}) — going ahead")
+            return
+        }
+        if (refusal != null) {
+            throw ChainException(
+                "${cluster.display} will not grow programdata ${short(programData)} by ${upgrade.grow} bytes: " +
+                    "$refusal — nothing was uploaded and nothing was spent."
+            )
+        }
+        onLine("It will · nothing spent yet")
     }
 
     /**
@@ -970,6 +1011,113 @@ private class DeploySession private constructor(
             val wallet = SeedVaultWallet.address?.let { Pubkey.ofOrNull(it) }
             val programKeypair = ProgramIds.ensureKeypair(project.root, program)
             return DeploySession(app, project, program, onLine, cluster, deployKey, wallet, programKeypair, elf)
+        }
+    }
+}
+
+/**
+ * A buffer an earlier attempt left, that a run can finish instead of
+ * uploading afresh — and that an estimate must therefore not charge for.
+ */
+internal class AdoptableBuffer(
+    val key: Pubkey,
+    val authority: Pubkey,
+    val lamports: Long,
+    /** Per chunk: whether the buffer already holds exactly those bytes. */
+    val written: BooleanArray,
+) {
+    val done: Int get() = written.count { it }
+    val chunks: Int get() = written.size
+    val whole: Boolean get() = written.all { it }
+}
+
+/**
+ * Whether an open buffer on this cluster is *this* artifact's, asked by both
+ * the deployer and the Deploy sheet.
+ *
+ * IT IS ONE FUNCTION BECAUSE THE TWO DISAGREED. On the Seeker 2026-09-09 the
+ * sheet quoted "~1.8111 SOL, of which 0.9047 comes back" for an upgrade the
+ * run then landed for **0.00113 SOL**, because the deployer knew a whole
+ * buffer was sitting there and the sheet did not (QA r4 §7). A user reading
+ * that number decides whether to deploy at all, or tops up a key that needed
+ * nothing. So the scan lives here, the deployer takes the buffer over
+ * (`DeploySession.adoptBuffer`) and the sheet only prices it.
+ *
+ * The account is compared, not trusted: same owner, same size, same bytes,
+ * and an authority this phone can still act through.
+ */
+internal object BufferAdoption {
+
+    /**
+     * Whether any buffer is on record for [programId] on [cluster] — the
+     * cheap local question, so a sheet does not read a 200 kB artifact off
+     * disk to discover there is nothing to adopt. No network.
+     */
+    fun anyRecorded(context: Context, cluster: Cluster, programId: String): Boolean =
+        runCatching { OpenBuffers.all(context.applicationContext) }.getOrDefault(emptyList())
+            .any { it.cluster == cluster && it.programId == programId }
+
+    /**
+     * The newest record for [programId] on [cluster] whose account is this
+     * artifact's buffer, or null.
+     *
+     * [walletAuthority] is the wallet that holds the upgrade authority, when
+     * one does: a buffer already handed over to it is adoptable only when it
+     * is whole, because from that point this phone cannot write to it.
+     * [forget] removes records whose account a successful read did not find
+     * — the deployer's housekeeping, which a sheet does not do.
+     */
+    suspend fun scan(
+        app: Context,
+        rpc: Rpc,
+        pacer: RpcPacer,
+        cluster: Cluster,
+        programId: String,
+        elfSize: Int,
+        chunks: List<Pair<Int, ByteArray>>,
+        payer: Pubkey,
+        walletAuthority: Pubkey?,
+        forget: Boolean,
+    ): AdoptableBuffer? {
+        val records = runCatching { OpenBuffers.all(app) }.getOrDefault(emptyList())
+            .filter { it.cluster == cluster && it.programId == programId }
+        if (records.isEmpty()) return null
+        val space = (Loader.BUFFER_HEADER + elfSize).toLong()
+        for (record in records.asReversed()) {
+            coroutineContext.ensureActive()
+            val key = Pubkey.ofOrNull(record.address) ?: continue
+            val read = runCatching { pacer.run { rpc.getAccountInfo(record.address) } }
+            val info = read.getOrNull()
+            if (info == null) {
+                // A read that succeeded and found nothing is a record for an
+                // account that is gone; a read that failed says nothing.
+                if (forget && read.isSuccess) runCatching { OpenBuffers.remove(app, record.address) }
+                continue
+            }
+            if (info.owner != Loader.PROGRAM_ID || info.space != space) continue
+            val authority = (Loader.parse(info.data) as? Loader.State.Buffer)?.authority ?: continue
+            val ours = authority == payer
+            val theirs = walletAuthority != null && authority == walletAuthority
+            if (!ours && !theirs) continue
+            val written = Loader.writtenChunks(info.data, chunks)
+            if (!ours && !written.all { it }) continue
+            return AdoptableBuffer(key, authority, info.lamports, written)
+        }
+        return null
+    }
+
+    /**
+     * The Deploy sheet's line under the cost when a buffer is being reused:
+     * why the number is so much smaller than the one an upgrade usually
+     * shows. Pure, tested.
+     */
+    fun detail(address: String, lamports: Long, done: Int, chunks: Int): String {
+        val where = "buffer ${Base58.short(address)}"
+        val rent = "${Loader.lamportsToSol(lamports)} of rent is already on chain"
+        return when {
+            done >= chunks && chunks > 0 -> "reusing $where — $rent and all $chunks chunks are uploaded"
+            done > 0 -> "reusing $where — $rent and $done of $chunks chunks are uploaded"
+            else -> "reusing $where — $rent"
         }
     }
 }

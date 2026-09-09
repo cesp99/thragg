@@ -35,17 +35,61 @@ class PowFaucetTest {
         // claim it cannot pay is a claim that only costs the payer its fee
         // and the receipt's rent (0.0009 SOL, measured 2026-09-09 as a
         // deploy key went 0.22 -> 0.0008 mining an empty faucet).
-        assertTrue(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS))
         assertTrue(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS * 100))
         assertFalse(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS - 1))
         assertFalse(PowFaucet.canPayClaim(0L))
+        // A source holding exactly one claim cannot pay it: the transfer
+        // would leave it under its own rent-exempt minimum and the runtime
+        // refuses that. Devnet 2026-09-09 had the difficulty-4 source on
+        // CLAIM_LAMPORTS + 95 and the old test called it payable (QA B-06).
+        assertFalse(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS))
+        assertFalse(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS + 95))
+        assertTrue(PowFaucet.canPayClaim(PowFaucet.CLAIM_LAMPORTS + PowFaucet.SOURCE_RENT_FLOOR))
 
-        // Both difficulties have their own source, so one that still pays is
-        // enough to keep mining.
+        val pays = PowFaucet.CLAIM_LAMPORTS * 100
         assertTrue(PowFaucet.isDry(listOf(0L, 0L)))
         assertTrue(PowFaucet.isDry(emptyList()))
-        assertFalse(PowFaucet.isDry(listOf(0L, PowFaucet.CLAIM_LAMPORTS)))
-        assertFalse(PowFaucet.isDry(listOf(PowFaucet.CLAIM_LAMPORTS, 0L)))
+        assertFalse(PowFaucet.isDry(listOf(pays, pays)))
+    }
+
+    /**
+     * B-06, exactly as it happened. `isDry` was an OR across both specs, so
+     * the difficulty-4 source holding 20,000,095 lamports let the miner
+     * start while the difficulty-3 source it actually claims from held 0:
+     * 65 seconds of mining took 0.157 SOL, and a later six-minute run took
+     * 0.925 SOL. The guard is asked of the spec the miner will use.
+     */
+    @Test
+    fun `dry is asked of the difficulty this miner claims at, not of any difficulty`() {
+        assertEquals(3, PowFaucet.MINED_DIFFICULTY)
+        assertEquals(PowFaucet.GROUND_PREFIX.length, PowFaucet.MINED_DIFFICULTY)
+        val pays = PowFaucet.CLAIM_LAMPORTS * 100
+        // The measured state of devnet at 12:45 on 2026-09-09.
+        val theDay = listOf(0L, 20_000_095L)
+        assertTrue(PowFaucet.isDry(theDay))
+        // Nor does a rich difficulty-4 source excuse an empty difficulty-3 one.
+        assertTrue(PowFaucet.isDry(listOf(0L, pays)))
+        assertFalse(PowFaucet.isDry(listOf(pays, 0L)))
+        // And the other spec can still be asked about by name.
+        assertFalse(PowFaucet.isDry(listOf(0L, pays), difficulty = 4))
+        assertEquals(listOf(4), PowFaucet.payable(listOf(0L, pays)))
+        assertEquals(listOf(3, 4), PowFaucet.payable(listOf(pays, pays)))
+        assertEquals(emptyList<Int>(), PowFaucet.payable(theDay))
+    }
+
+    /** A refusal that says "empty" beside a source with SOL in it has to say which is which. */
+    @Test
+    fun `the refusal names the difficulty that is empty and the one that is not`() {
+        val pays = PowFaucet.CLAIM_LAMPORTS * 100
+        assertEquals(PowFaucet.EMPTY_REASON, PowFaucet.emptyReason(listOf(0L, 0L)))
+        assertEquals(PowFaucet.EMPTY, PowFaucet.emptyDetail(listOf(0L, 0L)))
+        val split = PowFaucet.emptyReason(listOf(0L, pays))
+        assertTrue(split, "difficulty-3 source is empty" in split)
+        assertTrue(split, "difficulty-4 source still has SOL" in split)
+        assertTrue(split, "AAAA" in split)
+        assertTrue(PowFaucet.emptyDetail(listOf(0L, pays)).endsWith(PowFaucet.REMEDY))
+        assertEquals(split, PowFaucet.FaucetEmpty(split).reason)
+        assertEquals(split + PowFaucet.REMEDY, PowFaucet.FaucetEmpty(split).message)
     }
 
     @Test

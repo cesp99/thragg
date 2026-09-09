@@ -29,14 +29,19 @@ import java.io.File
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import to.eyed.thragg.solana.build.ArtifactFreshness
 import to.eyed.thragg.solana.build.BuildAction
 import to.eyed.thragg.solana.build.BuildRunner
 import to.eyed.thragg.solana.build.ProgramTarget
+import to.eyed.thragg.solana.chain.AdoptableBuffer
 import to.eyed.thragg.solana.chain.Base58
 import to.eyed.thragg.solana.chain.BackgroundWork
+import to.eyed.thragg.solana.chain.BufferAdoption
 import to.eyed.thragg.solana.chain.Cluster
 import to.eyed.thragg.solana.chain.ClusterStore
 import to.eyed.thragg.solana.chain.DeployKey
@@ -44,7 +49,9 @@ import to.eyed.thragg.solana.chain.Loader
 import to.eyed.thragg.solana.chain.OnChainProgram
 import to.eyed.thragg.solana.chain.ProgramIds
 import to.eyed.thragg.solana.chain.ProgramStatus
+import to.eyed.thragg.solana.chain.Pubkey
 import to.eyed.thragg.solana.chain.Rpc
+import to.eyed.thragg.solana.chain.RpcException
 import to.eyed.thragg.solana.chain.RpcPacer
 import to.eyed.thragg.solana.chain.SeedVaultWallet
 import to.eyed.thragg.solana.toolchain.formatBytes
@@ -138,6 +145,23 @@ private class DeployFacts(
      * two, which on devnet is a third of a SOL apart on a 200 kB program.
      */
     val rentQuoted: Boolean = true,
+    /**
+     * What this deploy will actually be asked to pay: [estimate] less what an
+     * adoptable buffer has already paid for. THE SHEET USED TO IGNORE THE
+     * BUFFER the deployer was about to reuse and quoted ~1.8111 SOL for a run
+     * that then cost 0.00113 (QA r4 §7).
+     */
+    val outstanding: Long? = null,
+    /** The buffer rent that comes back after the deploy: an adopted buffer's own lamports. */
+    val comesBack: Long = 0L,
+    /** The line naming the buffer being reused, or null when there is none. */
+    val adopted: String? = null,
+    /**
+     * Every read this pass attempted failed or timed out — the phone cannot
+     * reach the cluster at all. Distinct from a single failed read, and the
+     * reason the sheet no longer sits on "…" for minutes (QA).
+     */
+    val offline: Boolean = false,
 )
 
 @Composable
@@ -202,7 +226,7 @@ internal fun DeploySheet(
         )
     val mainnet = cluster?.isMainnet == true
     val mainnetUnfunded = mainnet && wallet == null
-    val unreachable = facts?.status?.isFailure == true
+    val unreachable = facts?.status?.isFailure == true || facts?.offline == true
     val disagree = facts?.resolved?.disagree == true
     val canDeploy = program != null && cluster != null &&
         facts != null && !unreachable && !disagree &&
@@ -259,7 +283,11 @@ internal fun DeploySheet(
                 NoticeCard(
                     severity = Severity.Error,
                     title = "Could not reach $where",
-                    body = "A deploy has to know what $where already has at this id before it starts.",
+                    body = if (facts?.status?.isFailure == true) {
+                        "A deploy has to know what $where already has at this id before it starts."
+                    } else {
+                        "Nothing could be read from $where — check the network and try again."
+                    },
                     actions = { ThraggChip(label = "Try again", onClick = { retry++ }) },
                 )
             }
@@ -353,8 +381,20 @@ internal fun DeploySheet(
                 val estimate = facts?.estimate
                 FactRow(
                     label = if (deployed != null) "Estimated cost (upgrade)" else "Estimated cost",
-                    value = costDetail(estimate?.total),
+                    // The OUTSTANDING cost, not the estimate's total: an
+                    // earlier attempt's buffer is rent already on chain and
+                    // chunks already written, and the deployer will adopt it
+                    // (QA r4 §7).
+                    value = costDetail(facts?.outstanding),
                 )
+                facts?.adopted?.let { line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
+                    )
+                }
                 if (estimate != null && facts?.rentQuoted == false) {
                     Text(
                         text = rentFallbackDetail(where),
@@ -363,9 +403,10 @@ internal fun DeploySheet(
                         modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
                     )
                 }
-                if (estimate != null && estimate.bufferRent > 0) {
+                val comesBack = facts?.comesBack ?: 0L
+                if (estimate != null && comesBack > 0L) {
                     Text(
-                        text = comesBackDetail(estimate.bufferRent),
+                        text = comesBackDetail(comesBack),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = MD.space3, end = MD.space3, bottom = MD.space2),
@@ -389,8 +430,8 @@ internal fun DeploySheet(
                         }
                     },
                 )
-                val gap = shortfallLamports(facts?.keyBalance?.getOrNull(), estimate)
-                val shortfall = shortfallDetail(facts?.keyBalance?.getOrNull(), estimate, cluster)
+                val gap = shortfallOf(facts?.keyBalance?.getOrNull(), facts?.outstanding)
+                val shortfall = shortfallDetailOf(facts?.keyBalance?.getOrNull(), facts?.outstanding, cluster)
                 if (shortfall != null) {
                     Text(
                         text = shortfall,
@@ -413,6 +454,17 @@ internal fun DeploySheet(
                     }
                 }
             }
+            // Something is happening, and it is bounded: the facts pass gives
+            // the cluster REACH_BUDGET_MS and then says so. Without this the
+            // sheet was six ellipses and a dead button (QA).
+            if (facts == null && cluster != null && program != null) {
+                Text(
+                    text = "Asking $where…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = MD.space3),
+                )
+            }
         }
     }
 
@@ -423,7 +475,7 @@ internal fun DeploySheet(
             title = { Text("Deploy ${program?.moduleName ?: "this program"} to mainnet-beta?") },
             text = {
                 Text(
-                    "${costDetail(facts?.estimate?.total)} of real money. " +
+                    "${costDetail(facts?.outstanding)} of real money. " +
                         "A mainnet deploy cannot be undone.",
                 )
             },
@@ -444,9 +496,31 @@ internal fun DeploySheet(
 }
 
 /**
- * The one IO pass. Each network read is its own `runCatching` so a cluster
- * that does not answer still leaves the sheet with the id, the artifact and
- * the estimate — the facts that live on this phone.
+ * How long the whole IO pass may spend trying to reach the cluster.
+ *
+ * A BUDGET, NOT A PER-READ TIMEOUT. [RpcPacer] retries a dropped socket five
+ * times, 1 s / 2 s / 5 s / 10 s / 15 s apart, which is right for a deploy
+ * that has already started and wrong for a sheet: with the network off, five
+ * reads each took the full 33 s and the sheet sat on "…" with Deploy greyed,
+ * no spinner and no explanation for nearly three minutes. Twenty seconds
+ * shared between them means the "Could not reach devnet" notice and its
+ * "Try again" arrive while the user is still looking (QA).
+ */
+private const val REACH_BUDGET_MS = 25_000L
+
+/**
+ * And the most any one of them may spend, so a single slow read cannot eat
+ * the whole budget and make the four after it report a cluster that is
+ * answering perfectly well as unreachable.
+ */
+private const val REACH_READ_MS = 12_000L
+
+/**
+ * The one IO pass. Each network read is its own [Result] so a cluster that
+ * does not answer still leaves the sheet with the id, the artifact and the
+ * estimate — the facts that live on this phone — and all of them share
+ * [REACH_BUDGET_MS], so "does not answer" is a thing the sheet says rather
+ * than a thing it does.
  */
 private suspend fun gather(context: Context, root: String, program: ProgramTarget, cluster: Cluster): DeployFacts {
     val resolved = ProgramIds.resolve(root, program, cluster)
@@ -462,8 +536,31 @@ private suspend fun gather(context: Context, root: String, program: ProgramTarge
     // gate the deployer uses, and it retries a 429 rather than falling back
     // to the formula on one.
     val pacer = RpcPacer()
-    val balance = key?.let { runCatching { pacer.run { rpc.getBalance(it) } } }
-    val status = resolved.id?.let { runCatching { pacer.run { ProgramStatus.inspect(rpc, it) } } }
+    val deadline = System.currentTimeMillis() + REACH_BUDGET_MS
+    var attempts = 0
+    var failures = 0
+    suspend fun <T> reach(block: suspend () -> T): Result<T> {
+        attempts++
+        val left = minOf(deadline - System.currentTimeMillis(), REACH_READ_MS)
+        if (left <= 0L) {
+            failures++
+            return Result.failure(RpcException("Gave up waiting for ${cluster.display}"))
+        }
+        return try {
+            Result.success(withTimeout(left) { block() })
+        } catch (e: TimeoutCancellationException) {
+            failures++
+            Result.failure(RpcException("Timed out after ${REACH_READ_MS / 1_000} s waiting for ${cluster.display}"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            failures++
+            Result.failure(e)
+        }
+    }
+
+    val balance = key?.let { reach { pacer.run { rpc.getBalance(it) } } }
+    val status = resolved.id?.let { reach { pacer.run { ProgramStatus.inspect(rpc, it) } } }
     val deployed = status?.getOrNull() as? OnChainProgram.Deployed
     // The deployed account, so an upgrade's ExtendProgram rent is in the row
     // — the deployer charges it whenever the artifact grew by a byte, and
@@ -479,7 +576,7 @@ private suspend fun gather(context: Context, root: String, program: ProgramTarge
     var quoted = true
     if (bytes != null) {
         for (size in Loader.rentSizes(bytes.toInt(), upgrade, existing)) {
-            val answer = runCatching { pacer.run { rpc.getMinimumBalanceForRentExemption(size) } }.getOrNull()
+            val answer = reach { pacer.run { rpc.getMinimumBalanceForRentExemption(size) } }.getOrNull()
             if (answer == null) quoted = false else quotes[size] = answer
         }
     }
@@ -487,7 +584,51 @@ private suspend fun gather(context: Context, root: String, program: ProgramTarge
         val rent: (Int) -> Long = if (quoted) { size -> quotes.getValue(size) } else Loader::rentExempt
         Loader.estimateDeploy(it.toInt(), upgrade, rent, existing)
     }
-    return DeployFacts(resolved, bytes, key, balance, status, estimate, rentQuoted = quoted)
+    // The buffer an earlier attempt left, priced the way the deployer prices
+    // it: the same scan, so the sheet cannot quote a whole upload for a run
+    // that will adopt one (QA r4 §7). The artifact is only read when a
+    // record for this program exists at all, which is almost never.
+    var adopted: AdoptableBuffer? = null
+    val id = resolved.id
+    val payer = key?.let { Pubkey.ofOrNull(it) }
+    if (bytes != null && id != null && payer != null && BufferAdoption.anyRecorded(context, cluster, id)) {
+        val elf = runCatching { artifact.readBytes() }.getOrNull()
+        if (elf != null && elf.isNotEmpty()) {
+            adopted = reach {
+                BufferAdoption.scan(
+                    app = context.applicationContext,
+                    rpc = rpc,
+                    pacer = pacer,
+                    cluster = cluster,
+                    programId = id,
+                    elfSize = elf.size,
+                    chunks = Loader.chunks(elf),
+                    payer = payer,
+                    // The wallet holds the authority when the program on
+                    // chain says someone other than the deploy key does.
+                    walletAuthority = deployed?.authority?.let { Pubkey.ofOrNull(it) }?.takeIf { it != payer },
+                    // A sheet reports; the deployer is what forgets records.
+                    forget = false,
+                )
+            }.getOrNull()
+        }
+    }
+    val outstanding = estimate?.let {
+        Loader.outstanding(it, bufferAlreadyPaid = adopted != null, writesAlreadyLanded = adopted?.done ?: 0)
+    }
+    return DeployFacts(
+        resolved = resolved,
+        artifactBytes = bytes,
+        deployKey = key,
+        keyBalance = balance,
+        status = status,
+        estimate = estimate,
+        rentQuoted = quoted,
+        outstanding = outstanding,
+        comesBack = adopted?.lamports ?: estimate?.bufferRent ?: 0L,
+        adopted = adopted?.let { BufferAdoption.detail(it.key.base58, it.lamports, it.done, it.chunks) },
+        offline = attempts > 0 && failures == attempts,
+    )
 }
 
 /**
@@ -537,9 +678,17 @@ internal fun comesBackDetail(bufferRent: Long): String =
  * 2026-09-04), testnet asks its faucet and then Seed Vault, mainnet asks
  * Seed Vault for real SOL.
  */
-internal fun shortfallDetail(balance: Long?, estimate: Loader.CostEstimate?, cluster: Cluster?): String? {
+internal fun shortfallDetail(balance: Long?, estimate: Loader.CostEstimate?, cluster: Cluster?): String? =
+    shortfallDetailOf(balance, estimate?.total, cluster)
+
+/**
+ * [shortfallDetail] against a total the caller worked out — the estimate less
+ * what an adoptable buffer has already paid for. The sheet uses this one; the
+ * pair above is the same question asked of a bare estimate.
+ */
+internal fun shortfallDetailOf(balance: Long?, total: Long?, cluster: Cluster?): String? {
     if (cluster == null) return null
-    val gap = shortfallLamports(balance, estimate)?.let { Loader.lamportsToSol(it) } ?: return null
+    val gap = shortfallOf(balance, total)?.let { Loader.lamportsToSol(it) } ?: return null
     // The tenth is named because the deploy's own first log line prints the
     // bigger number, and two figures that differ by 10 % with nothing to
     // explain them read as a contradiction (QA, s4).
@@ -573,9 +722,13 @@ internal fun rentFallbackDetail(cluster: String): String =
  * another. The threshold is the deployer's own: the estimate plus a tenth
  * (ProgramDeploy.kt, `fund`).
  */
-internal fun shortfallLamports(balance: Long?, estimate: Loader.CostEstimate?): Long? {
-    if (balance == null || estimate == null) return null
-    return (Loader.withMargin(estimate.total) - balance).takeIf { it > 0L }
+internal fun shortfallLamports(balance: Long?, estimate: Loader.CostEstimate?): Long? =
+    shortfallOf(balance, estimate?.total)
+
+/** [shortfallLamports] against a total the caller worked out. One place, both callers. */
+internal fun shortfallOf(balance: Long?, total: Long?): Long? {
+    if (balance == null || total == null) return null
+    return (Loader.withMargin(total) - balance).takeIf { it > 0L }
 }
 
 /** The deploy key's balance line, in the order the facts arrive. */

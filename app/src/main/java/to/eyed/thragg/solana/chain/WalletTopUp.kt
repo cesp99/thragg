@@ -216,6 +216,21 @@ object WalletTopUp {
      * left on mainnet closed the association with no JSON-RPC error at all,
      * so this sentence is the only thing the user gets.
      */
+    /**
+     * What a Seed Vault request that was never answered is told, when the
+     * layers under MWA give no sentence of their own.
+     *
+     * Three Connect prompts were left to lapse on the Seeker 2026-09-09 and
+     * each came back to a sheet reading "Not connected" and nothing else —
+     * indistinguishable from three taps that did nothing (QA r4 §14c). The
+     * transact path has said this since P-18; connect says it too, with the
+     * one word that differs, because nothing was *connected* rather than
+     * nothing was *sent*.
+     */
+    fun didNotAnswer(cluster: Cluster, connecting: Boolean): String =
+        "Seed Vault did not answer in time for ${cluster.display} — " +
+            (if (connecting) "nothing was connected" else "nothing was sent") + "; try again"
+
     fun networkMismatch(cluster: Cluster, wallet: Cluster?): String {
         val was = if (wallet != null && wallet != cluster) {
             " It last authorized Thragg for ${wallet.display}."

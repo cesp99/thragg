@@ -49,6 +49,9 @@ object PowFaucet {
     /** What one claim pays, and the amount in the spec PDA's seeds. */
     const val CLAIM_LAMPORTS = 20_000_000L
 
+    /** The Base58 prefix [KeyGrinder] grinds for; its length is [MINED_DIFFICULTY]. */
+    const val GROUND_PREFIX = "AAA"
+
     /**
      * What the payer fronts for each receipt account; measured, not derived.
      *
@@ -63,6 +66,16 @@ object PowFaucet {
 
     /** The difficulties with a 0.02 SOL spec on devnet: `AAA` and `AAAA`. */
     val DIFFICULTIES: List<Int> = listOf(3, 4)
+
+    /**
+     * The difficulty this miner actually claims at.
+     *
+     * [KeyGrinder] grinds for keys beginning `AAA`, so **every** key it finds
+     * makes a difficulty-3 claim; roughly one in fifty-eight also begins
+     * `AAAA` and makes a second, difficulty-4 one ([claims]). That is why the
+     * dry test is asked of this spec and not of "any spec": see [isDry].
+     */
+    val MINED_DIFFICULTY: Int = GROUND_PREFIX.length
 
     /** Six is what fits: each key costs a signature, two account keys and an instruction. */
     const val CLAIMS_PER_TX = 6
@@ -166,7 +179,7 @@ object PowFaucet {
      * decides on the first byte, and the grinder can run it on every
      * candidate without spelling any of them.
      */
-    private val WINDOW_LO: ByteArray = bound("AAA")
+    private val WINDOW_LO: ByteArray = bound(GROUND_PREFIX)
     private val WINDOW_HI: ByteArray = bound("AAB")
 
     fun hasAaaPrefix(encoded: ByteArray): Boolean =
@@ -219,8 +232,14 @@ object PowFaucet {
         "The deploy key holds ${Loader.lamportsToSol(balance)}, under the ${Loader.lamportsToSol(BOOTSTRAP_LAMPORTS)} a first claim needs up front"
     )
 
-    /** The sentence a dry faucet gets, everywhere it is said. */
-    const val EMPTY = "The devnet faucet is empty — top up from your wallet instead"
+    /** The diagnosis, when no difficulty can pay anything. */
+    const val EMPTY_REASON = "The devnet faucet is empty"
+
+    /** What to do about it, appended to every diagnosis. */
+    const val REMEDY = " — top up from your wallet instead"
+
+    /** The sentence a dry faucet gets when no difficulty can pay anything. */
+    const val EMPTY = EMPTY_REASON + REMEDY
 
     /**
      * The faucet's source PDAs hold nothing left to pay with.
@@ -234,13 +253,65 @@ object PowFaucet {
      * the whole time. Hence the read before the first claim and the re-read
      * while it runs; neither changes the mining maths, they only stop it.
      */
-    class FaucetEmpty : ChainException(EMPTY)
+    class FaucetEmpty(val reason: String = EMPTY_REASON) : ChainException(reason + REMEDY)
+
+    /**
+     * What a source PDA has to keep for itself after paying a claim: the
+     * rent-exempt minimum of a zero-length account.
+     *
+     * A source that ends a transfer below its own rent-exempt minimum, and
+     * not at zero, makes the runtime refuse the whole transaction — so a
+     * source holding exactly one claim cannot in fact pay one. Devnet
+     * 2026-09-09 had the difficulty-4 source on 20,000,095 lamports, ninety-
+     * five over [CLAIM_LAMPORTS], and the old test called that "can pay"
+     * (QA B-06). The account's real data length is not read here, so this is
+     * the smallest floor it could have; a source with data needs more, which
+     * only makes this test the safer way round.
+     */
+    val SOURCE_RENT_FLOOR: Long = Loader.rentExempt(0)
 
     /** Whether a source PDA holding [lamports] can pay one claim. Pure, tested. */
-    fun canPayClaim(lamports: Long): Boolean = lamports >= CLAIM_LAMPORTS
+    fun canPayClaim(lamports: Long): Boolean = lamports >= CLAIM_LAMPORTS + SOURCE_RENT_FLOOR
 
-    /** Dry when no difficulty's source can pay a claim. Pure, tested. */
-    fun isDry(sourceBalances: List<Long>): Boolean = sourceBalances.none(::canPayClaim)
+    /**
+     * Which of [DIFFICULTIES] have a source that can still pay, given
+     * [sourceBalances] in [specs] order. Pure, tested.
+     */
+    fun payable(sourceBalances: List<Long>): List<Int> =
+        DIFFICULTIES.filterIndexed { index, _ -> canPayClaim(sourceBalances.getOrElse(index) { 0L }) }
+
+    /**
+     * Dry for the difficulty the miner will actually claim at.
+     *
+     * IT USED TO BE AN OR ACROSS BOTH SPECS, and that cost real money: on
+     * devnet 2026-09-09 the difficulty-4 source held 20,000,095 lamports and
+     * the difficulty-3 source — the one every ground key claims from — held
+     * nothing, so `none(::canPayClaim)` was false, the guard let the miner
+     * start, and 65 seconds of it took **0.157 SOL** out of the deploy key
+     * for nothing; a later six-minute run took 0.925 SOL (QA B-06). A spec
+     * the miner does not use paying is not a reason to mine.
+     */
+    fun isDry(sourceBalances: List<Long>, difficulty: Int = MINED_DIFFICULTY): Boolean =
+        difficulty !in payable(sourceBalances)
+
+    /**
+     * Why the faucet was refused, naming the difficulty that is empty and the
+     * one that is not when they differ — a refusal that says "the faucet is
+     * empty" next to a source with SOL in it reads as a bug, and the user
+     * cannot see the sources. Pure, tested.
+     */
+    fun emptyReason(sourceBalances: List<Long>, difficulty: Int = MINED_DIFFICULTY): String {
+        val others = payable(sourceBalances).filter { it != difficulty }
+        if (others.isEmpty()) return EMPTY_REASON
+        val named = others.joinToString(" and ") { "difficulty-$it" }
+        val prefix = others.joinToString(" and ") { "A".repeat(it) }
+        return "The devnet faucet's difficulty-$difficulty source is empty, and that is the one this miner " +
+            "claims from; its $named source still has SOL, but claiming there needs a key beginning $prefix"
+    }
+
+    /** [emptyReason] with the remedy on the end: the sentence [FaucetEmpty] carries. */
+    fun emptyDetail(sourceBalances: List<Long>, difficulty: Int = MINED_DIFFICULTY): String =
+        emptyReason(sourceBalances, difficulty) + REMEDY
 
     /** What each spec's source holds right now, in [specs] order. */
     suspend fun sourceBalances(rpc: Rpc, pacer: RpcPacer): List<Long> =
@@ -267,7 +338,7 @@ object PowFaucet {
     ): Long {
         val balance = pacer.run { rpc.getBalance(payer.publicKey.base58) }
         if (balance >= target) return balance
-        if (isDry(sourceBalances(rpc, pacer))) throw FaucetEmpty()
+        sourceBalances(rpc, pacer).let { if (isDry(it)) throw FaucetEmpty(emptyReason(it)) }
         if (balance < BOOTSTRAP_LAMPORTS) throw NeedsBootstrap(balance)
         val grinder = KeyGrinder()
         grinder.start()
@@ -421,7 +492,7 @@ object PowFaucet {
                 // into a loss; one read a minute is cheap next to that.
                 if (now - sourceAt >= SOURCE_EVERY_MS) {
                     sourceAt = now
-                    if (isDry(sourceBalances(rpc, pacer))) throw FaucetEmpty()
+                    sourceBalances(rpc, pacer).let { if (isDry(it)) throw FaucetEmpty(emptyReason(it)) }
                 }
                 if (inFlight.isNotEmpty() && now - polledAt >= POLL_MS) settle()
                 if (inFlight.isEmpty() && balance + credited >= target) {

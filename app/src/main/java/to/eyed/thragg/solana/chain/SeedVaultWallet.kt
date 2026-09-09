@@ -416,7 +416,7 @@ object SeedVaultWallet {
                 // (measured on the Seeker 2026-09-09). Nothing was signed and
                 // nothing was sent, so the whole remedy is to ask again.
                 failure.message.startsWith("Timed out") ->
-                    "Seed Vault did not answer in time for $where — nothing was sent; try again"
+                    WalletTopUp.didNotAnswer(cluster, connecting = asking == Asking.Connect)
                 failure.message.startsWith("Received an activity start request") ->
                     "Seed Vault is already being asked — finish that request first"
                 // Measured on a Seeker whose wallet was set to mainnet: the
