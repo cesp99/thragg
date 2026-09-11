@@ -89,8 +89,10 @@ import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
+import to.eyed.thragg.ui.components.plainText
+import to.eyed.thragg.ui.components.setPlainText
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -622,7 +624,7 @@ fun EditorPane(
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val toolbar = LocalTextToolbar.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     var paneCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     // The pane's bottom edge in window pixels, *as state*, updated from every
     // placement. The action row and the popups dock on the keyboard by how
@@ -3311,14 +3313,14 @@ private fun foldChipRowAt(
  */
 internal class EditorActions(
     private val state: EditorState,
-    private val clipboard: ClipboardManager,
+    private val clipboard: Clipboard,
     private val toolbar: TextToolbar,
     private val paneCoordinates: () -> LayoutCoordinates?,
 ) {
     fun copy(): Boolean {
         val text = state.selectionText()
         if (text.isEmpty()) return false
-        clipboard.setText(AnnotatedString(text))
+        clipboard.setPlainText(text)
         state.collapseSelections()
         hideToolbar()
         return true
@@ -3327,14 +3329,14 @@ internal class EditorActions(
     fun cut(): Boolean {
         val text = state.selectionText()
         if (text.isEmpty()) return false
-        clipboard.setText(AnnotatedString(text))
+        clipboard.setPlainText(text)
         state.deleteSelection()
         hideToolbar()
         return true
     }
 
     fun paste(): Boolean {
-        val text = clipboard.getText()?.text ?: return false
+        val text = clipboard.plainText() ?: return false
         state.insertAtCursor(text)
         hideToolbar()
         return true

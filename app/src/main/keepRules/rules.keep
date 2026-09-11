@@ -8,7 +8,7 @@
 # names on the whole class also covers the `object`'s INSTANCE field and its
 # static initializer, which loads the library.
 #
-# This is the only hand-written rule the app needs: everything else reachable
+# This is the only hand-written keep the app needs: everything else reachable
 # from MainActivity is found by R8, and Compose/AndroidX ship their own rules.
 -keep class to.eyed.thragg.core.CoreBridge { *; }
 
@@ -16,3 +16,9 @@
 -keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
+
+# net.i2p.crypto:eddsa's EdDSAEngine.engineInitVerify has a fallback branch
+# for JDK-internal `sun.security.x509.X509Key`, which Android does not ship.
+# R8 treats the dangling reference as a build error rather than a warning;
+# the branch is dead on device, so tell it not to worry.
+-dontwarn sun.security.x509.X509Key

@@ -19,7 +19,7 @@ import to.eyed.thragg.core.CoreBridge
 
 /** `optString` coerces JSON null to "null" on Android; ask `isNull` first. */
 private fun JSONObject.textOrNull(name: String): String? =
-    if (isNull(name)) null else optString(name, null)?.takeIf { it.isNotEmpty() }
+    if (isNull(name)) null else optString(name, "")?.takeIf { it.isNotEmpty() }
 
 /**
  * What a settled rename, formatting or code-action-apply says it is holding:

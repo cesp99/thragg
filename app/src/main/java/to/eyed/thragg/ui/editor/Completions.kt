@@ -127,7 +127,7 @@ private const val MENU_MAX_ROWS = 12
 
 /** A nullable JSON string, read the way Android's `org.json` requires. */
 private fun JSONObject.jsonStringOrNull(name: String): String? =
-    if (isNull(name)) null else optString(name, null)?.takeIf { it.isNotEmpty() }
+    if (isNull(name)) null else optString(name, "")?.takeIf { it.isNotEmpty() }
 
 /** A buffer range as the bridge spells one: 0-based rows, UTF-16 columns. */
 data class LspRange(

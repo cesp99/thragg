@@ -78,11 +78,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import to.eyed.thragg.ui.components.setPlainText
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
@@ -712,7 +712,7 @@ fun ProjectPanel(
     // `SeamTest.the project tree's only Zed read is its git status` is what
     // holds that line, and it fails on any other `theme.color` in this file.
     val theme = LocalZedTheme.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val density = LocalDensity.current
     var menu by remember(project) { mutableStateOf<PanelMenu?>(null) }
@@ -1215,7 +1215,7 @@ fun ProjectPanel(
                         ?: projectPathOf(target)
                 }
             }
-            clipboard.setText(AnnotatedString(text))
+            clipboard.setPlainText(text)
         }
 
         fun expandAll() {

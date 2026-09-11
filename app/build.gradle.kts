@@ -108,6 +108,13 @@ android {
         }
     }
 
+    lint {
+        // `targetSdk = 28` above is a decision, not an oversight, and this
+        // check is a Google Play rule (the app is not on Play). Left on, it
+        // is a fatal lintVital error that stops every release assembly.
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     // One APK per ABI instead of one fat APK carrying every ABI. The Rust
     // engine dominates this app's size — tens of MB per architecture — so a
     // universal APK makes every user download an engine they cannot run.

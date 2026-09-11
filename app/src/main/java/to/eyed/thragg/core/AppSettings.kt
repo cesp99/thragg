@@ -703,7 +703,7 @@ data class AppSettings(
                     .toFloat()
                     .coerceIn(4f, 64f),
                 showDiagnostics = ShowDiagnostics.fromKey(
-                    json.optString("show_diagnostics", null),
+                    json.optString("show_diagnostics", ""),
                     fallback.showDiagnostics,
                 ),
             )
@@ -720,7 +720,7 @@ data class AppSettings(
             val env = json.optJSONObject("env")
             return TerminalSettings(
                 workingDirectory = TerminalWorkingDirectory.fromKey(
-                    json.optString("working_directory", null)
+                    json.optString("working_directory", "")
                 ),
                 env = env?.keys()?.asSequence()?.associateWith { key -> env.optString(key) }.orEmpty(),
                 scrollbackLines = json.optInt("max_scroll_history_lines", 10_000)

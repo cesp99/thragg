@@ -27,10 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import to.eyed.thragg.ui.components.setPlainText
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -396,7 +396,7 @@ private fun SessionRow(
     onResume: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val at = remember(session.updatedAt) { sessionTimeMillis(session.updatedAt) }
     val project = sessionProject(session)
@@ -491,7 +491,7 @@ private fun SessionRow(
                 label = "Copy session id",
                 subtitle = session.sessionId,
                 onClick = {
-                    clipboard.setText(AnnotatedString(session.sessionId))
+                    clipboard.setPlainText(session.sessionId)
                 },
             )
         }

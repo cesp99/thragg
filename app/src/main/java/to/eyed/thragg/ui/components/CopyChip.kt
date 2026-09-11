@@ -11,8 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
 import kotlinx.coroutines.delay
 import to.eyed.thragg.R
 import to.eyed.thragg.ui.theme.Durations
@@ -44,12 +43,7 @@ fun CopyChip(
     modifier: Modifier = Modifier,
     label: String = "Copy",
 ) {
-    // `LocalClipboardManager` rather than 1.10's `LocalClipboard`, which is
-    // deprecated-in-favour-of but suspend-only: the other four clipboard sites
-    // in the app (SessionPicker, AboutDialog, EditorPane, ProjectPanel) all
-    // still use this one, and migrating five call sites is its own change
-    // rather than a rider on a new component.
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     // `transitionSpec` is not a composable lambda, so the spec — and with it
     // the reduce-motion branch inside `effectSpec()` — is read out here.
     val fade = effectSpec<Float>()
@@ -73,7 +67,7 @@ fun CopyChip(
             // than the word alone.
             leading = if (confirmed) R.drawable.ic_ui_check else null,
             onClick = {
-                clipboard.setText(AnnotatedString(text))
+                clipboard.setPlainText(text)
                 copied = true
             },
         )

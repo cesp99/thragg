@@ -117,7 +117,7 @@ data class SignatureHelpInfo(val signatures: List<Signature>, val activeSignatur
 }
 
 private fun JSONObject.textOrNull(name: String): String? =
-    if (isNull(name)) null else optString(name, null)?.takeIf { it.isNotEmpty() }
+    if (isNull(name)) null else optString(name, "")?.takeIf { it.isNotEmpty() }
 
 /**
  * The signature's label with its active parameter emphasised — Zed marks

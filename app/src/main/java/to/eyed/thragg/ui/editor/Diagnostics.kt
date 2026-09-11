@@ -14,14 +14,14 @@ import to.eyed.thragg.core.pollVersion
 /**
  * A nullable string field, read the way Android's `org.json` requires.
  *
- * `optString(name, null)` returns the **string `"null"`** for a JSON null on
+ * `optString(name, "")` returns the **string `"null"`** for a JSON null on
  * Android — Harmony's implementation coerces before it defaults — so a
  * `?.takeIf { it.isNotEmpty() }` sails straight past it and the UI prints the
  * word. The trap is documented in `app/build.gradle.kts` and it has cost this
  * project twice; ask `isNull` first, as the engine's own contract expects.
  */
 private fun JSONObject.stringOrNull(name: String): String? =
-    if (isNull(name)) null else optString(name, null)?.takeIf { it.isNotEmpty() }
+    if (isNull(name)) null else optString(name, "")?.takeIf { it.isNotEmpty() }
 
 
 /**

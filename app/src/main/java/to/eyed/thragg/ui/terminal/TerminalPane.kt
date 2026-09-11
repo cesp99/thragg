@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -1110,10 +1111,20 @@ private fun openUrl(context: Context, url: String) {
     }
 }
 
+/**
+ * `toggleSoftInput` is deprecated from API 31 because it toggles a state the
+ * IME may not be in; asking the window whether the keyboard is up and then
+ * showing or hiding it explicitly is what the platform asks for instead.
+ */
 private fun toggleSoftKeyboard(context: Context, view: TerminalView) {
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
-    view.requestFocus()
-    imm.toggleSoftInput(InputMethodManager.SHOW_IMPLICIT, 0)
+    val shown = view.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+    if (shown) {
+        imm.hideSoftInputFromWindow(view.windowToken, 0)
+    } else {
+        view.requestFocus()
+        imm.showSoftInput(view, 0)
+    }
 }
 
 private fun showSoftKeyboard(context: Context, view: TerminalView) {

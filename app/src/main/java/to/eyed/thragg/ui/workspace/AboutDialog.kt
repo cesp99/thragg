@@ -11,12 +11,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import to.eyed.thragg.ui.components.setPlainText
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -54,7 +54,7 @@ fun AboutDialog(
      */
     onOpenLicences: (() -> Unit)? = null,
 ) {
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     // Read here rather than at the call site: `stringResource` is a
     // composable and the semantics block below is not.
     val licences = stringResource(R.string.licences_settings_row)
@@ -143,7 +143,7 @@ fun AboutDialog(
                 stringResource(R.string.about_copy),
                 enabled = specs != null,
                 onClick = {
-                    specs?.let { clipboard.setText(AnnotatedString(it.report())) }
+                    specs?.let { clipboard.setPlainText(it.report()) }
                     onDismiss()
                 },
             )
