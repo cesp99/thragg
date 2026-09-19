@@ -89,6 +89,13 @@ including a Seed Vault prompt for the funding, was 2 min 25 s. The same
 artifact as legacy is 108 write transactions, which at the rate measured on
 2026-09-02 (186 chunks in 8 min 38 s, pacer-bound) is about five minutes.
 
+And measured head to head, same phone, same endpoint, ten minutes apart,
+the same 177,920 bytes (the previous release's 0.31 scaffold, deployed by
+the previous release itself and then by this one): legacy **6 min 50 s**,
+179 transactions over 405 s, four write rounds; V1 **1 min 44 s**, 52
+transactions over 101 s, two rounds; none failed on either side. The
+counts are the deploy key's signatures on the explorer.
+
 Two facts about V1 that are not in the SIMD's summary and that the code
 depends on: a V1 header with the compute-unit bit unset runs on **zero**
 units, and one with the loaded-accounts-data-size bit unset loads **zero**

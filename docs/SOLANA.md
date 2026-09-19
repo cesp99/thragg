@@ -486,10 +486,84 @@ Measured on the Seeker, 2026-09-19, with the anchor-lang 1.2.0 scaffold and
 | Second Anchor project, same scaffold | **51 s** | `cargo build-sbf` finished in 3.41 s — only the program crate; the IDL's `test` profile compile of that crate, 38 s, partly waiting on rust-analyzer's own lock |
 
 The first row is what every new project cost before the cache (4 min 30 s
-was the 2026-09-02 figure for the 0.31.1 scaffold). The engine hands the
+was the 2026-09-02 figure for the 0.31.1 scaffold). Measured against the
+previous release itself, same phone, same afternoon (commit 2e9aa50 built
+as a debug APK, its own 4.2.0 / 1.1.2 drivers and 0.31 scaffold, per-project
+`target/`): first Anchor project **6 min 02 s** with 7 cfg warnings, second
+**5 min 46 s** — every project paid in full — against 4 min 51 s cold and
+**16 s** warm here (rust-analyzer idle), 0 warnings. The old build's driver
+update also deleted `/opt/solana/build` wholesale, cache included, which is
+the cleanup this release walks around. The engine hands the
 same variable to the language servers it spawns (`CoreBridge.setUserland`),
 so rust-analyzer's check of a fresh project stops rebuilding the dependency
 graph into the project's `target/debug` — 345 MB per project before that.
+
+**Priming.** The first row is decided entirely by the scaffold's manifests,
+which are this app's own strings, so nothing about it has to wait for a
+user to press Build. `BuildCachePrimer` (solana/build/BuildCachePrimer.kt)
+pays it in the background instead. The numbers it moves, measured on the
+Seeker 2026-09-19: the first project with an empty cache is **4 min 54 s**
+(and **4 min 51 s** on a second cold run); the second project, same
+scaffold, is **51 s** when rust-analyzer holds the cache's `debug` lock part
+of the way (the run in the table, which included waiting on that lock) and
+**16 s** with rust-analyzer idle (measured 2026-09-19 06:10). Once primed, a
+new project's first build is the second row. The primer renders the Anchor and Native scaffolds with fixed dummy
+names (`thragg-warm-anchor`, `thragg-warm-native`, devnet) into a
+directory of its own per run, `/opt/solana/build/warm/<run>/{anchor,native}`
+(`<run>` is the start in epoch millis), inside the rootfs, runs the Build
+button's own lines there — `anchor build --arch v3 --tools-version v1.57`,
+whose IDL host build is also what the Test button needs, then `cargo
+build-sbf …` followed by `cargo test --no-run`
+(`BuildTasks.cargoTestNoRunCommand`), the host-side dev profile of
+`solana-program` that Native's `cargo test` compiles — behind the same
+guard and environment, under `nice -n 10` so a foreground build or
+rust-analyzer wins the CPU, and deletes its own run directory afterwards
+(never `warm/` itself: a landing sweeps the leftovers of runs a process
+death took, and only when no abandoned run may still be writing into one).
+The cache keeps the artifacts; the projects' `target/` is junk.
+
+It runs when a toolchain install or update lands with both drivers in, on
+app start when the cache is not primed, or from the Toolchain screen's
+"Build cache" row (Prime now / Stop / Retry; docs/UI.md). The automatic
+triggers skip a metered connection (`BackgroundWork.isMetered`, the same
+answer the install pages read; the log says `not priming (<trigger>): metered`) — the
+row's button does not, the press being the consent. It never runs beside a
+user's build — the two share the cache and cargo's per-directory lock, and
+the one being watched must win: a Build pressed while it primes kills it
+(SIGQUIT → SIGKILL) and *waits for the corpse*, bounded at 10 s, before it
+spawns its own cargo, and priming starts again when that build ends. A
+deploy does not kill it (network-bound, no cargo) but does count as a
+running build for the triggers. The toolchain installer kills it the same
+way before its first step, and it refuses to start while the installer's
+phase is Running or without `cargo-build-sbf` and Anchor installed. It does
+not gate on the network being there (the first fetch needs crates.io, and a
+refusal is a `thragg-warm` log line, never a dialog). It holds the
+foreground service and a wake lock with a 60 min ceiling
+(`BackgroundWork.hold(maxMs)`: two scaffolds at nice 10 behind a foreground
+build plus the first crates.io fetch on a slow link outrun the 30 min a
+deploy gets), and a run Android kills anyway resumes on the next trigger
+from whatever cargo had written.
+
+"Primed" is a key and a directory: the key, recorded in
+`<filesDir>/solana-build-cache.json`, is a sha256 over the rendered `*.toml`
+files of both scaffolds, the arch, the tools version and the installed
+revisions of `cargo-build-sbf`, `anchor` and platform-tools — so a scaffold
+bump or a driver update primes again, and cargo reuses what still matches;
+and the record is believed only while the cache directory holds a profile
+directory (`release`, `debug`, or `<triple>/release`) with a
+`.fingerprint/` in it, which is what cargo consults before it decides a
+dependency is already built. Two listings, no walk. This matters because
+the previous release's installer deleted the whole cargo scratch —
+`/opt/solana/build`, the cache included — at the end of every successful
+run, an Update of two 5 MB drivers included: every crate the phone had ever
+compiled went with each driver bump, which is why
+`ToolchainInstaller.cleanCargoScratch` now clears the scratch entry by entry
+and walks around the cache, and why a record over an empty directory must
+read as not primed. "Remove the toolchain" deletes the record with the
+components' (`BuildCachePrimer.forget`). Cost: about the first row (≈ 5 min
+of CPU at low priority, 582 MB in the cache plus the Native scaffold's host
+profile), once per toolchain; rust-analyzer's check of a project opened
+mid-prime waits on the cache's `debug` lock until the IDL step is through.
 
 ## Projects
 
