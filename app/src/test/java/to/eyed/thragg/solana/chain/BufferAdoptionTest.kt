@@ -41,6 +41,45 @@ class BufferAdoptionTest {
         assertTrue(half < fresh)
     }
 
+    /**
+     * The same arithmetic under Transaction V1, where three chunks share a
+     * signature: a buffer holding every chunk leaves the finish's five, a
+     * buffer holding two chunks has paid for no whole transaction yet, and
+     * one holding four has paid for one.
+     */
+    @Test
+    fun `an adopted V1 buffer is charged per transaction, rounded against the user`() {
+        val elf = 180_000
+        val estimate = Loader.estimateDeploy(elf, upgrade = true, format = TxFormat.V1)
+        val chunks = (elf + Loader.writeChunkSize(TxFormat.V1) - 1) / Loader.writeChunkSize(TxFormat.V1)
+        val writes = Loader.writeTransactions(chunks, TxFormat.V1)
+        assertEquals(Loader.LAMPORTS_PER_SIGNATURE * (writes + 5), estimate.fees)
+        assertTrue(writes in 40..60)
+
+        fun adopted(done: Int) = AdoptableBuffer(
+            Pubkey(ByteArray(32) { 1 }), Pubkey(ByteArray(32) { 2 }), 1_000L,
+            BooleanArray(chunks) { it < done }, TxFormat.V1,
+        )
+        assertEquals(0, adopted(2).writesPaid)
+        assertEquals(1, adopted(4).writesPaid)
+        // 149 chunks are 50 transactions; a whole buffer paid for all fifty, not the 49 the floor would say.
+        assertEquals(149, chunks)
+        assertEquals(50, writes)
+        assertEquals(49, adopted(chunks - 1).writesPaid)
+        assertEquals(writes, adopted(chunks).writesPaid)
+        assertEquals(
+            5 * Loader.LAMPORTS_PER_SIGNATURE,
+            Loader.outstanding(estimate, bufferAlreadyPaid = true, writesAlreadyLanded = adopted(chunks).writesPaid),
+        )
+        // Two landed chunks are priced as nothing paid: the remaining ones re-group, so this errs upward.
+        assertEquals(
+            estimate.total - estimate.bufferRent,
+            Loader.outstanding(estimate, bufferAlreadyPaid = true, writesAlreadyLanded = adopted(2).writesPaid),
+        )
+        // A legacy adoption is one chunk, one transaction, as before.
+        assertEquals(7, AdoptableBuffer(Pubkey(ByteArray(32) { 1 }), Pubkey(ByteArray(32) { 2 }), 1L, BooleanArray(9) { it < 7 }).writesPaid)
+    }
+
     @Test
     fun `the line says which buffer, how much of it is rent, and how far the upload got`() {
         val whole = BufferAdoption.detail(buffer, 933_607_480L, done = 180, chunks = 180)

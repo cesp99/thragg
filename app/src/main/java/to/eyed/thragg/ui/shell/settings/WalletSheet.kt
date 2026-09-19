@@ -42,13 +42,13 @@ import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
 import to.eyed.thragg.solana.chain.BackgroundWork
 import to.eyed.thragg.solana.chain.Base58
+import to.eyed.thragg.solana.chain.ChainSigning
 import to.eyed.thragg.solana.chain.Cluster
 import to.eyed.thragg.solana.chain.DeployKey
 import to.eyed.thragg.solana.chain.DeployedProgram
 import to.eyed.thragg.solana.chain.DeployedPrograms
 import to.eyed.thragg.solana.chain.Keypair
 import to.eyed.thragg.solana.chain.Loader
-import to.eyed.thragg.solana.chain.Message
 import to.eyed.thragg.solana.chain.OnChainProgram
 import to.eyed.thragg.solana.chain.OpenBuffer
 import to.eyed.thragg.solana.chain.OpenBuffers
@@ -60,7 +60,6 @@ import to.eyed.thragg.solana.chain.Rpc
 import to.eyed.thragg.solana.chain.RpcException
 import to.eyed.thragg.solana.chain.RpcPacer
 import to.eyed.thragg.solana.chain.SeedVaultWallet
-import to.eyed.thragg.solana.chain.Transaction
 import to.eyed.thragg.solana.chain.WalletTopUp
 import to.eyed.thragg.ui.components.CopyChip
 import to.eyed.thragg.ui.components.HairlineDivider
@@ -424,22 +423,28 @@ internal fun WalletSheet(
                 withContext(Dispatchers.IO) {
                     runCatching {
                         val rpc = Rpc(cluster)
+                        val pacer = RpcPacer()
                         // Re-read rather than trust the row: the row is however
                         // old the last Refresh is.
-                        val balance = rpc.getBalance(key.publicKey.base58)
+                        val balance = pacer.run { rpc.getBalance(key.publicKey.base58) }
                         val amount = balance - Loader.LAMPORTS_PER_SIGNATURE
                         check(amount > 0) {
                             "The deploy key holds ${Loader.lamportsToSol(balance)}, not enough to pay the fee"
                         }
-                        val blockhash = rpc.getLatestBlockhash()
-                        val message = Message.compile(
+                        // Through ChainSigning, as every other deploy-key
+                        // transaction: the format is TxFormatPolicy.local()
+                        // (Transaction V1, legacy once an endpoint refused
+                        // it), the blockhash is fetched at signing time and
+                        // renewed when it expires, and a refusal of the V1
+                        // shape is retried as legacy rather than shown.
+                        ChainSigning.signAndSend(
+                            app, cluster, rpc, pacer,
                             feePayer = key.publicKey,
                             instructions = listOf(Loader.transfer(key.publicKey, Pubkey.of(to), amount)),
-                            recentBlockhash = blockhash.blockhash,
+                            local = listOf(key),
+                            wallet = null,
+                            onLine = { keyBusyLabel = it },
                         )
-                        val tx = Transaction.unsigned(message)
-                            .withSignature(key.publicKey, key.sign(message.serialize()))
-                        rpc.sendAndConfirm(tx, blockhash.lastValidBlockHeight)
                         amount
                     }
                 }

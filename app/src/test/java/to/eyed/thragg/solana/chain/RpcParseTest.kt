@@ -241,6 +241,33 @@ class RpcParseTest {
         assertFalse(RpcException("blockhash expired").isTransient)
     }
 
+    /**
+     * The three ways a node that predates Transaction V1 answers a V1
+     * payload, and the errors that must NOT read as one: a program's
+     * refusal, the rate limit, an expired blockhash, an insufficient balance.
+     */
+    @Test
+    fun `a V1 payload an old node cannot read is a format refusal, nothing else is`() {
+        assertTrue(
+            RpcException(
+                "failed to deserialize solana_transaction::versioned::VersionedTransaction: invalid value: continue signal on byte-three, expected a terminal signal on or before byte-three",
+                code = -32602,
+            ).isFormatNotUnderstood,
+        )
+        assertTrue(RpcException("Transaction version (1) is not supported by the requesting client. Please try the request again with the following configuration parameter: \"maxSupportedTransactionVersion\": 1").isFormatNotUnderstood)
+        assertTrue(RpcException("Transaction sanitize failure", code = -32602).isFormatNotUnderstood)
+        assertTrue(RpcException("Transaction failed: UnsupportedVersion").isFormatNotUnderstood)
+        assertTrue(RpcException("Transaction failed: SanitizeFailure").isFormatNotUnderstood)
+        assertTrue(RpcException("Transaction sanitize failure: invalid transaction config mask").isFormatNotUnderstood)
+        assertFalse(RpcException("Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1").isFormatNotUnderstood)
+        assertFalse(RpcException("slow down", httpStatus = 429).isFormatNotUnderstood)
+        assertFalse(RpcException("blockhash expired").isFormatNotUnderstood)
+        assertFalse(RpcException("Transaction simulation failed: Blockhash not found").isFormatNotUnderstood)
+        assertFalse(RpcException("Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.").isFormatNotUnderstood)
+        assertFalse(RpcException("Transaction results in an account (0) with insufficient funds for rent").isFormatNotUnderstood)
+        assertFalse(RpcException("Transaction is missing a signature").isFormatNotUnderstood)
+    }
+
     @Test
     fun `pacer retries transient failures and then gives up`() = runBlocking {
         val pacer = RpcPacer(backoffMs = listOf(1L, 1L, 1L))

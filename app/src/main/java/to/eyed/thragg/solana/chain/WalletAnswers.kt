@@ -19,6 +19,15 @@ package to.eyed.thragg.solana.chain
  * covers, and every local signer signs that one afterwards
  * (ChainSigning.signAndSend).
  *
+ * A Transaction V1 request gets the same latitude in V1 terms: the wallet
+ * may set or change the header's [TxConfig] — a compute-unit limit, a
+ * priority fee — which is what its compute-budget instructions become in
+ * that format, so the config is not compared at all, and a compute-budget
+ * *instruction* in a V1 body is tolerated as before even though the runtime
+ * ignores it. What it may not do is answer in the other format: a legacy
+ * envelope for a V1 request, or a V1 one for a legacy request, is "a shape
+ * this app cannot read", the same refusal as bytes that do not parse.
+ *
  * Pure, so the JVM can pin it with a wallet that adds, a wallet that swaps,
  * and a wallet that drops.
  */
@@ -54,10 +63,11 @@ internal object WalletAnswers {
         val tx = try {
             Transaction.deserialize(returned)
         } catch (e: Exception) {
-            throw WalletException("Seed Vault returned transaction $ordinal in a shape this app cannot read")
+            throw WalletException(unreadable(ordinal))
         }
         val before = original.message
         val after = tx.message
+        if (after.format != before.format) throw WalletException(unreadable(ordinal))
         if (before.accountKeys.firstOrNull() != after.accountKeys.firstOrNull()) {
             throw WalletException("Seed Vault changed who pays for transaction $ordinal")
         }
@@ -89,4 +99,6 @@ internal object WalletAnswers {
         }
         return tx
     }
+
+    private fun unreadable(ordinal: Int) = "Seed Vault returned transaction $ordinal in a shape this app cannot read"
 }

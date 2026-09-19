@@ -319,6 +319,147 @@ class LoaderTest {
         assertTrue(txBytes(size + 1) > Loader.MAX_TRANSACTION_SIZE)
     }
 
+    /**
+     * The V1 figure, and why it is not the 3,872 the packet would allow.
+     * The empty-chunk V1 write transaction is 1 (version) + 3 (header) +
+     * 4 (mask) + 32 (blockhash) + 1 + 1 (counts) + 96 (three keys) + 8
+     * (the config: compute units and account data, u32 each) + 4
+     * (instruction header) + 2 (account indexes) + 16 (tag, offset, u64
+     * length) = 168 bytes of message, plus 64 for the signature = 232;
+     * 4096 - 232 = 3864 — no compact-u16 correction, the data length is a
+     * fixed u16. But the loader reads a Write's data through bincode with
+     * a 1232-byte limit (Loader.MAX_WRITE_DATA, agave master 2026-09-19),
+     * so the chunk is 1232 - 16 = 1216, and the packet's room is spent on
+     * a third and a second Write instead.
+     */
+    @Test
+    fun `the V1 write chunk is the loader's ceiling, not the packet's`() {
+        val blockhash = Base58.encode(ByteArray(32) { 0x2A })
+        fun txBytes(chunks: List<Int>): Int {
+            val ixs = chunks.map { Loader.write(buffer, authority, 0, ByteArray(it) { 0x7F }) }
+            val message = Message.compile(authority, ixs, blockhash, TxFormat.V1, TxFormatPolicy.config(TxFormat.V1, ixs))
+            return Transaction.unsigned(message).serialize().size
+        }
+        assertEquals(232, txBytes(listOf(0)))
+        assertEquals(3864, Loader.MAX_TRANSACTION_SIZE_V1 - txBytes(listOf(0)))
+        assertEquals(1216, Loader.MAX_WRITE_DATA - Loader.WRITE_DATA_HEADER)
+        assertEquals(1216, Loader.writeChunkSize(TxFormat.V1))
+        assertEquals(Loader.writeChunkSize(TxFormat.V1), Loader.writeChunkSize(TxFormat.V1))
+        // Legacy is untouched by any of it.
+        assertEquals(1012, Loader.writeChunkSize(TxFormat.Legacy))
+        assertEquals(1012, Loader.writeChunkSize())
+        assertEquals(Loader.MAX_TRANSACTION_SIZE, TxFormat.Legacy.maxTransactionSize)
+        assertEquals(Loader.MAX_TRANSACTION_SIZE_V1, TxFormat.V1.maxTransactionSize)
+        // A full V1 chunk's Write is exactly the loader's limit of instruction data.
+        assertEquals(Loader.MAX_WRITE_DATA, Loader.write(buffer, authority, 0, ByteArray(1216)).data.size)
+    }
+
+    /**
+     * Three 1216-byte Writes fit a V1 transaction — 210 bytes of envelope
+     * (the 232 above less its one empty Write) plus 3 x (22 + 1216) = 3924
+     * — and a fourth does not (5162). Legacy holds one, by definition and
+     * by arithmetic.
+     */
+    @Test
+    fun `three full chunks fit a V1 transaction and a fourth does not`() {
+        val chunk = Loader.writeChunkSize(TxFormat.V1)
+        val blockhash = Base58.encode(ByteArray(32) { 0x2A })
+        fun txBytes(count: Int): Int {
+            val ixs = List(count) { Loader.write(buffer, authority, it * chunk, ByteArray(chunk) { 0x7F }) }
+            val message = Message.compile(authority, ixs, blockhash, TxFormat.V1, TxFormatPolicy.config(TxFormat.V1, ixs))
+            return Transaction.unsigned(message).serialize().size
+        }
+        assertEquals(3, Loader.writesPerTransaction(TxFormat.V1))
+        assertEquals(3924, txBytes(3))
+        assertTrue(txBytes(3) <= Loader.MAX_TRANSACTION_SIZE_V1)
+        assertTrue(txBytes(4) > Loader.MAX_TRANSACTION_SIZE_V1)
+        assertEquals(1, Loader.writesPerTransaction(TxFormat.Legacy))
+        assertEquals(1, Loader.writesPerTransaction())
+        // Transactions for a chunk count: three to one, the last short.
+        assertEquals(0, Loader.writeTransactions(0, TxFormat.V1))
+        assertEquals(1, Loader.writeTransactions(1, TxFormat.V1))
+        assertEquals(1, Loader.writeTransactions(3, TxFormat.V1))
+        assertEquals(2, Loader.writeTransactions(4, TxFormat.V1))
+        assertEquals(7, Loader.writeTransactions(7, TxFormat.Legacy))
+        // A 200 kB artifact: 198 legacy transactions, 55 V1 ones.
+        assertEquals(198, Loader.writeTransactions((200_000 + 1011) / 1012, TxFormat.Legacy))
+        assertEquals(55, Loader.writeTransactions((200_000 + 1215) / 1216, TxFormat.V1))
+        // Paid-for transactions from landed chunks round down.
+        assertEquals(0, Loader.writesLanded(2, TxFormat.V1))
+        assertEquals(1, Loader.writesLanded(3, TxFormat.V1))
+        assertEquals(1, Loader.writesLanded(5, TxFormat.V1))
+        assertEquals(5, Loader.writesLanded(5, TxFormat.Legacy))
+        assertEquals(0, Loader.writesLanded(-1, TxFormat.V1))
+    }
+
+    @Test
+    fun `V1 chunks are contiguous and the estimate counts transactions, not chunks`() {
+        val chunk = Loader.writeChunkSize(TxFormat.V1)
+        val elf = ByteArray(chunk * 4 + 5) { (it % 251).toByte() }
+        val chunks = Loader.chunks(elf, TxFormat.V1)
+        assertEquals(5, chunks.size)
+        assertEquals(chunk, chunks[0].second.size)
+        assertEquals(5, chunks.last().second.size)
+        var offset = 0
+        for ((at, bytes) in chunks) {
+            assertEquals(offset, at)
+            offset += bytes.size
+        }
+        assertEquals(elf.size, offset)
+        val estimate = Loader.estimateDeploy(elf.size, upgrade = false, format = TxFormat.V1)
+        assertEquals(Loader.LAMPORTS_PER_SIGNATURE * (2 + 5), estimate.fees)
+        val legacy = Loader.estimateDeploy(elf.size, upgrade = false)
+        assertEquals(Loader.LAMPORTS_PER_SIGNATURE * ((elf.size + 1011) / 1012 + 5), legacy.fees)
+        assertTrue(legacy.fees > estimate.fees)
+        // Rent does not care about the format.
+        assertEquals(legacy.bufferRent, estimate.bufferRent)
+        assertEquals(legacy.programDataRent, estimate.programDataRent)
+    }
+
+    /**
+     * A deploy demoted from V1 to legacy mid-upload: the chunks on the
+     * buffer stay, whatever their size — a Write is by offset — and only
+     * the gaps are cut again to the legacy size, run by run.
+     */
+    @Test
+    fun `recut keeps written chunks and re-cuts the gaps to the new size`() {
+        val v1 = Loader.writeChunkSize(TxFormat.V1)
+        val legacy = Loader.writeChunkSize(TxFormat.Legacy)
+        val elf = ByteArray(v1 * 5 + 100) { (it % 251).toByte() }
+        val chunks = Loader.chunks(elf, TxFormat.V1)
+        assertEquals(6, chunks.size)
+        val written = booleanArrayOf(true, true, false, true, false, false)
+        val (recut, flags) = Loader.recut(elf, chunks, written, TxFormat.Legacy)
+        // Chunks 0, 1 and 3 kept as they were; the gap at 2 (1216 bytes) is
+        // 1012 + 204; the run 4..5 (1216 + 100 bytes) is 1012 + 304.
+        assertEquals(7, recut.size)
+        assertEquals(listOf(true, true, false, false, true, false, false), flags.toList())
+        assertEquals(listOf(v1, v1, legacy, v1 - legacy, v1, legacy, v1 + 100 - legacy), recut.map { it.second.size })
+        // Same bytes, in order, no overlap.
+        var offset = 0
+        val joined = ByteArray(elf.size)
+        for ((at, bytes) in recut) {
+            assertEquals(offset, at)
+            bytes.copyInto(joined, at)
+            offset += bytes.size
+        }
+        assertEquals(elf.size, offset)
+        assertArrayEquals(elf, joined)
+        // Every unwritten piece now fits a legacy transaction.
+        recut.zip(flags.toList()).filter { !it.second }.forEach { assertTrue(it.first.second.size <= legacy) }
+        // Nothing to re-cut leaves the list alone; everything unwritten re-cuts the whole ELF.
+        val (same, sameFlags) = Loader.recut(elf, chunks, BooleanArray(6) { true }, TxFormat.Legacy)
+        assertEquals(chunks.map { it.first }, same.map { it.first })
+        assertTrue(sameFlags.all { it })
+        val (whole, wholeFlags) = Loader.recut(elf, chunks, BooleanArray(6), TxFormat.Legacy)
+        assertEquals(Loader.chunks(elf, TxFormat.Legacy).map { it.first }, whole.map { it.first })
+        assertTrue(wholeFlags.none { it })
+        // The written flags decide, so writtenChunks over the recut list still reads the buffer correctly.
+        val account = ByteArray(Loader.BUFFER_HEADER + elf.size)
+        elf.copyInto(account, Loader.BUFFER_HEADER)
+        assertTrue(Loader.writtenChunks(account, recut).all { it })
+    }
+
     @Test
     fun `chunks are contiguous and add back up to the input`() {
         val elf = ByteArray(Loader.writeChunkSize() * 3 + 17) { (it % 251).toByte() }

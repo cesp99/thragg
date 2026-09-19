@@ -54,6 +54,7 @@ import to.eyed.thragg.solana.chain.Rpc
 import to.eyed.thragg.solana.chain.RpcException
 import to.eyed.thragg.solana.chain.RpcPacer
 import to.eyed.thragg.solana.chain.SeedVaultWallet
+import to.eyed.thragg.solana.chain.TxFormatPolicy
 import to.eyed.thragg.solana.toolchain.formatBytes
 import to.eyed.thragg.ui.components.HairlineDivider
 import to.eyed.thragg.ui.components.NoticeCard
@@ -580,9 +581,14 @@ private suspend fun gather(context: Context, root: String, program: ProgramTarge
             if (answer == null) quoted = false else quotes[size] = answer
         }
     }
+    // The format the deployer will write in, asked once here so the chunk
+    // count the fees are priced by and the chunks the adoption scan compares
+    // are the same cut the run makes (TxFormatPolicy; V1 unless the endpoint
+    // refused it earlier in this process).
+    val format = TxFormatPolicy.local()
     val estimate = bytes?.let {
         val rent: (Int) -> Long = if (quoted) { size -> quotes.getValue(size) } else Loader::rentExempt
-        Loader.estimateDeploy(it.toInt(), upgrade, rent, existing)
+        Loader.estimateDeploy(it.toInt(), upgrade, rent, existing, format)
     }
     // The buffer an earlier attempt left, priced the way the deployer prices
     // it: the same scan, so the sheet cannot quote a whole upload for a run
@@ -602,7 +608,8 @@ private suspend fun gather(context: Context, root: String, program: ProgramTarge
                     cluster = cluster,
                     programId = id,
                     elfSize = elf.size,
-                    chunks = Loader.chunks(elf),
+                    chunks = Loader.chunks(elf, format),
+                    format = format,
                     payer = payer,
                     // The wallet holds the authority when the program on
                     // chain says someone other than the deploy key does.
@@ -614,7 +621,7 @@ private suspend fun gather(context: Context, root: String, program: ProgramTarge
         }
     }
     val outstanding = estimate?.let {
-        Loader.outstanding(it, bufferAlreadyPaid = adopted != null, writesAlreadyLanded = adopted?.done ?: 0)
+        Loader.outstanding(it, bufferAlreadyPaid = adopted != null, writesAlreadyLanded = adopted?.writesPaid ?: 0)
     }
     return DeployFacts(
         resolved = resolved,

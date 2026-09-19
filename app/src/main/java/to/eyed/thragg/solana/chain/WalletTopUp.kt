@@ -316,6 +316,7 @@ object WalletTopUp {
             instructions = listOf(Loader.transfer(from, to, lamports)),
             local = emptyList(),
             wallet = from,
+            onLine = onLine,
         )
     }
 

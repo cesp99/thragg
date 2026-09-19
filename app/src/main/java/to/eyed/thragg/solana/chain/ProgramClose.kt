@@ -123,7 +123,7 @@ object ProgramClose {
             val signature = ChainSigning.signAndSend(
                 app, cluster, rpc, pacer, payer,
                 listOf(Loader.closeProgram(programData, recipient, authority, program)),
-                local = listOf(deployKey), wallet = wallet,
+                local = listOf(deployKey), wallet = wallet, onLine = onLine,
             )
             onLine("Closed · ${cluster.explorerTx(signature)}")
             DeployedPrograms.remove(app, status.programId, cluster)
@@ -184,7 +184,7 @@ object ProgramClose {
             val signature = ChainSigning.signAndSend(
                 app, cluster, rpc, pacer, payer,
                 listOf(Loader.closeBuffer(address, recipient, authority)),
-                local = listOf(deployKey), wallet = wallet,
+                local = listOf(deployKey), wallet = wallet, onLine = onLine,
             )
             OpenBuffers.remove(app, buffer.address)
             onLine("Reclaimed · ${cluster.explorerTx(signature)}")
@@ -249,6 +249,13 @@ internal object ChainSigning {
      * a transaction that landed in the last valid block but was not yet
      * visible when the height was read, is closed by asking after the
      * previous signature before signing again.
+     *
+     * The format is TxFormatPolicy's: the wallet's answer when the wallet
+     * signs, [TxFormatPolicy.local] otherwise, asked afresh each round so
+     * that a demotion — the node refusing the V1 shape, which is caught here
+     * and costs one round, once per process — is honoured by the next
+     * compile. Local signers sign [Message.serialize], which for V1 is
+     * exactly the bytes that go on the wire ahead of the signatures.
      */
     suspend fun signAndSend(
         context: Context,
@@ -259,16 +266,27 @@ internal object ChainSigning {
         instructions: List<Instruction>,
         local: List<Keypair>,
         wallet: Pubkey?,
+        onLine: (String) -> Unit = {},
     ): String {
         var expired: RpcException? = null
         var previous: String? = null
-        for (round in 1..SIGN_ROUNDS) {
+        val walletSigns = wallet != null && signs(wallet, feePayer, instructions)
+        // A demotion is not a round: the loop repeats without counting it,
+        // so the first legacy attempt still has every blockhash round ahead
+        // of it and a refusal in the last round cannot masquerade as an
+        // expiry.
+        var round = 0
+        while (round < SIGN_ROUNDS) {
             previous?.let { sent ->
                 val landed = pacer.run { rpc.getSignatureStatuses(listOf(sent)) }.firstOrNull()
                 if (landed != null && landed.err == null && landed.confirmed) return sent
             }
+            val format = if (wallet != null && walletSigns) SeedVaultWallet.formatFor(cluster, wallet) else TxFormatPolicy.local()
             val blockhash = pacer.run { rpc.getLatestBlockhash() }
-            val message = Message.compile(feePayer, instructions, blockhash.blockhash)
+            val message = Message.compile(
+                feePayer, instructions, blockhash.blockhash,
+                format, TxFormatPolicy.config(format, instructions),
+            )
             var tx = Transaction.unsigned(message)
             if (wallet != null && message.isSigner(wallet)) {
                 // MWA launches the wallet app through the activity's launcher;
@@ -300,8 +318,10 @@ internal object ChainSigning {
                 pacer.run { rpc.confirm(signature, blockhash.lastValidBlockHeight) }
                 return signature
             } catch (e: RpcException) {
+                if (TxFormatPolicy.refusal(e, format, onLine)) continue
                 if (!e.isBlockhashExpiry) throw e
                 expired = e
+                round++
             }
         }
         throw ChainException(
@@ -309,6 +329,10 @@ internal object ChainSigning {
             expired,
         )
     }
+
+    /** Whether [wallet] will have a signature slot: it pays, or an instruction names it as a signer. */
+    private fun signs(wallet: Pubkey, feePayer: Pubkey, instructions: List<Instruction>): Boolean =
+        wallet == feePayer || instructions.any { ix -> ix.accounts.any { it.isSigner && it.pubkey == wallet } }
 
     /**
      * Who pays the fee: the deploy key when it holds at least [reserve]

@@ -74,6 +74,30 @@ class RpcException(
     val isBlockhashExpiry: Boolean
         get() = message == BLOCKHASH_EXPIRED || message?.contains("Blockhash not found", ignoreCase = true) == true
 
+    /**
+     * The node could not make sense of the transaction's *shape* — what an
+     * endpoint answers a Transaction V1 payload when it, or the feature gate
+     * it runs under, predates SIMD-0385. Three registers, all matched
+     * conservatively and case-insensitively: the RPC's own decoder
+     * ("failed to deserialize solana_transaction::versioned::VersionedTransaction"),
+     * the runtime refusing the version ("Transaction version (1) is not
+     * supported", `UnsupportedVersion`), and a sanitization failure
+     * ("Transaction sanitize failure", `SanitizeFailure`), which is also
+     * what a V1 header the node's rules disagree with produces. A program
+     * error, a rate limit or an expired blockhash is none of these.
+     * TxFormatPolicy demotes every later local transaction to legacy on the
+     * first one of these a V1 send or simulate gets.
+     */
+    val isFormatNotUnderstood: Boolean
+        get() {
+            val text = message ?: return false
+            val version = text.contains("version", ignoreCase = true)
+            return text.contains("failed to deserialize", ignoreCase = true) ||
+                text.contains("sanitize", ignoreCase = true) ||
+                (version && text.contains("unsupported", ignoreCase = true)) ||
+                (version && text.contains("not supported", ignoreCase = true))
+        }
+
     companion object {
         /** "Node is behind by N slots" / "Transaction simulation failed: blockhash not found" family. */
         const val NODE_BEHIND = -32005

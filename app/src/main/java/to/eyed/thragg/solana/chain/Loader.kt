@@ -33,7 +33,11 @@ import java.nio.ByteOrder
  *  - **Chunk size from the serializer, not a constant.** A legacy transaction
  *    is at most 1232 bytes. The CLI derives its write chunk by serializing a
  *    Write with an empty chunk and subtracting; so does [writeChunkSize], so
- *    that if the message encoder ever changes the chunk follows it.
+ *    that if the message encoder ever changes the chunk follows it. A V1
+ *    transaction is 4096 bytes, but the loader itself will not read a Write
+ *    over [MAX_WRITE_DATA] bytes of instruction data, so under V1 the room
+ *    is used by putting several Writes in one transaction
+ *    ([writesPerTransaction]), not by one bigger Write.
  *
  * Reference layouts (verified 2026-09-02 against the loader's `state.rs` and
  * `instruction.rs`):
@@ -63,8 +67,31 @@ object Loader {
     /** Bytes before the ELF in a ProgramData account: tag, slot, option, authority. */
     const val PROGRAMDATA_HEADER = 45
 
-    /** The legacy transaction ceiling: one IPv6 MTU minus headers. */
+    /** The legacy transaction ceiling: one IPv6 MTU minus headers. Also [TxFormat.Legacy]'s. */
     const val MAX_TRANSACTION_SIZE = 1232
+
+    /** The Transaction V1 ceiling, `solana_message::v1::MAX_TRANSACTION_SIZE`. Also [TxFormat.V1]'s. */
+    const val MAX_TRANSACTION_SIZE_V1 = 4096
+
+    /**
+     * The most instruction data the upgradeable loader will read for one
+     * instruction, whatever the transaction's format.
+     *
+     * THIS, NOT THE PACKET, IS WHAT BOUNDS A V1 WRITE. The loader decodes
+     * every instruction with `limited_deserialize(data, PACKET_DATA_SIZE)`
+     * — bincode with a read limit of 1232 bytes (agave master
+     * `programs/bpf_loader/src/lib.rs`, read 2026-09-19) — and a `Write`
+     * whose tag, offset, length and bytes add up to more than that is
+     * `InvalidInstructionData` before the loader looks at the buffer. So a
+     * V1 write transaction, with 3,872 bytes of room after its envelope,
+     * still cannot carry a chunk over `1232 - 16`; it carries three chunks
+     * of that instead. If upstream raises this limit, this constant is the
+     * one place to follow it and [writeChunkSize] grows on its own.
+     */
+    const val MAX_WRITE_DATA = 1232
+
+    /** Tag, offset and `u64` length: the bytes of a Write's data that are not the chunk. */
+    const val WRITE_DATA_HEADER = 16
 
     /** What the cluster charges per signature, in lamports. */
     const val LAMPORTS_PER_SIGNATURE = 5_000L
@@ -445,49 +472,146 @@ object Loader {
 
     // ---- Sizing ------------------------------------------------------------
 
-    @Volatile
-    private var cachedChunkSize: Int = 0
+    /** One cached answer per format, for [writeChunkSize] and [writesPerTransaction]. */
+    private val cachedChunkSize = java.util.concurrent.atomic.AtomicIntegerArray(TxFormat.values().size)
+    private val cachedWritesPerTransaction = java.util.concurrent.atomic.AtomicIntegerArray(TxFormat.values().size)
 
     /**
-     * How many ELF bytes fit in one Write transaction with a single signer.
+     * How many ELF bytes one Write carries in a transaction of [format] with
+     * a single signer.
      *
-     * Computed the way the CLI computes it: serialize a Write with an empty
-     * chunk against a dummy blockhash and subtract from the 1232-byte ceiling,
-     * then subtract one more byte because the instruction's compact-u16 data
-     * length grows from one byte to two as soon as the data passes 127 bytes
-     * — which a real chunk always does. Cached after the first call; the
+     * Legacy is computed the way the CLI computes it: serialize a Write with
+     * an empty chunk against a dummy blockhash and subtract from the
+     * 1232-byte ceiling, then subtract one more byte because the
+     * instruction's compact-u16 data length grows from one byte to two as
+     * soon as the data passes 127 bytes — which a real chunk always does.
+     * V1 subtracts from 4096 with no correction (its data length is a fixed
+     * `u16`) and then meets the loader's own ceiling: [MAX_WRITE_DATA] less
+     * the Write's 16-byte header, which is the smaller number by far and
+     * the one a V1 chunk actually is. The packet's remaining room is spent
+     * by [writesPerTransaction]. Cached after the first call per format; the
      * probe keys are random because [Message.compile] merges duplicate keys
      * and the buffer and its authority must stay two accounts.
      */
-    fun writeChunkSize(): Int {
-        val cached = cachedChunkSize
+    fun writeChunkSize(format: TxFormat = TxFormat.Legacy): Int {
+        val cached = cachedChunkSize.get(format.ordinal)
         if (cached > 0) return cached
-        val authority = Keypair.generate().publicKey
-        val buffer = Keypair.generate().publicKey
-        val probe = Message.compile(
-            authority,
-            listOf(write(buffer, authority, 0, ByteArray(0))),
-            Base58.encode(ByteArray(32)),
-        )
-        val empty = Transaction.unsigned(probe).serialize().size
-        val size = MAX_TRANSACTION_SIZE - empty - 1
-        check(size in 1 until MAX_TRANSACTION_SIZE) { "write chunk size out of range: $size" }
-        cachedChunkSize = size
+        val empty = writeTransactionBytes(format, chunks = listOf(0))
+        val size = when (format) {
+            TxFormat.Legacy -> MAX_TRANSACTION_SIZE - empty - 1
+            TxFormat.V1 -> minOf(MAX_TRANSACTION_SIZE_V1 - empty, MAX_WRITE_DATA - WRITE_DATA_HEADER)
+        }
+        check(size in 1 until format.maxTransactionSize) { "write chunk size out of range: $size" }
+        cachedChunkSize.set(format.ordinal, size)
         return size
     }
 
-    /** [elf] cut into `(offset, bytes)` pieces of [writeChunkSize], the last one shorter. */
-    fun chunks(elf: ByteArray): List<Pair<Int, ByteArray>> {
-        if (elf.isEmpty()) return emptyList()
-        val size = writeChunkSize()
-        val out = ArrayList<Pair<Int, ByteArray>>((elf.size + size - 1) / size)
-        var offset = 0
-        while (offset < elf.size) {
-            val end = minOf(offset + size, elf.size)
-            out.add(offset to elf.copyOfRange(offset, end))
+    /**
+     * How many Writes of [writeChunkSize] one transaction of [format] holds
+     * — one for legacy, which has no room for a second, and for V1 as many
+     * as the serializer fits under 4096 bytes: three, each costing four
+     * bytes of instruction header and two of account indexes on top of its
+     * data, with the key table shared. Derived, like the chunk, so the two
+     * cannot drift.
+     */
+    fun writesPerTransaction(format: TxFormat = TxFormat.Legacy): Int {
+        val cached = cachedWritesPerTransaction.get(format.ordinal)
+        if (cached > 0) return cached
+        val chunk = writeChunkSize(format)
+        var count = 1
+        while (count < Message.V1_MAX_INSTRUCTIONS &&
+            writeTransactionBytes(format, List(count + 1) { chunk }) <= format.maxTransactionSize
+        ) {
+            count++
+        }
+        cachedWritesPerTransaction.set(format.ordinal, count)
+        return count
+    }
+
+    /** The serialized size of a one-signer transaction of [format] carrying one Write per entry of [chunks], each that many bytes. */
+    private fun writeTransactionBytes(format: TxFormat, chunks: List<Int>): Int {
+        val authority = Keypair.generate().publicKey
+        val buffer = Keypair.generate().publicKey
+        val instructions = chunks.map { write(buffer, authority, 0, ByteArray(it)) }
+        val probe = Message.compile(
+            authority,
+            instructions,
+            Base58.encode(ByteArray(32)),
+            format,
+            TxFormatPolicy.config(format, instructions),
+        )
+        return Transaction.unsigned(probe).serialize().size
+    }
+
+    /** How many write transactions [chunks] chunks take in [format]: [writesPerTransaction] to each, the last one short. */
+    fun writeTransactions(chunks: Int, format: TxFormat = TxFormat.Legacy): Int {
+        val perTransaction = writesPerTransaction(format)
+        return (chunks + perTransaction - 1) / perTransaction
+    }
+
+    /**
+     * How many write transactions [chunksLanded] chunks of an earlier
+     * attempt paid for, rounded DOWN: a resumed deploy re-groups what is
+     * left, so what was paid is at most this and the estimate errs towards
+     * asking for more, never less.
+     */
+    fun writesLanded(chunksLanded: Int, format: TxFormat = TxFormat.Legacy): Int =
+        chunksLanded.coerceAtLeast(0) / writesPerTransaction(format)
+
+    /** [elf] cut into `(offset, bytes)` pieces of [writeChunkSize] for [format], the last one shorter. */
+    fun chunks(elf: ByteArray, format: TxFormat = TxFormat.Legacy): List<Pair<Int, ByteArray>> =
+        cut(elf, 0, elf.size, writeChunkSize(format))
+
+    private fun cut(bytes: ByteArray, from: Int, to: Int, size: Int): List<Pair<Int, ByteArray>> {
+        if (from >= to) return emptyList()
+        val out = ArrayList<Pair<Int, ByteArray>>((to - from + size - 1) / size)
+        var offset = from
+        while (offset < to) {
+            val end = minOf(offset + size, to)
+            out.add(offset to bytes.copyOfRange(offset, end))
             offset = end
         }
         return out
+    }
+
+    /**
+     * [chunks] of [elf], with every run of chunks not yet [written] cut again
+     * at [format]'s chunk size, and the written ones kept exactly as they
+     * are — they are on the buffer already, whatever size they were. For
+     * the deploy that is demoted from V1 to legacy mid-upload: a V1 chunk
+     * is bigger than a legacy transaction can carry, and the offsets that
+     * landed stay valid, so only the gaps are re-cut. Returns the new list
+     * and its written flags, in offset order, covering the same bytes.
+     */
+    fun recut(
+        elf: ByteArray,
+        chunks: List<Pair<Int, ByteArray>>,
+        written: BooleanArray,
+        format: TxFormat,
+    ): Pair<List<Pair<Int, ByteArray>>, BooleanArray> {
+        require(written.size == chunks.size) { "${written.size} flags for ${chunks.size} chunks" }
+        val size = writeChunkSize(format)
+        val out = ArrayList<Pair<Int, ByteArray>>(chunks.size)
+        val flags = ArrayList<Boolean>(chunks.size)
+        var index = 0
+        while (index < chunks.size) {
+            if (written[index]) {
+                out.add(chunks[index])
+                flags.add(true)
+                index++
+                continue
+            }
+            val from = chunks[index].first
+            var last = index
+            while (last + 1 < chunks.size && !written[last + 1]) last++
+            val to = chunks[last].first + chunks[last].second.size
+            for (piece in cut(elf, from, to, size)) {
+                out.add(piece)
+                flags.add(false)
+            }
+            index = last + 1
+        }
+        return out to flags.toBooleanArray()
     }
 
     /**
@@ -530,10 +654,12 @@ object Loader {
      * zero — the caller could not reach the cluster, and a guess would be
      * worse than the `~`.
      *
-     * Fees count one signature per Write, plus the buffer-create,
-     * deploy-or-upgrade, set-authority and extend transactions with their
-     * second signers: `writes + 5` signatures, which rounds an upgrade up by
-     * one and keeps the two paths one line.
+     * Fees count one signature per write *transaction* — one chunk each
+     * under legacy, [writesPerTransaction] under V1, which is why [format]
+     * is a parameter and must be the one the deploy will send in — plus the
+     * buffer-create, deploy-or-upgrade, set-authority and extend
+     * transactions with their second signers: `writes + 5` signatures,
+     * which rounds an upgrade up by one and keeps the two paths one line.
      *
      * [rent] is [rentExempt]'s formula by default — the sheet's `~` — and
      * the cluster's own `getMinimumBalanceForRentExemption` when the caller
@@ -552,10 +678,11 @@ object Loader {
         upgrade: Boolean,
         rent: (Int) -> Long = ::rentExempt,
         existing: Existing? = null,
+        format: TxFormat = TxFormat.Legacy,
     ): CostEstimate {
         require(elfBytes >= 0) { "elf size must not be negative: $elfBytes" }
-        val chunk = writeChunkSize()
-        val writes = (elfBytes + chunk - 1) / chunk
+        val chunk = writeChunkSize(format)
+        val writes = writeTransactions((elfBytes + chunk - 1) / chunk, format)
         val extend = extendSize(elfBytes, upgrade, existing)
         return CostEstimate(
             bufferRent = rent(BUFFER_HEADER + elfBytes),
@@ -582,7 +709,9 @@ object Loader {
     /**
      * What is left to pay when a buffer from an earlier attempt is being
      * reused: its rent is on chain already, and so is a signature for every
-     * chunk that landed. Never negative.
+     * write transaction that landed — [writesAlreadyLanded] counts
+     * transactions, which [writesLanded] makes of a chunk count. Never
+     * negative.
      */
     fun outstanding(estimate: CostEstimate, bufferAlreadyPaid: Boolean, writesAlreadyLanded: Int): Long {
         val paid = (if (bufferAlreadyPaid) estimate.bufferRent else 0L) +

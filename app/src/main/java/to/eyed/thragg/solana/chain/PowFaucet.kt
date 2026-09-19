@@ -22,7 +22,8 @@ import kotlin.coroutines.coroutineContext
  * lays the claim out exactly as the program expects and [mine] runs the loop
  * that turns keys into a balance. The design is devnet-larper's
  * (github.com/cesp99/devnet-larper) cut down to what a phone on the public
- * RPC can do: no direct-to-leader sending, six claims to a transaction, a
+ * RPC can do: no direct-to-leader sending, six claims to a legacy
+ * transaction or eleven to a Transaction V1 one ([keysPerTransaction]), a
  * dozen in flight, and the pacer between us and the endpoint.
  *
  * The claim, checked against a transaction the program accepted (devnet
@@ -77,14 +78,39 @@ object PowFaucet {
      */
     val MINED_DIFFICULTY: Int = GROUND_PREFIX.length
 
-    /** Six is what fits: each key costs a signature, two account keys and an instruction. */
+    /** Six is what fits a legacy packet: each key costs a signature, two account keys and an instruction. */
     const val CLAIMS_PER_TX = 6
+
+    /**
+     * Keys to a Transaction V1: the binding limit is the format's twelve
+     * signatures — the payer and eleven ground keys — long before its 64
+     * addresses (five shared for three-A keys, seven for four-A, plus two
+     * or three per key) or its 4096 bytes
+     * (about 1.9 kB for eleven three-A claims).
+     */
+    const val CLAIMS_PER_TX_V1 = Message.V1_MAX_SIGNATURES - 1
 
     /** A claim used 44,907 units in the wild; six need about 270k, this leaves room. */
     const val COMPUTE_UNITS = 320_000L
 
-    /** The wire limit on a transaction; a message over it is not sent, it is refused. */
+    /** The wire limit on a legacy transaction; a message over it is not sent, it is refused. */
     const val PACKET_LIMIT = 1232
+
+    /** How many ground keys one transaction of [format] claims with. */
+    fun keysPerTransaction(format: TxFormat): Int = when (format) {
+        TxFormat.Legacy -> CLAIMS_PER_TX
+        TxFormat.V1 -> CLAIMS_PER_TX_V1
+    }
+
+    /**
+     * The compute-unit limit for [claims] claims, at the legacy batch's
+     * headroom: [COMPUTE_UNITS] for six is 53,333 a claim over the 44,907
+     * measured, and a V1 header asks for that many per claim, up to the
+     * runtime's 1.4 M — which twenty-two claims (eleven four-A keys, the
+     * most a V1 transaction can hold) stay under.
+     */
+    fun computeUnits(claims: Int): Long =
+        (COMPUTE_UNITS * claims.coerceAtLeast(1) / CLAIMS_PER_TX).coerceAtMost(TxConfig.MAX_COMPUTE_UNIT_LIMIT)
 
     /** Fee and one receipt's rent, rounded up: what the first claim needs in the payer. */
     const val BOOTSTRAP_LAMPORTS = 2_000_000L
@@ -156,17 +182,37 @@ object PowFaucet {
     /**
      * The message for one batch: the compute budget, then a claim per key
      * per spec. A four-A key's second claim costs two more account keys and
-     * an instruction, which pushes six keys over the packet; when it does,
-     * the batch is compiled again with three-A claims only. Returns the
-     * message and how many claims it holds.
+     * an instruction, which pushes six keys over the legacy packet; when it
+     * does, the batch is compiled again with three-A claims only. Returns
+     * the message and how many claims it holds.
+     *
+     * Under legacy the budget is a ComputeBudget instruction in front, as
+     * it always was. Under V1 it is the header's compute-unit limit
+     * ([computeUnits], scaled to the claims) — a V1 transaction ignores a
+     * ComputeBudget instruction, so none is added — and "fits" is the
+     * format's own ceiling plus its limits, which [Message.compile] throws
+     * on and the shrink loop treats as one more way not to fit.
      */
-    fun message(payer: Pubkey, keys: List<Pubkey>, blockhash: String): Pair<Message, Int> {
+    fun message(payer: Pubkey, keys: List<Pubkey>, blockhash: String, format: TxFormat = TxFormat.Legacy): Pair<Message, Int> {
         for (maxDifficulty in DIFFICULTIES.sortedDescending()) {
             val claims = claims(payer, keys, maxDifficulty)
-            val message = Message.compile(payer, listOf(setComputeUnitLimit(COMPUTE_UNITS)) + claims, blockhash)
-            if (Transaction.unsigned(message).serialize().size <= PACKET_LIMIT) return message to claims.size
+            val message = when (format) {
+                TxFormat.Legacy -> Message.compile(payer, listOf(setComputeUnitLimit(COMPUTE_UNITS)) + claims, blockhash)
+                // V1's limits (64 addresses, 12 signatures) are thrown by the
+                // compile; legacy's are only the packet, so only here is an
+                // argument error one more way not to fit rather than a bug.
+                TxFormat.V1 -> try {
+                    Message.compile(
+                        payer, claims, blockhash, format,
+                        TxFormatPolicy.config(format, claims, computeUnitLimit = computeUnits(claims.size)),
+                    )
+                } catch (e: IllegalArgumentException) {
+                    continue
+                }
+            }
+            if (Transaction.unsigned(message).fits) return message to claims.size
         }
-        throw ChainException("${keys.size} claims do not fit in one transaction")
+        throw ChainException("${keys.size} claims do not fit in one ${format.name} transaction")
     }
 
     // ---- the AAA window ----------------------------------------------------
@@ -335,6 +381,7 @@ object PowFaucet {
         payer: Keypair,
         target: Long,
         onProgress: (Progress) -> Unit = {},
+        onLine: (String) -> Unit = {},
     ): Long {
         val balance = pacer.run { rpc.getBalance(payer.publicKey.base58) }
         if (balance >= target) return balance
@@ -343,7 +390,7 @@ object PowFaucet {
         val grinder = KeyGrinder()
         grinder.start()
         try {
-            return Miner(rpc, pacer, payer, target, grinder, onProgress).run(balance)
+            return Miner(rpc, pacer, payer, target, grinder, onProgress, onLine).run(balance)
         } finally {
             grinder.stop()
         }
@@ -369,11 +416,11 @@ object PowFaucet {
         onProgress: (Progress) -> Unit = {},
     ): Long {
         try {
-            return mine(rpc, pacer, payer, target, onProgress)
+            return mine(rpc, pacer, payer, target, onProgress, onLine)
         } catch (e: NeedsBootstrap) {
             bootstrap(rpc, pacer, payer, e.balance, walletTransfer, onLine)
         }
-        return mine(rpc, pacer, payer, target, onProgress)
+        return mine(rpc, pacer, payer, target, onProgress, onLine)
     }
 
     private suspend fun bootstrap(
@@ -449,6 +496,8 @@ object PowFaucet {
         private val target: Long,
         private val grinder: KeyGrinder,
         private val onProgress: (Progress) -> Unit,
+        /** The deploy log, for the one line a format demotion prints. */
+        private val onLine: (String) -> Unit,
     ) {
         private class Sent(val signature: String, val keys: List<GroundKey>, val claims: Int, val lastValidBlockHeight: Long) {
             /** What landing it adds to the payer: payouts less receipts less the fee for every signer. */
@@ -581,21 +630,32 @@ object PowFaucet {
             }
         }
 
+        /**
+         * The format is asked per transaction: V1 packs eleven keys, and a
+         * refusal of that shape demotes the process and puts the keys back
+         * at the front of the queue for a legacy batch of six.
+         */
         private suspend fun send() {
             while (inFlight.size < MAX_IN_FLIGHT && balance + credited + inFlight.sumOf { it.net } < target) {
-                gather()
+                val format = TxFormatPolicy.local()
+                val batch = keysPerTransaction(format)
+                gather(batch)
                 if (ready.isEmpty()) return
                 // A short batch is sent only once a full one has been a while coming.
-                if (ready.size < CLAIMS_PER_TX && System.currentTimeMillis() - sentAt < PARTIAL_AFTER_MS) return
-                val keys = List(minOf(CLAIMS_PER_TX, ready.size)) { ready.removeFirst() }
+                if (ready.size < batch && System.currentTimeMillis() - sentAt < PARTIAL_AFTER_MS) return
+                val keys = List(minOf(batch, ready.size)) { ready.removeFirst() }
                 val hash = blockhash()
-                val (message, claims) = message(payer.publicKey, keys.map { it.publicKey }, hash.blockhash)
+                val (message, claims) = message(payer.publicKey, keys.map { it.publicKey }, hash.blockhash, format)
                 val bytes = message.serialize()
                 var tx = Transaction.unsigned(message).withSignature(payer.publicKey, payer.sign(bytes))
                 for (key in keys) tx = tx.withSignature(key.publicKey, key.sign(bytes))
                 val signature = try {
                     pacer.run { rpc.sendTransaction(tx) }
                 } catch (e: RpcException) {
+                    if (TxFormatPolicy.refusal(e, format, onLine)) {
+                        ready.addAll(0, keys)
+                        continue
+                    }
                     if (e.isBlockhashExpiry) {
                         blockhash = null
                         ready.addAll(0, keys)
@@ -609,10 +669,10 @@ object PowFaucet {
             }
         }
 
-        /** Top [ready] up to a batch from the grinder, waiting a moment for it. */
-        private fun gather() {
+        /** Top [ready] up to a batch of [batch] from the grinder, waiting a moment for it. */
+        private fun gather(batch: Int) {
             val deadline = System.currentTimeMillis() + GATHER_MS
-            while (ready.size < CLAIMS_PER_TX) {
+            while (ready.size < batch) {
                 val wait = deadline - System.currentTimeMillis()
                 if (wait <= 0L) return
                 ready.addLast(grinder.take(wait) ?: return)

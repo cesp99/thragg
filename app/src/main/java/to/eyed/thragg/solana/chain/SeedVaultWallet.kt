@@ -65,6 +65,18 @@ class WalletException(message: String) : Exception(message)
  * cluster the project chose, with our confirmation loop and our pacing, so
  * every send is ours and the wallet only signs.
  *
+ * **Which transaction format the wallet gets.** Whether the shipping Seed
+ * Vault Wallet signs Transaction V1 (SIMD-0385) is unknown as of 2026-09-19
+ * — seed-vault-sdk PR #780 is still open — so it is asked, not assumed:
+ * a connect calls MWA `get_capabilities` in the same association, a sign
+ * does so when nothing is cached yet, and the `supported_transaction_versions`
+ * stays in memory keyed by cluster and account ([capabilities]) until
+ * [forget] or a process restart. [formatFor] answers V1 only when that
+ * list names version 1 (TxFormatPolicy.wallet). A wallet never asked, or
+ * one whose answer failed, is legacy — the first wallet-signed transaction
+ * after a process restart is therefore legacy, and the association it
+ * opens fills the cache for the next.
+ *
  * The state is Compose state so the Settings rows redraw on connect and
  * disconnect. All wallet calls suspend; none touch UI.
  */
@@ -125,6 +137,15 @@ object SeedVaultWallet {
 
     private val lock = Any()
 
+    /**
+     * `supported_transaction_versions` from the last `get_capabilities`
+     * answer, per cluster id and account — an `Object[]` of the strings and
+     * integers the MWA spec allows. In memory only: it is a fact about the
+     * wallet app installed now, which an update may change, and one
+     * association per process is a cheap way to find out.
+     */
+    private val capabilities = java.util.concurrent.ConcurrentHashMap<Pair<String, String>, Array<Any>>()
+
     /** Set once the preferences have been read, or once something newer has been written. */
     @Volatile
     private var restored = false
@@ -153,6 +174,39 @@ object SeedVaultWallet {
             .start()
     }
 
+    /**
+     * The format a transaction [wallet] signs on [cluster] should be
+     * compiled in: what the wallet said it supports the last time it was
+     * asked, through TxFormatPolicy, else legacy.
+     */
+    fun formatFor(cluster: Cluster, wallet: Pubkey): TxFormat =
+        TxFormatPolicy.wallet(capabilities[cluster.id to wallet.base58])
+
+    /** Tests and the Settings rows: the versions the wallet listed, or null when it was never asked. */
+    fun supportedTransactionVersions(cluster: Cluster, wallet: Pubkey): Array<Any>? =
+        capabilities[cluster.id to wallet.base58]
+
+    /**
+     * Ask the wallet what it can do, inside an association that has just
+     * authorized, and remember the transaction versions it lists. A wallet
+     * that fails this question is not a failed association — the answer is
+     * "legacy", which is what a wallet that never heard of the question
+     * would get anyway — so the failure is a log line and nothing else.
+     */
+    private suspend fun AdapterOperations.probeCapabilities(cluster: Cluster, account: String) {
+        val versions = try {
+            getCapabilities().supportedTransactionVersions
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "get_capabilities on ${cluster.display} failed; assuming legacy transactions", e)
+            capabilities.remove(cluster.id to account)
+            return
+        }
+        capabilities[cluster.id to account] = versions
+        Log.i(TAG, "wallet on ${cluster.display} supports transaction versions ${versions.joinToString()}")
+    }
+
     /** The MWA chain object for [cluster]. Here, and not on the enum, to keep Cluster.kt free of MWA for host tests. */
     fun blockchainOf(cluster: Cluster): Blockchain = when (cluster) {
         Cluster.Devnet -> Solana.Devnet
@@ -170,7 +224,9 @@ object SeedVaultWallet {
         withContext(Dispatchers.IO) { restoreBlocking(app) }
         return when (val result = transact(sender, cluster) { authResult ->
             val account = authResult.accounts.first()
-            Base58.encode(account.publicKey) to account.accountLabel
+            val address = Base58.encode(account.publicKey)
+            probeCapabilities(cluster, address)
+            address to account.accountLabel
         }) {
             is TransactionResult.Success -> {
                 val (walletAddress, walletLabel) = result.payload
@@ -247,7 +303,13 @@ object SeedVaultWallet {
             }
         }
         val payloads = transactions.map { it.serialize() }.toTypedArray()
-        val result = transact(sender, cluster) { signTransactions(payloads).signedPayloads.toList() }
+        val result = transact(sender, cluster) { authResult ->
+            // A wallet restored from prefs was never asked what it can sign;
+            // this association is the chance, so the next request can be V1.
+            val account = authResult.accounts.firstOrNull()?.let { Base58.encode(it.publicKey) } ?: connected
+            if (!capabilities.containsKey(cluster.id to account)) probeCapabilities(cluster, account)
+            signTransactions(payloads).signedPayloads.toList()
+        }
         return when (result) {
             is TransactionResult.Success -> {
                 val signer = result.authResult.accounts.firstOrNull()?.let { Base58.encode(it.publicKey) }
@@ -486,6 +548,7 @@ object SeedVaultWallet {
             label = null
             authorizedCluster = null
             adapter.authToken = null
+            capabilities.clear()
             restored = true
         }
     }

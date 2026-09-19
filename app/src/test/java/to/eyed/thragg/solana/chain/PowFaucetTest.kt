@@ -178,6 +178,77 @@ class PowFaucetTest {
         assertTrue(Transaction.unsigned(full).serialize().size <= PowFaucet.PACKET_LIMIT)
     }
 
+    /**
+     * Under Transaction V1 the packet is 4096 bytes and the budget is in the
+     * header, so the batch is bounded by the format's twelve signatures:
+     * the payer and eleven ground keys, about 1.9 kB. No ComputeBudget
+     * instruction — a V1 transaction ignores it — and the compute-unit
+     * limit scales with the claims at the legacy batch's headroom.
+     */
+    @Test
+    fun `eleven three-A keys fit one V1 transaction with the budget in the header`() {
+        assertEquals(11, PowFaucet.CLAIMS_PER_TX_V1)
+        assertEquals(11, PowFaucet.keysPerTransaction(TxFormat.V1))
+        assertEquals(6, PowFaucet.keysPerTransaction(TxFormat.Legacy))
+        val keys = List(PowFaucet.CLAIMS_PER_TX_V1) { aaaKey(it) }
+        val (message, claims) = PowFaucet.message(payer, keys, blockhash, TxFormat.V1)
+        assertEquals(11, claims)
+        assertEquals(TxFormat.V1, message.format)
+        assertEquals(12, message.signerCount)
+        assertEquals(11, message.instructions.size)
+        assertTrue(message.instructions.none { message.accountKeys[it.programIdIndex] == PowFaucet.COMPUTE_BUDGET })
+        assertEquals(PowFaucet.computeUnits(11), message.config.computeUnitLimit)
+        assertEquals(TxConfig.MAX_LOADED_ACCOUNTS_DATA_SIZE, message.config.loadedAccountsDataSize)
+        // Five shared addresses, then a key and a receipt each.
+        assertEquals(5 + 2 * 11, message.accountKeys.size)
+        val size = Transaction.unsigned(message).serialize().size
+        assertTrue("$size bytes", size <= TxFormat.V1.maxTransactionSize)
+        assertTrue("$size bytes", size < 2_048)
+        // A twelfth key is a thirteenth signature, which V1 does not have.
+        try {
+            PowFaucet.message(payer, keys + aaaKey(20), blockhash, TxFormat.V1)
+            org.junit.Assert.fail("twelve keys")
+        } catch (e: ChainException) {
+            assertTrue(e.message!!, "V1" in e.message!!)
+        }
+        // Legacy is exactly what it was: six keys, the instruction in front, under 1232.
+        val (legacy, six) = PowFaucet.message(payer, keys.take(6), blockhash)
+        assertEquals(6, six)
+        assertEquals(TxFormat.Legacy, legacy.format)
+        assertEquals(PowFaucet.COMPUTE_BUDGET, legacy.accountKeys[legacy.instructions[0].programIdIndex])
+        assertTrue(Transaction.unsigned(legacy).serialize().size <= PowFaucet.PACKET_LIMIT)
+    }
+
+    @Test
+    fun `eleven four-A keys claim both specs in one V1 transaction under the compute ceiling`() {
+        val keys = List(PowFaucet.CLAIMS_PER_TX_V1) { aaaaKey(it) }
+        val (message, claims) = PowFaucet.message(payer, keys, blockhash, TxFormat.V1)
+        assertEquals(22, claims)
+        assertEquals(22, message.instructions.size)
+        assertEquals(12, message.signerCount)
+        // Seven shared addresses (two specs, two sources), a key and two receipts each.
+        assertEquals(7 + 3 * 11, message.accountKeys.size)
+        assertTrue(message.accountKeys.size <= Message.V1_MAX_ADDRESSES)
+        assertTrue(Transaction.unsigned(message).fits)
+        assertEquals(PowFaucet.computeUnits(22), message.config.computeUnitLimit)
+        assertTrue(message.config.computeUnitLimit!! <= TxConfig.MAX_COMPUTE_UNIT_LIMIT)
+        // 22 claims at 44,907 measured each still fit the limit asked for.
+        assertTrue(22L * 44_907L < message.config.computeUnitLimit!!)
+    }
+
+    @Test
+    fun `the V1 compute limit keeps the legacy batch's headroom per claim`() {
+        // 320,000 for six is 53,333 a claim; 44,907 was measured.
+        assertEquals(PowFaucet.COMPUTE_UNITS, PowFaucet.computeUnits(6))
+        assertEquals(53_333L, PowFaucet.computeUnits(1))
+        assertEquals(PowFaucet.COMPUTE_UNITS * 11 / 6, PowFaucet.computeUnits(11))
+        assertEquals(586_666L, PowFaucet.computeUnits(11))
+        assertEquals(PowFaucet.COMPUTE_UNITS * 22 / 6, PowFaucet.computeUnits(22))
+        assertTrue(PowFaucet.computeUnits(22) <= TxConfig.MAX_COMPUTE_UNIT_LIMIT)
+        assertEquals(TxConfig.MAX_COMPUTE_UNIT_LIMIT, PowFaucet.computeUnits(1_000))
+        assertEquals(53_333L, PowFaucet.computeUnits(0))
+    }
+
     @Test
     fun `the AAA window agrees with Base58 on real keys and on random bytes`() {
         assertTrue(PowFaucet.hasAaaPrefix(key.bytes))
@@ -226,9 +297,9 @@ class PowFaucetTest {
         return Pubkey(bytes).also { check(PowFaucet.leadingAs(it) == 3) { it.base58 } }
     }
 
-    private fun aaaaKey(): Pubkey {
+    private fun aaaaKey(salt: Int = 0x32): Pubkey {
         val bytes = ByteArray(32).also { Base58.decode("AAAA" + "1".repeat(40)).copyInto(it) }
-        bytes[31] = 0x33
-        return Pubkey(bytes)
+        bytes[31] = (1 + salt).toByte()
+        return Pubkey(bytes).also { check(PowFaucet.leadingAs(it) == 4) { it.base58 } }
     }
 }

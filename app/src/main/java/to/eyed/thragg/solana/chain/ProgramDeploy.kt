@@ -46,10 +46,14 @@ import kotlin.coroutines.coroutineContext
  *     transaction is sent: a network drop or a killed process after this
  *     point strands the ELF's rent, and the record is what lets Settings
  *     offer it back.
- *  4. **Write the chunks**, forty per blockhash, paced under the public
- *     endpoint's limits, then confirmed in bulk; whatever did not land before
- *     its blockhash expired is re-signed and resent. A Write is idempotent,
- *     which is what makes that safe.
+ *  4. **Write the chunks**, forty transactions per blockhash, paced under
+ *     the public endpoint's limits, then confirmed in bulk; whatever did not
+ *     land before its blockhash expired is re-signed and resent. A Write is
+ *     idempotent, which is what makes that safe. The transactions are
+ *     Transaction V1 when the endpoint takes them (TxFormatPolicy) — three
+ *     Writes to a transaction instead of one, so a 200 kB artifact is about
+ *     55 transactions rather than 198 — and legacy from the first refusal
+ *     on, with what is still unwritten re-cut to the legacy chunk.
  *  5. **Deploy or upgrade.** A fresh deploy creates the 36-byte program
  *     account and deploys into it in one transaction (the loader does not
  *     create it), reserving the ELF's own length as `max_data_len`
@@ -121,7 +125,15 @@ private class DeploySession private constructor(
     private val pacer = RpcPacer()
     private val payer: Pubkey get() = deployKey.publicKey
     private val programId: Pubkey get() = programKeypair.publicKey
-    private val chunks: List<Pair<Int, ByteArray>> by lazy { Loader.chunks(elf) }
+
+    /**
+     * The format the deploy key's transactions are compiled in, fixed when
+     * the session opens so the chunks, the estimate and the adoption scan
+     * agree; [writeChunks] re-reads TxFormatPolicy and re-cuts when a
+     * demotion happened in between or happens under it.
+     */
+    private val format: TxFormat = TxFormatPolicy.local()
+    private val chunks: List<Pair<Int, ByteArray>> by lazy { Loader.chunks(elf, format) }
 
     /**
      * The buffer this deploy is uploading into: set the moment the
@@ -161,7 +173,8 @@ private class DeploySession private constructor(
         ) : Mode
     }
 
-    private class Sent(val index: Int, val signature: String, val lastValidBlockHeight: Long)
+    /** One write transaction in flight: the chunk indexes it carries, its signature, and the height it dies at. */
+    private class Sent(val indexes: List<Int>, val signature: String, val lastValidBlockHeight: Long)
 
     suspend fun run(): String {
         onLine("Deploying ${program.moduleName} · ${elf.size} bytes · to ${cluster.display} as ${programId.base58}")
@@ -328,6 +341,7 @@ private class DeploySession private constructor(
             programId = programId.base58,
             elfSize = elf.size,
             chunks = chunks,
+            format = format,
             payer = payer,
             walletAuthority = walletAuthority,
             forget = true,
@@ -364,7 +378,7 @@ private class DeploySession private constructor(
         val existing = (mode as? Mode.Upgrade)?.let { Loader.Existing(it.status.dataLen, it.status.reclaimable) }
         val quotes = HashMap<Int, Long>()
         for (size in Loader.rentSizes(elf.size, upgrade, existing)) quotes[size] = rent(size)
-        val estimate = Loader.estimateDeploy(elf.size, upgrade, { quotes.getValue(it) }, existing)
+        val estimate = Loader.estimateDeploy(elf.size, upgrade, { quotes.getValue(it) }, existing, format)
         bufferRent = resumed?.lamports ?: estimate.bufferRent
         programRent = estimate.programRent
         // What an earlier attempt already paid for is not asked for twice:
@@ -372,7 +386,7 @@ private class DeploySession private constructor(
         val outstanding = Loader.outstanding(
             estimate,
             bufferAlreadyPaid = resumed != null,
-            writesAlreadyLanded = resumed?.done ?: 0,
+            writesAlreadyLanded = resumed?.writesPaid ?: 0,
         )
         val required = Loader.withMargin(outstanding)
         var balance = balanceOf(payer)
@@ -582,19 +596,10 @@ private class DeploySession private constructor(
         if (bufferKey != null) return
         val keypair = Keypair.generate()
         val space = (Loader.BUFFER_HEADER + elf.size).toLong()
-        val blockhash = pacer.run { rpc.getLatestBlockhash() }
-        val message = Message.compile(
-            payer,
-            listOf(
-                Loader.createAccount(payer, keypair.publicKey, bufferRent, space, Loader.PROGRAM_ID),
-                Loader.initializeBuffer(keypair.publicKey, payer),
-            ),
-            blockhash.blockhash,
+        val instructions = listOf(
+            Loader.createAccount(payer, keypair.publicKey, bufferRent, space, Loader.PROGRAM_ID),
+            Loader.initializeBuffer(keypair.publicKey, payer),
         )
-        val bytes = message.serialize()
-        val tx = Transaction.unsigned(message)
-            .withSignature(payer, deployKey.sign(bytes))
-            .withSignature(keypair.publicKey, keypair.sign(bytes))
         // Recorded before the send: from here on the rent is on chain, or
         // may be, and the record is the only way back to it — for Reclaim,
         // and for the next attempt, which continues this upload rather than
@@ -611,54 +616,98 @@ private class DeploySession private constructor(
                 programId = programId.base58,
             ),
         )
-        val signature = pacer.run { rpc.sendTransaction(tx) }
-        pacer.run { rpc.confirm(signature, blockhash.lastValidBlockHeight) }
+        withFormat { format ->
+            val blockhash = pacer.run { rpc.getLatestBlockhash() }
+            val message = Message.compile(
+                payer, instructions, blockhash.blockhash,
+                format, TxFormatPolicy.config(format, instructions),
+            )
+            val bytes = message.serialize()
+            val tx = Transaction.unsigned(message)
+                .withSignature(payer, deployKey.sign(bytes))
+                .withSignature(keypair.publicKey, keypair.sign(bytes))
+            val signature = pacer.run { rpc.sendTransaction(tx) }
+            pacer.run { rpc.confirm(signature, blockhash.lastValidBlockHeight) }
+        }
         onLine("Buffer ${short(keypair.publicKey)} created · ${sol(bufferRent)} held until the deploy lands")
     }
 
     // ---- 4. writes ----------------------------------------------------------------
 
+    /**
+     * Upload every chunk not yet on the buffer, [Loader.writesPerTransaction]
+     * to a transaction, forty transactions to a blockhash.
+     *
+     * The chunk list starts as the session's ([format] at open) and is
+     * re-cut by [Loader.recut] the moment TxFormatPolicy no longer agrees —
+     * a demotion between open and here, or one raised by a send in this
+     * loop, which ends that round early. Confirmed chunks keep their
+     * offsets and sizes: they are on the buffer, and a Write is by offset.
+     * Only the gaps become legacy-sized pieces, so the bookkeeping below
+     * (`confirmed`, `pending`) is rebuilt over the new list and the log's
+     * "n/total" changes its denominator once, which the line says.
+     */
     private suspend fun writeChunks() {
         val bufferKey = checkNotNull(this.bufferKey)
-        val total = chunks.size
-        val confirmed = alreadyWritten?.copyOf() ?: BooleanArray(total)
+        var format = this.format
+        var work: List<Pair<Int, ByteArray>> = chunks
+        var confirmed: BooleanArray = alreadyWritten?.copyOf() ?: BooleanArray(work.size)
         val lastError = AtomicReference<String?>(null)
-        var pending: List<Int> = chunks.indices.filter { !confirmed[it] }
+        var pending: List<Int> = work.indices.filter { !confirmed[it] }
         if (pending.isEmpty()) {
-            onLine("All $total chunks are on the buffer already — nothing to upload")
+            onLine("All ${work.size} chunks are on the buffer already — nothing to upload")
             return
         }
         check(bufferAuthority == payer) {
             "The buffer's authority is ${bufferAuthority?.base58} — the deploy key cannot write to it"
         }
+        if (TxFormatPolicy.local() != format) {
+            val (recut, flags) = Loader.recut(elf, work, confirmed, TxFormatPolicy.local())
+            work = recut
+            confirmed = flags
+            format = TxFormatPolicy.local()
+            pending = work.indices.filter { !confirmed[it] }
+        }
         onLine(
-            if (pending.size == total) {
-                "Writing $total chunks of ${Loader.writeChunkSize()} bytes"
-            } else {
-                "Writing the ${pending.size} chunks of $total this buffer is missing"
-            }
+            (
+                if (pending.size == work.size) {
+                    "Writing ${work.size} chunks of ${Loader.writeChunkSize(format)} bytes"
+                } else {
+                    "Writing the ${pending.size} chunks of ${work.size} this buffer is missing"
+                }
+                ) + perTransactionNote(format)
         )
-        for (round in 1..WRITE_ROUNDS) {
+        // Counted by hand so a demotion mid-upload does not spend a round:
+        // the re-cut legacy chunks get the full dozen, and their first send is
+        // not announced as a resend.
+        var round = 0
+        while (round < WRITE_ROUNDS) {
+            round++
             coroutineContext.ensureActive()
             if (round > 1) onLine("Resending ${pending.size} chunks (round $round of $WRITE_ROUNDS)")
             val sent = ArrayList<Sent>(pending.size)
-            val batches = pending.chunked(WRITE_BATCH)
+            val transactions = pending.chunked(Loader.writesPerTransaction(format))
+            val batches = transactions.chunked(WRITE_BATCH)
             for (batch in batches) {
                 coroutineContext.ensureActive()
                 val blockhash = pacer.run { rpc.getLatestBlockhash() }
+                val sending = format
                 val results = coroutineScope {
-                    batch.map { index ->
+                    batch.map { group ->
                         async {
-                            val (offset, bytes) = chunks[index]
+                            val instructions = group.map { index ->
+                                val (offset, bytes) = work[index]
+                                Loader.write(bufferKey, payer, offset, bytes)
+                            }
                             val message = Message.compile(
-                                payer,
-                                listOf(Loader.write(bufferKey, payer, offset, bytes)),
-                                blockhash.blockhash,
+                                payer, instructions, blockhash.blockhash,
+                                sending, TxFormatPolicy.config(sending, instructions),
                             )
                             val tx = Transaction.unsigned(message).withSignature(payer, deployKey.sign(message.serialize()))
                             try {
-                                Sent(index, pacer.run { rpc.sendTransaction(tx) }, blockhash.lastValidBlockHeight)
+                                Sent(group, pacer.run { rpc.sendTransaction(tx) }, blockhash.lastValidBlockHeight)
                             } catch (e: RpcException) {
+                                TxFormatPolicy.refusal(e, sending, onLine)
                                 lastError.set(e.message)
                                 null
                             } catch (e: IOException) {
@@ -669,27 +718,51 @@ private class DeploySession private constructor(
                     }.awaitAll()
                 }
                 sent.addAll(results.filterNotNull())
+                // A refusal of the V1 shape demoted the process: every
+                // further transaction of this shape would be refused the
+                // same way, so stop sending, settle what went out, re-cut.
+                if (TxFormatPolicy.local() != format) break
                 // The endpoint's rate limit makes signing and sending a batch
                 // of forty about fifty seconds, so a 186-chunk artifact spent
                 // four and a half minutes here with nothing to show for it —
                 // the "Writing n/total" lines below only start once the first
                 // statuses come back (QA P-17). One line per batch is one a
                 // minute, which is what the log island wants.
-                if (batches.size > 1) onLine("Signed and sent ${sent.size}/${pending.size} chunks")
+                if (batches.size > 1) onLine("Signed and sent ${sent.sumOf { it.indexes.size }}/${pending.size} chunks")
+            }
+            if (TxFormatPolicy.local() != format) {
+                if (sent.isNotEmpty()) awaitWrites(sent, confirmed, work.size)
+                val (recut, flags) = Loader.recut(elf, work, confirmed, TxFormatPolicy.local())
+                work = recut
+                confirmed = flags
+                format = TxFormatPolicy.local()
+                pending = work.indices.filter { !confirmed[it] }
+                onLine(
+                    "Re-cut what is still unwritten into ${pending.size} chunks of ${Loader.writeChunkSize(format)} bytes " +
+                        "(${work.size} chunks in all now)" + perTransactionNote(format)
+                )
+                round--
+                continue
             }
             if (sent.isEmpty()) {
                 throw ChainException("Could not send any of the ${pending.size} chunks" + lastError.get()?.let { " · $it" }.orEmpty())
             }
-            awaitWrites(sent, confirmed, total)
+            awaitWrites(sent, confirmed, work.size)
             pending = pending.filter { !confirmed[it] }
             if (pending.isEmpty()) {
-                onLine("Wrote $total/$total chunks")
+                onLine("Wrote ${work.size}/${work.size} chunks")
                 return
             }
         }
         throw ChainException(
-            "${pending.size} of $total chunks did not land after $WRITE_ROUNDS rounds" + lastError.get()?.let { " · $it" }.orEmpty()
+            "${pending.size} of ${work.size} chunks did not land after $WRITE_ROUNDS rounds" + lastError.get()?.let { " · $it" }.orEmpty()
         )
+    }
+
+    /** ", three to a transaction" under V1; nothing under legacy, where it is one. */
+    private fun perTransactionNote(format: TxFormat): String {
+        val per = Loader.writesPerTransaction(format)
+        return if (per > 1) ", $per to a ${format.name} transaction" else ""
     }
 
     /**
@@ -699,7 +772,8 @@ private class DeploySession private constructor(
      * authority changed, the offset is past its end, the account is gone —
      * and the same bytes over a fresh blockhash would be refused the same
      * way five rounds running, so it ends the deploy here with the loader's
-     * reason.
+     * reason. A transaction carries every chunk it was sent with, so all of
+     * them land, or none.
      */
     private suspend fun awaitWrites(sent: List<Sent>, confirmed: BooleanArray, total: Int) {
         var remaining = sent
@@ -717,8 +791,8 @@ private class DeploySession private constructor(
                 val status = statuses.getOrNull(i)
                 when {
                     status == null -> still.add(s)
-                    status.err != null -> throw ChainException("chunk ${s.index + 1} failed: ${status.err}")
-                    status.confirmed -> confirmed[s.index] = true
+                    status.err != null -> throw ChainException("chunk ${s.indexes.first() + 1} failed: ${status.err}")
+                    status.confirmed -> for (index in s.indexes) confirmed[index] = true
                     else -> still.add(s)
                 }
             }
@@ -889,13 +963,15 @@ private class DeploySession private constructor(
                 "before uploading"
         )
         val refusal = try {
-            val blockhash = pacer.run { rpc.getLatestBlockhash() }
-            val message = Message.compile(
-                payer,
-                listOf(Loader.extendProgram(programData, programId, payer, upgrade.grow)),
-                blockhash.blockhash,
-            )
-            pacer.run { rpc.simulate(Transaction.unsigned(message)) }
+            val instructions = listOf(Loader.extendProgram(programData, programId, payer, upgrade.grow))
+            withFormat { format ->
+                val blockhash = pacer.run { rpc.getLatestBlockhash() }
+                val message = Message.compile(
+                    payer, instructions, blockhash.blockhash,
+                    format, TxFormatPolicy.config(format, instructions),
+                )
+                pacer.run { rpc.simulate(Transaction.unsigned(message)) }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -965,9 +1041,26 @@ private class DeploySession private constructor(
 
     // ---- shared -------------------------------------------------------------------
 
-    /** Compile with the deploy key paying, sign with [signers], send and confirm. */
+    /** Compile with the deploy key paying, sign with [signers], send and confirm; the format is TxFormatPolicy's. */
     private suspend fun sendLocal(instructions: List<Instruction>, signers: List<Keypair>): String =
-        ChainSigning.signAndSend(app, cluster, rpc, pacer, payer, instructions, local = signers, wallet = null)
+        ChainSigning.signAndSend(app, cluster, rpc, pacer, payer, instructions, local = signers, wallet = null, onLine = onLine)
+
+    /**
+     * Run [block] in [TxFormatPolicy.local]'s format, and once more as
+     * legacy when the node refused the V1 shape — the demotion the policy
+     * makes of that refusal is process-wide, so the second run is also the
+     * last format this session will ever compile in. Any other error is the
+     * caller's.
+     */
+    private suspend fun <T> withFormat(block: suspend (TxFormat) -> T): T {
+        val format = TxFormatPolicy.local()
+        return try {
+            block(format)
+        } catch (e: RpcException) {
+            if (!TxFormatPolicy.refusal(e, format, onLine)) throw e
+            block(TxFormatPolicy.local())
+        }
+    }
 
     private suspend fun rent(bytes: Int): Long = pacer.run { rpc.getMinimumBalanceForRentExemption(bytes) }
 
@@ -1025,10 +1118,19 @@ internal class AdoptableBuffer(
     val lamports: Long,
     /** Per chunk: whether the buffer already holds exactly those bytes. */
     val written: BooleanArray,
+    /** The format the chunks were cut for, which decides how many transactions [done] chunks were. */
+    val format: TxFormat = TxFormat.Legacy,
 ) {
     val done: Int get() = written.count { it }
     val chunks: Int get() = written.size
     val whole: Boolean get() = written.all { it }
+
+    /**
+     * Write transactions the earlier attempt paid for, for [Loader.outstanding]:
+     * all of them when the buffer is whole, else the whole transactions the
+     * landed chunks add up to, rounded down so the estimate errs upward.
+     */
+    val writesPaid: Int get() = if (whole) Loader.writeTransactions(chunks, format) else Loader.writesLanded(done, format)
 }
 
 /**
@@ -1061,6 +1163,8 @@ internal object BufferAdoption {
      * The newest record for [programId] on [cluster] whose account is this
      * artifact's buffer, or null.
      *
+     * [chunks] are [elfSize] bytes cut for [format] — the same cut the
+     * deploy will write in, so "done" means the same chunks to both.
      * [walletAuthority] is the wallet that holds the upgrade authority, when
      * one does: a buffer already handed over to it is adoptable only when it
      * is whole, because from that point this phone cannot write to it.
@@ -1075,6 +1179,7 @@ internal object BufferAdoption {
         programId: String,
         elfSize: Int,
         chunks: List<Pair<Int, ByteArray>>,
+        format: TxFormat,
         payer: Pubkey,
         walletAuthority: Pubkey?,
         forget: Boolean,
@@ -1101,7 +1206,7 @@ internal object BufferAdoption {
             if (!ours && !theirs) continue
             val written = Loader.writtenChunks(info.data, chunks)
             if (!ours && !written.all { it }) continue
-            return AdoptableBuffer(key, authority, info.lamports, written)
+            return AdoptableBuffer(key, authority, info.lamports, written, format)
         }
         return null
     }
