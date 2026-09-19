@@ -78,8 +78,16 @@ artifact is 165 chunks in **55 transactions** instead of 198, and the fees
 follow the transaction count: `Loader.writeChunkSize(format)`,
 `Loader.writesPerTransaction(format)` and `Loader.estimateDeploy(.., format)`
 are all derived from the serializer, and the Deploy sheet and the deployer ask
-them with the same format. On-device timings for the V1 upload are not yet
-measured; the numbers above are byte arithmetic, pinned in LoaderTest.
+them with the same format.
+
+Measured on a Seeker against the public devnet endpoint, 2026-09-19: a
+109,048-byte Anchor scaffold (SBPFv3) went up as 90 chunks in 30 write
+transactions, plus the buffer, the deploy and the authority hand-over — 34
+transactions, every one `version: 1` on the explorer, none failed — in
+**70 s** from the first transaction to the last; the whole Deploy press,
+including a Seed Vault prompt for the funding, was 2 min 25 s. The same
+artifact as legacy is 108 write transactions, which at the rate measured on
+2026-09-02 (186 chunks in 8 min 38 s, pacer-bound) is about five minutes.
 
 Two facts about V1 that are not in the SIMD's summary and that the code
 depends on: a V1 header with the compute-unit bit unset runs on **zero**
@@ -99,8 +107,12 @@ the deploy log — and the caller recompiles the same instructions as legacy. A
 deploy demoted mid-upload keeps every chunk already on the buffer and re-cuts
 only the gaps to the legacy size (`Loader.recut`), since a Write is by offset.
 
-**The wallet.** Whether the shipping Seed Vault Wallet signs V1 is unknown as
-of 2026-09-19 (seed-vault-sdk PR #780 is open), so it is asked, not assumed:
+**The wallet.** The Seed Vault Wallet on the Seeker (1.16.2, 2026-09-19)
+lists transaction version 1 in its `get_capabilities` answer and signed a
+V1 transfer on devnet — verified on the explorer, `version: 1`, signer
+9qVM…jNC5 — although seed-vault-sdk's own V1 pull request (#780) was still
+open that day. It was unknown until it was tried, other wallets may differ,
+and the answer is one RPC away, so it is asked, not assumed:
 a connect calls MWA `get_capabilities` in the same association (a sign does
 when nothing is cached for that cluster and account yet), and a
 wallet-signed transaction is V1 only when its `supported_transaction_versions`
@@ -149,14 +161,16 @@ deployed again.
 - The wallet **alters transactions when it signs**: a fresh blockhash and its
   own compute-budget instructions in front. `WalletAnswers` accepts exactly
   that and nothing else, and local signers sign the wallet's message. (Those
-  measurements were of legacy transactions; what the wallet does with a V1
-  request has not been measured, see "Transaction V1" above.)
+  measurements were of legacy transactions. Given a V1 request on
+  2026-09-19 the same wallet returned a V1 transaction that `WalletAnswers`
+  accepted; whether it rewrote the header's config was not inspected.)
 - The public devnet endpoint allowed this IP about ten requests per ten
   seconds before answering 429 with a ten-second `Retry-After`, far under the
   documented limit. The pacer honours `Retry-After` and holds everyone; a
   200 kB program took eight to nine minutes of legacy chunk writes on it
-  (198 transactions). With V1's 55 the write phase should shrink in
-  proportion; not yet measured on the device.
+  (198 transactions). With V1 a 109 kB program's 30 write transactions,
+  buffer, deploy and hand-over took 70 s on the same endpoint (2026-09-19),
+  one resend round included.
 - The devnet faucet hangs rather than refuses when it is dry; the one
   airdrop still asked of it — a dry key's first few thousandths — is
   short-fused and falls through to the wallet, then to a message naming the

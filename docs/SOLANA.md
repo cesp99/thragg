@@ -477,6 +477,20 @@ workspace sets build-dir = target-dir and ignores the config (cargo 1.95.0,
 of `/opt/solana`. The guard's `mkdir -p` creates it before the first build
 on a phone set up earlier.
 
+Measured on the Seeker, 2026-09-19, with the anchor-lang 1.2.0 scaffold and
+`anchor build --arch v3 --tools-version v1.57`:
+
+| | wall | of which |
+|---|---|---|
+| First Anchor project, cache empty | **4 min 54 s** | the SBF dependencies to `target/deploy/*.so` in 3 min 40 s, the IDL's host build the rest; 582 MB into the cache |
+| Second Anchor project, same scaffold | **51 s** | `cargo build-sbf` finished in 3.41 s — only the program crate; the IDL's `test` profile compile of that crate, 38 s, partly waiting on rust-analyzer's own lock |
+
+The first row is what every new project cost before the cache (4 min 30 s
+was the 2026-09-02 figure for the 0.31.1 scaffold). The engine hands the
+same variable to the language servers it spawns (`CoreBridge.setUserland`),
+so rust-analyzer's check of a fresh project stops rebuilding the dependency
+graph into the project's `target/debug` — 345 MB per project before that.
+
 ## Projects
 
 The new-project dialog mirrors Solana Playground's: a name and a framework.

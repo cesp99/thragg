@@ -18,12 +18,12 @@ import com.solana.mobilewalletadapter.clientlib.transaction.TransactionVersion
  *    on devnet, testnet and mainnet-beta (verified 2026-09-19).
  *  * **[wallet]** — a transaction Seed Vault signs: V1 only when the wallet's
  *    MWA `get_capabilities` answer lists transaction version 1
- *    (`supported_transaction_versions`), legacy otherwise. Whether the
- *    shipping Seed Vault Wallet advertises or signs V1 is UNKNOWN as of
- *    2026-09-19 — seed-vault-sdk PR #780 is open — which is why it is asked
- *    rather than assumed, on connect and cached per cluster and account
- *    (SeedVaultWallet), and why a
- *    wallet that could not be asked is treated as legacy.
+ *    (`supported_transaction_versions`), legacy otherwise. The Seeker's
+ *    Seed Vault Wallet (1.16.2) does list it and signed a V1 transfer on
+ *    devnet, 2026-09-19 — while seed-vault-sdk PR #780 was still open, so
+ *    nothing upstream said it would. That is why it is asked rather than
+ *    assumed, on connect and cached per cluster and account
+ *    (SeedVaultWallet), and why a wallet that could not be asked is legacy.
  *
  * **Demotion.** The public RPC endpoints sit behind load balancers and a
  * node that predates SIMD-0385 answers a V1 payload with a decoder error

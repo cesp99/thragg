@@ -65,9 +65,10 @@ class WalletException(message: String) : Exception(message)
  * cluster the project chose, with our confirmation loop and our pacing, so
  * every send is ours and the wallet only signs.
  *
- * **Which transaction format the wallet gets.** Whether the shipping Seed
- * Vault Wallet signs Transaction V1 (SIMD-0385) is unknown as of 2026-09-19
- * — seed-vault-sdk PR #780 is still open — so it is asked, not assumed:
+ * **Which transaction format the wallet gets.** The Seeker's Seed Vault
+ * Wallet (1.16.2) advertises Transaction V1 (SIMD-0385) and signed one on
+ * devnet, 2026-09-19 — found by asking, while seed-vault-sdk PR #780 was
+ * still open — and a wallet is still asked, never assumed:
  * a connect calls MWA `get_capabilities` in the same association, a sign
  * does so when nothing is cached yet, and the `supported_transaction_versions`
  * stays in memory keyed by cluster and account ([capabilities]) until
