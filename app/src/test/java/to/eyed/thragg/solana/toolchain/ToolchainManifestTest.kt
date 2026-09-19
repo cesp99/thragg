@@ -200,11 +200,12 @@ class ToolchainManifestTest {
     /**
      * cargo-build-sbf's install must seed the driver's own tools cache with
      * symlinks to the platform-tools that is already installed — for the
-     * manifest's version *and* for the driver's own pinned default (v1.56
-     * for 4.2.0) — because a cold cache does not fail: it makes the first
-     * build download ~450 MB of a toolchain the phone already has, which on
-     * the 2026-08 device rehearsal ran 27 minutes and died. `ln -sfn`,
-     * because devices repaired by hand already carry the same symlink.
+     * manifest's version *and* for the driver's own pinned default (v1.57
+     * for 4.3.0, v1.56 for 4.2.0) — because a cold cache does not fail: it
+     * makes the first build download ~450 MB of a toolchain the phone
+     * already has, which on the 2026-08 device rehearsal ran 27 minutes and
+     * died. `ln -sfn`, because devices repaired by hand already carry the
+     * same symlink.
      */
     @Test
     fun `cargo-build-sbf seeds the tools cache it would otherwise re-download`() {
@@ -219,33 +220,71 @@ class ToolchainManifestTest {
                 "(${manifest.platformToolsVersion}) — --tools-version would download",
             seed.contains(manifest.platformToolsVersion),
         )
-        assertTrue(
-            "the cache is not seeded for 4.2.0's rehearsal-proven pin (v1.56) — " +
-                "a bare `anchor build` would download",
-            seed.contains("v1.56"),
-        )
         // Belt and braces for a future bump: the pin is also discovered from
         // the driver itself, which prints it without triggering the download.
         assertTrue(seed.contains("cargo-build-sbf --version"))
+        // And every tag the manifest lists as a driver's is seeded here too,
+        // for the install-time half of the seeding.
+        for (tag in manifest.toolsCacheSeeds) {
+            assertTrue("cargo-build-sbf's postInstall does not seed $tag", seed.contains(tag))
+        }
     }
 
     /**
-     * Every tag a driver can ask for is seeded, and each one is owned: the
-     * manifest's own version, cargo-build-sbf 4.2.0's pin, and the v1.52
-     * anchor-cli 1.1.2 hard-codes (`BUILD_SUBCOMMAND` in its src/lib.rs). The
-     * day this failed on the phone, `anchor build` spent 5 min 51 s pulling
-     * 1.6 GB it already had and then lost its IDL step to a relinked rustup.
-     * Anchor's own postInstall seeds its tag too, for the install-time half.
+     * Every tag a driver can ask for is seeded, and each one is a release
+     * tag of platform-tools, owned by name in `toolsCacheSeedsNote`. Since
+     * 2026-09-19 that is one tag three times over — the manifest's own
+     * version, cargo-build-sbf 4.3.0's pin and anchor-cli 1.2.0's default —
+     * where it used to be three (v1.57, 4.2.0's v1.56, and the v1.52
+     * anchor-cli 1.1.2 hard-coded; the day that one failed on the phone,
+     * `anchor build` spent 5 min 51 s pulling 1.6 GB it already had and
+     * then lost its IDL step to a relinked rustup). What is pinned here is
+     * the shape, not the literals: the installed version must be seeded, and
+     * nothing that is not a `v<major>.<minor>` tag may be. Anchor's own
+     * postInstall seeds every tag too, for the install-time half.
      */
     @Test
     fun `every platform-tools tag a driver asks for is seeded`() {
         val seeds = manifest.toolsCacheSeeds
+        assertTrue(seeds.isNotEmpty())
         assertTrue(manifest.platformToolsVersion in seeds)
-        assertTrue("cargo-build-sbf 4.2.0's pin (v1.56) is not seeded", "v1.56" in seeds)
-        assertTrue("anchor-cli 1.1.2's --tools-version (v1.52) is not seeded", "v1.52" in seeds)
+        for (tag in seeds) {
+            assertTrue("$tag is not a platform-tools release tag", tag.matches(Regex("v[0-9]+\\.[0-9]+")))
+        }
         val anchorSeed = manifest.component("anchor")!!.postInstall.flatten().joinToString(" ")
         assertTrue(anchorSeed.contains("ln -sfn /opt/solana/platform-tools /root/.cache/solana/"))
-        assertTrue(anchorSeed.contains("v1.52"))
+        for (tag in seeds) {
+            assertTrue("anchor's postInstall does not seed $tag", anchorSeed.contains(tag))
+        }
+    }
+
+    /**
+     * The two values the environment carries as constants — the shared
+     * build cache and the SBPF arch — and the manifest carries as data must
+     * be the same strings, or a build typed in the terminal (the constants)
+     * and one from the Build button (the manifest's `--arch`, the
+     * installer's cleanup of everything but `buildCache`) would disagree
+     * about where the dependencies are and which bytecode comes out. Same
+     * pattern as the tools version and the platform-tools URL above.
+     */
+    @Test
+    fun `the build cache and the sbpf arch match the constants the environment exports`() {
+        assertEquals(SolanaToolchain.BUILD_CACHE, manifest.buildCache)
+        assertEquals(SolanaToolchain.SBPF_ARCH, manifest.sbpfArch)
+        // v3 is the arch every cluster executes and the one SIMD-0500 will
+        // keep accepting; the drivers' own default is v0.
+        assertEquals("v3", manifest.sbpfArch)
+        assertTrue(manifest.buildCache.startsWith(manifest.cargoScratch + "/"))
+        assertTrue(manifest.buildCache.startsWith(manifest.guestRoot + "/"))
+        // Both are optional fields with these defaults, so an older manifest
+        // adopted from the network still parses — and still builds, at the
+        // drivers' defaults and into the same cache.
+        val stripped = manifestText()
+            .replaceFirst(Regex("\"sbpfArch\": \"[^\"]*\",\n"), "")
+            .replaceFirst(Regex("\"buildCache\": \"[^\"]*\",\n"), "")
+        val older = ToolchainManifest.parse(stripped)
+        assertEquals(null, older.sbpfArch)
+        assertEquals(SolanaToolchain.BUILD_CACHE, older.buildCache)
     }
 
     /**
@@ -302,11 +341,19 @@ class ToolchainManifestTest {
      */
     @Test
     fun `the prebuilt drivers come from the build repository, tagged with their version`() {
+        // The pair this manifest was bumped to on 2026-09-19: cargo-build-sbf
+        // 4.3.0 (defaults v1.57 / Rust 1.95.0, --arch) and anchor-cli 1.2.0
+        // (--arch, --tools-version, ANCHOR_BUILD_SBF_ARCH). cargo-build-sbf had
+        // `--arch` before; anchor-cli 1.1.2 had neither flag and hard-coded a
+        // tools tag (v1.52) this manifest no longer seeds.
+        assertEquals("4.3.0", manifest.component("cargo-build-sbf")!!.version)
+        assertEquals("1.2.0", manifest.component("anchor")!!.version)
         val repo = "https://github.com/cesp99/solana-tools-arm64/releases/download/"
         for ((id, tool) in listOf("cargo-build-sbf" to "cargo-build-sbf", "anchor" to "anchor-cli")) {
             val component = manifest.component(id)!!
             assertEquals(InstallMethod.Tarball, component.method)
             val version = component.version ?: error("$id pins no version")
+            assertTrue("$id's version is not x.y.z", version.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+")))
             assertEquals(
                 "$repo$tool-v$version/$tool-v$version-aarch64-unknown-linux-gnu.tar.gz",
                 component.url,

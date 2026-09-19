@@ -1,6 +1,7 @@
 package to.eyed.thragg.solana.build
 
 import android.content.Context
+import to.eyed.thragg.solana.toolchain.SolanaToolchain
 import to.eyed.thragg.terminal.GuestProcess
 import to.eyed.thragg.terminal.Userland
 import java.io.File
@@ -200,10 +201,22 @@ object BuildTasks {
     const val CARGO_BIN = "$CARGO_HOME/bin"
 
     /**
-     * The SBF target triple platform-tools reports. Only the fallback names
-     * it explicitly; `cargo-build-sbf` picks it itself.
+     * The SBF target triple platform-tools reports for the drivers' own
+     * default, SBPFv0. Only the fallback names a triple explicitly, through
+     * [sbfTarget]; `cargo-build-sbf` picks it itself from `--arch`.
      */
     const val SBF_TARGET = "sbpf-solana-solana"
+
+    /**
+     * The target triple for an SBPF version, the way cargo-build-sbf 4.3.0
+     * derives it (src/toolchain.rs): `v0`, and no arch at all, is the plain
+     * [SBF_TARGET]; any other is `sbpf<arch>-solana-solana`, one of the
+     * `sbpfv1`–`sbpfv3` targets platform-tools v1.57 ships. The fallback
+     * build passes it as `--target` so the program it compiles is the same
+     * program the driver would have emitted, `-z defs` aside.
+     */
+    fun sbfTarget(sbpfArch: String?): String =
+        if (sbpfArch == null || sbpfArch == "v0") SBF_TARGET else "sbpf$sbpfArch-solana-solana"
 
     /**
      * Where `cargo-build-sbf` keeps — and, when it thinks it is missing,
@@ -258,16 +271,30 @@ object BuildTasks {
      * warning naming `tests/hello.ts` on every run (seen 2026-09-08), and
      * that is the first line a user reads under "test" rather than their
      * test's own output. It is an environment variable and not a flag because
-     * anchor-cli 1.1.2 builds the test process's `NODE_OPTIONS` as `"{existing}
-     * --dns-result-order=ipv4first"`, so what is set here survives; the
+     * anchor-cli (1.1.2, and 1.2.0 unchanged, src/lib.rs) builds the test
+     * process's `NODE_OPTIONS` as `"{existing} --dns-result-order=ipv4first"`,
+     * so what is set here survives; the
      * `--disable-warning=<code>` form needs Node 21.3, and the manifest's
      * row is 22.23.2.
+     *
+     * `CARGO_BUILD_BUILD_DIR` is cargo's `build.build-dir`
+     * ([SolanaToolchain.BUILD_CACHE]): every project's dependency artifacts
+     * compile into one directory and are reused by the next project, while
+     * `target/deploy`, `target/idl` and `target/types` stay where the driver,
+     * Anchor and Deploy expect them. `ANCHOR_BUILD_SBF_ARCH`
+     * ([SolanaToolchain.SBPF_ARCH]) is anchor-cli 1.2.0's override for its
+     * default `--arch`, and the only way the arch reaches `anchor test` (no
+     * flag) and the `anchor build` inside `seahorse build`. Both are the
+     * terminal's values too — [SolanaToolchain.guestEnvironment] exports the
+     * same constants — so a build typed by hand is the Build button's build.
      */
     fun guestEnvironment(): List<String> = listOf(
         "PATH=$CARGO_BIN:$CLI_BIN:$LLVM_BIN:$NODE_BIN:" +
             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "CARGO_HOME=$CARGO_HOME",
         "RUSTUP_HOME=$RUSTUP_HOME",
+        "CARGO_BUILD_BUILD_DIR=${SolanaToolchain.BUILD_CACHE}",
+        "ANCHOR_BUILD_SBF_ARCH=${SolanaToolchain.SBPF_ARCH}",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT=0",
         "NODE_OPTIONS=--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
         // A build driven from a pipe is not a terminal, and cargo's progress
@@ -487,7 +514,8 @@ object BuildTasks {
      * device rehearsal (2026-08) and both idempotent:
      *
      *  1. **Relink rustup's default toolchain, named `thragg`.**
-     *     `cargo-build-sbf` (4.2.0, src/toolchain.rs) takes the first rustup
+     *     `cargo-build-sbf` (4.3.0, src/toolchain.rs, the same
+     *     `link_solana_toolchain` as 4.2.0) takes the first rustup
      *     toolchain whose *name contains "solana"* and, unless it is the
      *     `<rustc>-sbpf-solana-<tag>` entry it wants, *uninstalls* it before
      *     linking its own. Linked as `solana` — as it was until 2026-09-02 —
@@ -503,10 +531,18 @@ object BuildTasks {
      *     own platform-tools (~450 MB) for `<v>` — on the rehearsal device
      *     that download ran 27 minutes and died, with 1.4 GB of the identical
      *     toolchain already at [PLATFORM_TOOLS]. A symlink into place makes
-     *     the downloader a no-op. Seeded for the manifest's version *and* for
+     *     the downloader a no-op. Seeded for the manifest's version, for
+     *     every tag the manifest's `toolsCacheSeeds` lists, *and* for
      *     whatever version the installed driver itself pins (read from
-     *     `cargo-build-sbf --version`; 4.2.0 pins v1.56), because the pinned
-     *     default is what an `anchor build` with no `--tools-version` asks for.
+     *     `cargo-build-sbf --version`; 4.3.0 pins v1.57, the installed
+     *     tag, and 4.2.0 pinned v1.56), because the pinned default is what
+     *     a `cargo build-sbf` with no `--tools-version` asks for.
+     *
+     * And one directory: the shared build cache ([SolanaToolchain.BUILD_CACHE])
+     * is created here, so the `CARGO_BUILD_BUILD_DIR` every build exports
+     * exists on a phone whose install predates it — cargo would create it
+     * itself, but the guard runs before `anchor keys sync` too, and a
+     * `mkdir -p` is the cheapest of the three things this line does.
      *
      * The whole group is wrapped in one redirect to /dev/null: the build's
      * stdout is a JSON diagnostics pipe ([BuildCommand.jsonDiagnostics]) and
@@ -517,13 +553,16 @@ object BuildTasks {
     fun toolchainGuard(platformToolsVersion: String?, seeds: List<String> = emptyList()): String {
         val versions = buildString {
             platformToolsVersion?.let { append(it).append(' ') }
-            // The manifest's toolsCacheSeeds: the tags the installed drivers
-            // hard-code (anchor-cli 1.1.2 asks for v1.52 on every build and
-            // prints it nowhere, so it cannot be discovered like the next one).
+            // The manifest's toolsCacheSeeds: every tag an installed driver
+            // can ask for on its own. With 4.3.0 and anchor-cli 1.2.0 that is
+            // v1.57 again (both default to it, and `anchor test` has no
+            // --tools-version to say otherwise); until 2026-09-19 it carried
+            // v1.56 and the v1.52 anchor-cli 1.1.2 hard-coded and printed
+            // nowhere, which is why the list exists beside the discovery below.
             for (seed in seeds) append(seed).append(' ')
             append("\$(cargo-build-sbf --version 2>/dev/null | grep -oE 'v[0-9]+\\.[0-9]+' | head -n1)")
         }
-        return "{ [ -d $PLATFORM_TOOLS/rust ] && { " +
+        return "{ mkdir -p ${SolanaToolchain.BUILD_CACHE}; [ -d $PLATFORM_TOOLS/rust ] && { " +
             "rustup toolchain link thragg $PLATFORM_TOOLS/rust; rustup default thragg; " +
             "for v in $versions; do " +
             "mkdir -p $TOOLS_CACHE/\$v && ln -sfn $PLATFORM_TOOLS $TOOLS_CACHE/\$v/platform-tools; " +
@@ -554,24 +593,46 @@ object BuildTasks {
      * [platformToolsVersion] is the manifest's platform-tools release tag
      * (`ToolchainManifest.platformToolsVersion`), and passing it as
      * `--tools-version` is load-bearing, not decorative: without it,
-     * `cargo-build-sbf` 4.2.0 ignores the installed v1.57 entirely and
-     * downloads its own pinned v1.56 (~450 MB) on the first build — on the
-     * device rehearsal that download ran 27 min 39 s and then died. The flag
-     * plus [toolchainGuard]'s seeded cache is belt and braces: either alone
-     * keeps the demo build offline. Null (a manifest that failed to load)
-     * degrades to the guard alone.
+     * `cargo-build-sbf` builds with its own pinned tag — 4.2.0 ignored the
+     * installed v1.57 and downloaded its v1.56 (~450 MB) on the first build,
+     * a download that ran 27 min 39 s on the device rehearsal and then died.
+     * 4.3.0 pins v1.57, the installed one, so today the flag and the pin
+     * agree; the flag stays because the next bump of either side is the
+     * day they stop agreeing. The flag plus [toolchainGuard]'s seeded cache
+     * is belt and braces: either alone keeps the demo build offline. Null
+     * (a manifest that failed to load) degrades to the guard alone.
+     *
+     * [sbpfArch] is the manifest's `sbpfArch` (v3), passed as `--arch` to
+     * `cargo build-sbf` and to `anchor build`, before `--tools-version` on
+     * both lines so the two read the same and the tools tag stays the last
+     * word (both drivers take the flags in any order; anchor-cli 1.2.0's
+     * own `build_sbf_base_args` happens to forward them tools-version first).
+     * Anchor gets `--tools-version` for the first time here: 1.1.2 had no
+     * such flag and hard-coded v1.52 into every `cargo build-sbf` it ran,
+     * which the guard's seeded cache absorbed; 1.2.0 (src/lib.rs, `Build`)
+     * takes both `--tools-version` and `--arch` and hands them to
+     * `cargo build-sbf --tools-version <tv> --arch <arch>` unchanged, so the
+     * Anchor line can finally say what it builds with instead of relying on
+     * the cache to make the driver's default harmless. `seahorse build` has
+     * neither flag: it spawns `anchor build` itself, and that inner build
+     * reads `ANCHOR_BUILD_SBF_ARCH` from [guestEnvironment] — the same value
+     * — and defaults its tools version to v1.57, which is seeded. Null (an
+     * older manifest) omits `--arch`: `cargo build-sbf` then builds its
+     * default v0, while every Anchor line still reads the env and builds v3.
      */
     fun buildCommand(
         layout: ProjectLayout,
         tools: GuestTools,
         platformToolsVersion: String? = null,
+        sbpfArch: String? = null,
         seeds: List<String> = emptyList(),
     ): BuildCommand? = when {
         layout.framework == ProjectFramework.Unknown -> null
 
-        // Seahorse and Anchor both end in `anchor build`, which drives
-        // cargo-build-sbf itself — with no --tools-version, so the guard's
-        // seeded cache is what keeps their tools download from happening.
+        // Seahorse ends in an `anchor build` it spawns itself, with no flag
+        // of ours on it: the arch comes from ANCHOR_BUILD_SBF_ARCH in the
+        // environment, and the tools version from anchor-cli's own default,
+        // which the guard's seeded cache makes a no-op.
         layout.framework == ProjectFramework.Seahorse ->
             BuildCommand(
                 line = toolchainGuard(platformToolsVersion, seeds) + "seahorse build",
@@ -579,12 +640,14 @@ object BuildTasks {
                 jsonDiagnostics = false,
             )
 
-        layout.framework == ProjectFramework.Anchor ->
+        layout.framework == ProjectFramework.Anchor -> {
+            val flags = archFlag(sbpfArch) + versionFlag(platformToolsVersion)
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion, seeds) + "anchor build",
-                display = "anchor build",
+                line = toolchainGuard(platformToolsVersion, seeds) + "anchor build$flags",
+                display = "anchor build$flags",
                 jsonDiagnostics = false,
             )
+        }
 
         // Native, with cargo-build-sbf present: the canonical path, and the
         // one that produces target/deploy/.
@@ -600,29 +663,39 @@ object BuildTasks {
         // ASCII at column zero, which is exactly what [CargoDiagnostics]'s
         // line parser reads (guest repro on the Seeker, 2026-09-09).
         tools.cargoBuildSbf -> {
-            val versionFlag = platformToolsVersion?.let { " --tools-version $it" }.orEmpty()
+            val flags = archFlag(sbpfArch) + versionFlag(platformToolsVersion)
             BuildCommand(
-                line = toolchainGuard(platformToolsVersion, seeds) + "cargo build-sbf$versionFlag",
-                display = "cargo build-sbf$versionFlag",
+                line = toolchainGuard(platformToolsVersion, seeds) + "cargo build-sbf$flags",
+                display = "cargo build-sbf$flags",
                 jsonDiagnostics = false,
             )
         }
 
-        // Native, without it: platform-tools' cargo, by absolute path.
-        tools.platformCargo ->
+        // Native, without it: platform-tools' cargo, by absolute path, at
+        // the triple the driver would have chosen for the same arch.
+        tools.platformCargo -> {
+            val target = sbfTarget(sbpfArch)
             BuildCommand(
-                line = "$PLATFORM_CARGO build --release --target $SBF_TARGET " +
+                line = "$PLATFORM_CARGO build --release --target $target " +
                     "--message-format=json-diagnostic-rendered-ansi",
-                display = "cargo build --release --target $SBF_TARGET",
+                display = "cargo build --release --target $target",
                 jsonDiagnostics = true,
                 note = "cargo-build-sbf is not installed yet, so this is " +
                     "platform-tools' own cargo. It compiles, but it writes to " +
-                    "target/$SBF_TARGET/release/ and produces no program keypair, " +
+                    "target/$target/release/ and produces no program keypair, " +
                     "so the result cannot be deployed until setup finishes.",
             )
+        }
 
         else -> null
     }
+
+    /** ` --arch v3`, or nothing for a manifest that names no arch. */
+    private fun archFlag(sbpfArch: String?): String = sbpfArch?.let { " --arch $it" }.orEmpty()
+
+    /** ` --tools-version v1.57`, or nothing when the manifest could not be read. */
+    private fun versionFlag(platformToolsVersion: String?): String =
+        platformToolsVersion?.let { " --tools-version $it" }.orEmpty()
 
     /**
      * What Test runs — and this is where the honesty in docs/UI.md lives.
@@ -644,6 +717,14 @@ object BuildTasks {
      * Anchor.toml's `[provider] cluster` — put there by the app's own Deploy
      * sheet, which is the one deployer this phone has — signed by the wallet
      * that file names, which [BuildRunner] writes before the run.
+     *
+     * No `--arch` and no `--tools-version` on this line, and not for want
+     * of trying: anchor-cli 1.2.0's `anchor test` has neither flag
+     * (src/lib.rs, `Test`) and builds with `BuildSbfOptions::default()` —
+     * its `DEFAULT_TOOLS_VERSION`, v1.57, which the guard seeds, and
+     * `$ANCHOR_BUILD_SBF_ARCH` or v3, which [guestEnvironment] sets to the
+     * same value the Build button passes as a flag. That is why the arch
+     * is not a parameter here: the environment is its only channel.
      */
     fun testCommand(
         layout: ProjectLayout,
@@ -655,7 +736,7 @@ object BuildTasks {
         // `anchor test` builds first, so it reaches cargo-build-sbf and needs
         // the same guard a Build does. Native's `cargo test` is a host build
         // through platform-tools' own cargo and touches neither rustup's
-        // `solana` link nor the tools cache.
+        // `thragg` link nor the tools cache.
         ProjectFramework.Anchor, ProjectFramework.Seahorse ->
             BuildCommand(
                 line = toolchainGuard(platformToolsVersion, seeds) + ANCHOR_TEST,

@@ -98,6 +98,16 @@ object BuildRunner {
     /** The manifest's `toolsCacheSeeds`, for the guard — see [BuildTasks.toolchainGuard]. */
     private var toolsCacheSeeds: List<String> = emptyList()
 
+    /**
+     * The manifest's `sbpfArch` (v3), read beside [platformToolsVersion] and
+     * passed as `--arch` to `cargo build-sbf` and `anchor build`. Null for a
+     * manifest without it: `cargo build-sbf` then builds its own default
+     * (v0 — the one SIMD-0500 will refuse to deploy), while Anchor still
+     * reads `ANCHOR_BUILD_SBF_ARCH` from the environment, as `anchor test`
+     * and `seahorse build` always do.
+     */
+    private var sbpfArch: String? = null
+
     /** Whether [refresh] has answered once for the current project. */
     var probed: Boolean by mutableStateOf(false)
         private set
@@ -242,6 +252,7 @@ object BuildRunner {
         val manifest = runCatching { ToolchainManifest.load(context) }.getOrNull()
         platformToolsVersion = manifest?.platformToolsVersion
         toolsCacheSeeds = manifest?.toolsCacheSeeds.orEmpty()
+        sbpfArch = manifest?.sbpfArch
         probed = true
     }
 
@@ -321,7 +332,7 @@ object BuildRunner {
             return
         }
         val chosen = command ?: when (action) {
-            BuildAction.Build -> BuildTasks.buildCommand(current, tools, platformToolsVersion, toolsCacheSeeds)
+            BuildAction.Build -> BuildTasks.buildCommand(current, tools, platformToolsVersion, sbpfArch, toolsCacheSeeds)
             BuildAction.Test -> BuildTasks.testCommand(current, platformToolsVersion, toolsCacheSeeds)
             BuildAction.Deploy -> null
         }

@@ -62,8 +62,10 @@ import java.util.zip.GZIPInputStream
  *     manifest verify (`perl -e 1`) proves it, not just `/bin/sh`.
  *  3. **`cargo-build-sbf` execs `rustup`.** rustup is installed with
  *     `--default-toolchain none`, so it downloads no compiler, and
- *     platform-tools' own `postInstall` then links itself in as the `solana`
+ *     platform-tools' own `postInstall` then links itself in as the `thragg`
  *     toolchain and makes it the default. Both halves are in the manifest.
+ *     The name must not contain "solana": the driver uninstalls the first
+ *     rustup toolchain whose name does (manifest.json, `toolsCacheSeedsNote`).
  *
  * The install runs as **two lanes**, not one queue. The *fetch lane* pulls
  * every download in turn (smallest first) and unpacks each one into the rootfs
@@ -1259,18 +1261,39 @@ object ToolchainInstaller {
     /**
      * The cargo scratch, once nothing needs it.
      *
-     * `cargo install --target-dir` keeps every intermediate artifact of two
-     * large crates — several GB of `.rlib` that will never be read again. Kept
-     * while the compiles run so the second one reuses the first one's
-     * dependencies, deleted the moment they are both in.
+     * `cargo install --target-dir` keeps every intermediate artifact of a
+     * large crate — several GB of `.rlib` that will never be read again.
+     * Kept while the compiles run so a second one reuses the first one's
+     * dependencies, deleted the moment they are all in.
+     *
+     * All but the build cache. The manifest's `buildCache` — every project's
+     * shared dependency artifacts, `CARGO_BUILD_BUILD_DIR` — lives *under*
+     * the scratch, and this runs at the end of every successful run, an
+     * Update of two 5 MB drivers included: deleting the tree would throw
+     * away every crate the phone has ever compiled for a project each time
+     * a driver is bumped. So the scratch is cleared entry by entry, and the
+     * entry that leads to the cache is left alone. (The cache is not what
+     * `cargo install` writes: an ephemeral cargo workspace ignores
+     * `build.build-dir`, so Seahorse's scratch is beside it, never in it.)
      */
     private fun cleanCargoScratch(app: Context, manifest: ToolchainManifest) {
         val compiles = manifest.components.filter { it.isCompiled }
         if (compiles.isEmpty()) return
         if (!compiles.all { SolanaToolchain.isInstalled(app, it) }) return
         val scratch = SolanaToolchain.hostPath(app, manifest.cargoScratch)
-        runCatching { to.eyed.thragg.core.SafeDelete.deleteTree(scratch) }
-            .onFailure { Log.w(TAG, "could not clear the cargo scratch", it) }
+        val cache = SolanaToolchain.hostPath(app, manifest.buildCache)
+        runCatching {
+            if (!to.eyed.thragg.core.SafeDelete.isInside(scratch, cache)) {
+                to.eyed.thragg.core.SafeDelete.deleteTree(scratch)
+                return@runCatching
+            }
+            // Resolved, not compared as strings: the manifest may spell the
+            // cache any way it likes, and `entry` is what listFiles returned.
+            for (entry in scratch.listFiles().orEmpty()) {
+                if (to.eyed.thragg.core.SafeDelete.resolvesInside(entry, cache)) continue
+                to.eyed.thragg.core.SafeDelete.deleteTree(entry)
+            }
+        }.onFailure { Log.w(TAG, "could not clear the cargo scratch", it) }
     }
 
     // --- the foreground service ------------------------------------------------

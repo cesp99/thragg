@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import to.eyed.thragg.solana.toolchain.SolanaToolchain
 
 /**
  * The framework → command table, and the manifest reading that decides which
@@ -155,9 +156,11 @@ class BuildTasksTest {
 
     /**
      * The rehearsal incident this table must never repeat: without
-     * `--tools-version <installed>`, cargo-build-sbf 4.2.0 ignores the 1.4 GB
-     * platform-tools already on the phone and downloads its own pinned
-     * release — 27 minutes into a demo, over the venue's Wi-Fi.
+     * `--tools-version <installed>`, cargo-build-sbf builds with its own
+     * pin — 4.2.0 ignored the 1.4 GB platform-tools already on the phone
+     * and downloaded its v1.56, 27 minutes into a demo, over the venue's
+     * Wi-Fi. 4.3.0 pins the installed v1.57; the flag stays for the day
+     * the two stop agreeing.
      */
     @Test
     fun `the manifest's tools version is passed to cargo-build-sbf`() {
@@ -174,6 +177,64 @@ class BuildTasksTest {
         // driver that ignores the flag finds its download already satisfied.
         assertTrue(command.line.contains("/root/.cache/solana/"))
         assertTrue(command.line.contains("for v in v1.57 "))
+    }
+
+    /**
+     * SBPFv3 is what every cluster executes and what SIMD-0500 will soon
+     * require of a deploy; the drivers still default to v0. So the arch is
+     * on the line, before `--tools-version` so both lines read the same,
+     * for Native and for Anchor — which takes `--tools-version` for the
+     * first time with 1.2.0 and forwards both flags to `cargo build-sbf`.
+     */
+    @Test
+    fun `the manifest's sbpf arch is passed before the tools version, to native and anchor alike`() {
+        val native = BuildTasks.buildCommand(
+            layout(ProjectFramework.Native),
+            GuestTools(cargoBuildSbf = true),
+            platformToolsVersion = "v1.57",
+            sbpfArch = "v3",
+        )!!
+        assertTrue(native.line.endsWith("cargo build-sbf --arch v3 --tools-version v1.57"))
+        assertEquals("cargo build-sbf --arch v3 --tools-version v1.57", native.display)
+
+        val anchor = BuildTasks.buildCommand(
+            layout(ProjectFramework.Anchor),
+            GuestTools(),
+            platformToolsVersion = "v1.57",
+            sbpfArch = "v3",
+        )!!
+        assertTrue(anchor.line.endsWith("anchor build --arch v3 --tools-version v1.57"))
+        assertEquals("anchor build --arch v3 --tools-version v1.57", anchor.display)
+
+        // Seahorse spawns its own `anchor build` and takes neither flag: the
+        // arch reaches it through ANCHOR_BUILD_SBF_ARCH in the environment.
+        val seahorse = BuildTasks.buildCommand(
+            layout(ProjectFramework.Seahorse),
+            GuestTools(),
+            platformToolsVersion = "v1.57",
+            sbpfArch = "v3",
+        )!!
+        assertTrue(seahorse.line.endsWith("seahorse build"))
+        assertEquals("seahorse build", seahorse.display)
+    }
+
+    /** A manifest from before `sbpfArch` passes no `--arch`; the env still carries v3. */
+    @Test
+    fun `without an arch the flag is absent and the tools version stands alone`() {
+        val native = BuildTasks.buildCommand(
+            layout(ProjectFramework.Native),
+            GuestTools(cargoBuildSbf = true),
+            platformToolsVersion = "v1.57",
+            sbpfArch = null,
+        )!!
+        assertFalse(native.line.contains("--arch"))
+        assertTrue(native.line.endsWith("cargo build-sbf --tools-version v1.57"))
+        val anchor = BuildTasks.buildCommand(layout(ProjectFramework.Anchor), GuestTools(), "v1.57", null)!!
+        assertFalse(anchor.line.contains("--arch"))
+        assertEquals("anchor build --tools-version v1.57", anchor.display)
+        // And an arch with no tools version is just the arch.
+        val archOnly = BuildTasks.buildCommand(layout(ProjectFramework.Anchor), GuestTools(), null, "v3")!!
+        assertEquals("anchor build --arch v3", archOnly.display)
     }
 
     /**
@@ -229,14 +290,31 @@ class BuildTasksTest {
 
     /**
      * The manifest's seeds reach the guard, each as a `mkdir -p` + `ln -sfn`
-     * pair — this is the line that keeps anchor-cli's hard-coded v1.52 from
-     * turning every Anchor build into a 450 MB download.
+     * pair — this is the line that kept anchor-cli 1.1.2's hard-coded v1.52
+     * from turning every Anchor build into a 450 MB download, and that keeps
+     * the next driver's surprise pin from doing the same. The seeds are the
+     * manifest's, whatever they are: the fixture's two are stale on purpose.
      */
     @Test
     fun `the guard seeds every tag the manifest lists`() {
         val line = BuildTasks.toolchainGuard("v1.57", listOf("v1.56", "v1.52"))
         assertTrue(line.contains("for v in v1.57 v1.56 v1.52 \$(cargo-build-sbf --version"))
         assertTrue(line.contains("ln -sfn ${BuildTasks.PLATFORM_TOOLS} ${BuildTasks.TOOLS_CACHE}/\$v/platform-tools"))
+    }
+
+    /**
+     * The shared build cache is created by the guard, so the directory the
+     * environment names exists before cargo is asked to use it — on a phone
+     * set up before the cache existed as much as on a fresh one. Inside the
+     * silenced group, and before the platform-tools test, so it runs even
+     * when the relink is skipped.
+     */
+    @Test
+    fun `the guard creates the build cache the environment names`() {
+        val line = BuildTasks.toolchainGuard("v1.57")
+        assertTrue(line.startsWith("{ mkdir -p ${SolanaToolchain.BUILD_CACHE}; "))
+        assertTrue(line.indexOf("mkdir -p ${SolanaToolchain.BUILD_CACHE}") < line.indexOf("rustup toolchain link"))
+        assertTrue(line.endsWith(">/dev/null 2>&1; "))
     }
 
     @Test
@@ -265,6 +343,31 @@ class BuildTasksTest {
         // The whole point of the note: the artifact is not where a deploy
         // will look for it.
         assertTrue(command.note!!.contains("target/${BuildTasks.SBF_TARGET}/release/"))
+    }
+
+    /**
+     * The fallback names the triple the driver would have derived from the
+     * same arch (cargo-build-sbf 4.3.0, src/toolchain.rs): `sbpfv3-solana-
+     * solana` for v3, and the plain v0 triple for v0 or for no arch at all.
+     * Its note has to name the same directory, or it points at the wrong
+     * `target/<triple>/release/`.
+     */
+    @Test
+    fun `the fallback targets the triple of the manifest's arch`() {
+        assertEquals("sbpfv3-solana-solana", BuildTasks.sbfTarget("v3"))
+        assertEquals("sbpfv1-solana-solana", BuildTasks.sbfTarget("v1"))
+        assertEquals(BuildTasks.SBF_TARGET, BuildTasks.sbfTarget("v0"))
+        assertEquals(BuildTasks.SBF_TARGET, BuildTasks.sbfTarget(null))
+        val command = BuildTasks.buildCommand(
+            layout(ProjectFramework.Native),
+            GuestTools(cargoBuildSbf = false, platformCargo = true),
+            platformToolsVersion = "v1.57",
+            sbpfArch = "v3",
+        )!!
+        assertTrue(command.line.contains("--target sbpfv3-solana-solana "))
+        assertEquals("cargo build --release --target sbpfv3-solana-solana", command.display)
+        assertTrue(command.note!!.contains("target/sbpfv3-solana-solana/release/"))
+        assertFalse(command.line.contains("--arch"))
     }
 
     @Test
@@ -349,6 +452,27 @@ class BuildTasksTest {
     }
 
     /**
+     * The two values a build and a terminal must agree on: the shared
+     * build-dir, so a `cargo build-sbf` typed by hand reuses — and feeds —
+     * the same dependency artifacts the Build button does, and the arch for
+     * the two Anchor lines that cannot take `--arch` (`anchor test`, the
+     * `anchor build` inside `seahorse build`). Both come from
+     * [SolanaToolchain]'s constants on both sides, and the shipped
+     * manifest is held to the same strings by ToolchainManifestTest.
+     */
+    @Test
+    fun `the build cache and the sbpf arch are exported, and match the terminal's`() {
+        val environment = BuildTasks.guestEnvironment()
+        assertTrue(environment.contains("CARGO_BUILD_BUILD_DIR=${SolanaToolchain.BUILD_CACHE}"))
+        assertTrue(environment.contains("ANCHOR_BUILD_SBF_ARCH=${SolanaToolchain.SBPF_ARCH}"))
+        assertEquals("/opt/solana/build/deps", SolanaToolchain.BUILD_CACHE)
+        assertEquals("v3", SolanaToolchain.SBPF_ARCH)
+        val terminal = SolanaToolchain.guestEnvironment()
+        assertTrue(terminal.contains("CARGO_BUILD_BUILD_DIR=${SolanaToolchain.BUILD_CACHE}"))
+        assertTrue(terminal.contains("ANCHOR_BUILD_SBF_ARCH=${SolanaToolchain.SBPF_ARCH}"))
+    }
+
+    /**
      * corepack's yarn shim prompts on stdin before downloading a yarn it has
      * not cached, and a build's stdin is a closed pipe: the prompt would hang
      * the run, not fail it.
@@ -361,8 +485,9 @@ class BuildTasksTest {
     /**
      * Node 22 warns `[MODULE_TYPELESS_PACKAGE_JSON]` about the scaffold's
      * `tests/hello.ts` on every `anchor test` (seen 2026-09-08). anchor-cli
-     * 1.1.2 prepends the existing `NODE_OPTIONS` to its own, so the variable
-     * is the one channel that reaches mocha's Node.
+     * prepends the existing `NODE_OPTIONS` to its own (1.1.2; 1.2.0
+     * unchanged), so the variable is the one channel that reaches mocha's
+     * Node.
      */
     @Test
     fun `node is told not to warn about a typeless package json`() {

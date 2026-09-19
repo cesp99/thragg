@@ -162,6 +162,45 @@ object SolanaToolchain {
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
     /**
+     * cargo's `build.build-dir`, exported as `CARGO_BUILD_BUILD_DIR` to every
+     * build and every terminal: one directory, shared by every project on
+     * the phone, for the intermediate artifacts — the dependency rlibs,
+     * build-script output, incremental state — so `solana-program`,
+     * `anchor-lang` and the hundred-odd crates under them compile once per
+     * phone and profile rather than once per project. The *final* artifacts
+     * keep their place in the project (`target/deploy`, `target/idl`,
+     * `target/types`, the uplifted `.so` under `target/<triple>/release`),
+     * which is where cargo-build-sbf reads back and Deploy looks. Stable
+     * since cargo 1.91; platform-tools v1.57's cargo is 1.95.0.
+     *
+     * A constant and not a manifest read because [guestEnvironment] has no
+     * Context and is on the path that starts every shell. The manifest's
+     * `buildCache` is the same string — `ToolchainManifestTest` asserts it —
+     * and is what the installer's scratch cleanup spares. Under the cargo
+     * scratch on purpose: the one `cargo install` in the guest (Seahorse)
+     * ignores `build.build-dir` — an ephemeral workspace sets build-dir =
+     * target-dir (cargo 1.95.0, `Workspace::ephemeral`) — so its several GB
+     * land beside this directory and never in it.
+     */
+    const val BUILD_CACHE = "/opt/solana/build/deps"
+
+    /**
+     * The SBPF version every build emits, exported as `ANCHOR_BUILD_SBF_ARCH`
+     * — anchor-cli 1.2.0's override for its default `--arch` (src/lib.rs,
+     * `BUILD_ARCH_ENV`), which is the only channel into `anchor test` (no
+     * `--arch` flag; it builds with `BuildSbfOptions::default()`) and into
+     * the `anchor build` that `seahorse build` spawns. `v3`: the
+     * `enable_sbpf_v3_deployment_and_execution` gate is active on devnet,
+     * testnet and mainnet-beta (2026-09-19) and SIMD-0500 will refuse the
+     * drivers' own default, v0, once it activates. Exported from the
+     * terminal too, so an `anchor build` typed by hand builds what the
+     * Build button builds. The `--arch` flags on the explicit build lines
+     * come from the manifest's `sbpfArch`; `ToolchainManifestTest` keeps the
+     * shipped value equal to this.
+     */
+    const val SBPF_ARCH = "v3"
+
+    /**
      * Where the guest's filesystem is on this side.
      *
      * The same literal ThraggShell.kt hands the engine in
@@ -280,11 +319,21 @@ object SolanaToolchain {
      * is *led* rather than replaced. `CARGO_HOME` and `RUSTUP_HOME` are here
      * because `cargo-build-sbf` execs `rustup`, and a rustup that cannot find
      * its own home reports the toolchain as missing even though it is linked.
+     *
+     * The last two are what make a build typed in the terminal the same
+     * build the Build button runs: `BuildTasks.guestEnvironment` exports the
+     * same [BUILD_CACHE] and [SBPF_ARCH], and a `cargo build-sbf` or `anchor
+     * build` typed by hand would otherwise fill a second dependency tree in
+     * the project and emit a v0 program. The installer's guest steps see
+     * them too; the one that runs cargo (`cargo install` of Seahorse) ignores
+     * the build-dir, and nothing in them runs Anchor.
      */
     fun guestEnvironment(): List<String> = listOf(
         "PATH=$GUEST_PATH_PREFIX:$GUEST_BASE_PATH",
         "CARGO_HOME=/root/.cargo",
         "RUSTUP_HOME=/root/.rustup",
+        "CARGO_BUILD_BUILD_DIR=$BUILD_CACHE",
+        "ANCHOR_BUILD_SBF_ARCH=$SBPF_ARCH",
     )
 
     // --- the install record ---------------------------------------------------
@@ -422,6 +471,11 @@ object SolanaToolchain {
         val directories = buildSet {
             add(manifest.guestRoot)
             add(manifest.cargoScratch)
+            // The shared dependency cache. Inside both of the above today,
+            // and named anyway: it is the largest thing a phone that has
+            // built a few projects holds, and "free the disk" must still
+            // take it on the day a manifest moves it out from under them.
+            add(manifest.buildCache)
             add("/opt/ra")
             add("/root/.cargo")
             add("/root/.rustup")

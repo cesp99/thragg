@@ -23,10 +23,15 @@ LAB=/data/local/tmp/thragglab
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${THRAGG_WORK:-$HERE/../.lab}"
 PLATFORM_TOOLS_VERSION="${PLATFORM_TOOLS_VERSION:-v1.57}"
-# What cargo-build-sbf 4.2.0 itself pins and downloads when its cache is cold
-# and no --tools-version is passed — proven by the 2026-08 device rehearsal,
-# where the pinned download ran 27 min and died. See step_cargo_build_sbf.
-CARGO_BUILD_SBF_PINNED_TOOLS="${CARGO_BUILD_SBF_PINNED_TOOLS:-v1.56}"
+# What cargo-build-sbf 4.3.0 itself pins (DEFAULT_PLATFORM_TOOLS_VERSION in
+# src/toolchain.rs) and downloads when its cache is cold and no --tools-version
+# is passed — the same tag as PLATFORM_TOOLS_VERSION since 4.3.0; 4.2.0 pinned
+# v1.56, and the 2026-08 device rehearsal proved what a cold cache costs: the
+# pinned download ran 27 min and died. See step_cargo_build_sbf.
+CARGO_BUILD_SBF_PINNED_TOOLS="${CARGO_BUILD_SBF_PINNED_TOOLS:-v1.57}"
+# The SBPF version the app builds (manifest.json, sbpfArch): v3 is live on
+# every cluster and SIMD-0500 will refuse the driver's own default, v0.
+SBPF_ARCH="${SBPF_ARCH:-v3}"
 
 adbsh() { adb shell "$@"; }
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -185,9 +190,9 @@ step_verify() {
   adbsh "$LAB/guest.sh /bin/bash -c '
     rustup toolchain link thragg /opt/solana/platform-tools/rust && rustup default thragg
     cd /projects/hello_solana
-    time cargo-build-sbf --tools-version $PLATFORM_TOOLS_VERSION 2>&1 | tail -5
+    time cargo-build-sbf --arch $SBPF_ARCH --tools-version $PLATFORM_TOOLS_VERSION 2>&1 | tail -5
     ls -la target/deploy/
-    /opt/solana/platform-tools/llvm/bin/llvm-readelf -h target/deploy/*.so | grep -E \"Machine|Class\"'"
+    /opt/solana/platform-tools/llvm/bin/llvm-readelf -h target/deploy/*.so | grep -E \"Machine|Class|Flags\"'"
 }
 
 STEPS=(rootfs apt platform_tools rustup cargo_build_sbf rust_analyzer spettro verify)

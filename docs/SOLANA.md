@@ -43,23 +43,27 @@ the components below, verifies each against a pinned SHA-256, and unpacks
 them into the userland. It is one tap, resumable, and once done the device
 builds offline.
 
-Nothing here is hosted by us. Every component comes from its own upstream, or
-is built on the device from crates.io — fewer things to trust, no mirror to go
-stale, and no binaries of ours for anyone to have to take on faith:
+Nothing here is mirrored by us. Every component comes from its own upstream
+— fewer things to trust, no mirror to go stale — with two exceptions that
+have no arm64 binary anywhere and are built from crates.io by our own public
+workflow (below), each release carrying a signed provenance attestation:
 
 | Component | Source | Size |
 |---|---|---|
 | Debian rootfs | Debian's official container image, from the registry | 30 MB |
 | `rustup` (manager only, no toolchain) | `sh.rustup.rs`, `--default-toolchain none` | ~15 MB |
-| SBF platform-tools | `anza-xyz/platform-tools` releases | 505 MB |
+| SBF platform-tools v1.57 (Rust 1.95.0, LLVM 22) | `anza-xyz/platform-tools` releases | 505 MB |
 | Rust for the editor (rust-analyzer, rust-src and a stock `1.98.1`, `--profile minimal`) | `static.rust-lang.org`, through `rustup toolchain install` | 123 MB down, 613 MB on disk |
 | Spettro | `aploide/spettro` releases, `linux_arm64` | 15 MB |
-| `cargo-build-sbf` | crates.io — **built on the phone**, see below | ~4 min of CPU |
-| Anchor | crates.io — **built on the phone**, see below | one-time build |
+| `cargo-build-sbf` 4.3.0 | crates.io, **prebuilt by `cesp99/solana-tools-arm64`**, see below | 5 MB |
+| anchor-cli 1.2.0 | crates.io, **prebuilt by `cesp99/solana-tools-arm64`**, see below | 11 MB |
+| Node 22 (optional, for Anchor's tests) | `nodejs.org` | 57 MB |
+| Seahorse (optional) | crates.io, **built on the phone** | ~2 min of CPU |
 
 The *build* needs no Rust download: `platform-tools` already carries a host
-`aarch64-unknown-linux-gnu` toolchain alongside the SBF one, and that is the
-cargo that built `cargo-build-sbf` on the device.
+`aarch64-unknown-linux-gnu` toolchain alongside the SBF one — the cargo that
+built `cargo-build-sbf` on the device before the workflow existed, and the
+one that still builds Seahorse there.
 
 The *editor* does need one, and it is the one row above that is not fetched by
 the app. rust-analyzer expands a crate's proc macros through a server —
@@ -100,19 +104,22 @@ rustup toolchain link thragg /opt/solana/platform-tools/rust
 rustup default thragg
 ```
 
-The name is load-bearing. `cargo-build-sbf` 4.2.0 (`src/toolchain.rs`,
-`link_solana_toolchain`) takes the first rustup toolchain whose *name
-contains "solana"* and, unless it is the `<rustc>-sbpf-solana-<tag>` entry
-it wants for the `--tools-version` it was given, uninstalls it before
-linking its own. Until 2026-09-02 the default was linked as `solana`, so
-every build deleted it, and `anchor build` — whose IDL step runs `cargo
-test` on the *default* toolchain after `cargo build-sbf` returns — failed
-with "override toolchain 'solana' is not installed" on every phone. Named
-`thragg` it is invisible to the driver, which links and relinks its own
-`1.95.0-sbpf-solana-v1.52`-style entries beside it into the seeded cache
-symlinks (see the manifest's `toolsCacheSeedsNote` for why each tag is
-seeded). `BuildTasks.toolchainGuard` re-runs the link+default pair before
-every build, so a phone set up under the old name heals on its next build.
+The name is load-bearing. `cargo-build-sbf` 4.3.0 (`src/toolchain.rs`,
+`link_solana_toolchain` — the same code as 4.2.0, re-read 2026-09-19) takes
+the first rustup toolchain whose *name contains "solana"* and, unless it is
+the `<rustc>-sbpf-solana-<tag>` entry it wants for the `--tools-version` it
+was given, uninstalls it before linking its own. Until 2026-09-02 the
+default was linked as `solana`, so every build deleted it, and `anchor
+build` — whose IDL step runs `cargo test` on the *default* toolchain after
+`cargo build-sbf` returns — failed with "override toolchain 'solana' is not
+installed" on every phone. Named `thragg` it is invisible to the driver,
+which links and relinks its own `1.95.0-sbpf-solana-v1.57` entry beside it
+into the seeded cache symlink (see the manifest's `toolsCacheSeedsNote` for
+why the tag is seeded; until 2026-09-19 there were three, `v1.57`, the
+`v1.56` cargo-build-sbf 4.2.0 pinned and the `v1.52` anchor-cli 1.1.2
+hard-coded — both drivers now default to `v1.57`, the installed one).
+`BuildTasks.toolchainGuard` re-runs the link+default pair before every
+build, so a phone set up under the old name heals on its next build.
 
 Spettro needs no Node — it is a single static binary, which is part of why it
 is the bundled agent. The one Node in the guest is the optional `node` row,
@@ -140,8 +147,15 @@ release, copy the hash into this manifest. Compiling on the phone is still
 supported — the installer's `cargo-install` method was kept — and is a
 manifest edit away if the workflow is ever unavailable.
 
-Verified afterwards on the device: `cargo-build-sbf 4.2.0`, driving
-`platform-tools`, producing `target/deploy/`.
+Verified on the device with `cargo-build-sbf 4.2.0` (2026-09-02), driving
+`platform-tools`, producing `target/deploy/`. Since 2026-09-19 the manifest
+pins `cargo-build-sbf` 4.3.0 and `anchor-cli` 1.2.0: 4.3.0 is 4.2.0 with its
+defaults moved to platform-tools v1.57 / Rust 1.95.0 (a diff of the two
+crates' `src/` is those two constants, a cosmetic `format!` rewrite and a
+logger dependency), and 1.2.0
+is the first Anchor whose `anchor build` takes `--arch` and `--tools-version`
+— which is what lets the Build button say `--arch v3` on both lines ("What
+runs when you press Build").
 
 ## How long it takes
 
@@ -378,23 +392,90 @@ first run pulls the better part of a gigabyte over a phone's Wi-Fi.
 ## What runs when you press Build
 
 Programs are compiled by `cargo-build-sbf`, which drives the platform-tools
-`cargo` at the `sbpf-solana-solana` target. Anchor projects go through
+`cargo` at the `sbpfv3-solana-solana` target. Anchor projects go through
 `anchor build`, which calls the same thing.
 
 ```
-Build   →  anchor build            (Anchor)
-           seahorse build          (Seahorse: Python → Rust, then anchor build)
-           cargo build-sbf         (Native)
+Build   →  anchor build --arch v3 --tools-version v1.57      (Anchor)
+           seahorse build                                     (Seahorse: Python → Rust, then its own anchor build)
+           cargo build-sbf --arch v3 --tools-version v1.57   (Native)
 Test    →  anchor test --skip-local-validator --skip-deploy   (Anchor, Seahorse; needs the Node row)
            cargo test                                          (Native, or offered for Anchor's Rust tests)
 Deploy  →  solana program deploy target/deploy/<name>.so
 ```
 
+`v3` and `v1.57` on the command lines are the manifest's `sbpfArch` and
+`platformToolsVersion`; the environment's `ANCHOR_BUILD_SBF_ARCH=v3` is
+`SolanaToolchain.SBPF_ARCH`, a constant the manifest test keeps in step. `--arch v3` because the
+`enable_sbpf_v3_deployment_and_execution` gate is active on devnet, testnet
+and mainnet-beta (2026-09-19) and SIMD-0500, once activated, refuses a v0
+deploy — while cargo-build-sbf 4.3.0 still emits v0 by default. A v3 build
+links with `-z defs`, so the program's SDK must use static syscalls
+(`solana-program` ≥ 3, `anchor-lang` 1.2.0); `llvm-readelf -h x.so | grep
+Flags` on the result says `CPU Version: 3`. `--tools-version v1.57` is the
+installed platform-tools; the drivers now default to the same tag, and the
+flag stays for the bump that moves one without the other. `seahorse build`
+and `anchor test` take neither flag — Seahorse spawns `anchor build` itself,
+and `anchor test` has no `--arch` (it builds with anchor-cli's defaults) —
+so the arch reaches them through the environment.
+
+Every line is prefixed by `BuildTasks.toolchainGuard` (silenced): create the
+build cache, relink `thragg` as rustup's default, seed the tools cache. And
+every line, and every terminal, runs with this environment on top of the
+guest's own:
+
+```
+PATH=/root/.cargo/bin:/opt/solana/cli/bin:/opt/solana/platform-tools/llvm/bin:/opt/node/current/bin:…
+CARGO_HOME=/root/.cargo
+RUSTUP_HOME=/root/.rustup
+CARGO_BUILD_BUILD_DIR=/opt/solana/build/deps     the shared build cache, below
+ANCHOR_BUILD_SBF_ARCH=v3                          anchor-cli 1.2.0's default-arch override: anchor test, seahorse's inner build
+```
+
+(plus, for a build only, `TERM=dumb`, `CARGO_TERM_COLOR=never`,
+`RUST_BACKTRACE=1`, `COREPACK_ENABLE_DOWNLOAD_PROMPT=0` and a `NODE_OPTIONS`
+that silences Node 22's typeless-package warning.) The terminal exports the
+same two Solana values (`SolanaToolchain.guestEnvironment`), so an `anchor
+build` typed by hand is the Build button's build; `ToolchainManifestTest`
+holds the manifest's `sbpfArch` and `buildCache` to the constants the
+environment carries.
+
 Each runs inside the userland through the existing session layer, so a build
 survives backgrounding the way a terminal does. Output is streamed to a
-**Build** panel; cargo's JSON diagnostics are parsed and fed into the same
-diagnostics store the language server writes to, so a compile error is a
-squiggle in the editor and a row in the Problems tab, not just text.
+**Build** panel; the diagnostics — cargo's JSON where cargo is the process
+started (`cargo test`, the platform-cargo fallback), rustc's plain-text
+stderr where `cargo-build-sbf` or `anchor` swallow the inner cargo's stdout
+(the three Build lines) — are parsed and fed into the same diagnostics store
+the language server writes to, so a compile error is a squiggle in the
+editor and a row in the Problems tab, not just text.
+
+### Build cache
+
+Every project used to carry its own `target/` with a full copy of
+`solana-program`, `anchor-lang` and the hundred-odd crates under them,
+compiled from scratch for every new project. Since 2026-09-19 every build
+and every terminal exports `CARGO_BUILD_BUILD_DIR=/opt/solana/build/deps`
+(the manifest's `buildCache`): cargo's `build.build-dir`, stable since cargo
+1.91 (platform-tools v1.57's cargo is 1.95.0). cargo splits its output in
+two — *intermediate* artifacts (the dependency rlibs, build-script output,
+incremental state) go to the build-dir, *final* artifacts stay in the
+project's target dir — so one build-dir shared by every project reuses each
+registry dependency's compiled artifact wherever the profile and rustc are
+the same, which for the scaffolds they are, while `target/deploy/` (the
+program and its keypair), Anchor's `target/idl/` and `target/types/`, and
+the `.so` cargo uplifts to `target/<triple>/release/` are exactly where the
+driver, Anchor and Deploy always looked for them.
+
+Where it lives: under `/opt/solana/build`, the cargo scratch the installer
+uses for Seahorse's `cargo install` and clears when that compile lands. The
+installer clears around the cache (`ToolchainInstaller.cleanCargoScratch`)
+— it runs at the end of every successful install, an Update of two 5 MB
+drivers included, and must not throw away every crate the phone has ever
+compiled. `cargo install` itself never writes into it: an ephemeral cargo
+workspace sets build-dir = target-dir and ignores the config (cargo 1.95.0,
+`Workspace::ephemeral`). Settings' "free the disk" removes it with the rest
+of `/opt/solana`. The guard's `mkdir -p` creates it before the first build
+on a phone set up earlier.
 
 ## Projects
 
@@ -429,7 +510,7 @@ Two substitutions only:
 
 Deliberately not Playground's:
 
-- **Versions.** `anchor-lang` 0.31.1 / anchor-cli 1.1.2 and `solana-program`
+- **Versions.** `anchor-lang` 0.31.1 / anchor-cli 1.2.0 and `solana-program`
   2.2 are what builds on the phone; Playground's are its build server's.
   Native adds `borsh = { version = "1.5", features = ["derive"] }` because
   the starter derives Borsh and borsh 1 no longer enables `derive` by default.

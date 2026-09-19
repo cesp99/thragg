@@ -65,14 +65,47 @@ data class ToolchainManifest(
      * a build; the manifest's `toolsCacheSeedsNote` names each one's owner.
      */
     val toolsCacheSeeds: List<String>,
+    /**
+     * The SBPF version every build emits — `cargo build-sbf --arch <this>`,
+     * `anchor build --arch <this>`, and `ANCHOR_BUILD_SBF_ARCH` for the two
+     * lines that cannot take the flag (`seahorse build`, `anchor test`).
+     * `v3` in the shipped file: the v3 execution gate is live on every
+     * cluster and SIMD-0500 will refuse the drivers' own default, v0, once
+     * it activates (the manifest's `sbpfArchNote`). Null — a manifest from
+     * before 2026-09-19 — passes no flag: `cargo build-sbf` then builds its
+     * default v0, while Anchor, Seahorse and `anchor test` still read the
+     * environment's constant and build v3.
+     *
+     * The flags come from here; the environment variable comes from
+     * [SolanaToolchain.SBPF_ARCH], because `guestEnvironment()` has no
+     * manifest to read. [ToolchainManifestTest] keeps the two equal.
+     */
+    val sbpfArch: String?,
     /** Where the toolchain lives inside the guest — `/opt/solana`. */
     val guestRoot: String,
     /**
      * cargo's shared scratch for the on-device builds. Several GB while they
      * run and worth nothing afterwards, so the installer deletes it once the
-     * last compile lands.
+     * last compile lands — all but [buildCache], which lives under it.
      */
     val cargoScratch: String,
+    /**
+     * cargo's `build.build-dir` for every build on the phone, exported as
+     * `CARGO_BUILD_BUILD_DIR`: one directory where every project's
+     * *intermediate* artifacts — the dependency rlibs, build-script output,
+     * incremental state — land, so `solana-program` and `anchor-lang`
+     * compile once per phone rather than once per project. Final artifacts
+     * (`target/deploy`, `target/idl`, `target/types`, the uplifted `.so`)
+     * stay in the project, which is where the driver and Deploy look for
+     * them. Stable since cargo 1.91; platform-tools v1.57 carries 1.95.0.
+     *
+     * Defaults to [SolanaToolchain.BUILD_CACHE] for a manifest that predates
+     * it, and the shipped file is kept equal to that constant by
+     * [ToolchainManifestTest], since the environment is built from the
+     * constant and the directory is cleaned around it (the installer's
+     * scratch cleanup spares it; Settings' remove takes it with `guestRoot`).
+     */
+    val buildCache: String,
     /** In install order, which is also the order Setup lists them. */
     val components: List<ToolchainComponent>,
 ) {
@@ -197,8 +230,10 @@ data class ToolchainManifest(
                 released = released,
                 platformToolsVersion = root.getString("platformToolsVersion"),
                 toolsCacheSeeds = root.optStringList("toolsCacheSeeds"),
+                sbpfArch = root.optStringOrNull("sbpfArch"),
                 guestRoot = root.optString("guestRoot", "/opt/solana"),
                 cargoScratch = root.optString("cargoScratch", "/opt/solana/build"),
+                buildCache = root.optString("buildCache", SolanaToolchain.BUILD_CACHE),
                 components = components,
             )
         }

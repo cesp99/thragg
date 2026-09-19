@@ -492,8 +492,8 @@ will ask.
 | Rust for the editor (rustc, rust-std, cargo, rust-analyzer and rust-src, `--profile minimal`) | `static.rust-lang.org`, via `rustup toolchain install` | 1.98.1 | MIT OR Apache-2.0 |
 | Spettro (ACP agent) | [aploide/spettro](https://github.com/aploide/spettro) | v2.7.3 | GPL-3.0-or-later, © Eyed |
 | Build tools | Debian's own archives, via `apt` | — | Each package under its own terms |
-| cargo-build-sbf | crates.io, built on device | 4.2.0 | Apache-2.0 |
-| anchor-cli | crates.io, built on device | 1.1.2 | Apache-2.0 |
+| cargo-build-sbf | crates.io, built on device | 4.3.0 | Apache-2.0 |
+| anchor-cli | crates.io, built on device | 1.2.0 | Apache-2.0 |
 
 **Spettro is GPL-3.0**, confirmed by Eyed, who holds the copyright. That
 settles what was the one open question here: it is Eyed's own release
