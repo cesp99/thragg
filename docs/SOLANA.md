@@ -510,8 +510,11 @@ Two substitutions only:
 
 Deliberately not Playground's:
 
-- **Versions.** `anchor-lang` 0.31.1 / anchor-cli 1.2.0 and `solana-program`
-  2.2 are what builds on the phone; Playground's are its build server's.
+- **Versions.** `anchor-lang` 1.2.0 / anchor-cli 1.2.0 and `solana-program`
+  5.0 are what builds for SBPFv3 on the phone (static syscalls need
+  `solana-define-syscall` ≥ 3, which 0.31 / 2.2 never pulled); Playground's
+  are its build server's. The TypeScript client is `@anchor-lang/core`,
+  the name the 1.x line publishes under.
   Native adds `borsh = { version = "1.5", features = ["derive"] }` because
   the starter derives Borsh and borsh 1 no longer enables `derive` by default.
 - **Tests.** Playground's tests use its `pg.program`, `pg.wallet`,

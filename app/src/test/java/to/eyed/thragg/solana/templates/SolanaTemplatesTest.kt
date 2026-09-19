@@ -245,6 +245,78 @@ class SolanaTemplatesTest {
         assertTrue(native.contains("custom-panic"))
     }
 
+    /**
+     * The SDK versions are the SBPFv3 floor, not a preference: anchor-cli
+     * 1.2.0 builds `--arch v3` by default and links with `-z defs`, which
+     * only the SDKs with static syscalls (`solana-define-syscall` ≥ 3, i.e.
+     * `solana-program` ≥ 3 and `anchor-lang` 1.x) survive. A drift back to
+     * `anchor-lang` 0.31 / `solana-program` 2.2 would be a scaffold whose
+     * first build fails at the link step, several minutes in. The npm
+     * client is pinned with them because it moved with anchor-lang 1.x —
+     * `@coral-xyz/anchor` stops at 0.32 — and the tests import it by name.
+     */
+    @Test
+    fun theSdkVersionsAreTheSbpfV3Floor() {
+        val anchor = SolanaFramework.Anchor.files(program).associateBy { it.path }
+        val seahorse = SolanaFramework.Seahorse.files(program).associateBy { it.path }
+        val native = SolanaFramework.Native.files(program).associateBy { it.path }
+
+        assertTrue(anchor.getValue("programs/my-project/Cargo.toml").contents.contains("anchor-lang = \"1.2.0\""))
+        val seahorseManifest = seahorse.getValue("programs/my_project/Cargo.toml").contents
+        assertTrue(seahorseManifest.contains("anchor-lang = \"1.2.0\""))
+        assertTrue(seahorseManifest.contains("anchor-spl = \"1.2.0\""))
+        assertTrue(native.getValue("Cargo.toml").contents.contains("solana-program = \"5.0\""))
+
+        for ((name, files) in listOf("anchor" to anchor, "seahorse" to seahorse)) {
+            assertTrue(name, files.getValue("package.json").contents.contains("\"@anchor-lang/core\": \"^1.2.0\""))
+            assertTrue(name, !files.getValue("package.json").contents.contains("@coral-xyz/anchor"))
+            // Every TypeScript file imports the client under its new name.
+            for (path in files.keys.filter { it.endsWith(".ts") }) {
+                val source = files.getValue(path).contents
+                assertTrue("$name $path", source.contains("import * as anchor from \"@anchor-lang/core\";"))
+                assertTrue("$name $path", !source.contains("from \"@coral-xyz/anchor\""))
+            }
+        }
+    }
+
+    /**
+     * `entrypoint!`'s heap and panic blocks are guarded by `target_os =
+     * "solana"` as well as by the two features, and a stock host rustc does
+     * not know that value — so without naming it, a fresh scaffold's host
+     * `cargo check` is back to printing warnings nobody can act on (P-24,
+     * again). Every Rust manifest names it, the way `anchor init` does.
+     */
+    @Test
+    fun everyProgramManifestNamesTheSolanaTargetOsForTheCfgLint() {
+        for ((name, manifest) in programManifests()) {
+            assertTrue(name, manifest.contains("""'cfg(target_os, values("solana"))'"""))
+        }
+    }
+
+    /**
+     * The Anchor manifests carry the feature list anchor-cli 1.2.0's own
+     * `anchor init` writes: the three cfg features anchor-lang and
+     * `entrypoint!` test for are declared (so the lint is quiet), and
+     * `no-idl`, which nothing in 1.2 reads, is gone. Checked on the host
+     * 2026-09-19: zero warnings for the Anchor scaffold with and without
+     * `idl-build`.
+     */
+    @Test
+    fun anchorManifestsCarryAnchorInitsFeatureList() {
+        for ((name, manifest) in programManifests().filterKeys { it != "Native" }) {
+            for (feature in listOf("anchor-debug = []", "custom-heap = []", "custom-panic = []")) {
+                assertTrue("$name $feature", manifest.contains(feature))
+            }
+            assertTrue(name, !manifest.contains("no-idl = []"))
+        }
+    }
+
+    private fun programManifests(): Map<String, String> = mapOf(
+        "Anchor" to SolanaFramework.Anchor.files(program).first { it.path == "programs/my-project/Cargo.toml" }.contents,
+        "Native" to SolanaFramework.Native.files(program).first { it.path == "Cargo.toml" }.contents,
+        "Seahorse" to SolanaFramework.Seahorse.files(program).first { it.path == "programs/my_project/Cargo.toml" }.contents,
+    )
+
     /** A silent wrap in a balance is how programs lose money. */
     @Test
     fun everyRustTemplateKeepsOverflowChecksOn() {

@@ -113,10 +113,21 @@ data class SolanaProgram(
  * export applies (`export.ts`).
  *
  * Around those files sits a project that *builds*: real manifests at the
- * versions that build on this phone (`anchor-lang` 0.31, `solana-program` 2.2 —
+ * versions that build on this phone (`anchor-lang` 1.2, `solana-program` 5 —
  * not Playground's, which are its build server's), pinned loosely so cargo and
  * npm pick up patch releases without the template being wrong the week after
  * it was written.
+ *
+ * Those two are the floor SBPFv3 sets, not a preference: anchor-cli 1.2.0
+ * builds `--arch v3` by default, and a v3 program links with `-z defs`, which
+ * rejects every syscall the SDK still declares as an unresolved symbol. Static
+ * syscalls arrived with `solana-define-syscall` 3.0, which `solana-program` ≥ 3
+ * and `anchor-lang` 1.x pull in and 0.31 / 2.2 do not — so the old manifests
+ * would have failed at the link step of the first build (verified on the host
+ * against crates.io 2026-09-19: every dependency tree below resolves
+ * `solana-define-syscall` to 3.0.0, 4.0.1 or 5.2.0 only, nothing older). The
+ * TypeScript client moved with anchor-lang 1.x: it is `@anchor-lang/core`,
+ * and `@coral-xyz/anchor` on npm stops at the 0.32 line (`anchorPackageJson`).
  */
 enum class SolanaFramework(
     @param:StringRes val labelRes: Int,
@@ -237,16 +248,26 @@ private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateF
         crate-type = ["cdylib", "lib"]
         name = "${program.moduleName}"
 
+        # The feature list `anchor init` (anchor-cli 1.2.0) writes: `no-idl`
+        # is gone — nothing in anchor-lang 1.2 reads it — and the three that
+        # anchor-lang and `entrypoint!` test with `#[cfg(feature = …)]` are
+        # declared so cargo's unexpected-cfg lint has nothing to say about
+        # them, as the Native manifest's comment explains at length.
         [features]
         default = []
         cpi = ["no-entrypoint"]
         no-entrypoint = []
-        no-idl = []
         no-log-ix-name = []
         idl-build = ["anchor-lang/idl-build"]
+        anchor-debug = []
+        custom-heap = []
+        custom-panic = []
 
         [dependencies]
-        anchor-lang = "0.31.1"
+        anchor-lang = "1.2.0"
+
+        [lints.rust]
+        unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
         """.trimIndent() + "\n",
     ),
     // Playground: client/src/frameworks/anchor/files/src/lib.rs
@@ -296,12 +317,12 @@ private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateF
         // Playground has web3, anchor, BN, assert and pg as globals; outside the
         // website they are imports, pg.program is anchor.workspace, and
         // pg.wallet / pg.connection are the provider Anchor.toml configures.
-        import * as anchor from "@coral-xyz/anchor";
+        import * as anchor from "@anchor-lang/core";
         // Why this line is not a plain `import { BN, web3 }`:
         //
         // mocha tries `import()` before `require()`, and the guest's Node
         // strips TypeScript types on its own, so a spec that is legal ESM
-        // really is loaded as ESM. @coral-xyz/anchor is CommonJS, and Node
+        // really is loaded as ESM. @anchor-lang/core is CommonJS, and Node
         // detects only the exports assigned plainly: `web3` is found,
         // `BN` — installed through a defineProperty getter — is not, so a
         // named import of it silently yields undefined and `new BN(42)`
@@ -326,9 +347,9 @@ private fun anchorFiles(program: SolanaProgram, cluster: String): List<TemplateF
 
             // Send transaction
             const data = new BN(42);
-            // accountsPartial, not accounts: Anchor 0.30+'s typed accounts()
-            // refuses accounts the client resolves itself (system_program),
-            // and Playground's test names every account.
+            // accountsPartial, not accounts: Anchor's typed accounts() (0.30
+            // on, 1.2 included) refuses accounts the client resolves itself
+            // (system_program), and Playground's test names every account.
             const txHash = await program.methods
               .initialize(data)
               .accountsPartial({
@@ -411,7 +432,7 @@ private fun anchorClient(): String =
     // Mirrors Solana Playground's default client (client/client.ts); run it with
     // `anchor run client`. pg.wallet and pg.connection are Playground globals —
     // here they are the provider Anchor.toml configures.
-    import * as anchor from "@coral-xyz/anchor";
+    import * as anchor from "@anchor-lang/core";
 
     const provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
@@ -448,6 +469,19 @@ private val ANCHOR_WORKSPACE_CARGO_TOML =
     codegen-units = 1
     """.trimIndent() + "\n"
 
+/**
+ * The TypeScript client is `@anchor-lang/core`, at the crate's version.
+ *
+ * Anchor renamed the npm package with its 1.0 line: `@coral-xyz/anchor` is
+ * frozen on npm at 0.32.1 (its `latest` tag) with no 1.x behind it, and
+ * `anchor init` from anchor-cli 1.2.0 writes `"@anchor-lang/core": "^1.2.0"`
+ * (template.rs, `ts_package_json_v1`). The client and `anchor-lang` are
+ * released in lockstep and read the same IDL spec, so the caret here tracks
+ * the crate's minor. The package's shape is the old one — CommonJS `main`,
+ * no `exports` map, `BN` behind a `defineProperty` getter (checked in the
+ * 1.2.0 tarball) — so the ESM/CJS note in the tests still applies word for
+ * word.
+ */
 private fun anchorPackageJson(program: SolanaProgram): String =
     """
     {
@@ -459,7 +493,7 @@ private fun anchorPackageJson(program: SolanaProgram): String =
         "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
       },
       "dependencies": {
-        "@coral-xyz/anchor": "^0.31.1"
+        "@anchor-lang/core": "^1.2.0"
       },
       "devDependencies": {
         "@types/bn.js": "^5.1.6",
@@ -520,9 +554,13 @@ private val ANCHOR_GITIGNORE =
  * instruction.)
  *
  * The manifest is the one Playground's export writes (`native/export.ts`) at
- * the versions that build here: `solana-program` 2.2 and `borsh` 1 with
- * `derive`, which the two `#[derive]`s need and borsh 1 no longer turns on
- * by default. Playground's `tests/native.test.ts` and `client/client.ts` are
+ * the versions that build here: `solana-program` 5 — the SBPFv3 floor is 3,
+ * see [SolanaFramework] — and `borsh` 1 with `derive`, which the two
+ * `#[derive]`s need and borsh 1 no longer turns on by default (5.0 has no
+ * borsh dependency of its own, so `1.5` stays the requirement and resolves to
+ * the newest 1.x). Playground's `src/lib.rs` compiles against 5.0 unchanged:
+ * the six paths it imports are all still re-exported (checked on the host,
+ * 2026-09-19). Playground's `tests/native.test.ts` and `client/client.ts` are
  * TypeScript against `@solana/web3.js`; this scaffold's Test is `cargo test`
  * (docs/SOLANA.md, "How tests run"), so they are not written — a Node test
  * with nothing to run it would be a file that cannot pass.
@@ -554,7 +592,7 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
 
         [dependencies]
         borsh = { version = "1.5", features = ["derive"] }
-        solana-program = "2.2"
+        solana-program = "5.0"
 
         # `entrypoint!` expands to `#[cfg(feature = "custom-heap")]` and
         # `#[cfg(feature = "custom-panic")]` in THIS crate, and cargo only
@@ -563,9 +601,13 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
         # value` warnings that the person who typed the project name had no
         # way to act on (measured on the Seeker 2026-09-08). Naming the two
         # values here is what solana-program's own crates do; the lint stays
-        # on for every other cfg.
+        # on for every other cfg. The same two blocks are also guarded by
+        # `target_os = "solana"` (solana-program-entrypoint, 2.x and 5.x
+        # alike), a value a stock host rustc does not know — the phone's
+        # platform-tools fork does — so a host `cargo check` warns twice more
+        # without the second entry; `anchor init` names it the same way.
         [lints.rust]
-        unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("custom-heap", "custom-panic"))'] }
+        unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("custom-heap", "custom-panic"))', 'cfg(target_os, values("solana"))'] }
 
         [profile.release]
         overflow-checks = true
@@ -659,7 +701,14 @@ private fun nativeFiles(program: SolanaProgram): List<TemplateFile> = listOf(
  *    rust-analyzer — until the first `seahorse build` has run.
  *
  * The generated code always imports `anchor_spl`, so the manifest depends on
- * it at Anchor's version whether or not the program touches a token.
+ * it at Anchor's version whether or not the program touches a token. That
+ * version is 1.2.0, the same as the Anchor template's, although Seahorse
+ * 0.2.0 itself is from January 2024: the Rust it emits for this program —
+ * `#[program]`, `#[account]`, `Box<Account>`, `anchor_spl::token` — compiles
+ * against anchor-lang / anchor-spl 1.2.0 with no errors, with and without
+ * `idl-build` (seahorse-dev 0.2.0 from crates.io, `seahorse build` then
+ * `cargo check` on the host, 2026-09-19), so Seahorse programs target SBPFv3
+ * on the same footing as Anchor ones.
  *
  * `seahorse build` then hands off to `anchor build`, so the `Anchor.toml` and
  * workspace `Cargo.toml` below are the same ones the Anchor template ships.
@@ -694,13 +743,18 @@ private fun seahorseFiles(program: SolanaProgram, cluster: String): List<Templat
             default = []
             cpi = ["no-entrypoint"]
             no-entrypoint = []
-            no-idl = []
             no-log-ix-name = []
             idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+            anchor-debug = []
+            custom-heap = []
+            custom-panic = []
 
             [dependencies]
-            anchor-lang = "0.31.1"
-            anchor-spl = "0.31.1"
+            anchor-lang = "1.2.0"
+            anchor-spl = "1.2.0"
+
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
             """.trimIndent() + "\n",
         ),
         TemplateFile(
@@ -763,7 +817,7 @@ private fun seahorseFiles(program: SolanaProgram, cluster: String): List<Templat
             // Playground has web3, anchor, BN, assert and pg as globals; outside the
             // website they are imports, pg.program is anchor.workspace, and
             // pg.wallet / pg.connection are the provider Anchor.toml configures.
-            import * as anchor from "@coral-xyz/anchor";
+            import * as anchor from "@anchor-lang/core";
             // Reads `default` when the spec is loaded as ESM and the
             // namespace when it is loaded as CommonJS; the Anchor test
             // explains why neither alone is enough.
@@ -786,9 +840,9 @@ private fun seahorseFiles(program: SolanaProgram, cluster: String): List<Templat
 
               it("init", async () => {
                 // Send transaction
-                // accountsPartial, not accounts: Anchor 0.30+'s typed accounts()
-                // refuses accounts the client resolves itself (the PDA, the
-                // system program), and Playground's test names them.
+                // accountsPartial, not accounts: Anchor's typed accounts() (0.30
+                // on, 1.2 included) refuses accounts the client resolves itself
+                // (the PDA, the system program), and Playground's test names them.
                 const txHash = await program.methods
                   .init()
                   .accountsPartial({

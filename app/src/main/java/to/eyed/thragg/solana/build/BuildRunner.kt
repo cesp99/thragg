@@ -627,7 +627,7 @@ object BuildRunner {
                 log.append(
                     BuildLogRow.Note(
                         "yarn install exited $exit, so the tests cannot run: ts-mocha and " +
-                            "@coral-xyz/anchor are not installed. Check the network, or run " +
+                            "@anchor-lang/core are not installed. Check the network, or run " +
                             "`yarn install` in the Shell to see the full output, then Test again."
                     )
                 )

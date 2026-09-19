@@ -298,7 +298,7 @@ The screen the app exists for. Which cluster, which wallet, how much SOL, which 
 ├──────────────────────────────────────────┤
 │ 14:22  anchor build                      │
 │    Compiling escrow v0.1.0               │
-│    Compiling anchor-lang v0.31.1         │
+│    Compiling anchor-lang v1.2.0          │
 │ ✕ error[E0609]: no field `esrow` on      │
 │   type `EscrowBumps`                     │
 │      programs/escrow/src/lib.rs:17:26 →  │
