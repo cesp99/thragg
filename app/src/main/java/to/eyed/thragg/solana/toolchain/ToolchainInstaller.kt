@@ -17,6 +17,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
+import to.eyed.thragg.solana.build.BuildCachePrimer
 import to.eyed.thragg.terminal.GuestProcess
 import to.eyed.thragg.terminal.InstallCancelledMarker
 import to.eyed.thragg.terminal.ShellCommand
@@ -315,7 +316,17 @@ object ToolchainInstaller {
         phase = ToolchainPhase.Running
         job = scope.launch {
             val self = coroutineContext[Job]
-            val ok = runCatching { run(app) }.getOrElse { error ->
+            val ok = runCatching {
+                // A priming run compiles with the drivers this run is about to
+                // replace, in the cache this run's cleanup walks around: it
+                // is killed and *waited for* (BuildCachePrimer.cancel returns
+                // once its process is gone) before the first step. `phase`
+                // is already Running above, so the primer refuses to start
+                // again until this run has settled.
+                BuildCachePrimer.cancel("the toolchain installer")
+                ensureActive()
+                run(app)
+            }.getOrElse { error ->
                 when (error) {
                     is InstallCancelledMarker -> Log.i(TAG, "toolchain install cancelled")
                     is ComponentFailed -> {
@@ -362,6 +373,10 @@ object ToolchainInstaller {
             withContext(NonCancellable + Dispatchers.Main) {
                 syncForegroundService(app)
                 onFinished(isUsable)
+                // Here and not at the end of [run]: the primer refuses to
+                // start beside a running installer, and [phase] only settles
+                // above. It decides for itself whether both drivers are in.
+                if (phase == ToolchainPhase.Complete) BuildCachePrimer.onToolchainInstalled(app)
             }
         }
         // The notification that keeps Android from reaping proot while the

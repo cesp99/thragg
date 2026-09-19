@@ -2,6 +2,7 @@ package to.eyed.thragg.solana.chain
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
@@ -34,17 +35,23 @@ import to.eyed.thragg.terminal.TerminalSessions
 object BackgroundWork {
 
     /** Long enough for the slowest deploy seen on a phone, short enough to be a ceiling. */
-    private const val WAKE_LOCK_MS = 30L * 60L * 1_000L
+    const val WAKE_LOCK_MS = 30L * 60L * 1_000L
 
     /**
      * Run [block] with the foreground service held under [tag] and the CPU
      * awake. Both are released however [block] ends.
+     *
+     * [maxMs] is the wake lock's ceiling — the point past which a [block]
+     * that never ends stops costing battery. [WAKE_LOCK_MS] fits a deploy;
+     * the build cache's warm-up passes its own, because two scaffolds
+     * compiled at `nice -n 10` behind a foreground build, plus the first
+     * crates.io fetch on a slow link, is honestly longer than that.
      */
-    suspend fun <T> hold(context: Context, tag: String, block: suspend () -> T): T {
+    suspend fun <T> hold(context: Context, tag: String, maxMs: Long = WAKE_LOCK_MS, block: suspend () -> T): T {
         val app = context.applicationContext
         val power = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val lock = power?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "thragg:$tag")
-        runCatching { lock?.acquire(WAKE_LOCK_MS) }
+        runCatching { lock?.acquire(maxMs) }
         runCatching { TerminalSessions.of(app).holdForBackgroundWork(tag, true) }
         try {
             return block()
@@ -53,6 +60,20 @@ object BackgroundWork {
             runCatching { if (lock?.isHeld == true) lock.release() }
         }
     }
+
+    /**
+     * Whether the active network bills by the byte.
+     *
+     * A fact read at the moment of asking, not watched: the Toolchain
+     * screen reads it once when it composes — a change of network
+     * mid-install is not a reason to relabel a button under the user's
+     * thumb, and the install itself survives the change either way — and
+     * the build cache's warm-up reads it at each automatic trigger, which
+     * is the moment it decides whether to start a 582 MB fetch unasked.
+     */
+    fun isMetered(context: Context): Boolean = runCatching {
+        context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+    }.getOrDefault(false)
 
     /** Whether the user has exempted this app from battery optimisation (Doze). */
     fun isUnrestricted(context: Context): Boolean {

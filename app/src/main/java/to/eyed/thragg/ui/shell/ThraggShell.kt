@@ -59,6 +59,7 @@ import to.eyed.thragg.terminal.Userland
 import to.eyed.thragg.terminal.UserlandInstaller
 import to.eyed.thragg.terminal.UserlandState
 import to.eyed.thragg.ui.git.AskpassDialog
+import to.eyed.thragg.solana.build.BuildCachePrimer
 import to.eyed.thragg.solana.toolchain.SolanaToolchain
 import to.eyed.thragg.ui.shell.build.BuildBootstrap
 import to.eyed.thragg.ui.shell.build.BuildScreen
@@ -172,7 +173,13 @@ fun ThraggShell(
     // repeat and left GIT_ASKPASS pointing at nothing, which is what makes
     // [AskpassDialog] below reachable at all (WorkspaceScreen.kt:1352-1367).
     LaunchedEffect(UserlandInstaller.state) {
-        withContext(Dispatchers.IO) { syncUserlandWithEngine(context) }
+        withContext(Dispatchers.IO) {
+            syncUserlandWithEngine(context)
+            // The build cache's warm-up, when the toolchain is in and the
+            // cache is not yet primed for it: one launch on the primer's own
+            // scope, which decides everything else (BuildCachePrimer).
+            BuildCachePrimer.maybeStart(context)
+        }
     }
 
     ImportIncoming(state, incoming, onIncomingHandled)

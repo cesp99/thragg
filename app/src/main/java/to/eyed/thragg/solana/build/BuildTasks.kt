@@ -763,6 +763,24 @@ object BuildTasks {
     )
 
     /**
+     * [cargoTestCommand]'s compile without its run: what the build cache's
+     * warm-up ([BuildCachePrimer]) runs on the Native scaffold, so the first
+     * press of a Native project's Test button finds `solana-program`'s dev
+     * profile already in the cache instead of compiling it. Guarded for
+     * the same reason. No `--message-format`: no parser reads a warm-up,
+     * and the JSON would only bloat the tail kept for a failure.
+     */
+    fun cargoTestNoRunCommand(platformToolsVersion: String? = null, seeds: List<String> = emptyList()): BuildCommand =
+        BuildCommand(
+            line = toolchainGuard(platformToolsVersion, seeds) + CARGO_TEST_NO_RUN,
+            display = CARGO_TEST_NO_RUN,
+            jsonDiagnostics = false,
+        )
+
+    /** The one line [cargoTestNoRunCommand] runs. */
+    const val CARGO_TEST_NO_RUN = "cargo test --no-run"
+
+    /**
      * Whether pressing Test on this project runs its tests through Node and
      * yarn — an Anchor or Seahorse project's `[scripts] test` — rather than
      * through cargo alone.

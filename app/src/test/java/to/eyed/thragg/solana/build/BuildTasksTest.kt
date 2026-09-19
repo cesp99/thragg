@@ -395,6 +395,28 @@ class BuildTasksTest {
         assertEquals("cargo test", BuildTasks.testCommand(layout(ProjectFramework.Native))!!.display)
     }
 
+    /**
+     * The warm-up's second Native command: the Test button's compile with
+     * nothing run, guarded like every rustup-shimmed line, and without the
+     * JSON a parser would want — no parser reads a warm-up.
+     */
+    @Test
+    fun `cargo test no-run is the test compile without the run, guarded, without json`() {
+        val command = BuildTasks.cargoTestNoRunCommand("v1.57", listOf("v1.56"))
+        assertEquals("cargo test --no-run", command.display)
+        assertEquals(BuildTasks.CARGO_TEST_NO_RUN, command.display)
+        assertTrue(command.line.endsWith("cargo test --no-run"))
+        assertTrue(command.line.startsWith(BuildTasks.toolchainGuard("v1.57", listOf("v1.56"))))
+        assertFalse(command.jsonDiagnostics)
+        assertFalse(command.line.contains("--message-format"))
+        // The same guard the running variant gets: the two must not drift.
+        val running = BuildTasks.cargoTestCommand("v1.57", listOf("v1.56"))
+        assertEquals(
+            running.line.removeSuffix("cargo test --message-format=json-diagnostic-rendered-ansi"),
+            command.line.removeSuffix("cargo test --no-run"),
+        )
+    }
+
     @Test
     fun `only the anchor-shaped frameworks need node to test`() {
         assertTrue(BuildTasks.anchorTestNeedsNode(layout(ProjectFramework.Anchor)))

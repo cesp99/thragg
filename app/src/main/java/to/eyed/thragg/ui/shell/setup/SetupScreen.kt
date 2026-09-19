@@ -1,7 +1,6 @@
 package to.eyed.thragg.ui.shell.setup
 
 import android.content.Context
-import android.net.ConnectivityManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +47,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.thragg.R
+import to.eyed.thragg.solana.build.BuildCachePrimer
+import to.eyed.thragg.solana.build.BuildRunner
+import to.eyed.thragg.solana.chain.BackgroundWork
 import to.eyed.thragg.solana.toolchain.ComponentRow
 import to.eyed.thragg.solana.toolchain.ComponentState
 import to.eyed.thragg.solana.toolchain.SolanaToolchain
@@ -159,8 +161,10 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
      * screen leaves, which is exactly when nobody is reading it.
      */
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(phase) {
-        while (phase == ToolchainPhase.Running) {
+    // The build cache's row ticks with the same clock while it primes.
+    val priming = BuildCachePrimer.isRunning
+    LaunchedEffect(phase, priming) {
+        while (phase == ToolchainPhase.Running || priming) {
             now = System.currentTimeMillis()
             delay(1_000L)
         }
@@ -189,7 +193,7 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 manifest = manifest,
                 rows = rows,
                 estimateSeconds = estimate,
-                metered = remember(context) { isMetered(context) },
+                metered = remember(context) { BackgroundWork.isMetered(context) },
                 onStart = {
                     pagerDismissed = true
                     ToolchainInstaller.start(context) { ready -> state.toolchainReady = ready }
@@ -264,6 +268,9 @@ fun SetupScreen(state: ShellState, modifier: Modifier = Modifier) {
                 StepList(
                     rows = rows,
                     now = now,
+                    // The cache row is a fact about a toolchain that is in;
+                    // under the gate, or mid-install, the list is the install.
+                    cache = complete && phase != ToolchainPhase.Running,
                     onRetry = { id ->
                         ToolchainInstaller.retry(context, id) { ready -> state.toolchainReady = ready }
                     },
@@ -484,7 +491,7 @@ private fun PartsPage(manifest: ToolchainManifest?, rows: List<ComponentRow>, es
         body = costLine(supported = true, manifest = manifest) +
             (estimateSeconds?.let { " About ${minutesFor(it)} minutes." } ?: ""),
     )
-    StepList(rows = rows, now = System.currentTimeMillis(), onRetry = {})
+    StepList(rows = rows, now = System.currentTimeMillis(), cache = false, onRetry = {})
 }
 
 /** A card of icon + title + one line, the shape every page's body takes. */
@@ -636,6 +643,7 @@ private fun minutesFor(seconds: Long): Long = (seconds + 59L) / 60L
 private fun StepList(
     rows: List<ComponentRow>,
     now: Long,
+    cache: Boolean,
     onRetry: (String) -> Unit,
 ) {
     ThraggCard(modifier = Modifier.fillMaxWidth()) {
@@ -648,9 +656,125 @@ private fun StepList(
                     onRetry = { onRetry(row.component.id) },
                 )
             }
+            // Under the components, in the same card: it is a step of the
+            // same setup — the one that runs after the rows are in — and not
+            // a component, so it has no manifest row to be.
+            if (cache) {
+                HairlineDivider()
+                BuildCacheRow(now = now)
+            }
         }
     }
 }
+
+/**
+ * The shared build cache's warm-up, drawn like a component row: the same
+ * 20dp mark slot, the same name and second line, the same right-hand slot —
+ * a chip where the row has an action, a figure where it has not — and the
+ * same bar under it while it runs. Its four states are
+ * [BuildCachePrimer.State]'s, said in the row's own words (docs/UI.md,
+ * "Setup"): not primed, priming with the step and an elapsed that ticks with
+ * the screen's clock, primed with the date, failed with the reason.
+ *
+ * The idle line quotes the cost it saves — the first build compiling every
+ * dependency, about 5 min on a Seeker (docs/SOLANA.md, "Build cache") —
+ * because that is the only reason a user would press Prime now rather than
+ * let the phone do it on its own.
+ */
+@Composable
+private fun BuildCacheRow(now: Long) {
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    val colors = LocalThraggColors.current
+    val state = BuildCachePrimer.state
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = MD.rowMin)
+            .padding(horizontal = MD.space3, vertical = MD.rowPadY),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MD.space3),
+        ) {
+            Box(
+                modifier = Modifier.width(20.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                when (state) {
+                    is BuildCachePrimer.State.Done -> ThraggIcon(
+                        icon = R.drawable.ic_ui_check,
+                        contentDescription = "primed",
+                        tint = colors.addedMark,
+                        size = IconSize.Marker,
+                    )
+                    is BuildCachePrimer.State.Running -> ThraggSpinner(size = 14.dp, color = scheme.primary)
+                    is BuildCachePrimer.State.Failed -> ThraggIcon(
+                        icon = R.drawable.ic_ui_close,
+                        contentDescription = "failed",
+                        tint = colors.removedMark,
+                        size = IconSize.Marker,
+                    )
+                    is BuildCachePrimer.State.Idle -> ThraggIcon(
+                        icon = R.drawable.ic_ui_circle,
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        size = IconSize.Marker,
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Build cache",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurface,
+                )
+                Text(
+                    text = when (state) {
+                        is BuildCachePrimer.State.Idle ->
+                            "not primed — first build compiles every dependency (about 5 min)"
+                        is BuildCachePrimer.State.Running ->
+                            "priming · ${state.step.label} · ${BuildRunner.duration(now - state.startedAt)}"
+                        is BuildCachePrimer.State.Done -> "primed · ${dateOf(state.at)}"
+                        is BuildCachePrimer.State.Failed -> "failed · ${state.message}"
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TabularNums),
+                    color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MD.space05),
+                )
+            }
+            val action: Pair<String, () -> Unit>? = when (state) {
+                is BuildCachePrimer.State.Idle -> "Prime now" to { BuildCachePrimer.start(context) }
+                is BuildCachePrimer.State.Running -> "Stop" to { BuildCachePrimer.stop() }
+                is BuildCachePrimer.State.Failed -> "Retry" to { BuildCachePrimer.start(context) }
+                is BuildCachePrimer.State.Done -> null
+            }
+            if (action != null) {
+                ThraggChip(
+                    label = action.first,
+                    onClick = action.second,
+                    modifier = Modifier.touchTarget(),
+                    tint = scheme.primary,
+                )
+            } else if (state is BuildCachePrimer.State.Done) {
+                // What it cost, the way an installed row says what it took.
+                Text(
+                    text = BuildRunner.duration(state.elapsedMs),
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (state is BuildCachePrimer.State.Running) Bar()
+    }
+}
+
+/** `2026-09-19` in the phone's own zone — the day the cache was primed. */
+private fun dateOf(millis: Long): String =
+    java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
 
 /**
  * One component: a mark, a name, a right-hand figure, and — only while it is
@@ -962,7 +1086,7 @@ private fun Actions(
     val scheme = MaterialTheme.colorScheme
     val phase = ToolchainInstaller.phase
     val complete = ToolchainInstaller.isComplete
-    val metered = remember(context) { isMetered(context) }
+    val metered = remember(context) { BackgroundWork.isMetered(context) }
     val remaining = ToolchainInstaller.remainingDownloadBytes
         .takeIf { it > 0L }
         ?: manifest?.totalDownloadBytes
@@ -1110,6 +1234,9 @@ private fun Actions(
                     onConfirm = {
                         confirmRemove = false
                         scope.launch {
+                            // The warm-up compiles with the toolchain being
+                            // removed: killed, and gone, before the delete.
+                            BuildCachePrimer.cancel("the toolchain's removal")
                             withContext(Dispatchers.IO) { SolanaToolchain.remove(context) }
                             state.toolchainReady = false
                             ToolchainInstaller.refresh(context)
@@ -1122,13 +1249,3 @@ private fun Actions(
     }
 }
 
-/**
- * Whether the active network bills by the byte.
- *
- * Read once when the screen composes rather than watched: a change of network
- * mid-install is not a reason to relabel a button under the user's thumb, and
- * the install itself survives the change either way.
- */
-private fun isMetered(context: Context): Boolean = runCatching {
-    context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true
-}.getOrDefault(false)

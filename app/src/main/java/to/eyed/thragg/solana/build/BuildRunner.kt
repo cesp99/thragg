@@ -391,6 +391,12 @@ object BuildRunner {
         runningAction = action
         shell.build = BuildState.Running(action.progressLabel, startedAt)
         holdService(app, true)
+        // The user's build wins the cache's lock: a background priming run
+        // is killed here, and the run below waits for its corpse before it
+        // spawns — cargo's lock is per directory, and a half-dead prime
+        // still holding it would stall this build for as long as it took
+        // to die.
+        val yielded = BuildCachePrimer.onBuildStarted()
         log.append(BuildLogRow.Command(command.display, startedAt))
         command.note?.let { log.append(BuildLogRow.Note(it)) }
 
@@ -412,6 +418,9 @@ object BuildRunner {
             // process behind it.
             try {
                 val result = runCatching {
+                    // Bounded inside the primer (10 s); a Stop pressed during
+                    // it cancels this join and lands in the `finally` below.
+                    yielded.join()
                     run(app, shell, action, project, command, startedAt, mine)
                 }.getOrElse { error ->
                     Log.e(TAG, "build failed", error)
@@ -774,6 +783,7 @@ object BuildRunner {
         isRunning = false
         runningAction = null
         holdService(context, false)
+        BuildCachePrimer.onBuildFinished(context)
 
         if (failed) {
             // The one thing worth interrupting for: a build you walked away
@@ -809,6 +819,7 @@ object BuildRunner {
         runningAction = null
         shell.build = BuildState.Idle
         holdService(context, false)
+        BuildCachePrimer.onBuildFinished(context)
     }
 
     // --- deploy -------------------------------------------------------------------
@@ -881,6 +892,10 @@ object BuildRunner {
                 isRunning = false
                 runningAction = null
                 holdService(app, false)
+                // As finish() does: a deploy is network-bound and never
+                // cancelled the primer, but a trigger that was refused
+                // while it ran ("a build is running") gets its retry.
+                BuildCachePrimer.onBuildFinished(app)
             } finally {
                 log.flush()
                 if (generation == mine + 1) finishCancelled(app, shell, startedAt)

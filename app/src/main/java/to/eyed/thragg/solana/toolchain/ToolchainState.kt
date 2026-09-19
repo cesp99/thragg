@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import org.json.JSONObject
 import to.eyed.thragg.core.SafeDelete
+import to.eyed.thragg.solana.build.BuildCachePrimer
 import to.eyed.thragg.terminal.Userland
 import to.eyed.thragg.terminal.UserlandState
 import java.io.File
@@ -491,5 +492,7 @@ object SolanaToolchain {
         for (component in manifest.components) {
             if (component.method != InstallMethod.Userland) forget(app, component.id)
         }
+        // The build cache went with `/opt/solana`; its record goes with the components'.
+        BuildCachePrimer.forget(app)
     }
 }
