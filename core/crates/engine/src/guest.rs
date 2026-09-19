@@ -129,6 +129,17 @@ pub(crate) struct Userland {
     /// [`GUEST_PATH`], and rust-analyzer installed by the toolchain was
     /// "not found" for every project (seen on the device, 2026-09-04).
     path_prefix: String,
+    /// What the platform exports to every guest process on top of the fixed
+    /// entries [`invocation`] sets — the Solana toolchain's `CARGO_HOME`,
+    /// `RUSTUP_HOME`, `CARGO_BUILD_BUILD_DIR` and `ANCHOR_BUILD_SBF_ARCH`, the
+    /// same list the terminal and the build runner export
+    /// (`SolanaToolchain.guestEnvironment`). Here for one server above all:
+    /// rust-analyzer's `cargo check` of a fresh project rebuilt every
+    /// dependency into the project's own `target/` (345 MB for an Anchor
+    /// scaffold, Seeker 2026-09-19) while the build had already put the
+    /// same crates into the shared build cache. `PATH` is not in this list;
+    /// it is [`Userland::path`], from `path_prefix`.
+    extra_env: Vec<(OsString, OsString)>,
 }
 
 impl Userland {
@@ -183,6 +194,9 @@ impl crate::Engine {
     ///
     /// `path_prefix` is what leads the guest's `PATH` — see
     /// [`Userland::path`]; empty for a platform with nothing to add.
+    /// `extra_env` is the rest of the platform's guest environment, one
+    /// `KEY=VALUE` per line (see [`Userland::extra_env`]); a line without
+    /// `=` or naming `PATH` is dropped, since `PATH` is the prefix's job.
     pub fn set_userland(
         &self,
         proot: &Path,
@@ -190,6 +204,7 @@ impl crate::Engine {
         tmp_dir: &Path,
         projects_dir: &Path,
         path_prefix: &str,
+        extra_env: &str,
     ) {
         // Resolved, because Android hands the app `/data/user/0/<package>`,
         // which is a *symlink* to `/data/data/<package>`. proot binds what it
@@ -203,6 +218,7 @@ impl crate::Engine {
             tmp_dir: real(tmp_dir),
             projects_dir: real(projects_dir),
             path_prefix: path_prefix.trim_matches(':').to_owned(),
+            extra_env: parse_extra_env(extra_env),
         };
         log::info!("userland configured: {userland:?}");
         // Anything left by a previous launch is dead; this is the moment
@@ -343,6 +359,18 @@ pub(crate) struct Invocation {
     pub env: Vec<(OsString, OsString)>,
 }
 
+/// `KEY=VALUE` lines into pairs, dropping what is not one and any `PATH`.
+fn parse_extra_env(lines: &str) -> Vec<(OsString, OsString)> {
+    lines
+        .lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            let key = key.trim();
+            (!key.is_empty() && key != "PATH").then(|| (OsString::from(key), OsString::from(value)))
+        })
+        .collect()
+}
+
 /// The proot invocation for a command: flags, binds, guest environment, argv.
 ///
 /// Assembled in one place so the tests can pin it literally. A dropped flag
@@ -438,6 +466,8 @@ pub(crate) fn invocation(userland: &Userland, command: &GuestCommand) -> Invocat
         // log them.
         ("LC_ALL".into(), "C".into()),
     ];
+    // The platform's toolchain entries, then the caller's over them.
+    env.extend(userland.extra_env.iter().cloned());
     env.extend(command.env.iter().cloned());
 
     Invocation {
@@ -1010,6 +1040,7 @@ pub(crate) mod testing {
             tmp_dir: PathBuf::from("/nowhere/tmp"),
             projects_dir: PathBuf::from("/nowhere/projects"),
             path_prefix: String::new(),
+            extra_env: Vec::new(),
         }
     }
 
@@ -1021,6 +1052,7 @@ pub(crate) mod testing {
             tmp_dir: dir.to_path_buf(),
             projects_dir: dir.to_path_buf(),
             path_prefix: String::new(),
+            extra_env: Vec::new(),
         }
     }
 }
@@ -1037,6 +1069,7 @@ mod tests {
             tmp_dir: PathBuf::from("/cache"),
             projects_dir: PathBuf::from("/files/projects"),
             path_prefix: String::new(),
+            extra_env: Vec::new(),
         }
     }
 
@@ -1148,6 +1181,34 @@ mod tests {
                 ("LANG".to_owned(), "C.UTF-8".to_owned()),
                 ("LC_ALL".to_owned(), "C".to_owned()),
             ])
+        );
+    }
+
+    /// The platform's extras sit between the fixed entries and the caller's:
+    /// a build cache the toolchain exports reaches rust-analyzer, `PATH` in
+    /// that list is ignored because the prefix owns it, and a caller's own
+    /// entry still wins over the platform's.
+    #[test]
+    fn the_platforms_extra_environment_is_appended_and_path_is_not_its_to_set() {
+        let mut userland = userland();
+        userland.extra_env = parse_extra_env(
+            "CARGO_BUILD_BUILD_DIR=/opt/solana/build/deps\nPATH=/evil\nnot a pair\n=nokey\nRUSTUP_HOME=/root/.rustup",
+        );
+        assert_eq!(
+            userland.extra_env,
+            vec![
+                ("CARGO_BUILD_BUILD_DIR".into(), "/opt/solana/build/deps".into()),
+                ("RUSTUP_HOME".into(), "/root/.rustup".into()),
+            ]
+        );
+        let command = GuestCommand::new("test", vec![OsString::from("true")])
+            .env("RUSTUP_HOME", "/elsewhere");
+        let env = env_of(&proot_command(&userland, &command));
+        assert_eq!(env.get("CARGO_BUILD_BUILD_DIR").map(String::as_str), Some("/opt/solana/build/deps"));
+        assert_eq!(env.get("RUSTUP_HOME").map(String::as_str), Some("/elsewhere"));
+        assert_eq!(
+            env.get("PATH").map(String::as_str),
+            Some("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
         );
     }
 
@@ -1449,6 +1510,7 @@ mod tests {
             dir.path(),
             dir.path(),
             "",
+            "",
         );
         assert!(engine.userland().is_some());
 
@@ -1469,7 +1531,7 @@ mod tests {
         let rootfs = dir.path().join("debian");
         std::fs::create_dir_all(rootfs.join("tmp")).unwrap();
         let configure = || {
-            engine.set_userland(&dir.path().join("proot"), &rootfs, dir.path(), dir.path(), "");
+            engine.set_userland(&dir.path().join("proot"), &rootfs, dir.path(), dir.path(), "", "");
         };
 
         configure();
@@ -1506,7 +1568,7 @@ mod tests {
         // A different rootfs is a different userland, and does get a new server.
         let other = dir.path().join("other");
         std::fs::create_dir_all(other.join("tmp")).unwrap();
-        engine.set_userland(&dir.path().join("proot"), &other, dir.path(), dir.path(), "");
+        engine.set_userland(&dir.path().join("proot"), &other, dir.path(), dir.path(), "", "");
         let third = engine.askpass().expect("a server for the new rootfs");
         assert!(!Arc::ptr_eq(&second, &third));
         assert!(third.host_script().starts_with(&other));

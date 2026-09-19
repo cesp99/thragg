@@ -5311,7 +5311,7 @@ mod tests {
         std::fs::create_dir_all(&rootfs).unwrap();
         std::fs::create_dir_all(dir.join("projects")).unwrap();
         let engine = Engine::new();
-        engine.set_userland(&proot, &rootfs, dir, &dir.join("projects"), "");
+        engine.set_userland(&proot, &rootfs, dir, &dir.join("projects"), "", "");
         engine
     }
 

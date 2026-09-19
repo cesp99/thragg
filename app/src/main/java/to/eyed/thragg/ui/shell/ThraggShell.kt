@@ -568,6 +568,7 @@ private fun syncUserlandWithEngine(context: Context) {
         context.cacheDir.absolutePath,
         File(context.filesDir, "projects").absolutePath,
         SolanaToolchain.GUEST_PATH_PREFIX,
+        SolanaToolchain.guestEnvironment().filterNot { it.startsWith("PATH=") }.joinToString("\n"),
     )
 }
 

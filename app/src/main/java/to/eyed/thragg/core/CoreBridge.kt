@@ -339,6 +339,13 @@ object CoreBridge {
      * they do in a shell. Without it the engine's servers saw only Debian's
      * `PATH` and the toolchain's rust-analyzer was "not found" for every
      * project.
+     *
+     * [guestEnvironment] is the rest of what the toolchain exports, one
+     * `KEY=VALUE` per line — `CARGO_HOME`, `RUSTUP_HOME`, the shared
+     * `CARGO_BUILD_BUILD_DIR`, `ANCHOR_BUILD_SBF_ARCH` — so a server's
+     * `cargo check` puts its dependency artifacts where the Build button
+     * put them instead of rebuilding them into every project's `target/`.
+     * A `PATH=` line is ignored; that is [guestPathPrefix]'s job.
      */
     external fun setUserland(
         proot: String,
@@ -346,6 +353,7 @@ object CoreBridge {
         tmpDir: String,
         projectsDir: String,
         guestPathPrefix: String,
+        guestEnvironment: String,
     )
 
     /** Forgets the userland — after the rootfs is deleted. Status goes empty. */
