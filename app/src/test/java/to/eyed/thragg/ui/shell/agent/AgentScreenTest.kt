@@ -756,4 +756,29 @@ class AgentScreenTest {
         assertEquals("Internal error: { not json", humanTurnError("Internal error: { not json"))
         assertEquals("""{"code": 500}""", humanTurnError("""{"code": 500}"""))
     }
+
+    /**
+     * A stale local endpoint fails with Go's dial error; the card names the
+     * server it could not reach, whichever shape the text arrives in.
+     */
+    @Test
+    fun `refusedEndpoint names the server`() {
+        val device = "coding agent: agent call failed: Post \"http://127.0.0.1:11434/v1/chat/" +
+            "completions\": dial tcp 127.0.0.1:11434: connect: connection refused"
+        assertEquals("http://127.0.0.1:11434", refusedEndpoint(device))
+        val wrapped = "Internal error: " + org.json.JSONObject().put("error", device).toString()
+        assertEquals("http://127.0.0.1:11434", refusedEndpoint(wrapped))
+        assertEquals(
+            "http://192.168.1.5:11434",
+            refusedEndpoint("dial tcp 192.168.1.5:11434: connect: connection refused"),
+        )
+    }
+
+    @Test
+    fun `refusedEndpoint ignores every other failure`() {
+        assertNull(refusedEndpoint("401 Unauthorized"))
+        assertNull(refusedEndpoint("The socket closed"))
+        assertNull(refusedEndpoint("rate limit exceeded"))
+        assertNull(refusedEndpoint("connect: connection refused"))
+    }
 }

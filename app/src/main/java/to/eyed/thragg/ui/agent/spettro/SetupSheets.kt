@@ -419,6 +419,10 @@ private fun keyPlaceholder(provider: ProviderEntry?): String = when (provider?.i
 /**
  * An Ollama or LM Studio endpoint, probed before it is saved.
  *
+ * [initialEndpoint] pre-fills the field: the setup screen passes a configured
+ * endpoint that did not answer, so starting the server and pressing *Check*
+ * is all it takes to bring it back.
+ *
  * The probe is a separate step on purpose: `local/add` persists, and an
  * endpoint that answers with an empty model list would be saved and then fail
  * at the first prompt. So the sheet shows what it found first, and *Add* is
@@ -428,10 +432,14 @@ private fun keyPlaceholder(provider: ProviderEntry?): String = when (provider?.i
  * llama.cpp is a model that costs nothing per token and works on a train.
  */
 @Composable
-fun LocalModelSheet(state: ShellState, onDismiss: () -> Unit) {
+fun LocalModelSheet(
+    state: ShellState,
+    onDismiss: () -> Unit,
+    initialEndpoint: String? = null,
+) {
     val scope = rememberCoroutineScope()
 
-    var endpoint by remember { mutableStateOf(DEFAULT_ENDPOINT) }
+    var endpoint by remember { mutableStateOf(initialEndpoint ?: DEFAULT_ENDPOINT) }
     var key by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var found by remember { mutableStateOf<List<String>?>(null) }
