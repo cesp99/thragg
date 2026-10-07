@@ -94,6 +94,7 @@ import to.eyed.thragg.core.AgentMention
 import to.eyed.thragg.core.AgentSessionState
 import to.eyed.thragg.core.AgentSessions
 import to.eyed.thragg.core.AgentThread
+import to.eyed.thragg.core.ParkedDraft
 import to.eyed.thragg.core.PromptAttachment
 import to.eyed.thragg.core.PromptImages
 import to.eyed.thragg.ui.agent.mentionTokensIn
@@ -114,6 +115,7 @@ import to.eyed.thragg.ui.theme.mutedIcon
 import to.eyed.thragg.ui.theme.pressScale
 import to.eyed.thragg.ui.theme.spatialSpec
 import to.eyed.thragg.ui.theme.touchTarget
+import to.eyed.thragg.ui.workspace.Notifications
 
 // ---------------------------------------------------------------------------
 // What the button means — the pure half
@@ -349,13 +351,33 @@ internal fun AgentComposer(
     // because the field is the only thing that can hold it: writing
     // `thread.draft` from outside would be overwritten by this composable's
     // own state on the very next keystroke.
+    //
+    // A *fresh* seed ("Fix with agent") takes the field whole; what it
+    // displaced is parked on the thread, pictures included — otherwise they
+    // would ride along with the fix — and comes back after the fix is sent.
     LaunchedEffect(AgentSeams.pending, thread) {
         if (thread == null) return@LaunchedEffect
         val seed = AgentSeams.take() ?: return@LaunchedEffect
-        val existing = field.text.trimEnd()
-        val next = if (existing.isEmpty()) seed.text else existing + "\n\n" + seed.text
-        replaceText(next)
-        for (mention in seed.mentions) if (mention !in mentioned) mentioned.add(mention)
+        val out = drainInto(field.text, mentioned.toList(), seed, supersedes = thread.lastFreshSeed)
+        if (seed.fresh) {
+            val displaced = ParkedDraft(
+                text = out.parked?.text.orEmpty(),
+                mentions = out.parked?.mentions.orEmpty(),
+                images = attached.toList(),
+            )
+            if (!displaced.isEmpty) {
+                thread.parked = thread.parked?.plus(displaced) ?: displaced
+                attached.clear()
+                Notifications.info(
+                    "Your draft is set aside; it comes back after you send this.",
+                    key = "agent:parked",
+                )
+            }
+            thread.lastFreshSeed = seed.text
+        }
+        mentioned.clear()
+        mentioned.addAll(out.mentions)
+        replaceText(out.text)
         runCatching { focus.requestFocus() }
     }
 
@@ -407,7 +429,26 @@ internal fun AgentComposer(
         replaceText("")
         mentioned.clear()
         attached.clear()
+        // A draft a "Fix with agent" set aside comes back now that the fix
+        // has gone out.
+        val back = thread?.parked
+        if (thread != null && back != null) {
+            thread.parked = null
+            replaceText(back.text)
+            mentioned.addAll(back.mentions)
+            attached.addAll(back.images)
+        }
         val restore = {
+            // Whatever is in the field now (the draft just put back, or
+            // something typed since) is parked again rather than overwritten:
+            // a refused send — no session refuses synchronously — must not
+            // cost the user that draft.
+            val current = ParkedDraft(field.text, mentioned.toList(), attached.toList())
+            if (thread != null && !current.isEmpty) {
+                thread.parked = thread.parked?.plus(current) ?: current
+            }
+            mentioned.clear()
+            attached.clear()
             replaceText(message)
             mentioned.addAll(mentions)
             attached.addAll(images)

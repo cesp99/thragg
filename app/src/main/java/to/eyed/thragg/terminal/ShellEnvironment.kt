@@ -172,7 +172,9 @@ object ShellEnvironment {
      *    every task resolve through it, and `cargo-build-sbf` shells out to
      *    `rustup` — which lives in `/root/.cargo/bin` and nowhere Debian would
      *    look. See [SolanaToolchain.GUEST_PATH_ENTRIES] for what each entry is
-     *    for.
+     *    for. A login shell (the terminal, a task) resets `PATH` in
+     *    `/etc/profile` and gets the lead back from
+     *    [SolanaToolchain.LOGIN_PROFILE_PATH].
      *  * **`VIRTUAL_ENV` names a Python environment's root.** That variable is
      *    what every Python tool reads to know it is in a venv; exporting the
      *    interpreter on `PATH` without it gets half the behaviour. It is set

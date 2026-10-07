@@ -249,4 +249,175 @@ class SpettroSetupTest {
             setupGate(none, account("""{"signedIn":true,"modelCount":9}""")),
         )
     }
+
+    // --- a configured local endpoint that is not answering --------------------
+
+    private val deadLocal = """{"endpoint":"http://127.0.0.1:11434","name":"Ollama","modelCount":0}"""
+
+    /**
+     * The device's own failure: signed out, and the only "model" a stale
+     * Ollama endpoint whose startup probe registered nothing. Listed is not
+     * reachable; the first prompt would fail with "connection refused".
+     */
+    @Test
+    fun aLocalEndpointWithNoModelsDoesNotSatisfyTheGate() {
+        val list = providers("""{"providers":[],"local":[$deadLocal]}""")
+        assertFalse(list.hasSomethingToTalkTo)
+        assertEquals(SetupGate.NEEDED, setupGate(list, null))
+        assertEquals(listOf("http://127.0.0.1:11434"), list.deadLocal.map { it.endpoint })
+        assertTrue(list.usableLocal.isEmpty())
+
+        // An absent count is the lenient default, zero: not something to talk to.
+        val uncounted = providers("""{"providers":[],"local":[{"endpoint":"http://127.0.0.1:11434"}]}""")
+        assertFalse(uncounted.hasSomethingToTalkTo)
+        assertEquals(SetupGate.NEEDED, setupGate(uncounted, null))
+    }
+
+    @Test
+    fun aDeadLocalBesideAKeyedProviderIsSatisfied() {
+        val list = providers(
+            """{"providers":[{"id":"anthropic","name":"Anthropic","connected":true}],
+                "local":[$deadLocal]}"""
+        )
+        assertEquals(SetupGate.SATISFIED, setupGate(list, null))
+    }
+
+    @Test
+    fun aDeadLocalBesideALiveSubscriptionIsSatisfied() {
+        val list = providers(
+            """{"providers":[],"local":[$deadLocal],
+                "subscription":{"id":"spettro","name":"Spettro","connected":true}}"""
+        )
+        assertEquals(SetupGate.SATISFIED, setupGate(list, null))
+        assertEquals(
+            SetupGate.SATISFIED,
+            setupGate(list, account("""{"signedIn":true,"plan":"max","modelCount":9}""")),
+        )
+    }
+
+    /** A dead endpoint must not hide an empty plan the way a live one does. */
+    @Test
+    fun aDeadLocalDoesNotHideAnEmptyPlan() {
+        val list = providers(
+            """{"providers":[],"local":[$deadLocal],
+                "subscription":{"id":"spettro","name":"Spettro","connected":true}}"""
+        )
+        val empty = account("""{"signedIn":true,"plan":"free","modelCount":0}""")
+        assertEquals(SetupGate.NEEDED, setupGate(list, empty))
+    }
+
+    @Test
+    fun oneLiveOneDeadLocalIsSatisfied() {
+        val list = providers(
+            """{"providers":[],"local":[$deadLocal,
+                {"endpoint":"http://192.168.1.5:11434","modelCount":2}]}"""
+        )
+        assertEquals(SetupGate.SATISFIED, setupGate(list, null))
+        assertEquals(listOf("http://127.0.0.1:11434"), list.deadLocal.map { it.endpoint })
+        assertEquals(listOf("http://192.168.1.5:11434"), list.usableLocal.map { it.endpoint })
+    }
+
+    // --- the active model on a local endpoint that is not answering ----------
+
+    private fun model(
+        provider: String,
+        name: String,
+        local: Boolean = false,
+        favorite: Boolean = false,
+        toolCall: Boolean = false,
+    ) = ModelEntry(
+        provider = provider,
+        providerName = provider,
+        name = name,
+        displayName = name,
+        vision = false,
+        reasoning = false,
+        toolCall = toolCall,
+        context = 0,
+        local = local,
+        favorite = favorite,
+        active = false,
+    )
+
+    private val stale = "http://127.0.0.1:11434"
+
+    /**
+     * The device's failure after a sign-in: the plan's models are there and
+     * the gate is satisfied, but the active model is still the stale Ollama
+     * endpoint, which has no model registered. The subscription must win.
+     */
+    @Test
+    fun aSignInMovesTheActiveModelOffADeadLocalOntoThePlan() {
+        val models = listOf(
+            model("anthropic", "claude-haiku", toolCall = true),
+            model("spettro", "spettro-fast"),
+            model("spettro", "spettro-pro", toolCall = true),
+        )
+        assertTrue(isOnUnansweringLocal(stale, models))
+        val next = replacementForUnansweringLocal(stale, models, preferProvider = "spettro")
+        assertEquals("spettro:spettro-pro", next?.configValue)
+    }
+
+    /** A keyed provider beside a stale local: the gate was satisfied all along. */
+    @Test
+    fun aKeyedProviderReplacesADeadLocalActiveModel() {
+        val models = listOf(
+            model("anthropic", "claude-opus"),
+            model("anthropic", "claude-sonnet", toolCall = true),
+        )
+        assertEquals(
+            "anthropic:claude-sonnet",
+            replacementForUnansweringLocal("$stale/", models)?.configValue,
+        )
+        // A favourite outranks the tool-calling default.
+        val starred = models + model("openai", "gpt", favorite = true)
+        assertEquals("openai:gpt", replacementForUnansweringLocal(stale, starred)?.configValue)
+    }
+
+    @Test
+    fun aLiveLocalActiveModelIsLeftAlone() {
+        val models = listOf(
+            model(stale, "qwen2.5-coder:7b", local = true),
+            model("anthropic", "claude-sonnet", toolCall = true),
+        )
+        assertFalse(isOnUnansweringLocal(stale, models))
+        assertFalse(isOnUnansweringLocal("$stale/", models))
+        assertNull(replacementForUnansweringLocal(stale, models))
+    }
+
+    @Test
+    fun aKeyedActiveModelIsLeftAlone() {
+        val models = listOf(model("openai", "gpt"))
+        // Not a URL: whether the key is good is the gate's business, not this.
+        assertFalse(isOnUnansweringLocal("anthropic", models))
+        assertNull(replacementForUnansweringLocal("anthropic", models))
+        assertNull(replacementForUnansweringLocal(null, models))
+    }
+
+    /**
+     * Another live local endpoint is never the replacement: Spettro splits the
+     * model value at its first colon, so it would be refused.
+     */
+    @Test
+    fun nothingButAnotherLocalLeavesTheActiveModelWhereItIs() {
+        val models = listOf(model("http://192.168.1.5:11434", "llama3", local = true))
+        assertTrue(isOnUnansweringLocal(stale, models))
+        assertNull(replacementForUnansweringLocal(stale, models))
+        assertNull(replacementForUnansweringLocal(stale, emptyList()))
+    }
+
+    @Test
+    fun modelsListCarriesTheActiveSelection() {
+        val list = ModelsList.parse(
+            JSONObject(
+                """{"models":[{"provider":"anthropic","name":"claude-sonnet"}],
+                    "activeProvider":"$stale","activeModel":"qwen2.5-coder:7b"}"""
+            )
+        )!!
+        assertEquals(stale, list.activeProvider)
+        assertEquals("qwen2.5-coder:7b", list.activeModel)
+        assertEquals("anthropic:claude-sonnet", list.models.single().configValue)
+        assertNull(ModelsList.parse(JSONObject("""{"activeProvider":"x"}""")))
+        assertNull(ModelsList.parse(JSONObject("""{"models":[]}"""))!!.activeProvider)
+    }
 }

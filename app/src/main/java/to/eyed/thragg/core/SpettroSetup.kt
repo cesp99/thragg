@@ -52,6 +52,9 @@ object SpettroSetup {
 
     private const val TAG = "thragg-spettro"
 
+    /** A little over Spettro's 5 s local-server probe timeout. */
+    private const val LOCAL_DISCOVERY_GRACE_MS = 5_500L
+
     // --- what the screens read -------------------------------------------------
 
     /** The last successful `_spettro/providers/list`, or null before the first. */
@@ -131,7 +134,9 @@ object SpettroSetup {
                 Log.i(
                     TAG,
                     "providers/list: ${list.providers.count { it.connected }} keyed, " +
-                        "${list.local.size} local, subscription=" +
+                        "${list.local.size} local " +
+                        "(${list.local.joinToString("/") { it.modelCount.toString() }} models), " +
+                        "subscription=" +
                         "${list.subscription?.connected == true}/" +
                         "${list.subscription?.modelCount ?: 0} models -> $gate",
                 )
@@ -169,8 +174,71 @@ object SpettroSetup {
             refreshAccount()
             refreshProviders()
         }
+        // A local endpoint's models are registered by the agent's background
+        // discovery, which `providers/list` does not wait for. A refused
+        // localhost fails at once, but a slow LAN server can still be probing
+        // here; ask once more after the probe's own timeout, so a server that
+        // was merely slow is neither left gated as "nothing to talk to" nor
+        // moved off as the active model just below.
+        if (providers?.deadLocal?.isNotEmpty() == true &&
+            (gate == SetupGate.NEEDED || activeIsOnUnansweringLocal())
+        ) {
+            delay(LOCAL_DISCOVERY_GRACE_MS)
+            refreshProviders()
+        }
+        // The gate says something usable exists; it says nothing about the
+        // model a first prompt goes to. A keyed provider beside a stale
+        // `127.0.0.1:11434` active model satisfies the gate while every turn
+        // fails, and the agent never moves off a local endpoint by itself.
+        moveOffUnansweringLocal()
         return gate
     }
+
+    /**
+     * Whether the active model sits on a local endpoint whose server did not
+     * answer. False when that cannot be told — `models/list` failed.
+     */
+    private suspend fun activeIsOnUnansweringLocal(): Boolean {
+        val snapshot = readModels() ?: return false
+        return isOnUnansweringLocal(snapshot.activeProvider, snapshot.models)
+    }
+
+    /**
+     * Move the active model off a local endpoint that is not answering, onto
+     * something that is — see [replacementForUnansweringLocal]. Returns
+     * whether it asked for a move.
+     *
+     * Spettro keeps an http(s) provider active no matter what (its
+     * `HasCredentials` is true for any URL), and neither a sign-in nor a
+     * `providers/connect` without `activate` touches an active model that is
+     * already set. So without this, the setup gate opens, the takeover
+     * closes, and the first prompt still goes to a server that is not there.
+     *
+     * The endpoint itself is left configured: it is the user's, and the
+     * server may simply be off. Only which model is active changes, through
+     * the same `session/set_config_option` the model chip uses — so it is
+     * persisted agent-side, and queued until a session exists if none does.
+     *
+     * [preferProvider] puts one provider's models first — the subscription,
+     * right after a sign-in, because that is what the user just chose.
+     */
+    private suspend fun moveOffUnansweringLocal(preferProvider: String? = null): Boolean {
+        val snapshot = readModels() ?: return false
+        val next = replacementForUnansweringLocal(
+            snapshot.activeProvider,
+            snapshot.models,
+            preferProvider,
+        ) ?: return false
+        Log.i(
+            TAG,
+            "active model ${snapshot.activeProvider}:${snapshot.activeModel} is on a local " +
+                "endpoint that did not answer; switching to ${next.provider}:${next.name}",
+        )
+        AgentSessions.setConfigOption(MODEL_CONFIG_ID, JSONObject.quote(next.configValue))
+        return true
+    }
+
+    private const val MODEL_CONFIG_ID = "model"
 
     /**
      * Why the subscription's models are missing from the pickers — or null
@@ -342,13 +410,18 @@ object SpettroSetup {
 
     /** The model list, for Settings → Spettro. Not on the first-run path. */
     suspend fun refreshModels() {
+        readModels()
+    }
+
+    /**
+     * `_spettro/models/list`, read into [models] and returned with the active
+     * selection beside it, or null when the call failed.
+     */
+    private suspend fun readModels(): ModelsList? {
         val result = AgentSessions.callExtension("_spettro/models/list")
-        // `models` normally, `result` when the method answered with a bare
-        // array — ExtResult wraps a non-object result under that key rather
-        // than dropping it.
-        val json = result.objectOrNull ?: return
-        val array = json.optJSONArray("models") ?: json.optJSONArray("result") ?: return
-        models = List(array.length()) { ModelEntry.parse(array.optJSONObject(it)) }
+        val list = ModelsList.parse(result.objectOrNull ?: return null) ?: return null
+        models = list.models
+        return list
     }
 
     /**
@@ -604,6 +677,11 @@ object SpettroSetup {
         login = LoginStatus(login?.loginId, "complete", null, null)
         val moved = refreshAccount()
         refreshProviders()
+        // Spettro's login sets the active model only when none is set, so a
+        // stale local endpoint that was active before the sign-in is still
+        // active after it, and the first prompt would fail exactly as before.
+        // The plan the user just signed in to is where it should go instead.
+        moveOffUnansweringLocal(preferProvider = providers?.subscription?.id)
         // The login just added the plan's models; the session that was open
         // through it is still advertising the pre-login list. The account
         // read refreshes it itself when it saw the count move; when the
@@ -717,11 +795,30 @@ data class ProvidersList(
     val local: List<LocalEndpoint>,
     val subscription: ProviderEntry?,
 ) {
-    /** The gate's own question, asked once so nobody re-derives it wrongly. */
+    /**
+     * The gate's own question, asked once so nobody re-derives it wrongly.
+     *
+     * A local endpoint counts only when it has models. Spettro lists every
+     * configured endpoint, but registers models for one only when its
+     * startup probe answered — so a listed endpoint with zero models is a
+     * server that was not running (a stale `127.0.0.1:11434` left from a
+     * session long gone), and a first prompt sent to it fails with
+     * "connection refused". That is not something to talk to.
+     */
     val hasSomethingToTalkTo: Boolean
         get() = providers.any { it.connected } ||
-            local.isNotEmpty() ||
+            usableLocal.isNotEmpty() ||
             subscription?.connected == true
+
+    /** Local endpoints the agent registered models for. */
+    val usableLocal: List<LocalEndpoint> get() = local.filter { it.modelCount > 0 }
+
+    /**
+     * Local endpoints that are configured but did not answer the agent's
+     * startup probe. The setup screen names them; nothing removes them —
+     * the endpoint is the user's, and the server may simply be off.
+     */
+    val deadLocal: List<LocalEndpoint> get() = local.filter { it.modelCount <= 0 }
 
     /**
      * The API-key grid, in the order it is drawn: the five featured providers
@@ -779,6 +876,9 @@ data class ModelEntry(
     val favorite: Boolean,
     val active: Boolean,
 ) {
+    /** The value the session's `model` config option takes for this model. */
+    val configValue: String get() = "$provider:$name"
+
     companion object {
         fun parse(json: JSONObject?): ModelEntry {
             val provider = json?.optString("provider").orEmpty()
@@ -800,6 +900,89 @@ data class ModelEntry(
         }
     }
 }
+
+/**
+ * `_spettro/models/list`, decoded: the connected models, and the active
+ * selection, which may be absent from them, because the agent keeps an
+ * active model whose provider has nothing registered.
+ */
+data class ModelsList(
+    val models: List<ModelEntry>,
+    val activeProvider: String?,
+    val activeModel: String?,
+) {
+    companion object {
+        /**
+         * `models` normally, `result` when the method answered with a bare
+         * array: ExtResult wraps a non-object result under that key rather
+         * than dropping it. Null when neither is there.
+         */
+        fun parse(json: JSONObject): ModelsList? {
+            val array = json.optJSONArray("models") ?: json.optJSONArray("result") ?: return null
+            return ModelsList(
+                models = List(array.length()) { ModelEntry.parse(array.optJSONObject(it)) },
+                activeProvider = json.optString("activeProvider").takeIf { it.isNotBlank() },
+                activeModel = json.optString("activeModel").takeIf { it.isNotBlank() },
+            )
+        }
+    }
+}
+
+/**
+ * Whether [activeProvider] is a local endpoint (Spettro names one by its URL)
+ * that has no model registered in [models], the connected models.
+ *
+ * The agent registers an endpoint's models only when its startup probe
+ * answered, so an active local provider with none is a server that was not
+ * running: a stale `127.0.0.1:11434`, from a session long gone. The agent
+ * still keeps it active, because its `HasCredentials` is true for any URL,
+ * and every prompt sent to it fails with "connection refused".
+ */
+fun isOnUnansweringLocal(activeProvider: String?, models: List<ModelEntry>): Boolean {
+    val active = activeProvider?.trim()?.trimEnd('/').orEmpty()
+    if (!active.isLocalProviderId()) return false
+    return models.none { it.provider.trim().trimEnd('/') == active }
+}
+
+/**
+ * What to make active instead of a model on an unanswering local endpoint
+ * ([isOnUnansweringLocal]), or null when the active model is fine or nothing
+ * else is usable.
+ *
+ * Ranked: [preferProvider]'s models first, then favourites, then models that
+ * can call tools (the agent's own preference, `PreferredModel`), in the
+ * agent's order otherwise.
+ *
+ * Other local endpoints are never picked. Spettro reads the `model` config
+ * value by splitting it at its *first* colon, so `http://host:port:model`
+ * arrives as provider `http` and is refused. A live local endpoint is still
+ * one tap away in the model chip; a refused write here would only put an
+ * error on screen.
+ *
+ * Top-level and pure, like [setupGate], for the same reason.
+ */
+fun replacementForUnansweringLocal(
+    activeProvider: String?,
+    models: List<ModelEntry>,
+    preferProvider: String? = null,
+): ModelEntry? {
+    if (!isOnUnansweringLocal(activeProvider, models)) return null
+    return models
+        .filter {
+            !it.local && !it.provider.isLocalProviderId() &&
+                it.provider.isNotBlank() && it.name.isNotBlank()
+        }
+        .sortedWith(
+            compareByDescending<ModelEntry> { preferProvider != null && it.provider == preferProvider }
+                .thenByDescending { it.favorite }
+                .thenByDescending { it.toolCall },
+        )
+        .firstOrNull()
+}
+
+/** Spettro's own test for a local provider id: an http(s) URL. */
+private fun String.isLocalProviderId(): Boolean =
+    startsWith("http://") || startsWith("https://")
 
 /**
  * The Spettro account.
@@ -869,8 +1052,9 @@ fun modelWorldChanged(previous: AccountStatus?, next: AccountStatus): Boolean =
  * carrying zero models is the backend saying the plan has nothing to offer,
  * and a signed-in user with no model is exactly as stuck as a signed-out one.
  * A stale status — the backend unreachable — keeps the gate open, because
- * not knowing is not "no", and a keyed provider or a local endpoint beside
- * the subscription satisfies it regardless.
+ * not knowing is not "no", and a keyed provider or a local endpoint with
+ * models beside the subscription satisfies it regardless. A local endpoint
+ * with *no* models does not: it would otherwise hide an empty plan.
  *
  * Top-level and pure, like [modelWorldChanged], for the same reason.
  */
@@ -879,7 +1063,7 @@ fun setupGate(providers: ProvidersList, account: AccountStatus?): SetupGate {
     val subscription = providers.subscription
     val onlyTheSubscription = subscription != null && subscription.connected &&
         providers.providers.none { it.connected && it.id != subscription.id } &&
-        providers.local.isEmpty()
+        providers.usableLocal.isEmpty()
     if (onlyTheSubscription && account != null && account.signedIn &&
         !account.stale && account.modelCount == 0
     ) {

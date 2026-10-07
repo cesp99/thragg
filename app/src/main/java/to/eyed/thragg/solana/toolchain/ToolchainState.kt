@@ -139,7 +139,8 @@ object SolanaToolchain {
      * does not exist costs a failed `stat` per lookup and nothing else, and the
      * alternative is a disk read on the path that starts every shell. The
      * engine gets the same string through `CoreBridge.setUserland`, so the
-     * language servers it spawns see it too.
+     * language servers it spawns see it too. A login shell resets `PATH` and
+     * gets these back from [loginProfile].
      */
     val GUEST_PATH_ENTRIES = listOf(
         "/root/.cargo/bin",
@@ -161,6 +162,48 @@ object SolanaToolchain {
      */
     const val GUEST_BASE_PATH =
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    /**
+     * Where [loginProfile] is written, relative to the rootfs.
+     *
+     * The `PATH` above is exported in the environment, and that only reaches
+     * processes that do not start a *login* shell: Debian's `/etc/profile`
+     * sets `PATH` unconditionally for root, so `bash -l` throws the prefix
+     * away. Spettro runs every tool command as `bash -lc` (its own profile
+     * rule), the terminal is `bash --login`, and tasks are `bash --login -c`
+     * — all of them lost the toolchain, and the agent had to go looking for
+     * `/opt/solana/cli/bin/anchor` by itself. `/etc/profile` sources
+     * `/etc/profile.d/` *after* its reset, so this is where the prefix goes
+     * back on. The name has to match run-parts' `^[a-zA-Z0-9_][a-zA-Z0-9._-]*\.sh$`.
+     */
+    const val LOGIN_PROFILE_PATH = "etc/profile.d/thragg-toolchain.sh"
+
+    /**
+     * The contents of [LOGIN_PROFILE_PATH]: [GUEST_PATH_PREFIX] in front of
+     * whatever `/etc/profile` left, and a project's virtualenv in front of
+     * that when the environment names one (`ShellEnvironment` exports
+     * `VIRTUAL_ENV`, and its `PATH` lead is lost the same way).
+     *
+     * POSIX sh, because dash can source it too, and guarded so sourcing it
+     * twice changes nothing. Derived from [GUEST_PATH_PREFIX] so the login
+     * shell's `PATH` is the Build tab's, in the Build tab's order.
+     */
+    fun loginProfile(): String = buildString {
+        append("# Thragg: the toolchain on PATH for login shells. Rewritten by Thragg;\n")
+        append("# edit ~/.bashrc instead. Debian's /etc/profile resets PATH for root,\n")
+        append("# which drops the prefix Thragg exports in the environment.\n")
+        append("case \":\$PATH:\" in\n")
+        append("  *\":$GUEST_PATH_PREFIX:\"*) ;;\n")
+        append("  *) PATH=\"$GUEST_PATH_PREFIX:\$PATH\" ;;\n")
+        append("esac\n")
+        append("if [ -n \"\${VIRTUAL_ENV-}\" ]; then\n")
+        append("  case \":\$PATH:\" in\n")
+        append("    *\":\$VIRTUAL_ENV/bin:\"*) ;;\n")
+        append("    *) PATH=\"\$VIRTUAL_ENV/bin:\$PATH\" ;;\n")
+        append("  esac\n")
+        append("fi\n")
+        append("export PATH\n")
+    }
 
     /**
      * cargo's `build.build-dir`, exported as `CARGO_BUILD_BUILD_DIR` to every
@@ -317,7 +360,8 @@ object SolanaToolchain {
      * The environment a guest process needs to see the toolchain.
      *
      * Appended to a session's own, later entries winning, which is how `PATH`
-     * is *led* rather than replaced. `CARGO_HOME` and `RUSTUP_HOME` are here
+     * is *led* rather than replaced — for processes that are not login
+     * shells; a login shell gets the prefix back from [LOGIN_PROFILE_PATH]. `CARGO_HOME` and `RUSTUP_HOME` are here
      * because `cargo-build-sbf` execs `rustup`, and a rustup that cannot find
      * its own home reports the toolchain as missing even though it is linked.
      *

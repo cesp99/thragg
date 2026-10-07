@@ -345,6 +345,30 @@ internal fun humanTurnError(raw: String): String {
     return inner.takeIf { it.isNotBlank() } ?: raw
 }
 
+/**
+ * The model server a failed turn could not reach, as `scheme://host:port` —
+ * or null when the failure was anything other than a refused connection.
+ *
+ * A stale local endpoint (an Ollama that is not running) fails every turn
+ * with Go's `Post "http://127.0.0.1:11434/v1/chat/completions": dial tcp
+ * 127.0.0.1:11434: connect: connection refused`. That is accurate and still
+ * useless to somebody who does not know which of their models lives there,
+ * so the card names the server and points at the model picker. The URL in
+ * the text wins; the bare `dial tcp host:port` is the fallback. Anything
+ * else is null and the card stays the generic one.
+ */
+internal fun refusedEndpoint(raw: String): String? {
+    // Unwrapped first: the JSON wrapper escapes the URL's slashes.
+    val text = humanTurnError(raw)
+    if (!text.contains("connection refused", ignoreCase = true)) return null
+    URL_ORIGIN.find(text)?.let { return it.groupValues[1] }
+    DIAL_TCP.find(text)?.let { return "http://" + it.groupValues[1] }
+    return null
+}
+
+private val URL_ORIGIN = Regex("""(https?://[^\s"\\/]+)""")
+private val DIAL_TCP = Regex("""dial tcp (\S+:\d+)""")
+
 internal fun emptyHeadline(): String = "How can I help?"
 
 internal fun emptySubhead(projectName: String?): String =
@@ -680,6 +704,13 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
     LaunchedEffect(session.spettro, session.acpSessionId) {
         if (session.spettro != null) SpettroSetup.refreshOnHandshake()
     }
+    // A failed turn re-reads the gate (docs/SPETTRO.md, step 2): if the last
+    // usable model went away, the gate turns NEEDED without a relaunch. It
+    // does not un-skip — somebody who chose Skip gets the banner, not the
+    // takeover thrown back in their face.
+    LaunchedEffect(session.error) {
+        if (session.error != null && session.spettro != null) SpettroSetup.refreshProviders()
+    }
     // Spettro saves after every prompt turn, so a list that is not refreshed is
     // stale within one message.
     LaunchedEffect(session.isBusy) {
@@ -994,6 +1025,7 @@ fun AgentScreen(state: ShellState, modifier: Modifier = Modifier) {
                                 setup = SpettroSetup.needsBanner,
                                 onOpenSetup = { SpettroSetup.unskip() },
                                 onRetry = { AgentSessions.retryLastPrompt() },
+                                onPickModel = { sheet = AgentSheet.Config },
                             )
                         },
                         modifier = Modifier.fillMaxSize(),
@@ -1702,6 +1734,7 @@ private fun TranscriptTail(
     setup: Boolean,
     onOpenSetup: () -> Unit,
     onRetry: () -> Unit,
+    onPickModel: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Column(
@@ -1735,13 +1768,25 @@ private fun TranscriptTail(
             )
         }
         state.error?.let { error ->
+            // A refused connection gets named: the provider's words stay,
+            // verbatim, under a sentence that says which server and what to
+            // do about it.
+            val refused = refusedEndpoint(error)
             NoticeCard(
                 severity = Severity.Error,
-                title = "The turn failed",
-                body = humanTurnError(error),
+                title = if (refused != null) "Nothing is answering at $refused" else "The turn failed",
+                body = if (refused != null) {
+                    "The model server there is not running. Start it, or pick another " +
+                        "model.\n\n" + humanTurnError(error)
+                } else {
+                    humanTurnError(error)
+                },
                 actions = {
                     if (state.canRetry) {
                         TextButton(onClick = onRetry) { Text(text = "Try again") }
+                    }
+                    if (refused != null) {
+                        TextButton(onClick = onPickModel) { Text(text = "Pick a model") }
                     }
                 },
             )

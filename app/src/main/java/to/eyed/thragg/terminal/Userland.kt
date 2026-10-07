@@ -116,7 +116,9 @@ interface UserlandBackend {
 
     /**
      * Bring the guest's network files up to date with the device — today,
-     * the resolvers in `/etc/resolv.conf`.
+     * the resolvers in `/etc/resolv.conf` — and rewrite the toolchain's login
+     * profile (`SolanaToolchain.LOGIN_PROFILE_PATH`), which the agent's
+     * `bash -lc` tool commands need for the same reason.
      *
      * Exists because the terminal and build paths refresh per session inside
      * `execCommand`, but the AGENT is spawned by the engine's own proot

@@ -147,6 +147,25 @@ fun SpettroSetupScreen(
                 )
             }
 
+            // A configured local endpoint whose server did not answer the
+            // agent's startup probe: it is listed, it has no models, and a
+            // prompt sent to it fails with "connection refused". Named here
+            // so the takeover is not a mystery to somebody who set it up; it
+            // is not removed — the server may simply be off.
+            val dead = SpettroSetup.providers?.deadLocal.orEmpty()
+            dead.firstOrNull()?.let { ep ->
+                val where = if (ep.name == ep.endpoint) ep.endpoint else "${ep.name} at ${ep.endpoint}"
+                val more = if (dead.size > 1) " (and ${dead.size - 1} more)" else ""
+                Spacer(Modifier.height(16.dp))
+                NoticeCard(
+                    severity = Severity.Warn,
+                    title = "$where is not answering$more",
+                    body = "Start it and connect it again below, sign in, or add an " +
+                        "API key.",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Spacer(Modifier.height(24.dp))
 
             SetupCard(
@@ -231,6 +250,9 @@ fun SpettroSetupScreen(
         SetupSheet.LocalModel -> LocalModelSheet(
             state = state,
             onDismiss = { sheet = null },
+            // The endpoint that is not answering, so starting it and pressing
+            // Check is all it takes.
+            initialEndpoint = SpettroSetup.providers?.deadLocal?.firstOrNull()?.endpoint,
         )
         null -> Unit
     }
