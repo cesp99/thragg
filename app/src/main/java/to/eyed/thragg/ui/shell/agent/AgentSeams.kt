@@ -25,6 +25,14 @@ import to.eyed.thragg.ui.shell.projects.AgentThreadSeed
  * looking at the screen must produce one prompt about three errors, not two
  * lost ones.
  *
+ * The exception is a **fresh** seed — Build's and Problems' "Fix with agent"
+ * ([AgentFix]), which is a request of its own rather than more of a sentence
+ * the user is writing. It replaces what is waiting instead of joining it: the
+ * displaced draft (an unsent New program sentence, something half-typed) is
+ * set aside on the thread and comes back into the composer once the fix is
+ * sent ([drainInto]). Merging them sent "This is a new Anchor program called
+ * seeker_vault." as the first paragraph of a compiler error.
+ *
  * Seeded, never sent. Every one of the three is half a sentence the user
  * finishes — docs/UI.md's New program note says so in as many words, and it is
  * just as true of a compiler error, which is a fact and not yet a request.
@@ -53,18 +61,28 @@ object AgentSeams {
      * sitting there, fully able to do both.
      */
     fun install() {
-        AgentFix.seed = { text -> offer(text) }
+        AgentFix.seed = { text -> offer(text, fresh = true) }
         AgentThreadSeed.hasReader = true
     }
 
-    /** Put [text] in the composer, after whatever is already waiting there. */
-    fun offer(text: String, mentions: List<AgentMention> = emptyList()) {
+    /**
+     * Put [text] in the composer, after whatever is already waiting there —
+     * or, when [fresh], *instead* of it: a held ordinary seed is set aside
+     * (its [DraftSeed.aside]), and a held fresh one is superseded by the
+     * newer request while whatever it had set aside is kept.
+     */
+    fun offer(text: String, mentions: List<AgentMention> = emptyList(), fresh: Boolean = false) {
         if (text.isBlank() && mentions.isEmpty()) return
         val held = pending
-        pending = if (held == null) {
-            DraftSeed(text, mentions)
-        } else {
-            DraftSeed(
+        pending = when {
+            held == null -> DraftSeed(text, mentions, fresh = fresh)
+            fresh -> DraftSeed(
+                text = text,
+                mentions = mentions,
+                fresh = true,
+                aside = if (held.fresh) held.aside else held.copy(aside = null),
+            )
+            else -> held.copy(
                 text = listOf(held.text.trimEnd(), text).filter { it.isNotEmpty() }.joinToString("\n\n"),
                 // Distinct because two errors in the same file are two seeds
                 // naming one path, and the agent must not be told to read it
@@ -95,8 +113,63 @@ object AgentSeams {
  * sent beside the prompt (AgentMentions.kt). A seed that pasted the path and
  * attached nothing would produce an agent guessing at a file it was never
  * handed.
+ *
+ * [fresh] marks a request that starts a message of its own ("Fix with
+ * agent"); [aside] is an ordinary seed it displaced while both were still in
+ * the mailbox, which the composer parks rather than drops.
  */
-data class DraftSeed(val text: String, val mentions: List<AgentMention> = emptyList())
+data class DraftSeed(
+    val text: String,
+    val mentions: List<AgentMention> = emptyList(),
+    val fresh: Boolean = false,
+    val aside: DraftSeed? = null,
+)
+
+/** What the composer's field holds after a seed is drained into it. */
+internal data class Drained(
+    val text: String,
+    val mentions: List<AgentMention>,
+    /** The draft a fresh seed displaced, to come back after it is sent. */
+    val parked: DraftSeed?,
+)
+
+/**
+ * Drain [seed] into a field holding [field] and [fieldMentions].
+ *
+ * An ordinary seed appends, as it always has. A fresh one takes the field
+ * whole, and what it displaced — its own [DraftSeed.aside] and the field —
+ * is returned as [Drained.parked] for the composer to hold on the thread.
+ * A field that still says exactly [supersedes] (the previous fresh seed,
+ * never sent) is dropped rather than parked: an older build error coming
+ * back after the newer one is sent is noise, not a draft.
+ */
+internal fun drainInto(
+    field: String,
+    fieldMentions: List<AgentMention>,
+    seed: DraftSeed,
+    supersedes: String? = null,
+): Drained {
+    val existing = field.trimEnd()
+    if (!seed.fresh) {
+        return Drained(
+            text = if (existing.isEmpty()) seed.text else existing + "\n\n" + seed.text,
+            mentions = (fieldMentions + seed.mentions).distinct(),
+            parked = null,
+        )
+    }
+    val stale = supersedes != null && existing.trim() == supersedes.trim()
+    val displaced = listOfNotNull(
+        seed.aside,
+        DraftSeed(existing, fieldMentions).takeIf { !stale && (existing.isNotBlank() || fieldMentions.isNotEmpty()) },
+    )
+    val parked = displaced.takeIf { it.isNotEmpty() }?.let { parts ->
+        DraftSeed(
+            text = parts.map { it.text.trim() }.filter { it.isNotEmpty() }.joinToString("\n\n"),
+            mentions = parts.flatMap { it.mentions }.distinct(),
+        )
+    }
+    return Drained(text = seed.text, mentions = seed.mentions, parked = parked)
+}
 
 /**
  * What `[ Fix ▸ ]` says to the agent about one diagnostic.

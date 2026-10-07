@@ -116,6 +116,36 @@ class AgentThread internal constructor(
      * cost the user a trip through the photo picker.
      */
     val draftImages = mutableStateListOf<PromptAttachment>()
+
+    /**
+     * A draft set aside by a request that had to start a message of its own
+     * — "Fix with agent" from Build or Problems — and put back into the
+     * composer once that message is sent. On the thread for the same reason
+     * the draft is.
+     */
+    var parked by mutableStateOf<ParkedDraft?>(null)
+
+    /**
+     * The last fresh seed drained into this thread's composer, so a newer one
+     * can tell an unsent older fix request from a draft worth keeping.
+     */
+    internal var lastFreshSeed: String? = null
+}
+
+/** An unsent message, set aside whole: its text, mentions and pictures. */
+data class ParkedDraft(
+    val text: String,
+    val mentions: List<AgentMention> = emptyList(),
+    val images: List<PromptAttachment> = emptyList(),
+) {
+    val isEmpty: Boolean get() = text.isBlank() && mentions.isEmpty() && images.isEmpty()
+
+    /** Two parked drafts as one, oldest first: nothing set aside is dropped. */
+    operator fun plus(other: ParkedDraft): ParkedDraft = ParkedDraft(
+        text = listOf(text.trim(), other.text.trim()).filter { it.isNotEmpty() }.joinToString("\n\n"),
+        mentions = (mentions + other.mentions).distinct(),
+        images = images + other.images,
+    )
 }
 
 /**

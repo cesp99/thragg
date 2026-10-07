@@ -12,8 +12,10 @@ import to.eyed.thragg.core.PermissionOption
 import to.eyed.thragg.core.SpettroQuestion
 import to.eyed.thragg.core.ToolCallStatus
 import to.eyed.thragg.core.ToolKind
+import to.eyed.thragg.solana.build.AgentFix
 import to.eyed.thragg.ui.editor.Diagnostic
 import to.eyed.thragg.ui.editor.DiagnosticSeverity
+import to.eyed.thragg.ui.shell.projects.AgentThreadSeed
 
 /**
  * The Agent destination's decisions, taken away from Compose.
@@ -183,6 +185,107 @@ class AgentScreenTest {
     fun anEmptySeedIsNotASeed() {
         AgentSeams.offer("   ")
         assertNull(AgentSeams.take())
+    }
+
+    // --- "Fix with agent" starts a clean message -----------------------------
+
+    private val newProgram = "This is a new Anchor program called seeker_vault. "
+    private val newProgramFile = AgentMention.File("programs/seeker_vault/src/lib.rs")
+    private val fix = "`anchor build` failed with 1 error. Please fix them.\n\nerror: expected `;`"
+
+    /**
+     * The device's bug: the unsent New program sentence was still in the
+     * mailbox, and the fix was joined onto it. A fresh seed sets it aside.
+     */
+    @Test
+    fun aFixSetsAsideTheNewProgramSentence() {
+        AgentSeams.offer(newProgram, listOf(newProgramFile))
+        AgentSeams.offer(fix, fresh = true)
+        val seed = AgentSeams.take()!!
+        assertEquals(fix, seed.text)
+        assertTrue(seed.mentions.isEmpty())
+        assertTrue(seed.fresh)
+        assertEquals(newProgram, seed.aside?.text)
+        assertEquals(listOf(newProgramFile), seed.aside?.mentions)
+    }
+
+    @Test
+    fun aNewerFixSupersedesAnOlderOne() {
+        AgentSeams.offer("fix one", fresh = true)
+        AgentSeams.offer("fix two", fresh = true)
+        val seed = AgentSeams.take()!!
+        assertEquals("fix two", seed.text)
+        assertNull(seed.aside)
+
+        // ...but keeps what the older one had set aside.
+        AgentSeams.offer(newProgram)
+        AgentSeams.offer("fix one", fresh = true)
+        AgentSeams.offer("fix two", fresh = true)
+        val again = AgentSeams.take()!!
+        assertEquals("fix two", again.text)
+        assertEquals(newProgram, again.aside?.text)
+    }
+
+    @Test
+    fun ordinarySeedsAfterAFixStillAppend() {
+        AgentSeams.offer("fix", fresh = true)
+        AgentSeams.offer("note")
+        val seed = AgentSeams.take()!!
+        assertEquals("fix\n\nnote", seed.text)
+        assertTrue(seed.fresh)
+    }
+
+    /** In the field rather than the mailbox: the fix takes it, the sentence is parked. */
+    @Test
+    fun aFreshDrainParksTheField() {
+        val out = drainInto(newProgram, listOf(newProgramFile), DraftSeed(fix, fresh = true))
+        assertEquals(fix, out.text)
+        assertTrue(out.mentions.isEmpty())
+        assertEquals(newProgram.trim(), out.parked?.text)
+        assertEquals(listOf(newProgramFile), out.parked?.mentions)
+    }
+
+    @Test
+    fun aFreshDrainIntoABlankFieldParksNothing() {
+        assertNull(drainInto("  ", emptyList(), DraftSeed(fix, fresh = true)).parked)
+    }
+
+    /** The editor's per-diagnostic Fix and the starter chips append, as before. */
+    @Test
+    fun anOrdinaryDrainAppends() {
+        val out = drainInto("existing", listOf(AgentMention.File("a.rs")), DraftSeed("seed", listOf(AgentMention.File("b.rs"))))
+        assertEquals("existing\n\nseed", out.text)
+        assertEquals(listOf(AgentMention.File("a.rs"), AgentMention.File("b.rs")), out.mentions)
+        assertNull(out.parked)
+    }
+
+    @Test
+    fun aFreshDrainParksItsAsideAndTheField() {
+        val seed = DraftSeed(fix, fresh = true, aside = DraftSeed(newProgram, listOf(newProgramFile)))
+        val out = drainInto("half typed", emptyList(), seed)
+        assertEquals(fix, out.text)
+        assertEquals(newProgram.trim() + "\n\nhalf typed", out.parked?.text)
+        assertEquals(listOf(newProgramFile), out.parked?.mentions)
+    }
+
+    /** An older fix request still sitting unsent is replaced, not parked. */
+    @Test
+    fun aStaleFixInTheFieldIsDroppedNotParked() {
+        val out = drainInto("fix one", emptyList(), DraftSeed("fix two", fresh = true), supersedes = "fix one")
+        assertEquals("fix two", out.text)
+        assertNull(out.parked)
+    }
+
+    @Test
+    fun installRoutesAgentFixAsFresh() {
+        try {
+            AgentSeams.install()
+            AgentFix.seed!!("err")
+            assertTrue(AgentSeams.take()!!.fresh)
+        } finally {
+            AgentFix.seed = null
+            AgentThreadSeed.hasReader = false
+        }
     }
 
     /**
