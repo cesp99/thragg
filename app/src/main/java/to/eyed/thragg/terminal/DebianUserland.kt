@@ -6,6 +6,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.Log
 import to.eyed.thragg.core.SafeDelete
+import to.eyed.thragg.solana.toolchain.SolanaToolchain
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -209,6 +210,8 @@ private object DebianUserland : UserlandBackend {
         // why. Cheap enough to redo per session: one IPC and a short write,
         // and only when the answer actually changed.
         refreshResolvConf(context, root)
+        // Login shells reset PATH; this file puts the toolchain back on it.
+        refreshLoginProfile(root)
         // Same rationale, worse failure: a guest whose hard links were
         // dropped (see [unpack]) fails as `apt` exiting 100 minutes later.
         // When healthy this is one small read and an lstat per link.
@@ -591,7 +594,29 @@ private object DebianUserland : UserlandBackend {
      */
     override fun refreshNetwork(context: Context) {
         if (state(context) !is UserlandState.Ready) return
-        refreshResolvConf(context, rootfs(context))
+        val root = rootfs(context)
+        refreshResolvConf(context, root)
+        // The agent runs every tool command in a login shell, so this is the
+        // seam that gets the toolchain onto its PATH — and the one that
+        // reaches an install made before the file existed (app launch).
+        refreshLoginProfile(root)
+    }
+
+    /**
+     * Keep [SolanaToolchain.LOGIN_PROFILE_PATH] current: Debian's
+     * `/etc/profile` resets root's `PATH`, and this is what it sources after
+     * the reset. Thragg owns the file; written only when it differs, so a
+     * session start costs one small read.
+     */
+    private fun refreshLoginProfile(root: File) {
+        runCatching {
+            val file = File(root, SolanaToolchain.LOGIN_PROFILE_PATH)
+            val wanted = SolanaToolchain.loginProfile()
+            if (!file.isFile || file.readText() != wanted) {
+                file.parentFile?.mkdirs()
+                file.writeText(wanted)
+            }
+        }
     }
 
     /** Rewrite the guest's resolvers if the device's have changed. */
@@ -633,6 +658,7 @@ private object DebianUserland : UserlandBackend {
     /** The few things a container image leaves to whoever starts it. */
     private fun configure(context: Context, root: File) {
         File(root, "etc/resolv.conf").writeText(resolvConf(context))
+        refreshLoginProfile(root)
         File(root, "etc/hostname").writeText("thragg\n")
         // apt in a proot has no reason to fsync every file, and it is slow on
         // a phone; this is the same tuning proot-distro applies.

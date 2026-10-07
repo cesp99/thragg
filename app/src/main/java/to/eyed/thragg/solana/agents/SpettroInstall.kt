@@ -181,7 +181,10 @@ object SpettroInstall {
     fun launchEnvironment(): Map<String, String> = mapOf(
         "HOME" to Agents.GUEST_HOME,
         // The agent shells out — `git`, `cargo`, the tools it runs for you —
-        // and the toolchain's own directories are not on Debian's PATH.
+        // and the toolchain's own directories are not on Debian's PATH. This
+        // covers its direct execs; its tool commands run as `bash -lc`, whose
+        // /etc/profile resets PATH, and get the prefix back from
+        // SolanaToolchain.LOGIN_PROFILE_PATH.
         "PATH" to "${SolanaToolchain.GUEST_PATH_PREFIX}:${SolanaToolchain.GUEST_BASE_PATH}",
         // Kept for a future cgo build of Spettro, and known to be a no-op
         // today: v2.7.3 is a netgo binary and *says so* when it starts —
